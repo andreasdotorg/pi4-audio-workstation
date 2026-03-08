@@ -20,7 +20,7 @@ installed on the Pi 4B with verified basic functionality,
 **so that** subsequent stories (benchmarks, latency tests, stability tests,
 room correction pipeline) have a working software foundation.
 
-**Status:** draft
+**Status:** selected
 **Depends on:** none (first story to execute)
 **Blocks:** US-001 (CamillaDSP must be installed for CPU benchmarks), US-002 (CamillaDSP must be installed for latency measurement), US-006 (Mixxx must be installed for feasibility testing), US-017 (Reaper must be installed for IEM routing)
 **Decisions:** none yet
@@ -46,6 +46,49 @@ RustDesk are not installed.
 - [ ] All software installed and basic smoke test passed (each tool launches without error)
 - [ ] Lab note written with exact package versions, installation commands, and any workarounds
 - [ ] CLAUDE.md "Not installed yet" list updated to reflect current state
+
+---
+
+## US-000a: Platform Security Hardening
+
+**As** the system builder,
+**I want** the Pi hardened against casual network attacks before it connects to
+any venue WiFi network,
+**so that** exposed services cannot be exploited by untrusted devices on the
+same network, protecting both system integrity and live performance availability.
+
+**Status:** ready
+**Depends on:** US-000 (CamillaDSP and RustDesk must be installed before their configs can be hardened)
+**Blocks:** none directly, but should be completed before any venue deployment
+**Decisions:** D-006 (security specialist scope: availability/integrity for live performance)
+
+**Note:** Based on security specialist assessment of Pi state (2026-03-08).
+Current state: no firewall, SSH password auth likely enabled, rpcbind exposed
+on port 111, CamillaDSP websocket (1234) and GUI (5005) will bind to 0.0.0.0
+by default when installed.
+
+**Acceptance criteria:**
+- [ ] **nftables firewall** configured and persistent across reboot:
+  - Default policy: deny inbound
+  - SSH (port 22) allowed
+  - RustDesk: stateful outbound allowed (client-only mode, no inbound ports needed)
+  - All other inbound traffic dropped
+- [ ] **SSH hardened:**
+  - `PasswordAuthentication no` in sshd_config
+  - `PermitRootLogin no` in sshd_config
+  - Key-based auth verified working BEFORE disabling password auth (lockout prevention)
+- [ ] **rpcbind disabled:** `systemctl disable --now rpcbind.service rpcbind.socket` (no NFS needed)
+- [ ] **CamillaDSP websocket** (port 1234) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
+- [ ] **CamillaDSP GUI** (port 5005) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
+- [ ] **RustDesk** configured as client-only (Option A per security specialist): LAN direct preferred, public relay as fallback, strong permanent password set
+- [ ] Verification: `ss -tlnp` shows no unexpected services listening on 0.0.0.0
+- [ ] Security specialist review passed
+
+**DoD:**
+- [ ] All hardening steps applied and verified on Pi 4B
+- [ ] Firewall rules persist across reboot (tested with actual reboot)
+- [ ] Lab note documenting all changes, verification commands, and how to access localhost-only services via SSH tunnel
+- [ ] Security specialist review passed
 
 ---
 
@@ -105,12 +148,18 @@ slapback perception threshold.
 **Blocks:** US-003 (stability tests assume latency is acceptable)
 **Decisions:** D-002 (dual chunksize)
 
+**Note:** Loopback cable already connected (Output 1 -> Input 1 on ADA8200,
+gain ~3/4) — hardware prerequisite is met. Audio engineer is also researching
+whether the UMIK-1 has built-in latency measurement capability, which may
+provide an alternative or complementary measurement method.
+
 **Acceptance criteria:**
-- [ ] Loopback cable connected from one ADA8200 output to one ADA8200 input
+- [ ] Loopback cable verified working (Output 1 -> Input 1, already connected)
 - [ ] Impulse-based latency measurement performed (send impulse, record return, measure sample offset)
 - [ ] T2a executed: DJ/PA mode (chunksize 2048) — PASS if < 55ms round-trip
 - [ ] T2b executed: Live mode (chunksize 512) — PASS if < 25ms round-trip
 - [ ] Latency breakdown documented: PipeWire quantum, CamillaDSP chunksize, USB round-trip, ADAT encode/decode
+- [ ] If UMIK-1 latency measurement capability is confirmed: document and compare with loopback method
 - [ ] If T2b fails: document the gap and propose mitigations (smaller PipeWire quantum, smaller chunksize)
 
 **DoD:**
@@ -131,7 +180,7 @@ performance without audio dropouts or thermal shutdown.
 
 **Status:** draft
 **Depends on:** US-001 (need to know which filter length/chunksize config to test)
-**Blocks:** US-007 through US-011 (pipeline work should not proceed if platform is unstable)
+**Blocks:** US-008 through US-011 (pipeline work should not proceed if platform is unstable)
 **Decisions:** D-002 (dual chunksize), D-003 (16,384-tap FIR)
 
 **Acceptance criteria:**
@@ -158,7 +207,7 @@ project relies on, tracked in a structured format,
 **so that** hidden risks are surfaced early and can be validated before they
 cause problems during implementation or live performance.
 
-**Status:** draft
+**Status:** ready
 **Depends on:** none
 **Blocks:** none directly, but informs prioritization of all other stories
 
@@ -619,29 +668,147 @@ CamillaDSP entirely.
 
 ---
 
-## US-018: Singer Self-Control of IEM Mix (Nice-to-Have)
+## US-018: Singer Self-Control of IEM Mix via Web UI
 
 **As** the singer,
 **I want** to adjust my own in-ear monitor mix levels (more/less voice, more/less
-backing track) without needing the engineer,
-**so that** I can fine-tune my monitoring comfort during performance.
+backing track) from a simple web interface on my phone,
+**so that** I can fine-tune my monitoring comfort during performance without
+needing the engineer's attention.
 
-**Status:** draft (deferred — nice-to-have, not MVP)
-**Depends on:** US-017 (base IEM mix must work first)
+**Status:** draft
+**Depends on:** US-017 (base IEM mix must work first), US-022 (web UI platform provides the delivery mechanism)
+**Blocks:** none
+**Decisions:** none yet
+
+**Note:** Elevated from "deferred nice-to-have" per owner direction (2026-03-08).
+The architecture for role-based web UI access should be planned now even if
+this story is implemented after higher-priority work. The singer must see ONLY
+her IEM mix controls (ch 7/8 levels), not the main PA mix or system settings.
+IEM control goes through Reaper OSC (audio engineer blocking concern: singer
+controls must NOT touch CamillaDSP / PA path).
+
+**Acceptance criteria:**
+- [ ] Singer accesses a web page on her phone (same WiFi network) showing IEM mix controls only
+- [ ] UI layout per UX specialist design: 4 sliders (voice level, backing track level, vocal cue level, master IEM volume) + mute toggle, portrait orientation, single screen, no scrolling
+- [ ] Controls are large, high-contrast, usable on a phone screen in dim stage lighting
+- [ ] Singer view is restricted: no access to PA mix, engineer mix, DSP settings, or system controls
+- [ ] IEM level changes sent via Reaper OSC (NOT CamillaDSP) — singer controls cannot affect PA routing
+- [ ] Changes do not affect PA or engineer mixes
+- [ ] Latency of control changes is imperceptible (< 100ms from slider move to level change in IEM)
+- [ ] Authentication: singer role password, exchanged for session token (per US-022 auth model)
+- [ ] Security specialist review: role isolation verified (singer cannot escalate to engineer controls)
+- [ ] UX specialist review: performer usability confirmed
+
+**DoD:**
+- [ ] Singer web UI view implemented on US-022 platform
+- [ ] Role-based access tested (singer sees only IEM controls)
+- [ ] Tested on Pi 4B with actual phone on same network
+- [ ] UX specialist, audio engineer, and security specialist reviews passed
+- [ ] Lab note documenting the interface and access model
+
+---
+
+## Tier 5a — Web UI Platform
+
+The owner wants a web-based control and monitoring interface where the Pi
+serves data/audio streams and the browser handles heavy rendering (FFT
+visualization via WebGPU/Web Audio API). This offloads compute from the
+resource-constrained Pi. The platform serves multiple consumers: engineer
+dashboard, singer IEM control, and potentially calibration monitoring.
+
+---
+
+## US-022: Web UI Platform — Architecture and Foundation
+
+**As** the system builder,
+**I want** a lightweight web server on the Pi that serves a control and
+monitoring UI to browsers, with the browser performing all heavy rendering
+(FFT visualization, meters, waveforms via WebGPU/Web Audio API),
+**so that** I can monitor and control the system from any device on the network
+without burdening the Pi's CPU with rendering work.
+
+**Status:** draft
+**Depends on:** US-000 (core software must be installed), US-000a (network access must be secured)
+**Blocks:** US-018 (singer self-control uses this platform), US-023 (engineer dashboard uses this platform)
+**Decisions:** none yet — pending formal decision record
+
+**Note:** Owner direction: browser-side rendering is key. The Pi should serve
+data streams (audio levels, DSP state, CamillaDSP stats) and the browser
+should do FFT, visualization, and UI rendering. This is a compute-offloading
+architecture: the Pi is the data source, the browser is the rendering engine.
+
+**Architectural direction (from advisory team session 2026-03-08):**
+- **Backend:** FastAPI + pycamilladsp. FastAPI serves REST/WebSocket endpoints;
+  pycamilladsp reads CamillaDSP state. Static files served by FastAPI.
+- **CamillaDSP stays on localhost.** The web UI acts as an authenticated proxy —
+  browsers never talk to CamillaDSP's websocket directly. This preserves the
+  security hardening from US-000a (CamillaDSP bound to 127.0.0.1).
+- **IEM control via Reaper OSC, NOT CamillaDSP.** The singer's IEM mix is
+  routed through Reaper (US-017). Level adjustments must go through Reaper's
+  OSC interface, not CamillaDSP. Audio engineer blocking concern: CamillaDSP
+  controls the PA path; singer IEM adjustments must not touch PA routing.
+- **Auth model:** Pre-shared role passwords (one for engineer, one for singer)
+  exchanged for session tokens. No user accounts — just role-level access.
+- **Transport:** HTTP for MVP (LAN-only, trusted network). HTTPS with
+  self-signed cert as a future enhancement.
+- **Singer phone UI:** 4 sliders (voice, backing, cue, master) + mute toggle.
+  Portrait orientation, single screen, no scrolling. Large touch targets for
+  dim stage lighting. (UX specialist design direction.)
+
+**Acceptance criteria:**
+- [ ] FastAPI server running on Pi, minimal CPU overhead (< 5% idle, < 10% under active use)
+- [ ] Serves static HTML/JS/CSS — all rendering logic runs in the browser
+- [ ] WebSocket connection for real-time data push (audio levels, DSP processing load, system stats)
+- [ ] Role-based access: two roles — "engineer" (full control) and "singer" (IEM only)
+- [ ] Authentication: pre-shared role passwords, exchanged for session tokens
+- [ ] API endpoints for reading CamillaDSP state (via pycamilladsp on localhost)
+- [ ] API endpoints for writing CamillaDSP parameters (gain, mute — engineer role only)
+- [ ] API endpoints for Reaper IEM mix control (via Reaper OSC — singer and engineer roles)
+- [ ] CamillaDSP websocket never exposed to browsers — FastAPI proxies all access
+- [ ] Browser receives raw data and performs FFT / visualization locally (WebGPU or Web Audio API)
+- [ ] Bound to LAN only (not exposed to internet) — security specialist review
+- [ ] Accessible via SSH tunnel from outside LAN if needed
+- [ ] Works on modern mobile browsers (Chrome, Safari — for singer's phone)
+
+**DoD:**
+- [ ] Architecture documented (data flow, API design, auth model, OSC integration)
+- [ ] Proof-of-concept: server running on Pi, browser showing live audio level meters
+- [ ] Architect, security specialist, and UX specialist reviews passed
+- [ ] Lab note with performance measurements (Pi CPU impact, browser responsiveness)
+
+---
+
+## US-023: Engineer Dashboard — Web UI for System Monitoring and Control
+
+**As** the live sound engineer,
+**I want** a web-based dashboard showing real-time system status (audio levels,
+DSP load, CPU temperature, xrun count, filter state) with controls for
+adjusting levels and switching configurations,
+**so that** I can monitor and adjust the system from a tablet or laptop without
+needing SSH or RustDesk.
+
+**Status:** draft
+**Depends on:** US-022 (web UI platform must exist)
 **Blocks:** none
 **Decisions:** none yet
 
 **Acceptance criteria:**
-- [ ] Singer has a physical control surface or mobile app to adjust IEM levels
-- [ ] Adjustable parameters at minimum: own voice level, backing track level, overall IEM volume
-- [ ] Changes do not affect PA or engineer mixes
-- [ ] Latency of control changes is imperceptible (< 100ms from knob turn to level change)
-- [ ] Design reviewed by UX specialist for performer usability (controls must be intuitive during performance)
+- [ ] Real-time audio level meters for all 8 channels (input and output)
+- [ ] CamillaDSP status: processing load, state, active config, current filter files
+- [ ] System status: CPU temperature, CPU usage, memory usage, xrun count
+- [ ] FFT / spectrum visualization rendered in browser (WebGPU or Web Audio API) — Pi sends audio data, browser renders
+- [ ] Controls: channel gain adjustment, mute/unmute per channel
+- [ ] Configuration display: current mode (DJ/PA vs Live), active CamillaDSP config
+- [ ] Engineer role required for access (via US-022 auth model)
+- [ ] Responsive layout: usable on tablet and laptop screens
+- [ ] UX specialist review: dashboard layout is scannable at a glance during live performance
 
 **DoD:**
-- [ ] Solution designed and reviewed by UX specialist and audio engineer
-- [ ] Implementation tested on Pi 4B hardware
-- [ ] Lab note documenting the control interface and routing
+- [ ] Dashboard implemented on US-022 platform
+- [ ] Tested on Pi 4B with real audio flowing
+- [ ] UX specialist and audio engineer reviews passed
+- [ ] Lab note with screenshots and performance measurements
 
 ---
 
@@ -742,16 +909,23 @@ is a future nice-to-have and does not need to be seamless.
 ## Summary — Story Dependency Graph
 
 ```
-US-000 (software install) ──> US-001 (CPU benchmark) ──┐
-                          │                             ├──> US-003 (stability) ──> US-017 (IEM mix) ──> US-018 (singer self-control)
+US-000 (software install) ──> US-000a (security hardening) ──> [venue deployment]
+                          │
+                          ├──> US-001 (CPU benchmark) ──┐
+                          │                             ├──> US-003 (stability) ──> US-017 (IEM mix)
                           └──> US-002 (latency) ────────┘                      └──> US-021 (mode switch)
 
 US-001 ──> US-008 (measurement) ──> US-009 (time alignment) ──> US-012 (automation) ──> US-013 (T5 verification)
                                 └──> US-010 (correction) ──> US-011 (crossover) ──┘
 
+US-000 + US-000a ──> US-022 (web UI platform) ──> US-023 (engineer dashboard)
+                                               └──> US-018 (singer IEM self-control)
+                                                    ↑ also depends on US-017
+
 US-004 (expanded assumptions) — independent, informs all
 
-US-000 ──> US-005 (Hercules MIDI) ──> US-006 (Mixxx feasibility) ──> US-007 (APCmini mapping)
+US-005 (Hercules MIDI) ──> US-006 (Mixxx feasibility) ──> US-007 (APCmini mapping)
+                           ↑ depends on US-000
 
 US-014 (doc structure) ──> US-015 (theory doc)
                       └──> US-016 (how-to guides)
