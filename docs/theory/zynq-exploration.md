@@ -81,7 +81,7 @@ integration effort with less community backing. For a project where FPGA
 bringup is already the primary risk, choosing the best-supported platform is
 worth the premium.
 
-*Prices are from early 2025 and should be verified before purchase.*
+*Prices are approximate as of early 2026 and should be verified before purchase.*
 
 Neither platform is commodity-priced like the Pi 4B (~$75), but even the
 cheapest viable board replaces both the Pi and the USBStreamer (~$200),
