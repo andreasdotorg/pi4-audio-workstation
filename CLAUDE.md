@@ -62,7 +62,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **OS:** Debian 13 Trixie, kernel 6.12.47 with PREEMPT
 - **USB devices:** UMIK-1, USBStreamer, Hercules DJControl Mix Ultra, APCmini mk2, Nektar SE25
 - **UMIK-1 calibration:** `/home/ela/7161942.txt` (magnitude-only, serial 7161942, -1.378dB sensitivity)
-- **Audio:** PipeWire running (pipewire, pipewire-pulse, wireplumber)
+- **Audio:** PipeWire running (pipewire, pipewire-pulse, wireplumber). Currently at quantum 1024 (default). Needs `10-audio-settings.conf` for production quantum values (256 live, 1024 DJ).
 - **Desktop:** labwc (Wayland), lightdm — full desktop session active
 - **Firewall:** NONE (nftables empty, iptables not installed)
 - **SSH:** Password auth likely enabled (default), key-based working
@@ -77,7 +77,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **Mode switching:** Whole-gig for starters, quick switch future nice-to-have
 - **Singer IEM:** Engineer controls for MVP, singer self-control future bonus
 - **Singer needs:** Extra track for vocal cues (Reaper provides)
-- **IEM signal path:** Reaper → USBStreamer ch 7/8 directly, bypasses CamillaDSP
+- **IEM signal path:** Reaper → CamillaDSP (passthrough on ch 7/8, no FIR processing) → USBStreamer. Per D-011: CamillaDSP holds exclusive ALSA access to all 8 channels, so IEM cannot bypass it.
 
 ## Key Documents
 
@@ -154,6 +154,10 @@ The singer's IEM path bypasses CamillaDSP (~5ms latency). But she also hears the
 acoustically. If PA path > ~25ms, she perceives slapback of her own voice. At chunksize
 512, total PA path is ~18ms — acceptable.
 
+**D-011 supersedes D-002 for live mode:** Live mode now targets chunksize 256 + PipeWire
+quantum 256 (~21ms bone-to-electronic latency). Fallback: chunksize 512 + quantum 256
+(~31ms). DJ mode unchanged at chunksize 2048 + quantum 1024.
+
 ### 3. Two Independent Subwoofers
 
 Sub 1 and Sub 2 have independent:
@@ -178,7 +182,7 @@ These are tracked in the Test Plan (SETUP-MANUAL.md section 6.13):
 |----|-----------|------------|------|
 | A1 | 16k taps @ chunksize 2048 fits in Pi 4 CPU budget alongside Mixxx | HIGH | T1a, T3a |
 | A2 | 16k taps @ chunksize 512 fits in Pi 4 CPU budget alongside Reaper | MEDIUM | T1b, T3b |
-| A3 | End-to-end PA latency in live mode < 25ms | MEDIUM | T2b |
+| A3 | End-to-end PA latency in live mode < 25ms | VALIDATED (D-011) | T2b: 30.3ms at chunksize 512 (FAIL vs 25ms), ~20ms projected at chunksize 256 (D-011) |
 | A4 | Pi 4 thermals stay below 75°C in flight case under sustained load | LOW | T4 |
 | A5 | 16k-tap FIR actually provides effective correction at 20Hz | MEDIUM | T5 |
 | A6 | Hercules DJControl Mix Ultra presents as USB-MIDI on Linux | UNKNOWN | Manual test |

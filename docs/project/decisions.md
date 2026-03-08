@@ -108,3 +108,13 @@ decision. Add a new one that supersedes it (reference the old one).
 **Rationale:** (1) Different speaker combinations need different crossover points. (2) Ported subs need protection below port tuning to prevent mechanical damage. (3) 3-way requires 6 speaker channels, leaving only 2 for monitoring — incompatible with live mode's IEM requirement. (4) Pre-defined profiles reduce setup errors at gigs.
 
 **Impact:** Pipeline must accept speaker profile as input. CamillaDSP config generation is templated based on profile. Filter generation adapts crossover shape to profile parameters. The earlier hardcoded 80Hz crossover (D-001) becomes the default value, not a fixed requirement.
+
+## D-011: Live mode chunksize 256 + PipeWire quantum 256 (2026-03-08)
+
+**Context:** US-002 latency measurements revealed that CamillaDSP adds exactly 2 chunks of latency (capture buffer fill + playback buffer drain, FIR convolution completes within the same processing cycle). PipeWire at quantum 1024 adds ~21ms per traversal. The original D-002 target of chunksize 512 yields ~31ms bone-to-electronic latency for the vocalist — tolerable but at the upper limit for Cole Porter vocal work where precise timing with backing tracks matters. Additionally, the architect discovered that CamillaDSP holds exclusive ALSA access to all 8 USBStreamer channels, making the D-002 assumption of "IEM bypasses CamillaDSP" physically impossible.
+
+**Decision:** Live mode uses chunksize 256 + PipeWire quantum 256 (~21ms bone-to-electronic target). DJ mode unchanged: chunksize 2048 + quantum 1024. All 8 audio channels route through CamillaDSP — IEM channels (7-8) are passthrough (no FIR processing). Fallback: chunksize 512 + quantum 256 (~31ms). Stretch goal: quantum 128 (~18ms).
+
+**Rationale:** (1) US-001 benchmarks confirmed chunksize 256 with 16k taps at only 19.25% processing load — well within budget. (2) 21ms bone-to-electronic is in the "noticeable separation" range but safe for musical performance. 31ms (chunksize 512) crosses into "distinct delayed return" territory. (3) CamillaDSP's exclusive ALSA access means all channels must transit CamillaDSP regardless — IEM passthrough adds zero latency penalty vs the PA path, collapsing the slapback model to bone-conduction vs electronics only. (4) PipeWire quantum 256 at 48kHz = 5.3ms per hop, appropriate for the live use case.
+
+**Impact:** Supersedes D-002 for live mode parameters. DJ mode unchanged. All CamillaDSP configs must route 8 channels (IEM as passthrough on ch 6-7). PipeWire needs per-mode quantum configuration: 10-audio-settings.conf with quantum 256 for live mode, 1024 for DJ mode. SETUP-MANUAL must be updated with new chunksize values and routing architecture.

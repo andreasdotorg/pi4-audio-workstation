@@ -36,9 +36,9 @@ psytrance transient fidelity -- no pre-ringing, minimal group delay.
   location.
 - **Two independent subwoofers** -- different placement means different room
   interaction. Each sub gets its own FIR correction, delay, and gain.
-- **8-channel output** -- four speaker channels (L, R, Sub1, Sub2) with DSP,
-  engineer headphones (pre-DSP passthrough), and singer IEM (routed by Reaper,
-  bypasses CamillaDSP for minimal latency).
+- **8-channel output** -- all channels route through CamillaDSP (exclusive ALSA
+  access). Four speaker channels (L, R, Sub1, Sub2) get FIR processing; engineer
+  headphones and singer IEM are passed through without DSP.
 
 ## Hardware
 
@@ -64,8 +64,8 @@ psytrance transient fidelity -- no pre-ringing, minimal group delay.
 ## Project Status
 
 Base installation complete. CamillaDSP CPU benchmarks validated: 16,384-tap FIR
-runs at 5.2% CPU in DJ mode and 10.4% in live mode -- well within budget.
-Latency measurements in progress. The automated room correction pipeline
+runs at 5.2% CPU in DJ mode and 20.4% in live mode (chunksize 256) -- well
+within budget. Latency measurements confirmed ~21ms PA path in live mode. The automated room correction pipeline
 (measurement, time alignment, filter generation, deployment) is the next major
 deliverable.
 

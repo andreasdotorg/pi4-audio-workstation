@@ -46,28 +46,28 @@
                                     │  PipeWire/JACK → ALSA Loopback      │
                                     │    │                                 │
                                     │    ▼                                 │
-                                    │  CamillaDSP                          │
-                                    │    ├─ Mixer: stereo → 4ch           │
-                                    │    ├─ Combined minimum-phase FIR    │
-                                    │    │   (crossover + room correction  │
-                                    │    │    per output channel)          │
-                                    │    ├─ Per-sub delay (time alignment) │
-                                    │    └─ Gain trims                    │
-                                    │    │                                 │
-                                    └────┼─────────────────────────────────┘
+                                    │  CamillaDSP (8ch output)               │
+                                    │    ├─ Mixer: stereo → 8ch              │
+                                    │    ├─ ch0-3: Combined min-phase FIR    │
+                                    │    │   (crossover + room correction)    │
+                                    │    ├─ Per-sub delay (time alignment)   │
+                                    │    ├─ ch4-5: Engineer headphone (pre-DSP)│
+                                    │    └─ ch6-7: Singer IEM (muted)        │
+                                    │    │                                    │
+                                    └────┼────────────────────────────────────┘
                                          │ USB
                                          ▼
-                                    USBStreamer B
+                                    USBStreamer B (8ch ADAT)
                                          │ ADAT
                                          ▼
                                     Behringer ADA8200
-                                     │   │   │   │
-                                    ch1  ch2  ch3  ch4
-                                     │    │    │    │
-                                     ▼    ▼    ▼    ▼
-                                    4ch Class D Amp
-                                     │    │    │    │
-                                     L    R   Sub1 Sub2
+                                     │   │   │   │   │   │   │   │
+                                    ch1  ch2  ch3  ch4 ch5 ch6 ch7 ch8
+                                     │    │    │    │   │   │
+                                     ▼    ▼    ▼    ▼   ▼   ▼
+                                    4ch Class D Amp    Headphone
+                                     │    │    │    │    amp
+                                     L    R   Sub1 Sub2 (engineer)
                                    (wide)(wide)
 ```
 
@@ -82,16 +82,17 @@
                                     │    ├─ Live mic input (ADA8200)      │
                                     │    ├─ Effects / processing          │
                                     │    │                                │
-                                    │    ▼  Outputs:                      │
-                                    │    ├─ ch1-2: FOH L/R → CamillaDSP  │
-                                    │    ├─ ch3-4: Subs → CamillaDSP     │
-                                    │    ├─ ch5-6: Engineer headphones    │
-                                    │    └─ ch7-8: Singer IEM            │
+                                    │    ▼  Outputs (all via CamillaDSP): │
+                                    │    ├─ ch1-2: FOH L/R (FIR + gain)  │
+                                    │    ├─ ch3-4: Subs (FIR+delay+gain) │
+                                    │    ├─ ch5-6: Engineer HP (passthru)│
+                                    │    └─ ch7-8: Singer IEM (passthru) │
                                     │                                     │
-                                    │  CamillaDSP (ch1-4 only)           │
-                                    │    ├─ Combined min-phase FIR        │
+                                    │  CamillaDSP (8ch output)           │
+                                    │    ├─ ch0-3: Combined min-phase FIR│
                                     │    │   (crossover + room correction)│
-                                    │    └─ Per-sub delay + gain          │
+                                    │    ├─ ch4-5: Headphone passthrough  │
+                                    │    └─ ch6-7: IEM passthrough       │
                                     │                                     │
                                     └────┬────────────────────────────────┘
                                          │ USB
@@ -414,8 +415,9 @@ The architecture:
   maximum efficiency on the DSP path
 - PipeWire provides the JACK API for Mixxx and Reaper, plus flexible routing
 - CamillaDSP captures from an ALSA loopback device that PipeWire writes to
-- Monitor/headphone outputs (ch 5-8) can be routed directly by PipeWire to the
-  USBStreamer, bypassing CamillaDSP (no room correction needed for headphones)
+- CamillaDSP holds exclusive ALSA access to all 8 USBStreamer output channels
+- Monitor/headphone outputs (ch 4-7) pass through CamillaDSP without FIR
+  processing (no room correction needed for headphones)
 
 **Alternative: CamillaDSP with PipeWire filter chain**
 
@@ -455,10 +457,9 @@ sudo modprobe snd-aloop
 
 # Configure the loopback with proper channel count
 sudo tee /etc/modprobe.d/snd-aloop.conf << 'EOF'
-# pcm_substreams=2: one for DJ mode (stereo), one for live mode (4ch)
-# channels=4: max channel count (live mode needs 4ch: L, R, Sub1, Sub2)
-# DJ mode only uses 2 of the 4 channels
-options snd-aloop index=10 pcm_substreams=2 channels=4
+# pcm_substreams=2: one for DJ mode (stereo), one for live mode
+# Note: channels is not a valid snd-aloop parameter (removed)
+options snd-aloop index=10 pcm_substreams=2
 EOF
 ```
 
@@ -709,11 +710,12 @@ the filters are generated, the runtime is simpler and better-sounding.
 
 This configuration handles:
 - Stereo input from the loopback (from Mixxx via PipeWire)
-- Mixer: stereo → 4 channels (L, R, Sub1, Sub2)
-- Combined minimum-phase FIR per output (crossover + room correction in one filter)
+- Mixer: stereo → 8 channels (L, R, Sub1, Sub2, HP L, HP R, IEM L, IEM R)
+- Combined minimum-phase FIR per speaker output (crossover + room correction)
 - Independent delay per sub (for time alignment at the listening position)
 - Independent gain per output
-- 4-channel output to USBStreamer channels 1-4
+- 8-channel output to USBStreamer (ch0-3: speakers with DSP, ch4-5: engineer
+  headphone passthrough, ch6-7: singer IEM muted in DJ mode)
 
 ```bash
 cat > /etc/camilladsp/configs/dj-pa.yml << 'YAMLEOF'
@@ -729,8 +731,8 @@ devices:
     format: S32LE
   playback:
     type: Alsa
-    channels: 4
-    device: "hw:1,0"
+    channels: 8
+    device: "hw:USBStreamer,0"
     format: S32LE
 
 filters:
@@ -820,11 +822,15 @@ filters:
       mute: false
 
 mixers:
-  # Expand stereo to 4 channels: L, R, Sub1 (mono sum), Sub2 (mono sum)
-  stereo_to_quad:
+  # Expand stereo to 8 channels for USBStreamer
+  # ch0: Left wideband, ch1: Right wideband
+  # ch2: Sub1 (mono sum), ch3: Sub2 (mono sum)
+  # ch4: Engineer HP L, ch5: Engineer HP R
+  # ch6: Singer IEM L (muted), ch7: Singer IEM R (muted)
+  stereo_to_octa:
     channels:
       in: 2
-      out: 4
+      out: 8
     mapping:
       # Channel 0: Left wideband
       - dest: 0
@@ -856,11 +862,25 @@ mixers:
           - channel: 1
             gain: -6
             inverted: false
+      # Channel 4: Engineer headphone L (pre-DSP passthrough)
+      - dest: 4
+        sources:
+          - channel: 0
+            gain: 0
+            inverted: false
+      # Channel 5: Engineer headphone R (pre-DSP passthrough)
+      - dest: 5
+        sources:
+          - channel: 1
+            gain: 0
+            inverted: false
+      # Channels 6-7: Singer IEM — muted in DJ mode (no singer on stage)
+      # CamillaDSP outputs silence on unmapped channels
 
 pipeline:
-  # Step 1: Mix stereo to 4 channels
+  # Step 1: Mix stereo to 8 channels
   - type: Mixer
-    name: stereo_to_quad
+    name: stereo_to_octa
 
   # Step 2: Combined FIR (crossover + room correction) per channel
   - type: Filter
@@ -902,41 +922,43 @@ use larger, more efficient FFT blocks for the bulk of the computation.
 
 ### 6.6 CamillaDSP Configuration — Live Performance Mode
 
-In live performance mode, Reaper handles its own routing for 8 channels. CamillaDSP
-only processes the FOH channels (1-4). Channels 5-8 (headphone mixes) go directly
-from Reaper through PipeWire to the USBStreamer.
+In live performance mode, Reaper handles routing for 8 channels. All channels pass
+through CamillaDSP — it holds exclusive ALSA access to the USBStreamer. Channels
+0-3 (speakers) get FIR processing; channels 4-5 (engineer headphones) and 6-7
+(singer IEM) are passed through without DSP processing.
 
-**Key difference from DJ/PA mode: `chunksize: 512` for low latency.**
+**Key difference from DJ/PA mode: `chunksize: 256` for low latency (D-011).**
 
-In live mode, the singer is on stage hearing both her IEM feed (~5ms latency, bypasses
-CamillaDSP) and the PA in the room (CamillaDSP path). If the PA path has 43ms of
-latency (chunksize 2048), she hears a slapback echo of her own voice from the
-speakers — disorienting and unacceptable. With `chunksize: 512` (10.7ms), the total
-PA path is ~16ms (CamillaDSP + PipeWire + USB), which is equivalent to standing ~5.5m
-from the speaker and well below the slapback perception threshold.
+In live mode, the singer is on stage hearing both her IEM feed (through CamillaDSP
+passthrough) and the PA in the room (CamillaDSP FIR path). If the PA path has 43ms
+of latency (chunksize 2048), she hears a slapback echo of her own voice from the
+speakers — disorienting and unacceptable. With `chunksize: 256` (5.3ms), the total
+PA path is ~21ms (CamillaDSP + PipeWire quantum 256 + USB + ADAT), which is
+equivalent to standing ~7m from the speaker and below the slapback perception
+threshold.
 
 The cost: CamillaDSP's partitioned convolution is less efficient with smaller first
 partitions — roughly 2x the CPU compared to chunksize 2048. This is why we keep
 chunksize 2048 for DJ/PA mode (where Mixxx is heavier and latency doesn't matter)
-and only drop to 512 for live mode (where Reaper is lighter on CPU). **This assumption
-needs to be validated — see Test Plan in section 6.13.**
+and only drop to 256 for live mode (where Reaper is lighter on CPU). US-001
+benchmarks confirmed this is within budget: 16k taps at chunksize 256 = ~20% CPU.
 
 ```bash
 cat > /etc/camilladsp/configs/live.yml << 'YAMLEOF'
 ---
 devices:
   samplerate: 48000
-  chunksize: 512
+  chunksize: 256
   queuelimit: 4
   capture:
     type: Alsa
-    channels: 4
+    channels: 2
     device: "hw:Loopback,1,0"
     format: S32LE
   playback:
     type: Alsa
-    channels: 4
-    device: "hw:1,0"
+    channels: 8
+    device: "hw:USBStreamer,0"
     format: S32LE
 
 filters:
@@ -1011,11 +1033,70 @@ filters:
       inverted: false
       mute: false
 
-pipeline:
-  # Input is already 4 channels from Reaper: L, R, Sub1, Sub2
-  # Reaper handles the crossover routing — sends HP content to ch1-2, LP to ch3-4
-  # But the FIR filters still contain the crossover shape for safety/consistency
+mixers:
+  # Same stereo_to_octa mixer as DJ/PA mode — Reaper outputs stereo to loopback,
+  # CamillaDSP expands to 8 channels for the USBStreamer.
+  # ch0-3: speakers (FIR processed), ch4-5: engineer HP (passthrough),
+  # ch6-7: singer IEM (passthrough — Reaper's IEM mix is on the stereo bus)
+  stereo_to_octa:
+    channels:
+      in: 2
+      out: 8
+    mapping:
+      - dest: 0
+        sources:
+          - channel: 0
+            gain: 0
+            inverted: false
+      - dest: 1
+        sources:
+          - channel: 1
+            gain: 0
+            inverted: false
+      - dest: 2
+        sources:
+          - channel: 0
+            gain: -6
+            inverted: false
+          - channel: 1
+            gain: -6
+            inverted: false
+      - dest: 3
+        sources:
+          - channel: 0
+            gain: -6
+            inverted: false
+          - channel: 1
+            gain: -6
+            inverted: false
+      - dest: 4
+        sources:
+          - channel: 0
+            gain: 0
+            inverted: false
+      - dest: 5
+        sources:
+          - channel: 1
+            gain: 0
+            inverted: false
+      - dest: 6
+        sources:
+          - channel: 0
+            gain: 0
+            inverted: false
+      - dest: 7
+        sources:
+          - channel: 1
+            gain: 0
+            inverted: false
 
+pipeline:
+  # Step 1: Mix stereo to 8 channels
+  - type: Mixer
+    name: stereo_to_octa
+
+  # Step 2: FIR processing on speaker channels only (ch0-3)
+  # Channels 4-7 (headphones, IEM) pass through unprocessed
   - type: Filter
     channel: 0
     names:
@@ -1060,8 +1141,8 @@ devices:
     format: S32LE
   playback:
     type: Alsa
-    channels: 2
-    device: "hw:1,0"
+    channels: 8
+    device: "hw:USBStreamer,0"
     format: S32LE
 
 pipeline: []
@@ -1258,25 +1339,22 @@ CamillaDSP uses non-uniformly partitioned convolution. The first partition equal
 chunksize, processed in the time domain (or via small FFT). Remaining partitions use
 progressively larger FFTs. The key cost relationship:
 
-| chunksize | First partition | Efficiency with 16k-tap FIR | Estimated CPU (4ch) |
+| chunksize | First partition | Efficiency with 16k-tap FIR | Measured CPU (4ch FIR, 8ch output) |
 |---|---|---|---|
-| 2048 (DJ mode) | 2048 samples | Excellent — only 8 partitions needed | ~15-25% |
-| 512 (Live mode) | 512 samples | Good — 32 partitions, more FFT overhead | ~25-40% |
-| 256 | 256 samples | Marginal — 64 partitions, high overhead | ~35-55% |
+| 2048 (DJ mode) | 2048 samples | Excellent — only 8 partitions needed | 5.2% (T1a) |
+| 512 | 512 samples | Good — 32 partitions, more FFT overhead | 10.4% (T1b) |
+| 256 (Live mode, D-011) | 256 samples | Good — 64 partitions | 20.4% (T1c) |
 
-**These are estimates.** The upstream benchmark (8ch × 262k taps @ 192kHz = ~55% CPU)
-used an unspecified chunksize (likely large). Our situation — 4ch × 16k taps @ 48kHz —
-is dramatically lighter on paper, but the chunksize reduction for live mode changes
-the computational profile. **The estimates above must be validated — see Test Plan
-below.**
+**These figures are measured on Pi 4B hardware** (US-001 benchmarks). The upstream
+benchmark (8ch x 262k taps @ 192kHz = ~55% CPU) used a different configuration.
+Our situation — 4 FIR channels + 4 passthrough channels, 16k taps @ 48kHz — is
+well within budget for both modes.
 
-**Assumption A1:** 16,384 taps at chunksize 2048 is comfortably within Pi 4 budget
-alongside Mixxx. Confidence: HIGH (well below upstream benchmark).
+**Assumption A1:** 16,384 taps at chunksize 2048 fits Pi 4 budget alongside Mixxx.
+**VALIDATED** — 5.2% CPU (T1a).
 
-**Assumption A2:** 16,384 taps at chunksize 512 is within Pi 4 budget alongside Reaper.
-Confidence: MEDIUM — needs testing. Fallback: reduce to 8,192 taps for live mode only
-(still gives 3.4 cycles at 20Hz, adequate for a room full of dancing people absorbing
-reflections).
+**Assumption A2:** 16,384 taps at chunksize 256 fits Pi 4 budget alongside Reaper.
+**VALIDATED** — 20.4% CPU (T1c). Chunksize reduced from 512 to 256 per D-011.
 
 ### 6.13 Test Plan — Performance Validation
 
@@ -1299,7 +1377,7 @@ ir[0] = 1.0
 sf.write('/etc/camilladsp/coeffs/test_dirac_16k.wav', ir, 48000)
 PYEOF
 
-# Create a test config (4ch convolution, chunksize 2048)
+# Create a test config (4ch FIR convolution, 8ch output, chunksize 2048)
 # ... (copy dj-pa.yml, point all filters to test_dirac_16k.wav)
 
 # Run CamillaDSP and monitor CPU for 30 seconds
@@ -1338,18 +1416,18 @@ Measure the actual round-trip latency of the full signal path.
 # Send an impulse from Reaper output ch1, record on Reaper input ch1
 # Measure the delay between sent and received impulse in Reaper
 
-# Expected latency breakdown:
+# Expected latency breakdown (live mode, D-011):
 # PipeWire quantum:          256 samples  =  5.3ms
-# CamillaDSP chunksize:      512 samples  = 10.7ms
+# CamillaDSP chunksize:      256 samples  =  5.3ms
 # USB round-trip (2x):       ~2ms
 # ADAT encode/decode (2x):   ~0.5ms
-# TOTAL expected:            ~18.5ms
+# TOTAL expected:            ~13ms (measured: ~21ms including processing)
 ```
 
 | Test | Config | Expected Latency | PASS Criteria |
 |---|---|---|---|
 | T2a | DJ/PA (chunksize 2048) | ~48ms | < 55ms |
-| T2b | Live (chunksize 512) | ~18ms | < 25ms |
+| T2b | Live (chunksize 256, D-011) | ~21ms | < 25ms |
 
 **Test T3: Xrun stability under load**
 
@@ -1549,13 +1627,13 @@ Create a Reaper project template for the Cole Porter performance:
 | 3: Vocal | Input ch 1 (ADA8200) | → Bus "FOH" + Bus "IEM" |
 | 4: FOH Bus | Submix | → JACK out 1-2 (→ loopback → CamillaDSP → speakers L/R) |
 | 5: Sub Bus | Submix | → JACK out 3-4 (→ loopback → CamillaDSP → sub 1 & 2) |
-| 6: Engineer Monitor | Submix | → JACK out 5-6 (→ USBStreamer direct → headphones) |
-| 7: IEM Bus | Submix | → JACK out 7-8 (→ USBStreamer direct → IEM) |
+| 6: Engineer Monitor | Submix | → JACK out 5-6 (→ loopback → CamillaDSP ch4-5 passthrough → headphones) |
+| 7: IEM Bus | Submix | → JACK out 7-8 (→ loopback → CamillaDSP ch6-7 passthrough → IEM) |
 
-**Important:** Channels 5-8 route directly to the USBStreamer via PipeWire, **bypassing
-CamillaDSP** — you don't want room correction on headphones/IEM. The singer's IEM mix
-has essentially zero additional latency (only the PipeWire quantum: ~5ms), so she can
-sing comfortably even though the PA path through CamillaDSP has ~43ms latency.
+**Important:** All 8 channels route through CamillaDSP (it holds exclusive ALSA access
+to the USBStreamer). Channels 4-7 (headphones, IEM) pass through **without FIR
+processing** — no room correction on headphones/IEM. The singer's IEM path adds only
+the CamillaDSP chunksize latency (5.3ms at chunksize 256 in live mode, D-011).
 
 ### 8.4 Reaper Startup Script
 
@@ -1881,32 +1959,26 @@ cat /proc/asound/card1/pcm0p/sub0/status
 
 **DJ/PA Mode** (chunksize 2048, efficient convolution):
 
-| Component | CPU Usage (estimated) | Confidence |
+| Component | CPU Usage | Source |
 |---|---|---|
-| PipeWire + WirePlumber | 2-5% | HIGH |
-| CamillaDSP (16k FIR × 4ch, chunksize 2048) | 15-25% | MEDIUM — validate T1a |
-| Mixxx (2 decks, no effects) | 15-25% | MEDIUM |
-| System overhead | 5-10% | HIGH |
-| **Total** | **~40-60%** | |
+| PipeWire + WirePlumber | 2-5% | estimated |
+| CamillaDSP (16k FIR x 4ch, 8ch output, chunksize 2048) | ~5% | measured (T1a) |
+| Mixxx (2 decks, no effects) | 15-25% | estimated |
+| System overhead | 5-10% | estimated |
+| **Total** | **~30-45%** | |
 
-**Live Mode** (chunksize 512, less efficient convolution but lighter app):
+**Live Mode** (chunksize 256 per D-011, lower latency):
 
-| Component | CPU Usage (estimated) | Confidence |
+| Component | CPU Usage | Source |
 |---|---|---|
-| PipeWire + WirePlumber | 2-5% | HIGH |
-| CamillaDSP (16k FIR × 4ch, chunksize 512) | 25-40% | LOW — validate T1b |
-| Reaper (8 tracks, basic mixing) | 10-20% | MEDIUM |
-| System overhead | 5-10% | HIGH |
-| **Total** | **~45-70%** | |
+| PipeWire + WirePlumber | 2-5% | estimated |
+| CamillaDSP (16k FIR x 4ch, 8ch output, chunksize 256) | ~20% | measured (T1c) |
+| Reaper (8 tracks, basic mixing) | 10-20% | estimated |
+| System overhead | 5-10% | estimated |
+| **Total** | **~35-55%** | |
 
-The live mode budget is tighter because of the smaller chunksize. If test T1b shows
-CamillaDSP exceeding 40% CPU, the fallback options are (in order of preference):
-
-1. Reduce FIR filter length to 8,192 taps for live mode (still 3.4 cycles at 20Hz —
-   adequate for room correction in a live venue where the audience absorbs reflections)
-2. Increase chunksize to 1024 (21ms — still acceptable for most stage setups)
-3. Disable Reaper effects you're not using
-4. Use a simpler Reaper project template for live shows
+The live mode budget is comfortable. US-001 benchmarks validated that 16,384-tap
+FIR at chunksize 256 uses ~20% CPU — well within budget alongside Reaper.
 
 ### 12.3 Temperature Monitoring
 
@@ -2150,24 +2222,26 @@ CamillaDSP's chunksize should be a multiple of PipeWire's quantum.
 
 This system uses **two different chunksizes depending on the operational mode:**
 
-| Mode | Chunksize | CamillaDSP Latency | Total PA Path | Rationale |
-|---|---|---|---|---|
-| DJ/PA | 2048 | 42.7ms | ~48ms | Latency irrelevant; max convolution efficiency; saves CPU for Mixxx |
-| Live | 512 | 10.7ms | ~18ms | Singer on stage hears PA slapback; must stay below ~20ms |
+| Mode | Chunksize | PipeWire Quantum | CamillaDSP Latency | Total PA Path | Rationale |
+|---|---|---|---|---|---|
+| DJ/PA | 2048 | 1024 | 42.7ms | ~48ms | Latency irrelevant; max efficiency; saves CPU for Mixxx |
+| Live | 256 (D-011) | 256 | 5.3ms | ~21ms | Singer on stage hears PA slapback; must stay below ~25ms |
 
-**Why the live mode limit matters:** In live performance, the singer wears IEM (fed
-directly, ~5ms latency) but also hears the PA acoustically in the room. If the PA
-path has >25ms latency, she perceives a distinct slapback echo of her own voice —
-disorienting and performance-destroying. At ~18ms, the PA path is equivalent to
-standing ~6 meters from the speakers, which feels natural.
+**Why the live mode limit matters:** In live performance, the singer wears IEM and
+also hears the PA acoustically in the room. If the PA path has >25ms latency, she
+perceives a distinct slapback echo of her own voice — disorienting and
+performance-destroying. At ~21ms, the PA path is equivalent to standing ~7 meters
+from the speakers, which feels natural.
 
 **The tradeoff:** Smaller chunksize = more FFT partitions in the convolution = higher
-CPU. The live config uses ~2x the CamillaDSP CPU of the DJ config. This is acceptable
-because Reaper (live mode app) is lighter than Mixxx (DJ mode app). Validated by test
-T1b and T3b in section 6.13.
+CPU. The live config uses ~4x the CamillaDSP CPU of the DJ config (20% vs 5%).
+This is acceptable because Reaper (live mode app) is lighter than Mixxx (DJ mode
+app). Validated by US-001 benchmarks (T1a, T1c).
 
-The IEM and engineer headphone paths (channels 5-8) bypass CamillaDSP entirely, so
-they always have minimal latency regardless of chunksize.
+**All 8 channels route through CamillaDSP** — it holds exclusive ALSA access to the
+USBStreamer. The IEM and engineer headphone channels (4-7) are passed through
+CamillaDSP without FIR processing, so they add only the chunksize latency (5.3ms
+in live mode), not the convolution processing time.
 
 ### Sample Rate Consistency
 
