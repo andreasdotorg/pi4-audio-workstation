@@ -47,7 +47,7 @@ these buffer sizes. The [decision log](docs/project/decisions.md) has the
 formal records.
 
 **How do subwoofer enclosures affect transients?** The [enclosure topologies
-analysis](docs/theory/ported-vs-sealed.md) compares sealed, ported,
+analysis](docs/theory/enclosure-topologies.md) compares sealed, ported,
 horn-loaded, and transmission line designs -- their group delay, transient
 behavior, and how each interacts with the FIR correction pipeline.
 
