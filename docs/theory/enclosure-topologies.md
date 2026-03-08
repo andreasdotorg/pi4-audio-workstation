@@ -1,55 +1,271 @@
 # Subwoofer Enclosure Topologies and Transient Behavior
 
+## Abstract
+
 This document examines the engineering and psychoacoustic tradeoffs between
-subwoofer enclosure topologies -- sealed (acoustic suspension), ported (bass
-reflex), horn-loaded (including folded horn designs), and transmission line
-(including quarter-wave resonators) -- in the context of our system.
-Specifically, how each topology interacts with the combined minimum-phase FIR
-correction pipeline, the cut-only correction constraint (D-009), and the
-per-sub independent correction architecture (D-004).
-
-The analysis concludes that enclosure topology is a second-order effect in
-uncorrected rooms, where room modal behavior dominates the sub-bass time
-response. In a room-corrected system like ours -- where FIR correction
-dramatically reduces modal ringing -- enclosure group delay becomes one of
-several comparable contributors to time-domain quality, alongside early
-reflections and residual modal energy. The difference is subtle but real:
-lower group delay (sealed, true TL) provides a modest advantage over higher
-group delay (ported, quarter-wave resonator) when room modes are no longer
-masking it. The FIR correction pipeline handles any topology effectively
-above the enclosure's rolloff frequency. The practical differences: ported,
-horn-loaded, and transmission line enclosures require subsonic protection
-(D-010) while sealed enclosures do not, and designs with internal acoustic
-paths add physical propagation delay that the measurement pipeline captures
-automatically.
+four subwoofer enclosure topologies -- sealed (acoustic suspension), ported
+(bass reflex), horn-loaded (including folded horn designs), and transmission
+line (including quarter-wave resonators) -- in the context of a combined
+minimum-phase FIR correction pipeline with cut-only correction and per-sub
+independence. The analysis concludes that enclosure topology is a second-order
+effect in uncorrected rooms, where room modal behavior dominates the sub-bass
+time response, but becomes one of several comparable contributors to
+time-domain quality in a room-corrected system where FIR correction
+dramatically reduces modal ringing. Lower group delay topologies (sealed, true
+TL) provide a modest advantage over higher group delay topologies (ported,
+quarter-wave resonator) when room modes are no longer masking the difference.
 
 ---
 
-## Sealed and Ported Enclosures
+## 1. Introduction
 
-**Sealed (acoustic suspension):** The driver operates against a closed air
-volume that acts as a spring. The system is a second-order highpass filter
-(12 dB/octave rolloff below resonance). The trapped air adds to the driver's
-own suspension compliance, raising the system resonance frequency (Fc) above
-the driver's free-air resonance (Fs). Sealed boxes trade low-frequency
-extension for predictable, well-damped transient behavior.
+Our system uses a combined minimum-phase FIR pipeline that merges crossover
+and room correction into a single filter per output channel, targeting
+psytrance transient fidelity. Several design decisions shape how enclosure
+topology interacts with the pipeline:
 
-**Ported (bass reflex):** The enclosure has a tuned port -- a tube or slot
-that resonates at a specific frequency (Fb). At Fb, the port's air mass acts
-as a second radiator, in phase with the cone above Fb and out of phase below
-Fb. The system is a fourth-order highpass filter (24 dB/octave rolloff below
-Fb). This gives more output near Fb but introduces more complex phase
-behavior and reduced cone damping below the port tuning frequency.
+- **Cut-only correction (D-009):** All correction filters have gain at or
+  below -0.5 dB at every frequency. Room peaks are attenuated; nulls are left
+  uncorrected. This means the pipeline cannot boost output below the
+  enclosure's natural rolloff.
+- **Per-sub independence (D-004):** Each subwoofer has its own FIR correction
+  filter, delay value, and gain trim, because different physical placement
+  produces different room interaction.
+- **Per-venue measurement (D-008):** Room correction filters and time
+  alignment values are regenerated at each venue setup. The measurement
+  pipeline captures the actual impulse response of whatever subwoofer is
+  connected, including any internal acoustic path delay.
+
+The question this document answers: given our room-corrected, FIR-based system,
+how much does enclosure topology matter for sub-bass transient quality, and what
+are the practical tradeoffs between topologies?
 
 ---
 
-## Horn-Loaded Designs
+## 2. Background: Psychoacoustic Thresholds
 
-A third category exists beyond sealed and ported: horn-loaded subwoofers,
-including folded horn designs. They use the enclosure's internal air path as
-an acoustic transformer.
+The topology analysis that follows relies on psychoacoustic research about
+group delay audibility. This section consolidates all relevant findings so
+that subsequent sections can reference them without repetition.
 
-### Operating principle
+### 2.1 Blauert and Laws (1978)
+
+The most widely cited study on group delay audibility [1]. Their measured
+findings:
+
+- Group delay audibility was tested at frequencies from 500 Hz to 8 kHz.
+- At 500 Hz, the audibility threshold was approximately 3.2 ms (corresponding
+  to roughly 1.6 cycles).
+- At higher frequencies, the threshold decreased (shorter group delays became
+  audible).
+- The general pattern: the threshold is approximately 1.5-2 periods of the
+  signal frequency.
+
+**Blauert and Laws did not measure group delay audibility below 500 Hz.** The
+sub-bass thresholds commonly cited in audio engineering literature (for
+example, "~30 ms at 50 Hz" or "~50 ms at 30 Hz") are extrapolations of the
+~1.5-cycle rule to frequencies the study never tested. These extrapolated
+values appear throughout the literature as if they are measured data, but they
+are not.
+
+The extrapolation assumes that the "cycles of the signal frequency"
+relationship holds at sub-bass frequencies. This is plausible but unverified:
+
+- **Arguments for:** The psychoacoustic mechanism (temporal pattern
+  recognition requiring multiple cycles) should be frequency-independent.
+- **Arguments against:** Sub-bass frequencies are perceived partly through
+  vibrotactile (body feel) mechanisms, not just auditory processing. The
+  temporal resolution of tactile perception differs from auditory perception.
+  Group delay audibility at 40 Hz may be governed by different perceptual
+  mechanisms than at 500 Hz.
+
+**Extrapolation caveat:** All sub-bass group delay thresholds cited in this
+document (for example, ~30 ms at 50 Hz) are extrapolated from the Blauert and
+Laws data, not directly measured. The actual audibility threshold at sub-bass
+frequencies is unknown. This caveat applies throughout the topology analysis
+and comparison sections that follow.
+
+### 2.2 Other relevant research
+
+**Lipshitz, Pocock, and Vanderkooy (1982)** [2] studied audibility of
+linear-phase vs minimum-phase crossovers. Found that group delay differences
+were inaudible in most listening conditions but could be detected with
+specific test signals (clicks, impulses) at moderate SPL. This suggests that
+for complex musical signals, group delay differences below the Blauert and
+Laws threshold are reliably inaudible.
+
+**Linkwitz** [3] (co-inventor of the Linkwitz-Riley crossover) has stated in
+his published writings that LR4 crossover phase distortion is inaudible in
+his personal listening tests. This is notable because Linkwitz is arguably the
+person most motivated and qualified to detect phase artifacts from his own
+crossover design. The specific publication should be identified for proper
+citation before relying on this claim.
+
+**Thiele** [4] (cited by Small) analyzed the transient behavior of correctly
+designed ported and sealed enclosures and concluded that the differences
+between them are "likely to be inaudible." This is consistent with the
+document's broader conclusion that room effects dominate the sub-bass time
+response. The specific Thiele paper should be identified and verified before
+publication.
+
+**Toole (2008), "Sound Reproduction"** [5] discusses group delay audibility
+in the context of subwoofer systems. The general conclusion: group delay from
+loudspeaker/room systems is almost always inaudible because room reflections
+dominate the time-domain behavior. The exception is direct-radiator subwoofers
+at very close range in acoustically treated rooms.
+
+### 2.3 Application to psytrance kick drums
+
+A psytrance kick typically has a broadband attack transient (2-10 kHz, under
+5 ms) above the crossover frequency, and a sub-bass fundamental and tail
+(30-60 Hz, extending 100-300 ms) below it. The attack passes through the
+mains with minimal group delay regardless of enclosure type. The sub-bass
+content passes through the subwoofer, where enclosure group delay applies.
+
+At 50 Hz, the extrapolated Blauert and Laws threshold is approximately 30 ms.
+A sealed sub with Qtc = 0.707 at Fc = 40 Hz has roughly 15-20 ms of group
+delay at 50 Hz -- below the extrapolated threshold. A ported sub tuned to
+Fb = 35 Hz (B4 alignment) has roughly 25-35 ms -- at or above it. A
+horn-loaded sub falls in the 20-40 ms range depending on design. A true TL
+is comparable to sealed (~10-20 ms), while a quarter-wave resonator is
+comparable to ported (~25-40 ms).
+
+**Does the difference matter in a real venue?** The answer depends on whether
+the system applies room correction. The full analysis of corrected vs
+uncorrected systems is in Section 6.
+
+---
+
+## 3. Topology Analysis
+
+Each topology is covered with the same subsections -- operating principle,
+group delay, cone excursion, transient behavior, and PA suitability -- to
+enable direct comparison.
+
+### 3.1 Sealed (Acoustic Suspension)
+
+#### 3.1.1 Operating principle
+
+The driver operates against a closed air volume that acts as a spring. The
+system is a second-order highpass filter (12 dB/octave rolloff below
+resonance). The trapped air adds to the driver's own suspension compliance,
+raising the system resonance frequency (Fc) above the driver's free-air
+resonance (Fs). Sealed boxes trade low-frequency extension for predictable,
+well-damped transient behavior.
+
+#### 3.1.2 Group delay
+
+Group delay follows a second-order model. It peaks at the system resonance
+frequency Fc and is determined by the system Q factor (Qtc):
+
+| Alignment | Qtc | Group delay at Fc | At Fc = 50 Hz |
+|-----------|-----|-------------------|---------------|
+| Bessel (maximally flat delay) | 0.577 | ~0.6 / Fc | ~12 ms |
+| Butterworth (maximally flat magnitude) | 0.707 | ~0.9 / Fc | ~18 ms |
+| Underdamped | 1.0 | ~1.3 / Fc | ~26 ms |
+
+These relationships derive directly from the second-order highpass transfer
+function.
+
+#### 3.1.3 Cone excursion
+
+Cone excursion increases monotonically as frequency decreases below Fc. The
+restoring force (air spring plus suspension) keeps the driver under control at
+all frequencies. Excursion is limited only by the driver's mechanical limits
+(Xmax). There is no unloading transition -- the air spring provides a
+restoring force at all frequencies. Subsonic protection (D-010) is not needed.
+
+#### 3.1.4 Transient behavior
+
+A sealed box's cone motion is always well-damped by the air spring. Musical
+content with significant energy below Fc (sub-bass drops, 808 kicks reaching
+30 Hz) produces less excursion than in a ported box because the air spring
+provides restoring force, keeping the driver in its linear range longer. For
+transient linearity, sealed is the reference standard among the four
+topologies.
+
+#### 3.1.5 PA suitability
+
+Sealed subwoofers are rare in professional PA. Their lower efficiency (no
+resonant output boost) and earlier rolloff (12 dB/octave vs 24 dB/octave)
+make them less competitive where maximum SPL per watt and per cubic meter are
+priorities. They are, however, the simplest to design and the most
+predictable in behavior.
+
+### 3.2 Ported (Bass Reflex)
+
+#### 3.2.1 Operating principle
+
+The enclosure has a tuned port -- a tube or slot that resonates at a specific
+frequency (Fb). At Fb, the port's air mass acts as a second radiator, in
+phase with the cone above Fb and out of phase below Fb. The system is a
+fourth-order highpass filter (24 dB/octave rolloff below Fb). This gives more
+output near Fb but introduces more complex phase behavior and reduced cone
+damping below the port tuning frequency.
+
+#### 3.2.2 Group delay
+
+Group delay is more complex due to the fourth-order nature. It depends on
+both the box tuning frequency (Fb) and the alignment type:
+
+- **QB3 (quasi-Butterworth 3rd order):** Moderately damped, smooth rolloff.
+  Group delay peaks below Fb, typically 1.5-2x the sealed equivalent at the
+  same -3 dB frequency.
+- **B4 (4th-order Butterworth):** Maximally flat magnitude. Group delay peaks
+  at approximately 1.4 / Fb. At Fb = 35 Hz: ~40 ms -- significantly more
+  than a sealed box tuned to the same -3 dB point.
+- **C4 (4th-order Chebyshev):** Maximally flat group delay for a fourth-order
+  system. Lower group delay peak than B4 but with magnitude ripple in the
+  passband.
+
+The general relationships are well-established in electroacoustic theory
+[6] [7]. Exact values depend on the specific alignment parameters and are
+best computed from the transfer function for each case.
+
+#### 3.2.3 Cone excursion
+
+Cone excursion is at its minimum at Fb (the port does the work). Below Fb,
+excursion increases rapidly because the port no longer provides loading -- the
+driver is effectively operating in free air. This is the "unloading"
+phenomenon that can cause mechanical damage, and the reason D-010 requires
+subsonic protection for ported enclosures.
+
+#### 3.2.4 Transient behavior
+
+##### Phase inversion and the impulse response tail
+
+At the port tuning frequency Fb, the air in the port resonates and radiates
+in phase with the cone. Below Fb, the port radiation inverts phase relative
+to the cone:
+
+- **Above Fb:** Cone and port radiate in phase, summing constructively. This
+  is where the ported box gains its efficiency advantage.
+- **At Fb:** The port does most of the radiating; the cone is nearly
+  stationary (minimum excursion).
+- **Below Fb:** Cone and port cancel each other. Output drops at 24 dB/octave
+  (vs 12 dB/octave for sealed).
+
+The phase inversion has a direct effect on the impulse response: a ported
+box shows a longer tail than a sealed box at the same -3 dB frequency,
+because the port continues to radiate energy after the cone has stopped.
+This tail is the time-domain manifestation of the higher group delay.
+
+A ported box's cone is well-damped near and above Fb but poorly damped below
+Fb. Musical content with significant energy below Fb (sub-bass drops, 808
+kicks reaching 30 Hz) can push the ported driver into its nonlinear excursion
+range, producing distortion on transients. The same content through a sealed
+box produces less excursion because the air spring provides restoring force,
+keeping the driver in its linear range longer.
+
+#### 3.2.5 PA suitability
+
+Ported subwoofers are the standard in professional PA. Their higher efficiency
+near Fb, extended low-frequency output, and straightforward construction make
+them the default choice. Subsonic protection (D-010) is mandatory.
+
+### 3.3 Horn-Loaded
+
+#### 3.3.1 Operating principle
 
 A horn-loaded subwoofer uses a flared acoustic path between the driver and
 the listening environment. The horn transforms the driver's high-impedance,
@@ -64,10 +280,31 @@ analogous to an electrical transformer. This provides:
   wavelength at the lowest operating frequency) begin to exhibit directional
   behavior, which can be useful for steering bass away from stage areas.
 
-Horn acoustics are well-established (Olson, 1957; Beranek, 1954; Keele,
-1975).
+Horn acoustics are well-established [8] [9] [10].
 
-### Transient behavior
+##### Folded horns
+
+In practice, most horn-loaded subwoofers use folded horn paths to reduce
+physical dimensions. The horn is folded one or more times within the
+enclosure, maintaining the required path length in a more compact form factor.
+Folded horns have path lengths of 2-4 meters depending on tuning frequency.
+
+##### HOQS Paraflex
+
+The HOQS Paraflex designs are community-developed folded quarter-wave
+subwoofers shared through the diyAudio community. Multiple variants exist
+(single-fold, double-fold, different tuning frequencies), designed for high
+efficiency and high SPL in pro audio and DJ applications. The "Paraflex" name
+refers to the specific folding geometry. Given their light damping and
+reliance on quarter-wave resonance, they sit closer to the quarter-wave
+resonator end of the TL spectrum than to a true transmission line.
+
+No peer-reviewed measurements of Paraflex transient behavior or group delay
+have been published [15]. The diyAudio community has noted the lack of
+published measurement data from HOQS. Individual community members have
+shared measurements, but these are not standardized or independently verified.
+
+#### 3.3.2 Group delay
 
 The horn path introduces its own group delay. Sound must travel the physical
 length of the horn before exiting. For a horn tuned to 40 Hz with a
@@ -83,8 +320,9 @@ also has resonant behavior that adds time-domain ringing.
 The horn's group delay is harder to predict analytically than sealed or
 ported because it depends on the specific horn flare profile (exponential,
 conical, hyperbolic), the path length, and the throat and mouth dimensions.
+Approximate magnitude at 50 Hz: ~20-40 ms (design-dependent).
 
-### Cone excursion and power handling
+#### 3.3.3 Cone excursion
 
 Horn loading reduces cone excursion at frequencies where the horn is
 effective (near and above the horn's cutoff frequency). This is the primary
@@ -95,14 +333,16 @@ Below the horn's cutoff frequency, the horn ceases to provide loading and
 the driver behaves similarly to a direct radiator. Excursion increases, and
 the same unloading concern as ported designs applies -- albeit typically at a
 lower frequency because the horn's resonant reinforcement extends the usable
-range.
+range. Subsonic protection (D-010) is advisable.
+
+#### 3.3.4 Transient behavior
 
 For psytrance at high SPL, horn-loaded subs have a genuine advantage: they
 can produce higher output with less distortion in the 30-80 Hz range that
 carries the kick drum's energy. The tradeoff is size (folded horns are
 physically large) and group delay (the horn path adds delay).
 
-### Time alignment implications
+#### 3.3.5 Time alignment
 
 Horn-loaded subs have an additional time alignment consideration: the
 acoustic center of a horn sub is not at the mouth of the horn -- it is
@@ -122,16 +362,23 @@ than relying on calculated delays from physical measurements. The
 frequency-dependent acoustic center of horns is well-documented in horn
 loudspeaker design literature.
 
----
+#### 3.3.6 PA suitability
 
-## Transmission Line Enclosures
+Horn-loaded subwoofers are common in professional PA, particularly for
+high-SPL applications. Their higher efficiency makes them the preferred choice
+when maximum output is required. The tradeoff is physical size -- folded horns
+are large and heavy. For psytrance at high SPL, horn-loaded subs offer a
+genuine advantage in the 30-80 Hz kick drum range due to reduced cone
+excursion and lower distortion at high output levels.
+
+### 3.4 Transmission Line
+
+#### 3.4.1 Operating principle
 
 A transmission line (TL) enclosure is a long, typically tapered acoustic pipe
 with the driver mounted at one end (the closed end) and the other end open to
 the room. The pipe is stuffed with damping material (acoustic wadding,
 long-fiber wool, polyester fill) along part or all of its length.
-
-### Operating principle
 
 1. The driver radiates into the pipe. The sound wave travels down the pipe
    toward the open end.
@@ -152,10 +399,9 @@ long-fiber wool, polyester fill) along part or all of its length.
 The pipe may be straight, folded, or tapered. Tapering changes the impedance
 transformation and affects the frequency response shape.
 
-Transmission line theory is well-documented (Bailey, 1965; Bradbury, 1976;
-King, 1996 in "Loudspeaker and Headphone Handbook" ed. Borwick).
+Transmission line theory is well-documented [11] [12] [13].
 
-### True TL vs quarter-wave resonator
+##### True TL vs quarter-wave resonator
 
 This distinction is the source of widespread confusion in loudspeaker design.
 
@@ -172,8 +418,8 @@ progressive wave that survives the damping, not from resonance.
 line, or MLTL) uses minimal damping and relies on the pipe's standing-wave
 resonance to boost output at the tuning frequency. This is functionally
 similar to a ported enclosure, with the pipe's air mass playing the role of
-the port's air mass. The HOQS (High Order Quarterwave Society) Paraflex
-designs fall closer to this category than to a true TL.
+the port's air mass. The HOQS Paraflex designs fall closer to this category
+than to a true TL.
 
 **In practice, most "transmission line" designs are hybrids** -- they use
 enough damping to suppress upper harmonics of the pipe resonance but not
@@ -190,9 +436,13 @@ quarter-wave resonator.
 The TL vs quarter-wave resonator distinction is extensively discussed in the
 loudspeaker design literature. Martin King's work (2001-2010, published on
 quarter-wave.com and in peer-reviewed journals) provides detailed analysis
-with simulation and measurement data.
+with simulation and measurement data [14].
 
-### Group delay characteristics
+Quarter-wave resonators exhibit analogous behavior to ported enclosures: the
+open end of the pipe acts as the radiating element (like a port), with similar
+phase inversion below the tuning frequency.
+
+#### 3.4.2 Group delay
 
 **True TL (heavily damped):** Group delay is dominated by two mechanisms:
 
@@ -229,7 +479,27 @@ The propagation delay component is straightforward physics. The
 resonance-related group delay depends heavily on the specific damping profile
 and is harder to predict without simulation or measurement.
 
-### The "tighter bass" claim
+#### 3.4.3 Cone excursion
+
+**True TL:** The resistive pipe loading provides damping at all frequencies,
+including below the quarter-wave frequency. Cone excursion increases below
+the quarter-wave frequency but more gradually than in a ported box because the
+pipe still provides some resistive loading -- there is no sharp unloading
+transition. Subsonic protection is still advisable (D-010) to prevent
+mechanical limits being reached on sub-bass content, but the failure mode is
+less abrupt than with a port and the protection can be less aggressive (for
+example, 12 dB/octave vs 24 dB/octave).
+
+**Quarter-wave resonator / MLTL:** With light damping, cone excursion
+behavior is closer to ported -- unloading occurs below the tuning frequency.
+Subsonic protection comparable to a ported enclosure is appropriate.
+
+A true TL falls between sealed and ported for cone control -- better than
+ported, though not as predictable as sealed.
+
+#### 3.4.4 Transient behavior
+
+##### The "tighter bass" claim
 
 TL advocates frequently claim that transmission lines produce "tighter" or
 "faster" bass than ported designs.
@@ -263,11 +533,11 @@ The physical basis:
 - Lightly-damped TLs (which many commercial "TL" designs actually are) have
   comparable group delay to ported designs, because they rely on the same
   quarter-wave resonance mechanism.
-- The Blauert and Laws threshold caveat applies here too: at sub-bass
-  frequencies, group delay differences of 5-15 ms between enclosure types
-  are likely below the audibility threshold (with the caveat that sub-bass
-  thresholds are extrapolated, not measured).
-- Toole's observation that room effects dominate applies equally: any TL
+- The Blauert and Laws threshold caveat applies here too (see Section 2):
+  at sub-bass frequencies, group delay differences of 5-15 ms between
+  enclosure types are likely below the audibility threshold (with the caveat
+  that sub-bass thresholds are extrapolated, not measured).
+- Toole's observation [5] that room effects dominate applies equally: any TL
   transient advantage is swamped by the room's modal behavior in practice.
 
 The "tighter bass" reputation likely originates from comparisons between
@@ -275,7 +545,7 @@ well-designed TLs (moderate to heavy damping) and poorly aligned ported boxes
 (underdamped, high-Qtc driver producing a response hump). A properly aligned
 ported box (QB3 or B4 with an appropriate driver) has transient behavior that
 is difficult to distinguish from a moderately damped TL in a real listening
-environment, per Toole's broader conclusion about room dominance.
+environment, per Toole's broader conclusion about room dominance [5].
 
 **Assessment:** The "tighter bass" claim for true TLs has a valid physical
 basis in reduced impulse response ringing and better cone control below
@@ -283,22 +553,7 @@ tuning. For lightly-damped TLs and quarter-wave resonators, the claim is not
 supported -- they behave more like ported enclosures. In real rooms at PA
 levels, the difference is unlikely to be audible.
 
-### HOQS Paraflex
-
-The HOQS Paraflex designs are community-developed folded quarter-wave
-subwoofers shared through the diyAudio community. Multiple variants exist
-(single-fold, double-fold, different tuning frequencies), designed for high
-efficiency and high SPL in pro audio and DJ applications. The "Paraflex" name
-refers to the specific folding geometry. Given their light damping and
-reliance on quarter-wave resonance, they sit closer to the quarter-wave
-resonator end of the TL spectrum than to a true transmission line.
-
-No peer-reviewed measurements of Paraflex transient behavior or group delay
-have been published. The diyAudio community has noted the lack of published
-measurement data from HOQS. Individual community members have shared
-measurements, but these are not standardized or independently verified.
-
-### Practical relevance: TL in PA applications
+#### 3.4.5 PA suitability
 
 Transmission lines are primarily a hi-fi topology. They are rare in
 professional PA for several reasons:
@@ -318,8 +573,8 @@ professional PA for several reasons:
    SPL, changing the enclosure's acoustic behavior under exactly the
    conditions where predictable performance matters most.
 
-Some high-end PA manufacturers (notably PMC -- Professional Monitor Company)
-use transmission line designs in their studio monitors and some larger
+Some high-end PA manufacturers (notably PMC -- Professional Monitor Company
+[16]) use transmission line designs in their studio monitors and some larger
 systems. Their designs are closer to the lightly-damped (quarter-wave
 resonator) end of the spectrum, optimized for monitoring accuracy rather than
 maximum SPL. However, these are the exception -- the vast majority of PA
@@ -333,46 +588,30 @@ needs a "transmission line" option.
 
 ---
 
-## Group Delay
+## 4. Cross-Topology Comparison
 
-Group delay is where the topologies diverge most. The following tables
-summarize the key relationships; the topology-specific sections above provide
-the underlying physics.
+This section consolidates all comparative material to allow direct
+side-by-side assessment of the four topologies.
 
-### Sealed
+### 4.1 Summary comparison
 
-Group delay follows a second-order model. It peaks at the system resonance
-frequency Fc and is determined by the system Q factor (Qtc):
+| Property | Sealed | Ported | Horn-loaded | True TL | QW Resonator / MLTL |
+|----------|--------|--------|-------------|---------|---------------------|
+| Rolloff slope | 12 dB/oct | 24 dB/oct | Design-dependent | ~12 dB/oct | ~24 dB/oct |
+| Filter order | 2nd | 4th | Complex | ~2nd (damped) | ~4th |
+| Group delay at 50 Hz | ~15-20 ms | ~25-35 ms | ~20-40 ms | ~10-20 ms | ~25-40 ms |
+| Cone unloading below tuning | No | Yes | Moderate | Minimal | Moderate |
+| Subsonic protection (D-010) | Not needed | Mandatory | Advisable | Advisable (less aggressive) | Advisable |
+| Efficiency | Low | Medium | High | Low | Medium |
+| Size for equivalent output | Medium | Medium | Large | Large | Medium-large |
+| "Tighter bass" claim | Reference | No | No | Supported (physical basis) | No |
+| PA suitability | Rare | Standard | Common (high SPL) | Rare (low efficiency) | Uncommon |
+| FIR correction compatibility | Full | Full above Fb | Full | Full | Full above tuning |
+| Pipeline handles it | Yes | Yes | Yes | Yes | Yes |
+| Significance in uncorrected rooms | Minimal (room modes dominate) | Minimal (room modes dominate) | Minimal (room modes dominate) | Minimal (room modes dominate) | Minimal (room modes dominate) |
+| Significance in corrected system | Lowest group delay; modest advantage | Higher group delay; modest disadvantage | Variable | Comparable to sealed; modest advantage | Comparable to ported; modest disadvantage |
 
-| Alignment | Qtc | Group delay at Fc | At Fc = 50 Hz |
-|-----------|-----|-------------------|---------------|
-| Bessel (maximally flat delay) | 0.577 | ~0.6 / Fc | ~12 ms |
-| Butterworth (maximally flat magnitude) | 0.707 | ~0.9 / Fc | ~18 ms |
-| Underdamped | 1.0 | ~1.3 / Fc | ~26 ms |
-
-These relationships derive directly from the second-order highpass transfer
-function.
-
-### Ported
-
-Group delay is more complex due to the fourth-order nature. It depends on
-both the box tuning frequency (Fb) and the alignment type:
-
-- **QB3 (quasi-Butterworth 3rd order):** Moderately damped, smooth rolloff.
-  Group delay peaks below Fb, typically 1.5-2x the sealed equivalent at the
-  same -3 dB frequency.
-- **B4 (4th-order Butterworth):** Maximally flat magnitude. Group delay peaks
-  at approximately 1.4 / Fb. At Fb = 35 Hz: ~40 ms -- significantly more
-  than a sealed box tuned to the same -3 dB point.
-- **C4 (4th-order Chebyshev):** Maximally flat group delay for a fourth-order
-  system. Lower group delay peak than B4 but with magnitude ripple in the
-  passband.
-
-The general relationships are well-established in electroacoustic theory
-(Small, 1973; Thiele, 1971). Exact values depend on the specific alignment
-parameters and are best computed from the transfer function for each case.
-
-### Cross-topology comparison
+### 4.2 Group delay comparison
 
 | Topology | Group delay mechanism | Approximate magnitude at 50 Hz |
 |----------|---------------------|-------------------------------|
@@ -382,77 +621,12 @@ parameters and are best computed from the transfer function for each case.
 | True TL (heavily damped) | Propagation + attenuated resonance | ~10-20 ms |
 | Quarter-wave resonator / MLTL | Propagation + strong resonance | ~25-40 ms |
 
----
+### 4.3 Thiele-Small parameter guidance
 
-## Phase Inversion and the Impulse Response Tail
+The Thiele-Small parameters are the foundational relationships of
+loudspeaker/enclosure design [6] [7].
 
-At the port tuning frequency Fb, the air in the port resonates and radiates
-in phase with the cone. Below Fb, the port radiation inverts phase relative
-to the cone:
-
-- **Above Fb:** Cone and port radiate in phase, summing constructively. This
-  is where the ported box gains its efficiency advantage.
-- **At Fb:** The port does most of the radiating; the cone is nearly
-  stationary (minimum excursion).
-- **Below Fb:** Cone and port cancel each other. Output drops at 24 dB/octave
-  (vs 12 dB/octave for sealed).
-
-The phase inversion has a direct effect on the impulse response: a ported
-box shows a longer tail than a sealed box at the same -3 dB frequency,
-because the port continues to radiate energy after the cone has stopped.
-This tail is the time-domain manifestation of the higher group delay.
-
-Quarter-wave resonators exhibit analogous behavior: the open end of the pipe
-acts as the radiating element (like a port), with similar phase inversion
-below the tuning frequency.
-
----
-
-## Cone Excursion and Transient Linearity
-
-**Sealed:** Cone excursion increases monotonically as frequency decreases
-below Fc. The restoring force (air spring plus suspension) keeps the driver
-under control at all frequencies. Excursion is limited only by the driver's
-mechanical limits (Xmax).
-
-**Ported:** Cone excursion is at its minimum at Fb (the port does the work).
-Below Fb, excursion increases rapidly because the port no longer provides
-loading -- the driver is effectively operating in free air. This is the
-"unloading" phenomenon that can cause mechanical damage, and the reason D-010
-requires subsonic protection for ported enclosures.
-
-**Horn-loaded:** Horn loading reduces cone excursion at frequencies where the
-horn is effective. Below the horn's cutoff frequency, the same unloading
-concern applies -- D-010 subsonic protection is required.
-
-**True TL:** The resistive pipe loading provides damping at all frequencies,
-including below the quarter-wave frequency. Cone excursion increases below
-the quarter-wave frequency but more gradually than in a ported box because the
-pipe still provides some resistive loading -- there is no sharp unloading
-transition. Subsonic protection is still advisable (D-010) to prevent
-mechanical limits being reached on sub-bass content, but the failure mode is
-less abrupt than with a port and the protection can be less aggressive (for
-example, 12 dB/octave vs 24 dB/octave).
-
-**Quarter-wave resonator / MLTL:** With light damping, cone excursion
-behavior is closer to ported -- unloading occurs below the tuning frequency.
-Subsonic protection comparable to a ported enclosure is appropriate.
-
-For transient linearity, the difference matters: a sealed box's cone motion
-is always well-damped by the air spring. A ported box's cone is well-damped
-near and above Fb but poorly damped below Fb. Musical content with
-significant energy below Fb (sub-bass drops, 808 kicks reaching 30 Hz) can
-push the ported driver into its nonlinear excursion range, producing
-distortion on transients. The same content through a sealed box produces less
-excursion because the air spring provides restoring force, keeping the driver
-in its linear range longer. A true TL falls between these extremes -- better
-cone control than ported, though not as predictable as sealed.
-
----
-
-## Thiele-Small Parameters
-
-### Driver Q factor (Qts)
+#### Driver Q factor (Qts)
 
 Qts is the most important parameter for determining whether a driver suits a
 sealed or ported enclosure:
@@ -463,7 +637,7 @@ sealed or ported enclosure:
 | 0.4 - 0.7 | Either topology. Sealed gives Qtc ~ 0.7 in a moderate box; ported extends bass response. |
 | > 0.7 | Best in sealed. High-Q drivers in ported boxes tend to produce boomy, underdamped bass with excessive group delay. |
 
-### Box volume and Qtc
+#### Box volume and Qtc
 
 In a sealed box, the system Q (Qtc) relates to the driver Qts by:
 
@@ -476,7 +650,7 @@ Qtc = 0.577), the box volume must be chosen to satisfy the equation -- this
 gives the flattest group delay at the cost of less bass extension compared to
 a Butterworth alignment.
 
-### Other parameters
+#### Other parameters
 
 **Vas (equivalent compliance volume):** Determines box size. Ported boxes are
 typically 1.5-3x the volume of sealed boxes for the same driver.
@@ -485,101 +659,86 @@ typically 1.5-3x the volume of sealed boxes for the same driver.
 Fc > Fs (the air spring raises it). In a ported box, the -3 dB point can be
 below Fs if the port is tuned low enough.
 
-These are the foundational relationships of Thiele-Small theory (Thiele, 1971;
-Small, 1972, 1973).
-
 ---
 
-## Psychoacoustic Thresholds for Group Delay
+## 5. Interaction with Our FIR Correction Pipeline
 
-### Blauert and Laws (1978)
+### 5.1 What the pipeline can correct
 
-The most widely cited study on group delay audibility. Their measured
-findings:
+Above the enclosure's tuning or rolloff frequency, all topologies have
+essentially flat response that the room correction pipeline addresses
+effectively. The enclosure type does not meaningfully affect the pipeline's
+ability to tame room modes in this region.
 
-- Group delay audibility was tested at frequencies from 500 Hz to 8 kHz.
-- At 500 Hz, the audibility threshold was approximately 3.2 ms (corresponding
-  to roughly 1.6 cycles).
-- At higher frequencies, the threshold decreased (shorter group delays became
-  audible).
-- The general pattern: the threshold is approximately 1.5-2 periods of the
-  signal frequency.
+A minimum-phase FIR correction filter can also reduce group delay near the
+enclosure's rolloff frequency by flattening the magnitude response. Since
+group delay is linked to magnitude response slope via the minimum-phase
+relationship, smoothing out a response peak near the tuning frequency also
+reduces the group delay peak. This is particularly relevant for ported and
+quarter-wave resonator designs, where the magnitude peak near the tuning
+frequency contributes significantly to group delay. Flattening this peak
+through correction can bring the group delay in the tuning region closer to
+-- though not equal to -- sealed-box levels.
 
-**Blauert and Laws did not measure group delay audibility below 500 Hz.** The
-sub-bass thresholds commonly cited in audio engineering literature (for
-example, "~30 ms at 50 Hz" or "~50 ms at 30 Hz") are extrapolations of the
-~1.5-cycle rule to frequencies the study never tested. These extrapolated
-values appear throughout the literature as if they are measured data, but they
-are not.
+### 5.2 What the pipeline removes from the room
 
-The extrapolation assumes that the "cycles of the signal frequency"
-relationship holds at sub-bass frequencies. This is plausible but unverified:
+Room modal peaks are the pipeline's primary target in the sub-bass range. A
+room mode produces both a magnitude peak and associated time-domain ringing
+(the two are linked through the minimum-phase relationship). When the
+correction filter attenuates a 15 dB room mode peak to flat, the ringing
+energy decreases proportionally -- roughly 97% energy reduction (magnitude
+squared). This is the pipeline's core value proposition for sub-bass quality.
 
-- **Arguments for:** The psychoacoustic mechanism (temporal pattern
-  recognition requiring multiple cycles) should be frequency-independent.
-- **Arguments against:** Sub-bass frequencies are perceived partly through
-  vibrotactile (body feel) mechanisms, not just auditory processing. The
-  temporal resolution of tactile perception differs from auditory perception.
-  Group delay audibility at 40 Hz may be governed by different perceptual
-  mechanisms than at 500 Hz.
+However, the correction does not eliminate room effects entirely:
 
-### Other relevant research
+- **Modal ringing is reduced, not zeroed.** The correction targets the
+  magnitude peak, which reduces ringing, but residual energy remains. A
+  15 dB mode cut leaves ~3% of the original ringing energy -- small but
+  nonzero. Multiple overlapping modes leave a residual floor of time-domain
+  energy.
+- **Early reflections are deliberately uncorrected.** Floor, wall, and
+  ceiling reflections arriving within 5-30 ms of the direct sound produce
+  comb filtering that varies with listener position. The pipeline's
+  frequency-dependent windowing ignores these -- correcting them at the
+  measurement position would worsen the response everywhere else.
+- **Diffuse reverberation is untouched.** The late-arriving, broadband decay
+  of the room is not targeted by the correction.
 
-**Lipshitz, Pocock, and Vanderkooy (1982):** Studied audibility of
-linear-phase vs minimum-phase crossovers. Found that group delay differences
-were inaudible in most listening conditions but could be detected with
-specific test signals (clicks, impulses) at moderate SPL. This suggests that
-for complex musical signals, group delay differences below the Blauert and
-Laws threshold are reliably inaudible.
+The consequence: after room correction, the sub-bass time domain still
+contains early reflections and residual modal energy. But the dominant modal
+artifacts (50-200 ms of ringing) are dramatically reduced, which elevates the
+relative importance of the enclosure's intrinsic group delay.
 
-**Linkwitz** (co-inventor of the Linkwitz-Riley crossover) has stated in his
-published writings that LR4 crossover phase distortion is inaudible in his
-personal listening tests. This is notable because Linkwitz is arguably the
-person most motivated and qualified to detect phase artifacts from his own
-crossover design. The specific publication should be identified for proper
-citation before relying on this claim.
+### 5.3 What the pipeline cannot correct
 
-**Thiele** (cited by Small) analyzed the transient behavior of correctly
-designed ported and sealed enclosures and concluded that the differences
-between them are "likely to be inaudible." This is consistent with the
-document's broader conclusion that room effects dominate the sub-bass time
-response. The specific Thiele paper should be identified and verified before
-publication.
+The FIR correction cannot reduce group delay below the minimum-phase limit
+for the corrected magnitude response. It cannot eliminate the excess phase
+from the port's phase inversion below Fb -- that is a physical property of
+the enclosure. Similarly, it cannot remove the propagation delay through a
+horn's or transmission line's acoustic path.
 
-**Toole (2008), "Sound Reproduction":** Discusses group delay audibility in
-the context of subwoofer systems. The general conclusion: group delay from
-loudspeaker/room systems is almost always inaudible because room reflections
-dominate the time-domain behavior. The exception is direct-radiator subwoofers
-at very close range in acoustically treated rooms.
+At frequencies well below the tuning frequency, the enclosure's output is
+too low to correct anyway: D-009 prohibits boost, so the correction rolls
+off naturally. The group delay in that region is irrelevant because no signal
+passes through it.
 
-### Application to psytrance kick drums
+**Net effect:** FIR correction can bring group delay near and above the
+tuning frequency closer to sealed-box levels, but cannot eliminate the
+enclosure's intrinsic minimum-phase delay. In a room-corrected system, this
+residual enclosure delay is one of several comparable time-domain artifacts
+rather than a negligible one.
 
-A psytrance kick typically has a broadband attack transient (2-10 kHz, under
-5 ms) above the crossover frequency, and a sub-bass fundamental and tail
-(30-60 Hz, extending 100-300 ms) below it. The attack passes through the
-mains with minimal group delay regardless of enclosure type. The sub-bass
-content passes through the subwoofer, where enclosure group delay applies.
+### 5.4 Room-correction rebalancing: corrected vs uncorrected systems
 
-At 50 Hz, the extrapolated Blauert and Laws threshold is approximately 30 ms.
-A sealed sub with Qtc = 0.707 at Fc = 40 Hz has roughly 15-20 ms of group
-delay at 50 Hz -- below the extrapolated threshold. A ported sub tuned to
-Fb = 35 Hz (B4 alignment) has roughly 25-35 ms -- at or above it. A
-horn-loaded sub falls in the 20-40 ms range depending on design. A true TL
-is comparable to sealed (~10-20 ms), while a quarter-wave resonator is
-comparable to ported (~25-40 ms).
-
-**Does the difference matter in a real venue?** The answer depends on whether
-the system applies room correction.
-
-**In an uncorrected system:** Probably not. Toole's work shows that room
-reflections and modal behavior dominate the sub-bass time response in
-untreated rooms. Modal ringing at 50-200 ms swamps the 15-40 ms range of
-enclosure group delay variation. The difference between a sealed and a ported
-sub is buried under room artifacts. This is the context in which Toole,
-Thiele, and Linkwitz made their assessments -- none of them assumed a
-room-corrected system, because real-time FIR correction was either
-nonexistent (Blauert 1978, Lipshitz 1982) or exotic and expensive (Toole
-2008) at the time of their work.
+**In an uncorrected system:** Enclosure topology differences probably do not
+matter. Toole's work [5] shows that room reflections and modal behavior
+dominate the sub-bass time response in untreated rooms. Modal ringing at
+50-200 ms swamps the 15-40 ms range of enclosure group delay variation. The
+difference between a sealed and a ported sub is buried under room artifacts.
+This is the context in which Toole, Thiele, and Linkwitz made their
+assessments -- none of them assumed a room-corrected system, because real-time
+FIR correction was either nonexistent (Blauert 1978 [1], Lipshitz 1982 [2])
+or exotic and expensive (Toole 2008 [5]) at the time of their work.
 
 **In a room-corrected system (our system):** The balance shifts. Our pipeline
 applies 16,384-tap minimum-phase FIR correction that specifically targets
@@ -610,94 +769,7 @@ difference between a sealed sub and a ported sub is no longer buried under
 100+ ms of modal ringing -- it is now in the same order of magnitude as the
 early reflection pattern.
 
-**Practical implication for enclosure choice:** In our room-corrected system,
-a sealed or true-TL subwoofer's lower group delay is a genuine, if modest,
-advantage over a ported or quarter-wave resonator design. The advantage is
-not dramatic -- we are comparing 15 ms vs 30 ms in a context where early
-reflections at 5-30 ms are also present -- but it is real and not masked by
-room modes. For psytrance kick drums, where the sub-bass tail of the kick
-(30-60 Hz, 100-300 ms) passes through the subwoofer, the tighter impulse
-response of a sealed or true-TL design preserves more of the original
-transient envelope.
-
-This should not be overstated. The difference is subtle, operating near the
-edge of audibility even by the generous extrapolated Blauert thresholds. A
-well-aligned ported sub in a room-corrected system will sound very good. But
-if the owner is choosing between enclosure types and other factors (size,
-cost, efficiency) are equal, lower group delay is a legitimate tiebreaker in
-a corrected system -- whereas in an uncorrected system, it would not be.
-
----
-
-## Interaction with Our FIR Correction Pipeline
-
-### What the pipeline can correct
-
-Above the enclosure's tuning or rolloff frequency, all topologies have
-essentially flat response that the room correction pipeline addresses
-effectively. The enclosure type does not meaningfully affect the pipeline's
-ability to tame room modes in this region.
-
-A minimum-phase FIR correction filter can also reduce group delay near the
-enclosure's rolloff frequency by flattening the magnitude response. Since
-group delay is linked to magnitude response slope via the minimum-phase
-relationship, smoothing out a response peak near the tuning frequency also
-reduces the group delay peak. This is particularly relevant for ported and
-quarter-wave resonator designs, where the magnitude peak near the tuning
-frequency contributes significantly to group delay. Flattening this peak
-through correction can bring the group delay in the tuning region closer to
--- though not equal to -- sealed-box levels.
-
-### What the pipeline removes from the room
-
-Room modal peaks are the pipeline's primary target in the sub-bass range. A
-room mode produces both a magnitude peak and associated time-domain ringing
-(the two are linked through the minimum-phase relationship). When the
-correction filter attenuates a 15 dB room mode peak to flat, the ringing
-energy decreases proportionally -- roughly 97% energy reduction (magnitude
-squared). This is the pipeline's core value proposition for sub-bass quality.
-
-However, the correction does not eliminate room effects entirely:
-
-- **Modal ringing is reduced, not zeroed.** The correction targets the
-  magnitude peak, which reduces ringing, but residual energy remains. A
-  15 dB mode cut leaves ~3% of the original ringing energy -- small but
-  nonzero. Multiple overlapping modes leave a residual floor of time-domain
-  energy.
-- **Early reflections are deliberately uncorrected.** Floor, wall, and
-  ceiling reflections arriving within 5-30 ms of the direct sound produce
-  comb filtering that varies with listener position. The pipeline's
-  frequency-dependent windowing ignores these -- correcting them at the
-  measurement position would worsen the response everywhere else.
-- **Diffuse reverberation is untouched.** The late-arriving, broadband decay
-  of the room is not targeted by the correction.
-
-The consequence: after room correction, the sub-bass time domain still
-contains early reflections and residual modal energy. But the dominant modal
-artifacts (50-200 ms of ringing) are dramatically reduced, which elevates the
-relative importance of the enclosure's intrinsic group delay. See
-"Application to psytrance kick drums" above for the revised assessment.
-
-### What the pipeline cannot correct
-
-The FIR correction cannot reduce group delay below the minimum-phase limit
-for the corrected magnitude response. It cannot eliminate the excess phase
-from the port's phase inversion below Fb -- that is a physical property of
-the enclosure. Similarly, it cannot remove the propagation delay through a
-horn's or transmission line's acoustic path.
-
-At frequencies well below the tuning frequency, the enclosure's output is
-too low to correct anyway: D-009 prohibits boost, so the correction rolls
-off naturally. The group delay in that region is irrelevant because no signal
-passes through it.
-
-**Net effect:** FIR correction can bring group delay near and above the
-tuning frequency closer to sealed-box levels, but cannot eliminate the
-enclosure's intrinsic minimum-phase delay. In a room-corrected system, this
-residual enclosure delay is one of several comparable time-domain artifacts
-rather than a negligible one.
-
-### Per-sub independence (D-004)
+### 5.5 Per-sub independence (D-004)
 
 With two independent subs, each sub can use a different enclosure type. The
 per-sub FIR correction handles the differences naturally:
@@ -729,46 +801,124 @@ measure, compute inverse, apply as minimum-phase FIR.
 
 ---
 
-## Summary
+## 6. Conclusion
 
-| Property | Sealed | Ported | Horn-loaded | True TL | QW Resonator / MLTL |
-|----------|--------|--------|-------------|---------|---------------------|
-| Rolloff slope | 12 dB/oct | 24 dB/oct | Design-dependent | ~12 dB/oct | ~24 dB/oct |
-| Filter order | 2nd | 4th | Complex | ~2nd (damped) | ~4th |
-| Group delay at 50 Hz | ~15-20 ms | ~25-35 ms | ~20-40 ms | ~10-20 ms | ~25-40 ms |
-| Cone unloading below tuning | No | Yes | Moderate | Minimal | Moderate |
-| Subsonic protection (D-010) | Not needed | Mandatory | Advisable | Advisable (less aggressive) | Advisable |
-| Efficiency | Low | Medium | High | Low | Medium |
-| Size for equivalent output | Medium | Medium | Large | Large | Medium-large |
-| "Tighter bass" claim | Reference | No | No | Supported (physical basis) | No |
-| PA suitability | Rare | Standard | Common (high SPL) | Rare (low efficiency) | Uncommon |
-| FIR correction compatibility | Full | Full above Fb | Full | Full | Full above tuning |
-| Pipeline handles it | Yes | Yes | Yes | Yes | Yes |
-| Significance in uncorrected rooms | Minimal (room modes dominate) | Minimal (room modes dominate) | Minimal (room modes dominate) | Minimal (room modes dominate) | Minimal (room modes dominate) |
-| Significance in corrected system | Lowest group delay; modest advantage | Higher group delay; modest disadvantage | Variable | Comparable to sealed; modest advantage | Comparable to ported; modest disadvantage |
+In our room-corrected system, a sealed or true-TL subwoofer's lower group
+delay is a genuine, if modest, advantage over a ported or quarter-wave
+resonator design. The advantage is not dramatic -- we are comparing 15 ms vs
+30 ms in a context where early reflections at 5-30 ms are also present -- but
+it is real and not masked by room modes. For psytrance kick drums, where the
+sub-bass tail of the kick (30-60 Hz, 100-300 ms) passes through the
+subwoofer, the tighter impulse response of a sealed or true-TL design
+preserves more of the original transient envelope.
+
+This should not be overstated. The difference is subtle, operating near the
+edge of audibility even by the generous extrapolated Blauert thresholds [1].
+A well-aligned ported sub in a room-corrected system will sound very good.
+But if the owner is choosing between enclosure types and other factors (size,
+cost, efficiency) are equal, lower group delay is a legitimate tiebreaker in
+a corrected system -- whereas in an uncorrected system, it would not be.
+
+The FIR correction pipeline handles any topology effectively above the
+enclosure's rolloff frequency. The practical differences: ported, horn-loaded,
+and transmission line enclosures require subsonic protection (D-010) while
+sealed enclosures do not, and designs with internal acoustic paths add
+physical propagation delay that the measurement pipeline captures
+automatically.
 
 ---
 
-## Citation Confidence
+## Bibliography
 
-Every claim in this document has been assessed for confidence. The general
-physics and engineering conclusions are sound, but specific numerical
-thresholds and certain citations should be verified against original sources.
+Each entry includes an assessed confidence level for the claims attributed to
+that source in this document.
 
-| Source | Claim | Confidence |
-|--------|-------|-----------|
-| Thiele (1971), Small (1972, 1973) | Thiele-Small parameters, sealed/ported models | HIGH -- foundational, widely reproduced |
-| Olson (1957), Beranek (1954), Keele (1975) | Horn acoustics, acoustic transformer principle | HIGH -- foundational |
-| Bailey (1965), Bradbury (1976) | Transmission line loudspeaker theory | MEDIUM-HIGH -- foundational for TL design, widely referenced, but less mainstream than Thiele-Small |
-| King (1996) | Practical TL design methodology | MEDIUM -- referenced in TL design literature, not independently verified against original |
-| Martin King (2001-2010) | TL vs quarter-wave resonator distinction, simulation data | HIGH -- peer-reviewed and independently verifiable |
-| Blauert and Laws (1978) | Group delay audibility ~1.5 cycles, 500 Hz-8 kHz | HIGH for the measured range; sub-bass values are extrapolations, not data |
-| Toole (2008), "Sound Reproduction" | Room effects dominate sub-bass time response | MEDIUM-HIGH -- widely referenced, consistent with field experience |
-| Lipshitz, Pocock, Vanderkooy (1982) | Phase audibility in crossovers | MEDIUM -- cited from memory |
-| Linkwitz | LR4 phase distortion inaudible in listening tests | MEDIUM -- consistent with known positions, specific publication unverified |
-| Thiele (cited by Small) | Ported vs sealed differences "likely inaudible" | MEDIUM -- secondary citation, specific paper unverified |
-| PMC (Professional Monitor Company) | TL use in professional monitoring | HIGH -- commercially verifiable, well-documented product line |
-| "Tighter bass" claim for TLs | Subjective reputation of TL transient quality | MEDIUM -- physically grounded for true TLs, questionable for lightly-damped designs, likely confounded by comparison methodology |
-| HOQS Paraflex community | Paraflex transient behavior, group delay | LOW -- no peer-reviewed measurements published |
-| Room-correction rebalancing analysis | Enclosure topology significance increases in corrected systems | MEDIUM-HIGH -- physics reasoning is sound (magnitude correction reduces modal ringing, cannot reduce enclosure minimum-phase delay); degree of rebalancing depends on room-specific factors (reflection density, correction effectiveness) that vary between venues |
-| D-004, D-008, D-009, D-010 | Per-sub correction, per-venue measurement, cut-only, subsonic protection | HIGH -- project decisions |
+[1] Blauert, J. and Laws, P. (1978). "Group delay distortions in
+    electroacoustical systems." *Journal of the Acoustical Society of
+    America*, 63(5), pp. 1478-1483.
+    **Confidence: HIGH** for the measured range (500 Hz - 8 kHz); sub-bass
+    values commonly attributed to this study are extrapolations, not data.
+
+[2] Lipshitz, S.P., Pocock, M., and Vanderkooy, J. (1982). "On the
+    audibility of midrange phase distortion in audio systems." *Journal of
+    the Audio Engineering Society*, 30(9), pp. 580-595.
+    **Confidence: MEDIUM** -- cited from memory; claims consistent with known
+    findings.
+
+[3] Linkwitz, S. Writings on LR4 crossover phase distortion audibility.
+    Specific publication unverified.
+    **Confidence: MEDIUM** -- consistent with known positions; specific
+    publication should be identified for proper citation.
+
+[4] Thiele, A.N. Transient behavior analysis of sealed and ported
+    enclosures. Cited by Small; specific paper unverified.
+    **Confidence: MEDIUM** -- secondary citation; specific paper should be
+    identified and verified.
+
+[5] Toole, F.E. (2008). *Sound Reproduction: The Acoustics and
+    Psychoacoustics of Loudspeakers and Rooms*. Focal Press.
+    **Confidence: MEDIUM-HIGH** -- widely referenced, consistent with field
+    experience.
+
+[6] Small, R.H. (1972). "Direct-radiator loudspeaker system analysis."
+    *Journal of the Audio Engineering Society*, 20(5), pp. 383-395.
+    Small, R.H. (1973). "Closed-box loudspeaker systems." *Journal of the
+    Audio Engineering Society*, 21(1-2).
+    **Confidence: HIGH** -- foundational, widely reproduced.
+
+[7] Thiele, A.N. (1971). "Loudspeakers in vented boxes." *Journal of the
+    Audio Engineering Society*, 19(5-6). (Originally published 1961 in
+    *Proceedings of the IRE Australia*.)
+    **Confidence: HIGH** -- foundational, widely reproduced.
+
+[8] Olson, H.F. (1957). *Acoustical Engineering*. Van Nostrand.
+    **Confidence: HIGH** -- foundational.
+
+[9] Beranek, L.L. (1954). *Acoustics*. McGraw-Hill.
+    **Confidence: HIGH** -- foundational.
+
+[10] Keele, D.B. (1975). "Low-frequency horn design using Thiele/Small
+     driver parameters." *AES Preprint* No. 1032, presented at the 51st AES
+     Convention.
+     **Confidence: HIGH** -- foundational.
+
+[11] Bailey, A.R. (1965). "A non-resonant loudspeaker enclosure design."
+     *Wireless World*, 71(10), pp. 483-486.
+     **Confidence: MEDIUM-HIGH** -- foundational for TL design, widely
+     referenced, but less mainstream than Thiele-Small.
+
+[12] Bradbury, L.J.S. (1976). "The use of fibrous materials in loudspeaker
+     enclosures." *Journal of the Audio Engineering Society*, 24(3),
+     pp. 162-170.
+     **Confidence: MEDIUM-HIGH** -- foundational for TL design, widely
+     referenced.
+
+[13] King, M.J. (1996). Chapter in *Loudspeaker and Headphone Handbook*,
+     ed. J. Borwick. Focal Press.
+     **Confidence: MEDIUM** -- referenced in TL design literature, not
+     independently verified against original.
+
+[14] King, M.J. (2001-2010). Transmission line loudspeaker analysis and
+     simulation. Published on quarter-wave.com and in peer-reviewed journals.
+     **Confidence: HIGH** -- peer-reviewed and independently verifiable.
+
+[15] HOQS (High Order Quarterwave Society). Paraflex subwoofer designs.
+     Community-developed, shared via diyAudio forums.
+     **Confidence: LOW** -- no peer-reviewed measurements published.
+
+[16] PMC (Professional Monitor Company). Transmission line designs in
+     professional monitoring.
+     **Confidence: HIGH** -- commercially verifiable, well-documented product
+     line.
+
+[17] Room-correction rebalancing analysis (this document). Enclosure topology
+     significance increases in corrected systems.
+     **Confidence: MEDIUM-HIGH** -- physics reasoning is sound (magnitude
+     correction reduces modal ringing, cannot reduce enclosure minimum-phase
+     delay); degree of rebalancing depends on room-specific factors (reflection
+     density, correction effectiveness) that vary between venues.
+
+[18] D-004, D-008, D-009, D-010 -- project design decisions (per-sub
+     correction, per-venue measurement, cut-only correction, subsonic
+     protection).
+     **Confidence: HIGH** -- project decisions.
