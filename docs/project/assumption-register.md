@@ -16,9 +16,9 @@ affected decisions/stories, and current status.
 
 | ID | Assumption | Confidence | Validation | Affects | Status |
 |----|-----------|------------|------------|---------|--------|
-| A1 | 16k taps @ chunksize 2048 fits in Pi 4 CPU budget alongside Mixxx | HIGH | T1a, T3a (US-001) | D-003, US-001 | open |
-| A2 | 16k taps @ chunksize 512 fits in Pi 4 CPU budget alongside Reaper | VALIDATED | T1b (US-001): 19.25% at chunksize 256 | D-003, D-011, US-001 | validated — chunksize now 256 per D-011, well within budget |
-| A3 | End-to-end PA latency in live mode < 25ms | INVALIDATED | T2b (US-002): 30.3ms at chunksize 512 | D-002, D-011, US-002 | invalidated at 512; D-011 supersedes with chunksize 256 targeting ~21ms |
+| A1 | 16k taps @ chunksize 2048 fits in Pi 4 CPU budget alongside Mixxx | VALIDATED | T1a (US-001): 5.23% processing load | D-003, US-001 | validated — well within budget |
+| A2 | 16k taps @ chunksize 512 fits in Pi 4 CPU budget alongside Reaper | VALIDATED | T1b (US-001): 10.42% at chunksize 512; T1c: 19.25% at chunksize 256 (D-011 target). Both within budget. | D-003, D-011, US-001 | validated — chunksize now 256 per D-011, 19.25% processing load |
+| A3 | End-to-end PA latency in live mode < 25ms | INVALIDATED | T2b (US-002): 30.3ms measured at chunksize 512. Bone-to-IEM measured ~22ms. D-011 targets chunksize 256 (~20ms projected PA path, not yet measured). | D-002, D-011, US-002 | invalidated at 512; D-011 supersedes with chunksize 256, re-measurement pending |
 | A4 | Pi 4 thermals stay below 75C in flight case under sustained load | LOW | T4 (US-003) | D-003, flight case design | open |
 | A5 | 16k-tap FIR actually provides effective correction at 20Hz | MEDIUM | T5 (US-013) | D-003, US-013 | open |
 | A6 | Hercules DJControl Mix Ultra presents as USB-MIDI on Linux | UNKNOWN | Manual test (US-005) | US-005, US-006 | open |
@@ -42,7 +42,7 @@ card numbers shift and CamillaDSP/PipeWire break silently.
 varying USB plug order. Consider using `hw:USBStreamer,0` by ALSA card name
 instead of numeric index.
 **Affects:** US-000 (installation), all CamillaDSP configs, all PipeWire configs
-**Status:** open
+**Status:** partially-resolved — `hw:USBStreamer,0` by-name addressing applied in US-000b
 
 ---
 
@@ -54,11 +54,10 @@ like `/home/pi/bin/`. The actual Pi user is `ela` (confirmed in CLAUDE.md:
 directory references must be updated. PipeWire runs as a user session under
 `ela`, not `pi`.
 
-**Confidence:** HIGH this is wrong
-**Validation:** Update all user references before deployment. Any script or
-service referencing `pi` will fail on the actual system.
-**Affects:** US-000 (blocking), US-021 (mode switching), section 10 (headless operation)
-**Status:** open — must be fixed in US-000
+**Confidence:** HIGH — confirmed wrong, now fixed
+**Validation:** All user references corrected to `ela` in US-000.
+**Affects:** US-000 (was blocking), US-021 (mode switching), section 10 (headless operation)
+**Status:** validated — all paths corrected to `ela` in US-000
 
 ---
 
@@ -320,7 +319,7 @@ relief in flight case design.
 
 | Story | Blocking Assumptions | Notes |
 |-------|---------------------|-------|
-| US-000 | A9 (ALSA device paths), A10 (User=pi vs ela), A17 (ALSA-only binary) | A10 causes immediate failure on deployment |
+| US-000 | ~~A9~~ (resolved in US-000b), ~~A10~~ (resolved in US-000), A17 (ALSA-only binary — informational) | A9, A10 resolved; A17 is a constraint, not a blocker |
 | US-005 | A14 (BT disabled before USB-MIDI tested) | Must test USB-MIDI BEFORE disabling BT |
 | US-006 | A15 (Xvfb systemd bug), A16 (gpu_mem conflict) | Headless Mixxx will not work as documented |
 | US-017 | A11 (8ch CamillaDSP routing) | D-011 resolved the architecture but configs need updating |
@@ -345,10 +344,19 @@ relief in flight case design.
 
 ## Summary
 
-| Severity | Total | Open | Resolved/Validated |
-|----------|-------|------|--------------------|
-| CRITICAL | 2 | 0 | 2 (resolved by D-007, D-011) |
-| HIGH | 10 | 6 | 4 (A2 validated, A3/A11 resolved by D-011, H1 informational) |
-| MEDIUM | 12 | 10 | 2 (partially resolved) |
-| LOW | 6 | 5 | 1 (L2 resolved by D-010) |
-| **Total** | **30** | **21** | **9** |
+This register contains 26 formal assumptions (A1-A26). The original AD audit
+identified 30 findings total; the additional 4 were meta-findings (C1, H1, M4, L2)
+that were resolved by decisions D-007 through D-010 and are tracked in the
+"Assumptions Resolved by Recent Decisions" table above rather than as numbered
+assumptions.
+
+| Severity | Entries (A1-A26) | Open | Resolved/Validated |
+|----------|-----------------|------|--------------------|
+| HIGH (A1-A3, A9-A13) | 9 | 3 (A4-equivalent: A12, A13 partially; A9 partially) | 6 (A1, A2 validated; A3 invalidated/superseded; A9, A10 resolved; A11 partially-resolved) |
+| MEDIUM (A14-A22) | 9 | 9 | 0 |
+| LOW (A23-A26) | 4 | 4 | 0 |
+| UNKNOWN (A6, A8) | 2 | 2 | 0 |
+| **Total** | **26** | **18** | **8** |
+
+Note: A4 (LOW), A5 (MEDIUM), A6 (UNKNOWN), A7 (MEDIUM), A8 (UNKNOWN) from the
+original set remain open pending hardware validation.
