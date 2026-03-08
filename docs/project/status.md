@@ -2,7 +2,7 @@
 
 ## Overall Status
 
-US-000 COMPLETE — all core software installed and validated. CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, RustDesk 1.3.9, Python 3.13 venv with DSP libs. Tier 1 stories (US-001, US-002) now unblocked. US-000a remainder (CamillaDSP localhost binding) can proceed. Validation-first approach continues.
+**US-000 DONE** — all advisors signed off, owner accepted. Follow-up worker running (USBStreamer 8ch, CamillaDSP systemd service, reboot test). Two quick fixes pending (remove snd-aloop `channels=4`, disable nfs-blkmap). Tier 1 begins after follow-up completes.
 
 ## Component Status
 
@@ -25,20 +25,20 @@ US-000 COMPLETE — all core software installed and validated. CamillaDSP 3.0.1,
 
 | Story | Score | Status |
 |-------|-------|--------|
-| US-000 | 3/3 | in-review (all tasks complete, validation passed, pending advisory sign-off) |
-| US-000a | 2/4 | in-progress (CamillaDSP localhost binding now unblocked) |
-| US-001 | 0/4 | ready (unblocked by US-000 completion) |
-| US-002 | 0/4 | ready (unblocked by US-000 completion) |
+| US-000 | 3/3 | **done** (all advisors signed off: audio engineer, security specialist, technical writer) |
+| US-000a | 2/4 | in-progress (CamillaDSP systemd service with `-a 127.0.0.1` in follow-up worker) |
+| US-001 | 0/4 | ready (awaiting follow-up task completion before worker assignment) |
+| US-002 | 0/4 | ready (awaiting follow-up task completion before worker assignment) |
 | US-004 | 0/3 | ready (independent) |
-| US-005 | 0/3 | ready (unblocked by US-000 completion) |
+| US-005 | 0/3 | ready (after Tier 1; Hercules already visible as USB-MIDI — positive signal) |
 | US-006 | 0/3 | ready (unblocked by US-000 + US-005) |
 
 ## In Progress
 
-- US-000: COMPLETE — in-review, pending advisory sign-off + owner acceptance
-- US-000a: CamillaDSP localhost binding now unblocked (F-002 confirmed: `-a` flag exists)
-- Next: US-001 (CPU benchmarks) + US-002 (latency) can run in parallel
-- Follow-up items from US-000 (non-blocking): reboot test for snd-aloop, USBStreamer 4/8 capture channels, gpu_mem for Mixxx
+- **US-000 follow-up worker** (running): USBStreamer 8ch PipeWire profile, CamillaDSP systemd service (`-a 127.0.0.1`), reboot test
+- **Pending quick fixes** (after worker): remove `channels=4` from snd-aloop config, disable nfs-blkmap (F-011)
+- **US-000a:** CamillaDSP localhost binding being resolved in follow-up worker
+- **Next (after follow-up):** US-001 (CPU benchmarks) then US-002 (latency) — sequential, both need Pi lock
 
 ## Blockers
 

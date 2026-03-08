@@ -20,7 +20,7 @@ installed on the Pi 4B with verified basic functionality,
 **so that** subsequent stories (benchmarks, latency tests, stability tests,
 room correction pipeline) have a working software foundation.
 
-**Status:** in-review (all tasks complete, validation passed, pending advisory sign-off + owner acceptance)
+**Status:** done (all advisors signed off 2026-03-08: audio engineer, security specialist, technical writer)
 **Depends on:** none (first story to execute)
 **Blocks:** US-001 (CamillaDSP must be installed for CPU benchmarks), US-002 (CamillaDSP must be installed for latency measurement), US-006 (Mixxx must be installed for feasibility testing), US-017 (Reaper must be installed for IEM routing)
 **Decisions:** none yet
