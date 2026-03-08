@@ -32,8 +32,8 @@ Status: `open` | `in-progress` | `blocked` | `done` | `wont-do`
 | TK-013 | Lab notes T6: correct latency budget (old IEM bypass assumption) | technical-writer | open | US-002 | status.md line 67 | Cosmetic correction. D-011 supersedes the old model but the lab note text should be accurate. |
 | TK-014 | Verify Reaper installation path convention (/home/ela/opt vs /opt) | unassigned | open | standalone | PM observation during US-000b review | Minor -- confirm whether ~/opt is intentional (Pi-Apps default) or should be /opt. |
 | TK-015 | Mixxx smoke test: connect via RustDesk, launch Mixxx, verify it renders and plays audio | unassigned | open | US-029 | team-lead directive (UAT gap) | Zero user testing done so far. All validation has been synthetic. First step toward DJ mode UAT. |
-| TK-016 | Reaper smoke test: connect via RustDesk, launch Reaper, verify it runs with a project loaded | unassigned | open | standalone (pending new story) | team-lead directive (UAT gap) | Reaper is installed but never launched with a real project. |
-| TK-017 | Hercules USB-MIDI functional test: actual DJ control, not just enumeration | unassigned | open | US-005 | team-lead directive (UAT gap) | US-005 AC covers enumeration. This tests actual MIDI control messages, fader response, button mapping. |
+| TK-016 | Reaper smoke test: connect via RustDesk, launch Reaper, verify it runs with a project loaded | unassigned | open | US-030 | team-lead directive (UAT gap) | Reaper is installed but never launched with a real project. |
+| TK-017 | Hercules USB-MIDI functional test: actual DJ control, not just enumeration | unassigned | open | US-005/US-029 | team-lead directive (UAT gap) | US-005 AC covers enumeration. This tests actual MIDI control messages, fader response, button mapping. Prerequisite for US-029 DJ UAT. |
 | TK-018 | CamillaDSP stderr logging rule: all future test runs must use `2>/path/to/log` or run under systemd | unassigned | open | standalone | US-003 T3c analysis (lab notes line 527) | Monitoring gap: when CamillaDSP runs under sudo (not systemd), buffer underruns go to stderr only, not journal. Process improvement for all future tests. |
 | TK-019 | US-003 T3a (real): DJ mode stability with Mixxx + Hercules (30 min) | unassigned | blocked | US-003 | US-003 AC line 251 | Blocked on: TK-015 (Mixxx smoke test), US-005 (Hercules MIDI), US-006 (Mixxx feasibility). AC requires "Mixxx (2 decks, continuous playback)". Current T3b-synth used aplay, not Mixxx. |
 | TK-020 | US-003 T3b (real): Live mode stability with Reaper + vocal input (30 min) | unassigned | blocked | US-003 | US-003 AC line 252 | Blocked on: TK-016 (Reaper smoke test), Reaper project with backing tracks + FX chain. AC requires "Reaper (8-track backing + FX)". |
@@ -61,5 +61,5 @@ Items moved here when resolved. Preserves audit trail.
 
 - Tasks TK-001 through TK-021 are active. TK-100+ are completed (numbering gap is intentional for clarity).
 - US-003 T3e Phase 3 (30-min RT stability + cyclictest) is actively running -- tracked in US-003 DoD, not as a separate task here.
-- UAT stories (DJ mode, Live mode, end-to-end rehearsal) are pending product owner drafting. TK-015/016/017 are the prerequisite smoke tests.
+- UAT stories created by product owner: US-029 (DJ UAT), US-030 (Live UAT), US-031 (Full Rehearsal). TK-015/016/017 are prerequisite smoke tests.
 - The "T3b" in lab notes `US-003-stability-tests.md` is synthetic (CamillaDSP + aplay). The real T3b per AC requires Reaper load (TK-020).

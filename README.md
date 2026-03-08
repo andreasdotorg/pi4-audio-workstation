@@ -86,13 +86,14 @@ separate processing stage afterwards -- the room correction filter. Two stages
 means more CPU load and no opportunity to co-optimize the crossover with the
 room correction.
 
-A few high-end processors ([Lake](https://www.lakeprocessing.com/), [Powersoft](https://www.powersoft.com/)) offer **FIR** (Finite Impulse
-Response) crossovers -- filters described by a long list of precise
-coefficients called "taps" that give complete control over the filter shape.
-But commercial FIR processors typically max out at around 1,024 taps, which
-is too short for combined crossover and room correction at low frequencies.
+Some processors offer **FIR** (Finite Impulse Response) crossovers -- filters
+described by a long list of precise coefficients called "taps" that give
+complete control over the filter shape. But many mid-range commercial DSP
+processors limit FIR filters to 512-1,024 taps due to fixed-point hardware
+constraints -- too short for combined crossover and room correction at low
+frequencies.
 
-This system runs 16,384 taps (16x what commercial FIR processors offer),
+This system runs 16,384 taps on a Raspberry Pi 4B (enabled by CamillaDSP's efficient FFT-based algorithm),
 combining both crossover and room correction into a single **minimum-phase
 FIR filter** per output channel. "Minimum-phase" means it introduces the
 smallest possible timing delay for the amount of frequency shaping applied.

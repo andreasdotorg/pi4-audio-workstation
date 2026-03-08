@@ -1195,6 +1195,87 @@ is a future nice-to-have and does not need to be seamless.
 
 ---
 
+## US-027a: System Health Monitoring — Backend
+
+**As** the sound engineer,
+**I want** a lightweight background daemon that continuously monitors audio
+faults, system resource pressure, hardware health, and USB stability,
+outputting structured event logs and CLI summaries,
+**so that** I can detect problems during tests and gigs without needing a web
+dashboard, and review a persistent log after each session.
+
+**Status:** draft
+**Depends on:** US-003 (stability tests validate the audio metrics), US-028 (production CamillaDSP configs as systemd service)
+**Blocks:** US-027b (dashboard UI consumes this backend's event stream)
+**Cross-references:** US-003 (stability tests), D-009 (clipping is impossible in the DSP chain by design — monitors upstream/input clipping only), D-013 (PREEMPT_RT — CamillaDSP stderr underruns captured via journald), D-012 (thermal management — monitoring validates cooling effectiveness)
+**Decisions:** D-009 (cut-only correction), D-012 (flight case thermal), D-013 (PREEMPT_RT mandatory)
+
+**Note:** This is the data collection layer of the monitoring system, split from
+the dashboard UI (US-027b). It runs as an async Python daemon alongside
+CamillaDSP and outputs two streams: (1) structured JSON Lines to a log file
+for post-gig analysis and future UI consumption, and (2) human-readable CLI
+output for immediate use during tests via SSH/RustDesk. No web UI dependency.
+
+The scope covers four domains: (1) audio faults — xruns, clipping, DSP
+overload, PipeWire errors; (2) system resources — CPU load, memory pressure,
+per-process resource consumption; (3) hardware health — temperature, SD card
+wear and I/O latency, USB device stability; (4) D-009 safety cross-check.
+The architect is designing the async collection architecture.
+
+The DSP chain is clipping-safe by design (D-009: all filters <= -0.5dB,
+no stage produces net gain). Input clipping detection focuses on the
+UMIK-1/mic preamp stage and any upstream source feeding CamillaDSP.
+CamillaDSP's websocket API provides processing load and clipping indicators
+natively. CamillaDSP stderr underruns are captured automatically by journald
+when running as a systemd service (D-013).
+
+**Acceptance criteria:**
+
+*Audio fault detection:*
+- [ ] **Xrun detection:** CamillaDSP stderr underruns captured via journald monitoring; PipeWire xrun events detected via PipeWire log or event stream
+- [ ] **Input clipping detection:** peak level monitoring on active input channels (ch 0-1); alert when signal exceeds -1 dBFS for more than 10ms
+- [ ] **CamillaDSP processing overload:** processing load percentage read via pycamilladsp websocket API; alert when sustained above 80% for more than 5 seconds
+- [ ] **PipeWire pipeline errors:** pipeline state changes (error, paused unexpectedly) captured from PipeWire's event stream
+- [ ] **D-009 cross-check:** monitoring confirms no output channel exceeds 0 dBFS during operation (defense-in-depth validation that cut-only filters are working as designed)
+- [ ] **Startup transient filtering:** known CamillaDSP chunksize-256 startup underrun suppressed (no false alarm in first 5 seconds after CamillaDSP start)
+
+*System resource monitoring:*
+- [ ] **CPU load:** per-core and aggregate CPU utilization; alert when any core sustains >90% for more than 10 seconds
+- [ ] **Memory pressure:** total and available memory tracked; alert at <200MB available (warning) and <100MB available (critical). OOM killer activity detected via dmesg/journald
+- [ ] **Per-process resource tracking:** CPU and RSS memory for key processes (CamillaDSP, PipeWire, Mixxx/Reaper) sampled at each polling interval
+
+*Hardware health:*
+- [ ] **Thermal monitoring:** CPU temperature monitored; alert at 75C (warning) and 80C (critical); clock frequency drop detected as throttling indicator (D-012 validation)
+- [ ] **SD card health:** read/write error rate from `/sys/block/mmcblk0/stat`; alert on any I/O errors. Wear indicator if available via `/sys/block/mmcblk0/device/life_time`. Filesystem mount status monitored: alert immediately on read-only remount (ext4 error recovery remounts read-only, which silently breaks logging and config writes)
+- [ ] **Disk I/O latency:** SD card read stall detection via I/O wait monitoring or `/sys/block/mmcblk0/stat` service time tracking; alert when read latency threatens real-time audio (Reaper backing track playback depends on sustained SD card read throughput)
+- [ ] **USB device stability:** USB disconnect/reconnect/error events for USBStreamer and MIDI controllers detected via udev and dmesg/journald monitoring; alert on any unexpected disconnect, USB bus error, or device reset during a session
+
+*Output:*
+- [ ] **Structured JSON Lines log:** each event written as a single JSON line with fields: timestamp (ISO 8601), event_type, severity (info/warning/critical), source, details. File path configurable, default `/tmp/audio-monitor.jsonl`
+- [ ] **CLI summary output:** human-readable event stream to stdout, suitable for `ssh ela@mugge monitor-audio` or viewing via RustDesk terminal
+- [ ] **Periodic health snapshot:** aggregate system state (CPU, memory, temperature, CamillaDSP load) emitted as an info-level JSON line at configurable interval (default every 60s) for trend analysis
+
+*Operational:*
+- [ ] **Polling intervals:** CamillaDSP load and clipped samples every 1s; temperature every 5s; CPU/memory every 5s; PipeWire state every 1s; journald/dmesg tailing continuous; USB events via udev continuous
+- [ ] **Zero performance impact:** monitoring must not itself cause xruns or measurable CPU overhead (< 1% additional CPU)
+- [ ] **Works with both production configs:** dj-pa.yml and live.yml
+- [ ] **Standalone operation:** no dependency on US-022/US-023 web UI; runs as a systemd user service or manual foreground process
+- [ ] **Graceful degradation:** if any data source is unavailable (e.g., CamillaDSP websocket not running), that collector logs a warning and continues monitoring other sources
+
+**DoD:**
+- [ ] Monitoring daemon written as async Python module, syntax-validated (`python -m py_compile`)
+- [ ] Unit tests: synthetic events for each detection category trigger correct JSON output and CLI alerts
+- [ ] Unit tests: thermal threshold logic (75C warning, 80C critical, clock frequency drop)
+- [ ] Unit tests: memory pressure thresholds (200MB warning, 100MB critical)
+- [ ] Integration test on Pi 4B: run CamillaDSP under load, verify monitoring captures real audio events and system metrics
+- [ ] Performance validation: monitoring active during 30-minute playback, zero additional xruns caused by monitoring itself
+- [ ] Post-session log extraction demonstrated: JSON Lines file readable, parseable, contains expected events and periodic snapshots
+- [ ] Audio engineer review: audio fault detection covers the failure modes that matter during live performance
+- [ ] Architect review: data collection architecture is extensible for future data sources
+- [ ] Lab note documenting: detection methods, CLI usage, log format, example output, graceful degradation behavior
+
+---
+
 ## Tier 7 — Operational Convenience
 
 Quality-of-life features for venue setup and DJ workflow. Independent of
@@ -1302,49 +1383,32 @@ over SSH gives efficient incremental transfers.
 
 ---
 
-## US-027: Performance Event Monitoring
+## US-027b: System Health Monitoring — Engineer Dashboard
 
 **As** the sound engineer,
-**I want** real-time visibility into buffer under/overruns, input clipping,
-DSP overload, thermal throttling, and PipeWire pipeline errors,
-**so that** I can detect and respond to performance degradation before it
-becomes audible or disrupts the show.
+**I want** the monitoring events from US-027a displayed in real time on the
+engineer web dashboard with visual alerts and event history,
+**so that** I can monitor system health at a glance during a live show without
+needing a terminal.
 
 **Status:** draft
-**Depends on:** US-022 (web UI platform for real-time display), US-023 (engineer dashboard provides the UI surface)
+**Depends on:** US-022 (web UI platform), US-023 (engineer dashboard provides the UI surface), US-027a (monitoring backend provides the event stream)
 **Blocks:** none
-**Cross-references:** US-003 (stability tests validate the same metrics this story monitors in production), US-007 (APCmini mk2 — optional LED feedback surface), D-009 (clipping is impossible in the DSP chain by design — this story monitors upstream/input clipping only)
-**Decisions:** D-009 (cut-only correction — DSP chain cannot clip; monitoring focuses on input stage and upstream sources)
+**Cross-references:** US-007 (APCmini mk2 — optional LED feedback surface)
 
-**Note:** The DSP chain is clipping-safe by design (D-009: all filters <= -0.5dB,
-no stage produces net gain). Therefore input clipping detection focuses on the
-UMIK-1/mic preamp stage and any upstream source feeding CamillaDSP. The
-monitoring system does not need to watch for DSP-internal clipping — it
-cannot occur if D-009 is satisfied. CamillaDSP's websocket API provides
-processing load and clipping indicators natively.
+**Note:** This is the UI layer that consumes US-027a's structured JSON event
+stream and renders it on the engineer dashboard (US-023). The backend does
+the detection; this story does the display.
 
 **Acceptance criteria:**
-- [ ] **xrun detection:** PipeWire and ALSA xrun events captured in real time (both buffer underruns and overruns)
-- [ ] **Input clipping detection:** peak level monitoring on active input channels (ch 1-2); alert when signal exceeds -1 dBFS for more than 10ms
-- [ ] **CamillaDSP processing overload:** processing load percentage read via websocket API; alert when sustained above 80% for more than 5 seconds
-- [ ] **Thermal throttling detection:** CPU temperature monitored; alert at 75C (warning) and 80C (critical). Clock frequency drop detected as throttling indicator
-- [ ] **PipeWire pipeline errors:** pipeline state changes (error, paused unexpectedly) captured from PipeWire's event stream
-- [ ] **Real-time display:** all monitored events displayed on US-023 engineer dashboard with severity (info/warning/critical), timestamp, and event type
-- [ ] **Event history:** rolling log of last 100 events retained in memory for the current session (not persisted across reboots — ephemeral like venue measurements per D-008)
-- [ ] **Visual alert:** critical events highlighted prominently on dashboard (e.g., red indicator, persistent until acknowledged)
-- [ ] **Optional APCmini mk2 LED feedback:** if US-007 mapping exists and APCmini is connected, map status LEDs to system health (e.g., green=OK, yellow=warning, red=critical). This is a nice-to-have, not required for DoD
-- [ ] **Polling intervals:** xruns and clipping at audio-callback rate (real-time); CamillaDSP load every 1s; temperature every 5s; PipeWire state every 1s
-- [ ] **Zero performance impact:** monitoring must not itself cause xruns or measurable CPU overhead (< 1% additional CPU)
-- [ ] **D-009 cross-check:** monitoring confirms no output channel exceeds 0 dBFS during operation (defense-in-depth validation that cut-only filters are working as designed)
+- [ ] **Real-time display:** all events from US-027a's JSON stream displayed on US-023 engineer dashboard with severity, timestamp, and event type
+- [ ] **Event history:** rolling display of last 100 events for the current session
+- [ ] **Visual alert:** critical events highlighted prominently (e.g., red indicator, persistent until acknowledged)
+- [ ] **Optional APCmini mk2 LED feedback:** if US-007 mapping exists and APCmini is connected, map status LEDs to system health (green=OK, yellow=warning, red=critical). Nice-to-have, not required for DoD
+- [ ] **Severity filtering:** engineer can filter event display by severity level
 
 **DoD:**
-- [ ] Monitoring backend module written and syntax-validated (`python -m py_compile`)
-- [ ] Integration with US-023 engineer dashboard: events appear in real time
-- [ ] Unit tests: synthetic xrun/clipping/overload events trigger correct alerts
-- [ ] Unit tests: thermal threshold logic (75C warning, 80C critical, clock frequency drop)
-- [ ] Integration test on Pi 4B: run CamillaDSP under load, verify monitoring captures real events
-- [ ] Performance validation: monitoring active during 30-minute playback, zero additional xruns caused by monitoring itself
-- [ ] Audio engineer review: monitored events cover the failure modes that matter during live performance
+- [ ] Dashboard integration tested: events from US-027a appear in real time on US-023
 - [ ] UX specialist review: dashboard event display is scannable during a live show (no information overload)
 - [ ] Lab note with screenshots of event display under normal and stress conditions
 - [ ] If APCmini LED feedback implemented: tested with physical APCmini mk2
@@ -1502,7 +1566,10 @@ US-000 (software install) ──> US-000a (security hardening) ──> [venue de
 US-001 ──> US-008 (measurement) ──> US-009 (time alignment) ──┐
                                 └──> US-010 (correction) ──> US-011 (crossover) ──> US-011b (profiles/config gen) ──> US-012 (automation) ──> US-013 (T5 verification)
 
-US-000 + US-000a ──> US-022 (web UI platform) ──> US-023 (engineer dashboard) ──> US-027 (performance monitoring)
+US-003 + US-028 ──> US-027a (health monitoring backend) ──> US-027b (health monitoring dashboard)
+                                                            ↑ US-027b also depends on US-023
+
+US-000 + US-000a ──> US-022 (web UI platform) ──> US-023 (engineer dashboard) ──> US-027b (health monitoring dashboard)
                                                └──> US-018 (singer IEM self-control)
                                                     ↑ also depends on US-017
 

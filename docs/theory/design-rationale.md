@@ -12,6 +12,82 @@ connects the dots between decisions.
 
 ---
 
+## Signal Flow
+
+The following diagram shows the audio signal path from application to speakers.
+Both modes share the same pipeline; only the source application, buffer sizes,
+and active channels differ.
+
+```mermaid
+flowchart LR
+    subgraph Sources
+        MX["Mixxx<br/>(DJ mode)"]
+        RE["Reaper<br/>(Live mode)"]
+    end
+
+    subgraph PipeWire["PipeWire Audio Server"]
+        PW["8ch Routing<br/>quantum 1024 (DJ)<br/>quantum 256 (Live)"]
+    end
+
+    subgraph Loopback["ALSA Loopback"]
+        LB["8ch virtual<br/>device"]
+    end
+
+    subgraph CamillaDSP["CamillaDSP (ALSA-native)"]
+        direction TB
+        MIX["8→8 Mixer"]
+        FIR["FIR Convolution<br/>16,384 taps<br/>(ch 0-3: crossover +<br/>room correction)"]
+        PT["Passthrough<br/>(ch 4-5: headphones<br/>ch 6-7: IEM)"]
+        DLY["Per-channel<br/>delay + gain"]
+        MIX --> FIR
+        MIX --> PT
+        FIR --> DLY
+        PT --> DLY
+    end
+
+    subgraph Output["USBStreamer → ADA8200"]
+        direction TB
+        CH01["ch 0-1: Main L/R<br/>(HP + correction)"]
+        CH23["ch 2-3: Sub 1 / Sub 2<br/>(LP + correction)"]
+        CH45["ch 4-5: Engineer HP"]
+        CH67["ch 6-7: Singer IEM"]
+    end
+
+    subgraph Speakers
+        SP["Main speakers"]
+        SB["Subwoofers"]
+        HP["Headphones"]
+        IEM["In-ear monitors"]
+    end
+
+    MX --> PW
+    RE --> PW
+    PW --> LB
+    LB --> MIX
+    DLY --> CH01
+    DLY --> CH23
+    DLY --> CH45
+    DLY --> CH67
+    CH01 --> SP
+    CH23 --> SB
+    CH45 --> HP
+    CH67 --> IEM
+```
+
+**DJ mode** routes Mixxx main (ch 0-1) and headphone cue (ch 2-3) through the
+pipeline. Channels 4-5 carry the engineer's headphones; channels 6-7 (IEM) are
+muted. Chunksize 2048, PipeWire quantum 1024.
+
+**Live mode** routes Reaper PA (ch 0-1), engineer headphones (ch 4-5), and
+singer IEM (ch 6-7) through the pipeline. Channels 2-3 are unused. Chunksize
+256, PipeWire quantum 256.
+
+In both modes, CamillaDSP holds exclusive ALSA access to all eight USBStreamer
+channels. The four speaker channels (0-3) receive FIR processing; the four
+monitor channels (4-7) pass through untouched.
+
+---
+
 ## Background: The Concepts Behind the Decisions
 
 Before diving into the design choices, here is a brief introduction to the
@@ -109,13 +185,18 @@ crossover and the room correction. The crossover and correction are designed
 independently, even though they interact -- the crossover's phase response
 affects what the room correction filter needs to do.
 
-A few high-end PA processors ([Lake](https://www.lakeprocessing.com/), [Powersoft](https://www.powersoft.com/)) offer FIR crossover capability,
-but they are typically limited to around 1,024 taps. That is enough for a
-standalone crossover but far too short for combined crossover and room
-correction at low frequencies. This project runs 16,384 taps -- 16 times what
-expensive commercial FIR processors offer -- enabling something no commercial
-unit currently does at this filter length: combining the crossover slope and
-room correction into a single convolution per output channel.
+Many commercial DSP processors in the mid-range price bracket limit FIR
+filters to 512-1,024 taps due to fixed-point DSP hardware constraints (for
+example, the Behringer DEQ2496 at 512 taps, or the miniDSP 2x4 HD at 2,048
+taps per channel). High-end touring processors support longer filters, but
+at significantly higher cost and with proprietary toolchains.
+
+This system achieves 16,384-tap FIR convolution on a Raspberry Pi 4B --
+enabled by [CamillaDSP](https://github.com/HEnquist/camilladsp)'s efficient
+FFT-based algorithm running on a general-purpose ARM processor rather than a
+dedicated DSP chip. The longer filter length makes something practical that
+shorter filters cannot achieve: combining the crossover slope and room
+correction into a single convolution per output channel.
 
 **The combined minimum-phase FIR approach** integrates both functions into one
 filter. The crossover shape and the room correction are co-optimized: the
@@ -149,10 +230,10 @@ systems that do not need room correction, or where crossover flexibility
 matters more than combined-filter efficiency, IIR remains the practical
 choice.
 
-The combined-filter approach is formalized in **D-001**. The decision was made
-before any hardware testing, but was made conditional on CPU validation
-(D-007) -- if the Pi 4B could not handle the FIR convolution load, the project
-would have fallen back to IIR crossovers. The benchmarks (US-001) confirmed
+The combined-filter approach is the project's most consequential decision
+(D-001). It was made before any hardware testing, but was explicitly marked as
+conditional on CPU validation (D-007) -- if the Pi 4B could not handle the FIR
+convolution load, the project would have fallen back to IIR crossovers. The benchmarks (US-001) confirmed
 that the Pi handles the combined FIR convolution easily: about 5% CPU in DJ
 mode, about 19% in live mode with the benchmark configuration (2-channel
 capture). The production configuration with full 8-channel capture and mixing
@@ -180,7 +261,9 @@ The benchmarks settled the question. At 16,384 taps and chunksize 2048 (DJ
 mode), CamillaDSP uses 5.2% of one CPU core. Even at chunksize 256 (live mode),
 it reaches only about 19%. There was no CPU pressure to compromise on filter length.
 
-The choice of 16,384 taps is **D-003**, validated by US-001 benchmarks and made conditional via D-007.
+The 16,384-tap filter length (D-003), like the combined-filter approach, was
+validated by the US-001 CPU benchmarks and made conditional on hardware
+validation (D-007) pending those results.
 
 
 ## Four Independent Correction Filters
@@ -207,7 +290,7 @@ from the listening position, requiring its own delay value and gain trim. Both
 subs receive the same mono sum of the left and right channels as source material
 -- there is no stereo information to preserve in the sub-bass range.
 
-The per-channel correction approach is **D-004**. The measurement pipeline must
+The per-channel independent correction approach (D-004) means the measurement pipeline must
 measure each output independently: four sweeps, four impulse responses, four
 correction filters.
 
@@ -234,7 +317,7 @@ beat late, making it nearly impossible to maintain rhythm and pitch. For Cole
 Porter material, where the vocalist needs precise phrasing against backing
 tracks, this is performance-destroying.
 
-The original design (D-002) called for a live mode chunksize of 512, which
+The original design called for a live mode chunksize of 512 (D-002), which
 was expected to keep the PA path under 25 milliseconds. When US-002 latency
 measurements were conducted, two things became clear.
 
@@ -261,8 +344,8 @@ the two into a single perception.
 
 The bone-to-electronic delay (bone conduction vs IEM monitors) is the more
 perceptible gap: projected at approximately 21 milliseconds at chunksize 256
-with PipeWire quantum 256 (the D-011 target parameters, not yet measured at
-these exact settings). This is in the "noticeable separation" range but safe
+with PipeWire quantum 256 (the revised live mode target parameters (D-011),
+not yet measured at these exact settings). This is in the "noticeable separation" range but safe
 for musical performance. At the original chunksize 512 with PipeWire quantum 1024, the
 bone-to-electronic delay was approximately 31 milliseconds -- crossing into
 "distinct delayed return" territory that would impair the vocalist's timing.
@@ -274,8 +357,9 @@ signal passes through without any FIR processing, adding zero computational
 cost. In DJ mode, those channels are muted (there is no singer). In live mode,
 they carry the monitor mix from Reaper.
 
-The revised latency parameters are **D-011**, which supersedes D-002 for live mode. DJ mode remains at
-chunksize 2048 with PipeWire quantum 1024.
+Live mode now uses chunksize 256 + PipeWire quantum 256 (D-011), superseding
+the original chunksize 512 target (D-002). DJ mode remains at chunksize 2048
+with PipeWire quantum 1024.
 
 
 ## Cut-Only Correction: Why the Filters Never Boost
@@ -313,8 +397,9 @@ result is identical, but the digital signal level stays below 0 dBFS. The
 lost loudness is recovered by turning up the analog amplifier gain -- the
 amplifier has headroom to spare.
 
-The cut-only constraint is **D-009**, and it supersedes an earlier assumption in CLAUDE.md that
-allowed up to +12dB of boost.
+The cut-only correction policy -- all filters at or below -0.5dB gain at every
+frequency (D-009) -- supersedes an earlier assumption that allowed up to +12dB
+of boost.
 
 
 ## Speaker Profiles: One Pipeline, Many Configurations
@@ -343,8 +428,9 @@ channels, leaving only two for monitoring -- incompatible with the live mode
 requirement for both engineer headphones and singer in-ear monitors. Three-way
 will be available in DJ mode only.
 
-The speaker profile system is **D-010**. The 80Hz crossover from D-001 becomes a default
-value rather than a fixed parameter.
+The speaker profile system (D-010) means the 80Hz crossover from the
+combined-filter decision (D-001) becomes a default value rather than a fixed
+parameter.
 
 
 ## Per-Venue Measurement: Nothing Carried Over
@@ -375,7 +461,7 @@ measurements look dramatically different from last time, something has changed
 and the operator should investigate -- but the archived data never drives the
 live system.
 
-The per-venue measurement approach is **D-008**. The filter WAV files in `/etc/camilladsp/coeffs/`
+The per-venue fresh measurement policy (D-008) means the filter WAV files in `/etc/camilladsp/coeffs/`
 are runtime-generated artifacts, never version-controlled. The measurement
 pipeline scripts and their parameters (calibration files, target curves,
 crossover settings) are the version-controlled source of truth.
@@ -389,10 +475,11 @@ were engineering judgments based on upstream benchmarks and theoretical analysis
 not measured reality.
 
 This created a risk: what if the Pi 4B could not handle the load? The project
-explicitly acknowledged this by marking D-001, D-002, and D-003 as conditional
-on hardware validation (D-007). The test stories (US-001 for CPU benchmarks,
-US-002 for latency measurement, US-003 for stability) were prioritized before
-any room correction pipeline work began.
+explicitly acknowledged this by marking the combined-filter approach (D-001),
+the dual chunksize strategy (D-002), and the 16,384-tap filter length (D-003)
+as conditional on hardware validation (D-007). The test stories (US-001 for
+CPU benchmarks, US-002 for latency measurement, US-003 for stability) were
+prioritized before any room correction pipeline work began.
 
 The CPU and latency results validated the design with margin to spare:
 
@@ -408,8 +495,8 @@ The fallback paths (8,192 taps, chunksize 512) were never needed. But having
 them defined in advance meant the project was never at risk of a dead end --
 there was always a viable next step if the primary configuration had failed.
 
-This is the relationship between **D-007** and the test stories US-001, US-002,
-and US-003.
+The conditional validation approach (D-007) ensured that the design decisions
+were always backed by a tested fallback path.
 
 
 ## The Team Structure Decisions
@@ -417,14 +504,14 @@ and US-003.
 This project is built by an AI-orchestrated team with specialized roles. Two
 decisions shaped the team composition.
 
-**D-005** established the core advisory team: a Live Audio Engineer who ensures
+The initial team composition (D-005) established the core advisory team: a Live Audio Engineer who ensures
 every signal processing decision serves the goal of a successful live event,
 and a Technical Writer who maintains the documentation suite and records
 experiment results. Both have blocking authority -- the audio engineer can
 block on signal processing errors, the technical writer can block on
 documentation inaccuracy that could lead to incorrect configuration.
 
-**D-006** expanded the team in response to identified gaps. A Security
+A subsequent expansion (D-006) added roles in response to identified gaps. A Security
 Specialist was added because the Pi runs on untrusted venue WiFi networks with
 SSH, VNC, and websocket services exposed -- a proportionate threat given the
 risk is reputation damage, not nation-state attack. A UX Specialist was added
@@ -635,8 +722,9 @@ structure errors, and driver bugs -- any of which can produce sustained
 dangerous acoustic output. The system addresses this through a PREEMPT_RT
 kernel (D-013) that guarantees scheduling determinism, combined with a
 calibrated gain structure procedure that limits the maximum acoustic output
-to safe levels (D-014 defers a hardware limiter until the system scales to
-higher-power PAs).
+to safe levels. A hardware limiter between the audio output and the amplifiers
+is deferred (D-014) until the system scales to higher-power PAs capable of
+producing over 110dB SPL at audience position.
 
 Professional digital mixing consoles (Yamaha CL/QL, Allen & Heath dLive,
 DiGiCo SD) all operate under the same hard real-time model -- zero missed

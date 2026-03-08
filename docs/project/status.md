@@ -33,7 +33,7 @@ ahead.
 | Team configuration | current | 10 core members, consultation matrix with 14 project-specific rules |
 | Orchestration protocol | current | Self-contained copy in `.claude/team/protocol/` |
 | Role prompts | current | All role files in `.claude/team/roles/` |
-| User stories | active | 36 stories (US-000 through US-032 incl. US-000a, US-000b, US-011b) in `docs/project/user-stories.md` |
+| User stories | active | 36 stories (US-000 through US-031 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md` |
 | CamillaDSP configs | draft | In SETUP-MANUAL.md, not yet tested on hardware. D-011: all 8 channels must route through CamillaDSP (IEM as passthrough on ch 6-7). |
 | US-002 latency measurement | done | Pass 1 + Pass 2 complete. CamillaDSP = 2 chunks latency. PipeWire ~21ms/traversal @ quantum 1024. ALSA-direct T2b=30.3ms. D-011 approved. |
 | Room correction pipeline | not started | Stories US-008 through US-013 defined |
@@ -53,17 +53,17 @@ ahead.
 | US-000b | 13/13 | done (security specialist + architect signed off) |
 | US-001 | 4/4 | **done** (all 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 20.43%, T1d 5.21%, T1e 10.39%. 16k taps both modes. A1/A2 validated.) |
 | US-002 | 4/4 | **done** (Pass 1 + Pass 2 complete, lab notes written, A3 updated. D-011 confirmed. IEM passthrough = net benefit.) |
-| US-003 | 2/4 | in-progress (T3b PASS: 0 xruns, 74.5C, 18.38% load. T3c informational: quantum 128 marginal startup, clean after 38s. T3a + T4 remaining.) |
+| US-003 | 3/4 | in-progress (T3b PASS, T3c informational, T3e PASS: PREEMPT_RT 30min 0 xruns, 75.0C peak, cyclictest max 209us. T3a + T4 remaining — blocked on Mixxx/Reaper smoke tests.) |
 | US-004 | 0/3 | selected (assumption register — independent, can run in parallel) |
 | US-005 | 0/3 | ready (after Tier 1; Hercules already visible as USB-MIDI — positive signal) |
 | US-006 | 0/3 | ready (unblocked by US-000 + US-005) |
 
 ## In Progress
 
-- **US-003** (in-progress): Stability and thermal tests with D-011 parameters (chunksize 256, quantum 256). Audio engineer proposed T3c stretch goal: quantum 128 stability test (30 min, zero xruns).
+- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS (PREEMPT_RT 30min stability). T3a (DJ stability with Mixxx) and T4 (thermal in flight case) remaining — T3a blocked on Mixxx smoke test (TK-015).
 - **US-004** (selected): Assumption register — independent, can run in parallel with US-003.
 - **US-000a** (in-review): 4/4 DoD — F-002 and F-011 both resolved, verified across reboot
-- **Completed this session:** US-000, US-000b, US-001 (16k taps both modes), US-002 (CamillaDSP = 2 chunks latency, D-011 confirmed)
+- **Completed this session:** US-000, US-000b, US-001 (16k taps both modes), US-002 (D-011 confirmed), T3e Phases 1-3 (PREEMPT_RT installed + validated)
 - **Remaining TODOs**: cloud-init ~3.3s boot overhead (US-024 candidate), CamillaDSP needs `active.yml` before service enable, PipeWire TS scheduling issue, lab notes T6 latency budget minor correction (old IEM bypass assumption)
 
 ## Blockers
