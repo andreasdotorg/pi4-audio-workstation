@@ -20,17 +20,19 @@ installed on the Pi 4B with verified basic functionality,
 **so that** subsequent stories (benchmarks, latency tests, stability tests,
 room correction pipeline) have a working software foundation.
 
-**Status:** selected
+**Status:** in-progress (worker running, ~2hr estimated)
 **Depends on:** none (first story to execute)
 **Blocks:** US-001 (CamillaDSP must be installed for CPU benchmarks), US-002 (CamillaDSP must be installed for latency measurement), US-006 (Mixxx must be installed for feasibility testing), US-017 (Reaper must be installed for IEM routing)
 **Decisions:** none yet
 
 **Note:** As of 2026-03-08, the Pi has PipeWire running (pipewire, pipewire-pulse,
 wireplumber) and a labwc Wayland desktop. CamillaDSP, Mixxx, Reaper, and
-RustDesk are not installed.
+RustDesk are not installed. Actual user on Pi is `ela` (not `pi`) — all
+service files and paths from SETUP-MANUAL.md must be corrected (AD finding A10).
 
 **Acceptance criteria:**
 - [ ] CamillaDSP v3.0.1+ installed and running (binary or built from source for aarch64)
+- [ ] CamillaDSP confirmed as ALSA-only backend (no JACK) — document that this is correct for the loopback architecture where CamillaDSP reads from ALSA loopback, not from JACK directly (AD finding A17)
 - [ ] CamillaDSP configuration directory created (`/etc/camilladsp/configs/`, `/etc/camilladsp/coeffs/`)
 - [ ] CamillaDSP websocket API accessible on localhost
 - [ ] Mixxx installed (Debian package or built from source)
@@ -39,11 +41,15 @@ RustDesk are not installed.
 - [ ] pycamilladsp Python package installed (for CamillaDSP API access)
 - [ ] RustDesk installed for remote desktop access
 - [ ] ALSA loopback module loaded and verified (CamillaDSP capture source)
+- [ ] ALSA card numbering stabilized: udev rules or equivalent to ensure consistent device ordering across reboots (AD finding A9)
 - [ ] PipeWire JACK bridge verified: applications can connect to JACK ports
+- [ ] All systemd service files, scripts, and paths corrected from `User=pi` / `/home/pi` to `User=ela` / `/home/ela` (AD finding A10)
 - [ ] Each installation step documented in lab notes with exact versions (for reproducibility per US-019)
 
 **DoD:**
 - [ ] All software installed and basic smoke test passed (each tool launches without error)
+- [ ] All user/path references verified as `ela` (grep for `pi` in service files and configs — zero false references)
+- [ ] ALSA device ordering tested across reboot (same card numbers after power cycle)
 - [ ] Lab note written with exact package versions, installation commands, and any workarounds
 - [ ] CLAUDE.md "Not installed yet" list updated to reflect current state
 
@@ -57,7 +63,7 @@ any venue WiFi network,
 **so that** exposed services cannot be exploited by untrusted devices on the
 same network, protecting both system integrity and live performance availability.
 
-**Status:** ready
+**Status:** in-progress (partial: firewall, SSH, rpcbind/ModemManager/CUPS done; CamillaDSP localhost binding deferred to US-000 completion)
 **Depends on:** US-000 (CamillaDSP and RustDesk must be installed before their configs can be hardened)
 **Blocks:** none directly, but should be completed before any venue deployment
 **Decisions:** D-006 (security specialist scope: availability/integrity for live performance)
@@ -211,17 +217,25 @@ cause problems during implementation or live performance.
 **Depends on:** none
 **Blocks:** none directly, but informs prioritization of all other stories
 
+**Note:** The Advocatus Diaboli has completed initial discovery, identifying 30
+findings including 18 new assumptions (A9 through A26), 6 of which are blocking.
+Blocking findings have been incorporated into the AC/DoD of affected stories
+(US-000, US-005, US-006, US-012, US-017, US-022). This story now covers
+formalizing and maintaining the expanded assumption register.
+
 **Acceptance criteria:**
-- [ ] Systematic review of SETUP-MANUAL.md, CLAUDE.md, and all configuration files for implicit assumptions
-- [ ] Each new assumption assigned an ID (A9, A10, ...) with: description, confidence level, validation method, and which stories depend on it
-- [ ] Categories covered at minimum: PipeWire behavior on Pi 4, Reaper ARM compatibility, CamillaDSP websocket API capabilities, Python DSP library availability on ARM, ALSA loopback reliability, systemd service ordering, network/WiFi stability at venues
+- [ ] All AD findings (A9-A26) formally documented in assumption register with: description, confidence level, validation method, affected stories
+- [ ] Blocking findings cross-referenced to the stories where they are tracked (US-000: A9/A10/A17, US-005: A14, US-006: A15/A16, US-017: A11)
+- [ ] Categories covered: ALSA card numbering, user/path correctness, CamillaDSP backend type, Bluetooth vs USB-MIDI, Xvfb service correctness, gpu_mem conflicts, loopback routing, Reaper OSC availability, memory budgets, and all others from AD report
 - [ ] Assumptions list added to CLAUDE.md or a referenced document
 - [ ] Each assumption linked to the story that will validate it
+- [ ] Ongoing: new assumptions discovered during implementation are added to the register
 
 **DoD:**
 - [ ] Expanded assumption register written and reviewed
 - [ ] CLAUDE.md updated with new assumption references
 - [ ] Dependencies between assumptions and stories documented
+- [ ] All 6 blocking findings confirmed addressed in their respective story AC/DoD
 
 ---
 
@@ -247,17 +261,26 @@ functional USB-MIDI controller on the Pi 4B (beyond just USB enumeration),
 **Note:** Owner has already confirmed USB enumeration via `lsusb`. This story
 covers functional MIDI verification: does it send/receive MIDI messages?
 
+**CRITICAL (AD finding A14):** The Hercules DJControl Mix Ultra is
+Bluetooth-primary. SETUP-MANUAL.md disables Bluetooth via `dtoverlay=disable-bt`
+in config.txt. This story MUST complete USB-MIDI verification BEFORE Bluetooth
+is disabled during hardening/setup. If USB-MIDI fails, Bluetooth MIDI is the
+fallback and must remain available.
+
 **Acceptance criteria:**
 - [ ] Controller connected via USB, confirmed visible in `aconnect -l` as a MIDI device
 - [ ] MIDI messages verified: pressing buttons/moving faders produces MIDI events visible in `aseqdump` or `amidi`
 - [ ] All control types tested: faders, knobs, buttons, jog wheels (if applicable)
 - [ ] Any non-functional controls documented
-- [ ] If USB-MIDI does not work: document the failure mode and research alternatives (Bluetooth MIDI via bluez, community firmware, etc.)
+- [ ] USB-MIDI verification completed BEFORE Bluetooth is disabled in config.txt (A14)
+- [ ] If USB-MIDI works: document as confirmed, Bluetooth can be safely disabled
+- [ ] If USB-MIDI does not work: document the failure mode, DO NOT disable Bluetooth, research Bluetooth MIDI via bluez as primary path
 
 **DoD:**
 - [ ] Test completed on Pi 4B hardware
 - [ ] Lab note written with MIDI message log excerpts and control mapping summary
 - [ ] CLAUDE.md assumption A6 updated with full validation result
+- [ ] Decision documented: is it safe to disable Bluetooth? (only if USB-MIDI confirmed working)
 
 ---
 
@@ -276,18 +299,28 @@ UI responsiveness and audio performance,
 **Note:** The Pi runs labwc (Wayland compositor) with lightdm. Mixxx may need
 X11/XWayland — verify. Remote access is via RustDesk (not VNC).
 
+**Known issues from AD review:**
+- **A15:** The Xvfb systemd service in SETUP-MANUAL.md has a bug: trailing `&`
+  in ExecStartPre backgrounding the process. Headless Mixxx will not work as
+  documented. Must fix or find alternative approach.
+- **A16:** gpu_mem=16 (headless config) conflicts with gpu_mem=128 (Mixxx
+  requirement). Need to determine a single value or document a reboot procedure
+  for mode switching.
+
 **Acceptance criteria:**
 - [ ] Mixxx launches on Pi 4B (verify Wayland/XWayland compatibility with labwc)
-- [ ] GPU configuration determined: document which `gpu_mem` value is needed (16 vs 128)
+- [ ] GPU configuration resolved: determine single gpu_mem value that works for both headless and Mixxx modes, OR document reboot procedure for switching (AD finding A16)
 - [ ] Waveform rendering tested: "Simple" renderer, GL renderer, disabled — document which works and performance of each
 - [ ] Audio routing verified: Mixxx main output reaches CamillaDSP via PipeWire JACK bridge
 - [ ] Two-deck playback tested with actual audio files — no audible glitches
 - [ ] Remote operation tested: Mixxx controllable via RustDesk and/or entirely via MIDI controller
-- [ ] Headless feasibility assessed: can Mixxx run without a visible display? (e.g., virtual display under Wayland, or Xvfb via XWayland)
+- [ ] Headless feasibility assessed: fix Xvfb service bug (trailing `&` in ExecStartPre, AD finding A15) or find alternative virtual display approach under Wayland
 - [ ] If Mixxx is not viable: document the failure and evaluate alternatives
 
 **DoD:**
 - [ ] Tests completed on Pi 4B hardware
+- [ ] gpu_mem decision documented with rationale (A16 resolved)
+- [ ] Xvfb/virtual display approach documented and working or alternative identified (A15 resolved)
 - [ ] Lab note with performance observations, configuration choices, screenshots/logs
 - [ ] CLAUDE.md assumption A7 updated with validation result
 
@@ -487,11 +520,13 @@ minimal manual intervention.
 - [ ] Restarts CamillaDSP with new configuration (or hot-swaps via websocket API if available)
 - [ ] Optional verification measurement: runs a quick sweep post-correction and displays before/after comparison
 - [ ] All parameters configurable via command-line arguments or config file (crossover freq, target curve, filter length, max boost, number of measurement positions)
+- [ ] Memory budget estimated and documented: peak RAM usage during filter computation (FFT of 16k+ tap filters, multiple channels, spatial averaging) must fit within Pi 4B's 4GB alongside running CamillaDSP and PipeWire (AD finding — memory is constrained)
 - [ ] Graceful error handling: any failure rolls back to previous configuration
 - [ ] Progress output: clear status messages throughout the process
 
 **DoD:**
 - [ ] Script written and syntax-validated
+- [ ] Peak memory usage measured during a full calibration run (document actual vs budget)
 - [ ] End-to-end test on Pi 4B with real speakers and UMIK-1
 - [ ] Lab note documenting a complete calibration run with before/after measurements
 - [ ] How-to guide written for the calibration procedure
@@ -651,8 +686,16 @@ self-control of her own mix is a nice-to-have (see US-018). IEM signal path
 per owner confirmation: Reaper -> USBStreamer ch 7/8 directly, bypassing
 CamillaDSP entirely.
 
+**Known issue (AD finding A11):** The 4-channel loopback routing from Reaper
+through PipeWire to CamillaDSP (for the PA path) is not documented in
+SETUP-MANUAL.md. This routing must be validated as part of this story since
+the IEM path (Reaper direct to USBStreamer) coexists with the PA path
+(Reaper -> PipeWire -> loopback -> CamillaDSP -> USBStreamer ch 1-4).
+
 **Acceptance criteria:**
 - [ ] Reaper routing configured: singer IEM outputs (USBStreamer channels 7-8) receive an independent mix routed directly from Reaper, bypassing CamillaDSP
+- [ ] PA path routing validated: Reaper main outputs route through PipeWire JACK bridge to ALSA loopback, which CamillaDSP reads (AD finding A11)
+- [ ] Both paths coexist: IEM direct path and PA loopback path work simultaneously without conflicts
 - [ ] IEM mix sources: vocal mic (ch 1), backing tracks from Reaper, vocal cue track from Reaper
 - [ ] IEM mix independent of main PA mix (changing PA levels does not affect IEM)
 - [ ] IEM mix independent of engineer headphone mix (channels 5-6)
@@ -662,6 +705,8 @@ CamillaDSP entirely.
 
 **DoD:**
 - [ ] Reaper routing configuration written (IEM path is Reaper-only, does not involve CamillaDSP)
+- [ ] Full signal routing diagram documented: which Reaper outputs go where (PA via loopback, IEM direct, engineer headphones)
+- [ ] Reaper OSC interface verified working on Pi 4B (prerequisite for US-018 singer web UI control)
 - [ ] Configuration validated on Pi 4B hardware with actual routing through USBStreamer ch 7/8
 - [ ] Audio engineer review passed
 - [ ] Lab note documenting the routing and confirming independence of mixes
@@ -757,7 +802,7 @@ architecture: the Pi is the data source, the browser is the rendering engine.
   dim stage lighting. (UX specialist design direction.)
 
 **Acceptance criteria:**
-- [ ] FastAPI server running on Pi, minimal CPU overhead (< 5% idle, < 10% under active use)
+- [ ] FastAPI server running on Pi, minimal CPU overhead (< 5% idle, < 10% under active use). CPU budget must be validated alongside CamillaDSP + application (Mixxx or Reaper) — web server cannot push total system load past T3 stability thresholds (AD finding — web server adds to constrained CPU budget)
 - [ ] Serves static HTML/JS/CSS — all rendering logic runs in the browser
 - [ ] WebSocket connection for real-time data push (audio levels, DSP processing load, system stats)
 - [ ] Role-based access: two roles — "engineer" (full control) and "singer" (IEM only)
