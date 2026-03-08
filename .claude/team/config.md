@@ -24,10 +24,13 @@
 
 | Role | Agent Name | Category | Notes |
 |------|-----------|----------|-------|
+| Product Owner | product-owner | Coordination | **Custom role.** Translates owner inputs into structured stories with AC. |
 | Project Manager | project-manager | Coordination | Standard role |
 | Change Manager | change-manager | Coordination | Standard role |
-| Architect | architect | Advisory | Focuses on signal flow, module boundaries, DSP pipeline coherence |
+| Architect | architect | Advisory | Focuses on signal flow, module boundaries, DSP pipeline coherence, **real-time performance on constrained hardware** |
 | Live Audio Engineer | audio-engineer | Advisory | **Custom role.** Domain specialist for live sound, signal processing, event requirements. Part of approval process. |
+| Security Specialist | security-specialist | Advisory | Standard role, **scoped to availability/integrity for live performance.** Threat model: casual attackers, venue networks, service exposure. Not nation-state. |
+| UI/UX Specialist | ux-specialist | Advisory | **Custom role.** Interaction design across MIDI controllers, headless ops, displays, web UIs, remote access. |
 | Technical Writer | technical-writer | Advisory | **Promoted to core.** Maintains comprehensive technical documentation suite. Part of approval process for documentation accuracy. |
 | Quality Engineer | quality-engineer | Quality | Standard role. For this project: test plans focus on hardware validation, latency measurements, CPU benchmarks |
 | Advocatus Diaboli | advocatus-diaboli | Challenge | Standard role |

@@ -19,3 +19,17 @@ The rules below are project-specific additions.
 | Documentation describing system architecture | Architect (accuracy review) |
 | Any change to the documentation suite structure | Technical Writer |
 | Any operational procedure (how-to, runbook) | Audio Engineer (correctness) + Technical Writer (clarity) |
+| Any service listening on a network port | Security Specialist |
+| Any remote access configuration (SSH, VNC, web UI) | Security Specialist |
+| Any firewall or network rules | Security Specialist |
+| Any script running as root or with elevated privileges | Security Specialist |
+| Any WiFi or network configuration | Security Specialist |
+| Any MIDI controller mapping or layout | UX Specialist |
+| Any user interaction during a live show | UX Specialist |
+| Any web UI or dashboard design | UX Specialist + Security Specialist |
+| Any headless operation workflow | UX Specialist |
+| Any display requirements or visual feedback design | UX Specialist |
+| Any mode-switching procedure | UX Specialist + Audio Engineer |
+| Any real-time performance constraint or CPU budget decision | Architect |
+| Any memory allocation strategy or buffer sizing | Architect |
+| Any systemd service configuration | Architect + Security Specialist |
