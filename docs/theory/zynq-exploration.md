@@ -222,10 +222,11 @@ fabric for eight or more transmitters if the channel count grows.
 
 Clock generation is handled by the FPGA's PLL, synthesizing the 12.288MHz ADAT
 bit clock from a crystal reference with sub-nanosecond jitter -- well within
-ADAT specifications and the ADA8200's receiver tolerance. For bidirectional
-audio (input from ADAT), clock recovery from the incoming bitstream is needed;
-for output-only operation (our primary use case), the FPGA generates its own
-clock.
+ADAT specifications and the ADA8200's receiver tolerance. The system requires
+both transmit and receive: the ADA8200's mic preamps feed vocal and instrument
+inputs into ADAT, which the FPGA must receive. The ADAT receiver core recovers
+the clock from the incoming bitstream; the transmitter uses the FPGA's own
+PLL-generated clock.
 
 Eliminating the USBStreamer removes a device from the signal chain, removes a
 USB dependency, and removes a potential failure point. The FPGA generates ADAT
@@ -434,7 +435,9 @@ USBStreamer elimination (~$200) is the largest single saving.
 ### The Only Custom Piece: PMOD-to-TOSLINK Breakout
 
 A trivial adapter board connects the KV260's PMOD header to two TOSLINK
-optical modules (one TX for ADAT output, one RX for future ADAT input).
+optical modules (one TX for ADAT output, one RX for ADAT input). Both
+directions are required from day one: the ADA8200's mic preamps feed vocal
+and instrument inputs into ADAT, which the FPGA must receive for processing.
 
 **Recommended transmitter: Toshiba TOTX173** (or pin-compatible TOTX147).
 Through-hole package with standard Toslink connector integrated. VCC range
@@ -471,8 +474,11 @@ modules" from AliExpress (2-5 EUR) may also work but require verification that
 they contain a bare transmitter module rather than a converter IC that would
 interfere with the FPGA's raw bitstream.
 
-**For ADAT input (if needed later):** Add Toshiba TORX173 receiver modules --
-same trivial wiring, TTL-level output from the module to an FPGA PL input pin.
+**ADAT receiver (TORX173):** Same wiring as the transmitter -- VCC, GND, and
+a data output pin connected to an FPGA PL input (LVCMOS33). The receiver
+outputs TTL-level data from the ADA8200's ADAT stream. This is mandatory,
+not optional: the ADA8200's mic preamps (vocal mic on channel 1, spare
+mic/line on channel 2) feed audio into the system via ADAT input.
 
 **Note on 96kHz operation:** ADAT S/MUX at 96kHz halves the channel count per
 link (4 channels at 96kHz instead of 8 at 48kHz) but does not double the
