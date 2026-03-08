@@ -40,6 +40,17 @@ Both modes share the same audio processing pipeline. The only things that
 change are the application (Mixxx vs Reaper) and the buffer sizes (trading
 CPU efficiency for lower latency in live mode).
 
+**Why these choices?** The [design rationale](docs/theory/design-rationale.md)
+tells the story behind the technical decisions -- why combined FIR filters
+instead of IIR crossovers, why minimum-phase instead of linear-phase, why
+these buffer sizes. The [decision log](docs/project/decisions.md) has the
+formal records.
+
+**What comes after the Pi?** The [Zynq platform
+exploration](docs/theory/zynq-exploration.md) looks at what a second-generation
+system could do with dedicated FPGA hardware -- 64 audio channels, sub-microsecond
+latency, and enough DSP to build a full digital mixer.
+
 ## How It Works
 
 Sound from the Pi travels through a chain: software application, audio server,
@@ -171,9 +182,6 @@ and have the system measure the room, compute correction filters, and deploy
 them -- ready to perform.
 
 For detailed progress, see [docs/project/status.md](docs/project/status.md).
-For the story behind the technical decisions, see
-[docs/theory/design-rationale.md](docs/theory/design-rationale.md). For the
-formal decision log, see [docs/project/decisions.md](docs/project/decisions.md).
 
 ## Repository Layout
 
@@ -182,7 +190,7 @@ SETUP-MANUAL.md          Comprehensive setup manual (~2200 lines)
 scripts/                 Automation scripts (config generation, benchmarks)
 docs/
   project/               Status, decisions, user stories
-  theory/                Design rationale, signal processing background
+  theory/                Design rationale, signal processing, Zynq exploration
   lab-notes/             Experiment logs with raw data and exact commands
 ```
 
