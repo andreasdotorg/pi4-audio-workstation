@@ -61,14 +61,15 @@ ahead.
 ## In Progress
 
 - **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS (PREEMPT_RT 30min stability). T3a (DJ stability with Mixxx) and T4 (thermal in flight case) remaining — T3a blocked on Mixxx smoke test (TK-015).
+- **F-012** (open): Reaper hard kernel lockup on PREEMPT_RT. `chrt -o 0` workaround failed (TK-023 FAIL). Proceeding on stock PREEMPT per D-015. Fix before shipping.
 - **US-004** (selected): Assumption register — independent, can run in parallel with US-003.
 - **US-000a** (in-review): 4/4 DoD — F-002 and F-011 both resolved, verified across reboot
-- **Completed this session:** US-000, US-000b, US-001 (16k taps both modes), US-002 (D-011 confirmed), T3e Phases 1-3 (PREEMPT_RT installed + validated)
-- **Remaining TODOs**: cloud-init ~3.3s boot overhead (US-024 candidate), CamillaDSP needs `active.yml` before service enable, PipeWire TS scheduling issue, lab notes T6 latency budget minor correction (old IEM bypass assumption)
+- **Completed this session:** US-000, US-000b, US-001 (16k taps both modes), US-002 (D-011 confirmed), T3e Phases 1-3 (PREEMPT_RT installed + validated), TK-002 (active.yml symlink)
+- **Remaining TODOs**: cloud-init ~3.3s boot overhead (US-024 candidate), PipeWire TS scheduling issue, lab notes T6 latency budget minor correction (old IEM bypass assumption)
 
 ## Blockers
 
-None.
+- **F-012: Reaper hard kernel lockup on PREEMPT_RT.** Reaper causes a reproducible hard kernel lockup on `6.12.47+rpt-rpi-v8-rt` within ~1 minute of launch (4 crashes total: 3 on RT incl. `chrt -o 0`, 1 PASS on stock PREEMPT). Not OOM, not GPU, not RT priority (`chrt -o 0` also crashes). D-015: continue on stock PREEMPT, fix before shipping. Needs test rig (serial console + scriptable PSU) for kernel oops capture. Blocks: D-013 full compliance, TK-020/TK-021 on RT kernel.
 
 ## External Dependencies
 
@@ -95,3 +96,4 @@ None.
 - D-012: Flight case thermal management — active cooling on Pi mandatory (2026-03-08)
 - D-013: PREEMPT_RT kernel mandatory for production use — hard real-time with human safety implications (2026-03-08)
 - D-014: Hardware limiter — deferred; required when system drives PAs capable of >110dB SPL (2026-03-08)
+- D-015: Stock PREEMPT for development — PREEMPT_RT deferred pending Reaper bug F-012 fix (2026-03-08)
