@@ -2,7 +2,7 @@
 
 ## Overall Status
 
-Owner greenlight received. 25 stories defined (US-000 through US-023 including US-000a). US-000 selected for implementation. US-000a and US-004 can run in parallel. Validation-first approach: Tier 0/1 before UI work.
+Implementation underway. US-000 worker running (core software installation, ~2hr). US-000a partial complete (5/10 security findings resolved, 2 accepted risk, 2 deferred to CamillaDSP install). Validation-first approach: Tier 0/1 before UI work.
 
 ## Component Status
 
@@ -18,21 +18,22 @@ Owner greenlight received. 25 stories defined (US-000 through US-023 including U
 | Room correction pipeline | not started | Stories US-008 through US-013 defined |
 | Documentation suite | not started | Stories US-014 through US-016 defined |
 | Web UI platform | not started | Stories US-022, US-023, US-018 defined (deferred per owner: validation first) |
-| Core software (CamillaDSP, Mixxx, Reaper) | not installed | US-000 selected for implementation |
-| Platform security | not started | US-000a defined, can overlap with US-000 |
+| Core software (CamillaDSP, Mixxx, Reaper) | installing | US-000 worker running (~2hr estimated) |
+| Platform security | partial | US-000a: firewall active, SSH hardened, rpcbind/ModemManager/CUPS disabled. CamillaDSP localhost binding deferred to US-000 completion. |
 
 ## DoD Tracking
 
 | Story | Score | Status |
 |-------|-------|--------|
-| US-000 | 0/3 | selected |
-| US-000a | 0/4 | ready (can overlap with US-000 for items not dependent on CamillaDSP) |
+| US-000 | 0/3 | in-progress (worker running, ~2hr) |
+| US-000a | 2/4 | in-progress (partial: firewall+SSH+services done; CamillaDSP binding deferred) |
 | US-004 | 0/3 | ready (independent, can run in parallel) |
 
 ## In Progress
 
-- US-000: Core Audio Software Installation — awaiting worker assignment and Architect decomposition
-- Work sequence: US-000 -> US-000a (overlap) -> US-001/US-002 (parallel) -> US-003
+- US-000: Core Audio Software Installation — worker running in background (~2hr estimated)
+- US-000a: Platform Security Hardening — partial complete (5/10 findings resolved, 2 accepted risk, 2 deferred to CamillaDSP install: F-002 websocket, F-003 GUI localhost binding)
+- Work sequence: US-000 completion -> US-000a remainder -> US-001/US-002 (parallel) -> US-003
 
 ## Blockers
 
