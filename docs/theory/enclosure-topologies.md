@@ -2,32 +2,56 @@
 
 ## Abstract
 
-This document examines the engineering and psychoacoustic tradeoffs between
-four subwoofer enclosure topologies -- sealed (acoustic suspension), ported
-(bass reflex), horn-loaded (including folded horn designs), and transmission
-line (including quarter-wave resonators) -- in the context of a combined
-minimum-phase FIR correction pipeline with cut-only correction and per-sub
-independence. The analysis concludes that enclosure topology is a second-order
-effect in uncorrected rooms, where room modal behavior dominates the sub-bass
-time response, but becomes one of several comparable contributors to
-time-domain quality in a room-corrected system where FIR correction
-dramatically reduces modal ringing. Lower group delay topologies (sealed, true
-TL) provide a modest advantage over higher group delay topologies (ported,
-quarter-wave resonator) when room modes are no longer masking the difference.
+For decades, the consensus in loudspeaker engineering has been that subwoofer
+enclosure topology barely matters for transient quality. Toole [5], Thiele [4],
+and Linkwitz [3] all reached the same conclusion: room modal behavior dominates
+the sub-bass time response so thoroughly that enclosure group delay differences
+are buried under 50-200 ms of room ringing. That conclusion was correct -- for
+uncorrected rooms.
+
+Affordable, real-time room correction changes the picture. A system running
+16,384-tap minimum-phase FIR correction on a Raspberry Pi can attenuate a 15 dB
+room mode to flat, reducing the associated ringing energy by roughly 97%. Once
+that dominant masking is removed, the enclosure's intrinsic group delay -- 15 ms
+for a sealed sub vs 30 ms for a ported sub at 50 Hz -- is no longer negligible.
+It becomes one of several comparable time-domain artifacts alongside early
+reflections and residual modal energy. The old literature is not wrong; it
+just assumed a world where room correction was either nonexistent or exotic.
+
+This document answers two questions:
+
+1. **What is the best enclosure topology for crisp transients?** Sealed and
+   true transmission line designs have the lowest group delay (10-20 ms at
+   50 Hz). In our room-corrected system, this is a genuine, if modest,
+   advantage over ported and quarter-wave resonator designs (25-40 ms).
+2. **Does our FIR correction pipeline handle all topologies?** Yes. The
+   pipeline measures, corrects, and deploys filters for any enclosure type.
+   The practical differences are limited to subsonic protection requirements
+   (D-010) and time alignment considerations for designs with internal
+   acoustic paths.
 
 ---
 
 ## 1. Introduction
 
-Our system uses a combined minimum-phase FIR pipeline that merges crossover
-and room correction into a single filter per output channel, targeting
-psytrance transient fidelity. Several design decisions shape how enclosure
-topology interacts with the pipeline:
+Psytrance lives and dies by its kick drums. The sub-bass fundamental (30-60 Hz)
+needs to arrive as a tight punch, not a smeared thud. When we chose combined
+minimum-phase FIR filters for this system -- merging crossover and room
+correction into a single filter per output channel -- the goal was transient
+fidelity. That raises an obvious question: does the subwoofer enclosure itself
+help or hinder that goal?
+
+The answer depends on whether the room is corrected. This document works through
+the physics of four enclosure topologies to answer the primary question -- which
+topology produces the crispest transients? -- and then examines whether our
+specific FIR pipeline handles all of them equally well.
+
+Several design decisions constrain the analysis:
 
 - **Cut-only correction (D-009):** All correction filters have gain at or
   below -0.5 dB at every frequency. Room peaks are attenuated; nulls are left
-  uncorrected. This means the pipeline cannot boost output below the
-  enclosure's natural rolloff.
+  uncorrected. The pipeline cannot boost output below the enclosure's natural
+  rolloff.
 - **Per-sub independence (D-004):** Each subwoofer has its own FIR correction
   filter, delay value, and gain trim, because different physical placement
   produces different room interaction.
@@ -36,17 +60,16 @@ topology interacts with the pipeline:
   pipeline captures the actual impulse response of whatever subwoofer is
   connected, including any internal acoustic path delay.
 
-The question this document answers: given our room-corrected, FIR-based system,
-how much does enclosure topology matter for sub-bass transient quality, and what
-are the practical tradeoffs between topologies?
-
 ---
 
 ## 2. Background: Psychoacoustic Thresholds
 
-The topology analysis that follows relies on psychoacoustic research about
-group delay audibility. This section consolidates all relevant findings so
-that subsequent sections can reference them without repetition.
+Before examining the topologies themselves, we need to establish when group
+delay differences are actually audible. The topology analysis that follows
+relies on psychoacoustic research that sets audibility thresholds -- and on
+a critical caveat about how that research was conducted. This section
+consolidates all relevant findings so that subsequent sections can reference
+them without repetition.
 
 ### 2.1 Blauert and Laws (1978)
 
@@ -132,13 +155,15 @@ comparable to ported (~25-40 ms).
 
 **Does the difference matter in a real venue?** The answer depends on whether
 the system applies room correction. The full analysis of corrected vs
-uncorrected systems is in Section 6.
+uncorrected systems is in Section 5.4.
 
 ---
 
 ## 3. Topology Analysis
 
-Each topology is covered with the same subsections -- operating principle,
+This section addresses the primary question -- which enclosure topology
+produces the crispest transients? -- by examining each of the four topologies
+in turn. Each is covered with the same subsections -- operating principle,
 group delay, cone excursion, transient behavior, and PA suitability -- to
 enable direct comparison.
 
@@ -590,8 +615,9 @@ needs a "transmission line" option.
 
 ## 4. Cross-Topology Comparison
 
-This section consolidates all comparative material to allow direct
-side-by-side assessment of the four topologies.
+The preceding sections examined each topology independently. This section
+consolidates the evidence to answer the primary question directly: which
+topology gives the crispest transients, and by how much?
 
 ### 4.1 Summary comparison
 
@@ -662,6 +688,11 @@ below Fs if the port is tuned low enough.
 ---
 
 ## 5. Interaction with Our FIR Correction Pipeline
+
+This section addresses the secondary question: does our pipeline handle all
+four topologies? The short answer is yes. The longer answer explains what the
+pipeline can and cannot do for each, and why room correction changes the
+decades-old consensus about enclosure topology's importance.
 
 ### 5.1 What the pipeline can correct
 
@@ -803,14 +834,25 @@ measure, compute inverse, apply as minimum-phase FIR.
 
 ## 6. Conclusion
 
-In our room-corrected system, a sealed or true-TL subwoofer's lower group
-delay is a genuine, if modest, advantage over a ported or quarter-wave
-resonator design. The advantage is not dramatic -- we are comparing 15 ms vs
-30 ms in a context where early reflections at 5-30 ms are also present -- but
-it is real and not masked by room modes. For psytrance kick drums, where the
-sub-bass tail of the kick (30-60 Hz, 100-300 ms) passes through the
-subwoofer, the tighter impulse response of a sealed or true-TL design
-preserves more of the original transient envelope.
+### Q1: What is the best enclosure topology for crisp transients?
+
+Sealed and true transmission line designs, with group delay of 10-20 ms at
+50 Hz. Ported and quarter-wave resonator designs are measurably worse at
+25-40 ms.
+
+Whether that difference matters depends on room correction. In an uncorrected
+room, it does not -- modal ringing at 50-200 ms buries the 15 ms gap between
+sealed and ported. This is why Toole [5], Thiele [4], and Linkwitz [3] all
+concluded that enclosure topology is a second-order effect. They were right,
+for uncorrected rooms.
+
+In our room-corrected system, it does matter -- modestly. The FIR pipeline
+reduces modal ringing by roughly 97% (for a 15 dB mode cut), removing the
+dominant masking. Enclosure group delay then sits alongside early reflections
+(5-30 ms) and residual modal energy as one of several comparable time-domain
+artifacts. The 15 ms difference between a sealed sub and a ported sub is no
+longer buried under 100+ ms of room ringing; it occupies the same order of
+magnitude as the early reflection pattern.
 
 This should not be overstated. The difference is subtle, operating near the
 edge of audibility even by the generous extrapolated Blauert thresholds [1].
@@ -819,12 +861,24 @@ But if the owner is choosing between enclosure types and other factors (size,
 cost, efficiency) are equal, lower group delay is a legitimate tiebreaker in
 a corrected system -- whereas in an uncorrected system, it would not be.
 
-The FIR correction pipeline handles any topology effectively above the
-enclosure's rolloff frequency. The practical differences: ported, horn-loaded,
-and transmission line enclosures require subsonic protection (D-010) while
-sealed enclosures do not, and designs with internal acoustic paths add
-physical propagation delay that the measurement pipeline captures
-automatically.
+The key insight: cheap, real-time room correction -- running on a $75
+Raspberry Pi -- shifts a decades-old consensus. Enclosure topology moves from
+"negligible" to "one of several comparable contributors," not because the
+physics changed, but because we removed the thing that was hiding it.
+
+### Q2: Does our FIR correction pipeline handle all topologies?
+
+Yes. The pipeline measures, corrects, and deploys filters for any enclosure
+type. It does not need to know the topology -- it measures the actual impulse
+response and computes the inverse. The practical differences are limited to:
+
+- **Subsonic protection (D-010):** Mandatory for ported, advisable for
+  horn-loaded and transmission line, not needed for sealed.
+- **Time alignment:** Designs with internal acoustic paths (horns,
+  transmission lines) have acoustic centers that differ from physical driver
+  position. The measurement pipeline captures this automatically (D-008).
+- **Per-sub independence (D-004):** Mixed topologies (one sealed, one ported)
+  are handled transparently -- each sub gets its own FIR correction.
 
 ---
 
