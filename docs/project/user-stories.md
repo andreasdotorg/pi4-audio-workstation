@@ -1351,6 +1351,142 @@ processing load and clipping indicators natively.
 
 ---
 
+## Tier 8 — User Acceptance Testing
+
+Real-content validation with actual music, real controllers, and real
+performance workflows. All prior tiers validate technical metrics with
+synthetic signals — these stories validate the user experience with real
+content. No story in this tier is complete until the owner has personally
+performed the workflow on the Pi.
+
+---
+
+## US-029: DJ/PA Mode User Acceptance Test
+
+**As** the DJ,
+**I want** to load a real DJ set on the Pi, mix tracks using the Hercules
+controller, and hear the full audio chain with actual music through all
+speakers,
+**so that** I can confirm the system works for a real psytrance DJ set — not
+just test tones and benchmarks.
+
+**Status:** draft
+**Depends on:** US-005 (Hercules MIDI verified), US-006 (Mixxx feasibility confirmed), US-028 (8-channel Loopback for headphone cue routing)
+**Blocks:** US-031 (full rehearsal requires both modes validated)
+**Decisions:** D-002 (DJ mode chunksize 2048 + quantum 1024)
+
+**Note:** This is the first time real music flows through the full chain:
+Mixxx -> PipeWire -> Loopback -> CamillaDSP (FIR convolution) -> USBStreamer
+-> ADA8200 -> amplifiers -> speakers. Synthetic benchmarks (US-001, US-003)
+validated CPU and stability, but cannot catch perceptual issues: audible
+artifacts, transition glitches, controller feel, workflow friction.
+
+**Acceptance criteria:**
+- [ ] Real music library loaded on Pi (minimum 20 tracks, psytrance genre, various BPMs)
+- [ ] Mixxx launched and connected to Hercules DJControl Mix Ultra
+- [ ] Two-deck mixing workflow tested: load track, cue in headphones (ch 4-5), beat-match, crossfade to main (ch 0-1)
+- [ ] Headphone cue confirmed working: DJ hears pre-listen on headphones independently of main output
+- [ ] Full audio chain verified with music: main L/R speakers, subwoofers (mono sum), engineer headphones
+- [ ] Crossover audibly correct: no obvious frequency gap or overlap between mains and subs
+- [ ] No audible artifacts: no clicks, pops, dropouts, or distortion during 30+ minutes of continuous mixing
+- [ ] Controller responsiveness: faders, EQ knobs, jog wheels respond without perceptible lag
+- [ ] RustDesk remote operation tested: Mixxx UI visible and responsive via remote desktop
+- [ ] Owner subjective assessment: "I would use this at a gig" — yes/no with notes on any issues
+
+**DoD:**
+- [ ] Test performed by owner on Pi 4B with real speakers and controller
+- [ ] At least 30 minutes of continuous mixing
+- [ ] Lab note with subjective assessment, any issues found, controller mapping gaps
+- [ ] Audio engineer review: signal chain sounds correct
+- [ ] Any blocking issues logged as defects with severity
+
+---
+
+## US-030: Live Vocal Mode User Acceptance Test
+
+**As** the live vocalist,
+**I want** to load a real Reaper project with backing tracks and vocal FX,
+sing into the mic, hear my IEM mix, and verify the full live performance
+signal chain,
+**so that** I can confirm the system works for a real Cole Porter vocal
+performance — not just routed test signals.
+
+**Status:** draft
+**Depends on:** US-017 (IEM mix working), US-028 (8-channel Loopback for PA + HP + IEM routing)
+**Blocks:** US-031 (full rehearsal requires both modes validated)
+**Decisions:** D-011 (live mode chunksize 256 + quantum 256), D-013 (PREEMPT_RT mandatory)
+
+**Note:** This validates the vocalist's experience: IEM latency perception,
+monitor mix quality, vocal FX chain, backing track synchronization. The
+singer hears her voice through both bone conduction and IEM electronics —
+D-011's ~21ms target must feel acceptable during actual singing, not just
+measure acceptably on a scope.
+
+**Acceptance criteria:**
+- [ ] Reaper project loaded with real backing tracks (minimum 3 songs, Cole Porter repertoire)
+- [ ] Vocal mic connected via ADA8200 ch 1, signal visible in Reaper
+- [ ] Vocal FX chain active in Reaper (reverb, compression, or whatever the vocalist uses)
+- [ ] IEM mix confirmed working: vocalist hears backing tracks + own voice + vocal cues on IEM (ch 6-7)
+- [ ] IEM latency subjectively acceptable: vocalist can sing in time without perceiving slapback from PA
+- [ ] PA mix confirmed working: audience hears backing tracks + amplified vocals through mains and subs
+- [ ] Engineer headphone mix confirmed working: independent mix on ch 4-5
+- [ ] All three mixes independent: changing IEM level does not affect PA or engineer HP
+- [ ] No audible artifacts: no clicks, pops, dropouts, or distortion during a full song
+- [ ] Vocal cue track routed to IEM only (not audible on PA or engineer HP)
+- [ ] Owner subjective assessment: "I would perform with this system" — yes/no with notes
+
+**DoD:**
+- [ ] Test performed by owner (vocalist) on Pi 4B with real mic, IEM, and speakers
+- [ ] At least one full song performed end-to-end
+- [ ] Lab note with subjective assessment: IEM comfort, latency perception, mix quality
+- [ ] Audio engineer review: signal routing and mix balance are production-ready
+- [ ] Any blocking issues logged as defects with severity
+
+---
+
+## US-031: Full Rehearsal — End-to-End Performance Workflow
+
+**As** the performer,
+**I want** to run a complete gig setup and performance workflow from power-on
+to performance to shutdown, including room calibration (when pipeline is
+available),
+**so that** I can confirm the entire operational workflow is viable for a real
+gig — setup time, reliability, and performance quality.
+
+**Status:** draft
+**Depends on:** US-029 (DJ UAT passed), US-030 (Live UAT passed), US-021 (mode switching working)
+**Blocks:** none (this is the final validation gate before production use)
+**Decisions:** D-008 (per-venue measurement), D-013 (PREEMPT_RT mandatory)
+
+**Note:** This is the "dress rehearsal" story. It exercises the full
+operational workflow as it would happen at an actual gig. It should be run
+at least once before the first real performance. If the room correction
+pipeline (US-012) is available, include calibration; if not, use pre-loaded
+test filters.
+
+**Acceptance criteria:**
+- [ ] Power on Pi, system reaches audio-ready state (document time)
+- [ ] Room calibration performed (if US-012 available) or test filters loaded
+- [ ] DJ/PA set: minimum 20 minutes of continuous mixing with real music
+- [ ] Mode switch: transition from DJ/PA to Live mode using US-021 procedure
+- [ ] Live vocal set: minimum 15 minutes with real backing tracks and live vocals
+- [ ] Both modes validated in a single session without reboot (except mode switch if required)
+- [ ] Remote monitoring via RustDesk verified during performance
+- [ ] System stable throughout: zero xruns, no thermal throttling, no audio dropouts
+- [ ] Shutdown procedure: clean shutdown, no data loss
+- [ ] Total setup time documented: power-on to "ready to perform" (target: under 5 minutes without calibration, under 15 minutes with calibration)
+- [ ] Owner subjective assessment: "This system is gig-ready" — yes/no with detailed notes
+
+**DoD:**
+- [ ] Full rehearsal completed by owner on Pi 4B with real equipment
+- [ ] Lab note documenting: setup time, performance notes, any issues, subjective assessment
+- [ ] Audio engineer review: audio quality is production-ready for both modes
+- [ ] UX specialist review: operational workflow is clear and manageable during a real setup
+- [ ] All blocking issues resolved or documented with workarounds
+- [ ] If "not gig-ready": specific deficiency list with remediation plan
+
+---
+
 ## Summary — Story Dependency Graph
 
 ```
@@ -1381,4 +1517,8 @@ US-014 (doc structure) ──> US-015 (theory doc)
                       └──> US-016 (how-to guides)
 
 US-019 (reproducibility) ──> US-020 (redundancy)
+
+US-005 + US-006 + US-028 ──> US-029 (DJ/PA UAT) ──┐
+US-017 + US-028 ──> US-030 (Live Vocal UAT) ───────┤
+                                                    └──> US-031 (Full Rehearsal)
 ```
