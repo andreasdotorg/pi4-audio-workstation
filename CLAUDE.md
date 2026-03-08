@@ -176,7 +176,9 @@ At 48kHz, 16,384 taps = 341ms = 2.9Hz frequency resolution.
 
 ## Assumptions Needing Validation
 
-These are tracked in the Test Plan (SETUP-MANUAL.md section 6.13):
+Full assumption register (A1-A26): `docs/project/assumption-register.md`
+
+Original assumptions tracked in the Test Plan (SETUP-MANUAL.md section 6.13):
 
 | ID | Assumption | Confidence | Test |
 |----|-----------|------------|------|
