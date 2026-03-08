@@ -309,14 +309,48 @@ while keeping the -3 dB point within ~25% of Butterworth.
    gently reshape the knee to reduce group delay at the cost of some
    extension -- sliding the system toward Bessel in post-processing.
 
-4. **Underdamped (Qtc > 0.707) should be avoided.** The ringing produces
-   audible time-domain artifacts; the FIR correction can reduce them only
-   by cutting the magnitude peak, which yields less usable bandwidth than
-   Butterworth with no transient advantage. Strictly worse.
+4. **Underdamped (Qtc > 0.707) is not preferred** when box volume is
+   unconstrained. The ringing produces audible time-domain artifacts; the
+   FIR correction can reduce them only by cutting the magnitude peak, which
+   yields less usable bandwidth than Butterworth with no transient advantage.
+   Exception: volume-constrained builds -- see "Compact builds" below.
 
 5. **For custom builds,** Qtc = 0.65 in a somewhat larger box is worth
    considering -- 75% of Bessel's group delay advantage with a -3 dB point
    within ~25% of Butterworth. But this is a refinement, not a requirement.
+
+##### Compact builds: underdamped + FIR correction
+
+When box volume is constrained -- portable rigs, compact flight cases, or
+builds using drivers with high Qts in small enclosures -- the resulting Qtc
+lands above 0.707 (underdamped). The magnitude response has a hump near Fc
+and the group delay peak is higher than Butterworth. The standard advice
+(point 4 above) is to avoid this alignment when possible.
+
+However, the FIR correction can flatten the magnitude hump by cutting the
+peak region. This is D-009 compliant (cut-only). Because the system is
+minimum-phase, reducing the magnitude peak also reduces the associated group
+delay peak -- the corrected system approximates a Butterworth frequency
+response and approaches Butterworth group delay.
+
+**The limitation is physical, not electrical.** FIR correction reshapes the
+signal but cannot change the air spring stiffness of the smaller box or
+reduce cone excursion demands. At PA levels near Xmax:
+
+- A Qtc = 0.9 box in ~30 L requires roughly 3x more cone excursion at 30 Hz
+  than the same driver in a true Butterworth box (~53 L) for the same
+  acoustic output.
+- The smaller box loses 3-5 dB of native extension below 30 Hz that D-009
+  cannot recover (no boost allowed).
+- Thermal and mechanical stress on the driver increase at equivalent SPL.
+
+**Recommendation:** When box volume is unconstrained, the true Butterworth
+alignment is strictly preferred -- more extension, more SPL headroom, lower
+excursion stress, no FIR dependency for flat response. The underdamped + FIR
+strategy is a valid engineering tradeoff for compact sealed builds only, and
+the D-010 speaker profile should note both the native Qtc and the target Qtc
+after correction so the pipeline can verify the correction is within safe
+limits.
 
 ##### D-010 speaker profile note
 
