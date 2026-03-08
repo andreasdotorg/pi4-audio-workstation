@@ -59,7 +59,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 
 ## Pi Hardware State (verified 2026-03-08)
 
-- **OS:** Debian 13 Trixie, kernel 6.12.47 with PREEMPT
+- **OS:** Debian 13 Trixie, kernel 6.12.47+rpt-rpi-v8-rt with PREEMPT_RT (D-013). Stock PREEMPT kernel retained as fallback.
 - **USB devices:** UMIK-1, USBStreamer, Hercules DJControl Mix Ultra, APCmini mk2, Nektar SE25
 - **UMIK-1 calibration:** `/home/ela/7161942.txt` (magnitude-only, serial 7161942, -1.378dB sensitivity)
 - **Audio:** PipeWire running (pipewire, pipewire-pulse, wireplumber). Currently at quantum 1024 (default). Needs `10-audio-settings.conf` for production quantum values (256 live, 1024 DJ).
