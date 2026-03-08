@@ -20,7 +20,7 @@ installed on the Pi 4B with verified basic functionality,
 **so that** subsequent stories (benchmarks, latency tests, stability tests,
 room correction pipeline) have a working software foundation.
 
-**Status:** in-progress (worker running, ~2hr estimated)
+**Status:** in-review (all tasks complete, validation passed, pending advisory sign-off + owner acceptance)
 **Depends on:** none (first story to execute)
 **Blocks:** US-001 (CamillaDSP must be installed for CPU benchmarks), US-002 (CamillaDSP must be installed for latency measurement), US-006 (Mixxx must be installed for feasibility testing), US-017 (Reaper must be installed for IEM routing)
 **Decisions:** none yet
@@ -98,6 +98,63 @@ by default when installed.
 
 ---
 
+## US-000b: Desktop Session Trimming for Performance and Security
+
+**As** the system builder,
+**I want** unnecessary desktop services removed from the Pi's autostart and the
+display manager replaced with a minimal alternative,
+**so that** RAM and CPU are freed for audio processing and the local attack
+surface is reduced.
+
+**Status:** draft
+**Depends on:** US-000 (core software installed — need to verify trimming doesn't break Mixxx, Reaper, or RustDesk)
+**Blocks:** none directly, but improves Tier 1 benchmark results (US-001 through US-003 benefit from freed resources)
+**Decisions:** none yet
+
+**Note:** Joint recommendation from architect and security specialist.
+Owner confirmed: no login process needed, RustDesk provides auth, apps autostart.
+Estimated savings: ~60-75MB RAM, ~2% CPU.
+
+**Services to REMOVE from autostart:**
+- pcmanfm (file manager — not needed for audio workstation)
+- wf-panel-pi (Wayland panel — no interactive desktop use)
+- notification daemon (no one at the screen to read notifications)
+- polkit agent (no interactive privilege escalation needed — passwordless sudo configured)
+- screensaver (wastes CPU, no one at the screen)
+
+**Services to KEEP:**
+- labwc (Wayland compositor — needed for RustDesk, Mixxx, Reaper GUI)
+- D-Bus (required by PipeWire, systemd, many services)
+- PipeWire (audio stack)
+- avahi (mDNS — useful for `.local` hostname resolution on LAN)
+- bluetooth (needed until US-005 confirms Hercules works via USB-MIDI)
+
+**Display manager replacement:**
+- Replace lightdm with either greetd (recommended — minimal, Wayland-native)
+  or TTY autologin + labwc as a user systemd service
+- Goal: automatic login to labwc session without interactive greeter
+
+**Acceptance criteria:**
+- [ ] pcmanfm, wf-panel-pi, notification daemon, polkit agent, and screensaver removed from autostart
+- [ ] lightdm replaced with greetd (preferred) or TTY autologin + labwc user service
+- [ ] labwc session starts automatically on boot without interactive login
+- [ ] Verification: RustDesk still works (can connect and see/control desktop)
+- [ ] Verification: Mixxx still launches (if installed at this point)
+- [ ] Verification: Reaper still launches (if installed at this point)
+- [ ] Verification: PipeWire and audio stack unaffected
+- [ ] RAM savings measured: before and after comparison (`free -h` at idle)
+- [ ] CPU savings measured: before and after comparison (idle CPU %)
+- [ ] No regressions: all US-000 smoke tests still pass after trimming
+- [ ] Security specialist review: reduced attack surface confirmed
+
+**DoD:**
+- [ ] All trimming applied and verified on Pi 4B
+- [ ] System boots to labwc session automatically (tested with reboot)
+- [ ] Lab note documenting: removed services, display manager change, before/after resource measurements
+- [ ] Security specialist review passed
+
+---
+
 ## Tier 1 — Platform Validation
 
 These stories validate that the Pi 4B can run the required workload. They gate
@@ -114,7 +171,7 @@ and FIR filter length combinations on the Pi 4B,
 **so that** I can confirm the hardware can handle the DSP workload and make
 informed decisions about filter length and chunksize for each operating mode.
 
-**Status:** draft
+**Status:** ready (unblocked by US-000 completion)
 **Depends on:** US-000 (CamillaDSP must be installed)
 **Blocks:** US-003 (stability tests use the config validated here), US-008 through US-011 (pipeline filter length depends on CPU budget), US-010 (correction filter tap count)
 **Decisions:** D-002 (dual chunksize), D-003 (16,384-tap FIR)
@@ -149,7 +206,7 @@ ADAT -> USB -> PipeWire),
 **so that** I can confirm the live mode latency stays below the singer's
 slapback perception threshold.
 
-**Status:** draft
+**Status:** ready (unblocked by US-000 completion)
 **Depends on:** US-000 (CamillaDSP must be installed; can run in parallel with US-001)
 **Blocks:** US-003 (stability tests assume latency is acceptable)
 **Decisions:** D-002 (dual chunksize)
@@ -253,7 +310,7 @@ compatibility. They can partially run in parallel with Tier 1.
 functional USB-MIDI controller on the Pi 4B (beyond just USB enumeration),
 **so that** I can use it to control Mixxx during DJ/PA sets.
 
-**Status:** draft
+**Status:** ready
 **Depends on:** none (USB enumeration already confirmed by owner)
 **Blocks:** US-006 (Mixxx feasibility includes controller integration)
 **Decisions:** none yet
@@ -951,10 +1008,119 @@ is a future nice-to-have and does not need to be seamless.
 
 ---
 
+## Tier 7 — Operational Convenience
+
+Quality-of-life features for venue setup and DJ workflow. Independent of
+validation and pipeline work. Lower priority but captured for completeness.
+
+---
+
+## US-024: Boot-to-Audio-Ready Time Optimization
+
+**As** the performer setting up at a venue,
+**I want** the system to reach audio-ready state as fast as possible after
+power-on,
+**so that** I can minimize setup time and start performing or calibrating
+quickly.
+
+**Status:** draft
+**Depends on:** US-000b (desktop trimming directly reduces boot time), US-000 (audio stack must be installed and configured)
+**Blocks:** none
+**Decisions:** none yet
+
+**Note:** Desktop trimming (US-000b) is the biggest lever: fewer autostart
+services = faster boot. Additional optimization: systemd service ordering,
+parallel startup, eliminating unnecessary dependencies in the audio stack
+startup chain.
+
+**Acceptance criteria:**
+- [ ] Boot-to-audio-ready time measured: from power-on to CamillaDSP processing audio (baseline, before optimization)
+- [ ] Boot timeline analyzed: `systemd-analyze blame` and `systemd-analyze critical-chain` to identify bottlenecks
+- [ ] Optimization targets identified and applied (e.g., unnecessary service dependencies removed, parallel start enabled, slow services deferred)
+- [ ] Boot-to-audio-ready time measured again after optimization
+- [ ] Target: under 30 seconds from power-on to audio-ready (stretch goal: under 20 seconds)
+- [ ] No regressions: all services still start correctly, audio stack functional
+
+**DoD:**
+- [ ] Before/after boot time measurements documented
+- [ ] Optimization steps documented in lab note
+- [ ] `systemd-analyze` output saved for reference
+- [ ] How-to guide: "Power on and verify system is ready"
+
+---
+
+## US-025: DJ Music Library — Local Folder and USB Hot-Plug
+
+**As** the DJ,
+**I want** Mixxx to seamlessly access music from both a local folder on the Pi
+and from any USB mass storage device I plug in,
+**so that** I can use my full music collection stored on USB sticks alongside
+any tracks pre-loaded on the Pi.
+
+**Status:** draft
+**Depends on:** US-006 (Mixxx must be working on Pi 4B)
+**Blocks:** none
+**Decisions:** none yet
+
+**Acceptance criteria:**
+- [ ] Local music directory configured (e.g., `/home/ela/Music/`) and indexed by Mixxx library
+- [ ] USB mass storage auto-mount configured via udev rule or udisks2 — USB drives mount automatically on insertion
+- [ ] Mount point is predictable and consistent (e.g., `/media/ela/<label>` or `/mnt/usb/`)
+- [ ] Mixxx library configured to scan both local path and USB mount paths
+- [ ] Hot-plug tested: insert USB stick during a running Mixxx session, trigger library rescan, new music appears
+- [ ] Multiple filesystem types supported: FAT32, exFAT, NTFS (common USB stick formats)
+- [ ] Safe removal: USB can be ejected without crashing Mixxx (graceful handling of removed media)
+- [ ] Security: auto-mount does not execute anything from USB (noexec mount option)
+
+**DoD:**
+- [ ] Auto-mount configuration written and tested on Pi 4B
+- [ ] Mixxx library scan verified with both local and USB sources
+- [ ] Hot-plug tested with actual USB stick during Mixxx session
+- [ ] Security specialist review: auto-mount rules are safe (noexec, no SUID)
+- [ ] Lab note documenting configuration and tested USB formats
+- [ ] How-to guide: "Adding music via USB stick"
+
+---
+
+## US-026: Remote Music Collection Transfer
+
+**As** the DJ,
+**I want** to transfer music files to the Pi remotely from a laptop on the
+same network,
+**so that** I can update my music collection without physically connecting
+USB drives or using a keyboard/monitor on the Pi.
+
+**Status:** draft
+**Depends on:** US-000a (SSH must be configured and secured)
+**Blocks:** none
+**Decisions:** none yet
+
+**Note:** SSH/SFTP is already available after US-000a. This is the simplest
+and most secure option -- no additional services needed. Samba would require
+a new firewall rule and service, adding complexity and attack surface. Rsync
+over SSH gives efficient incremental transfers.
+
+**Acceptance criteria:**
+- [ ] Primary method: rsync over SSH or SFTP to the Pi's local music directory (`/home/ela/Music/`)
+- [ ] Transfer verified: copy files from laptop, confirm they appear in the music directory
+- [ ] Mixxx library rescan after transfer picks up new files
+- [ ] Transfer works from macOS, Linux, and Windows clients (document client-side commands or tools)
+- [ ] No new services or firewall rules required (leverages existing SSH)
+- [ ] If Samba is desired as a future enhancement: captured as a separate future story with security specialist review
+
+**DoD:**
+- [ ] Transfer method tested on Pi 4B from at least one client OS
+- [ ] How-to guide: "Transferring music to the Pi" (rsync/SFTP commands, recommended GUI clients)
+- [ ] Lab note confirming Mixxx library picks up transferred files
+
+---
+
 ## Summary — Story Dependency Graph
 
 ```
 US-000 (software install) ──> US-000a (security hardening) ──> [venue deployment]
+                          │
+                          ├──> US-000b (desktop trimming) ──> US-024 (boot time optimization)
                           │
                           ├──> US-001 (CPU benchmark) ──┐
                           │                             ├──> US-003 (stability) ──> US-017 (IEM mix)
@@ -970,7 +1136,9 @@ US-000 + US-000a ──> US-022 (web UI platform) ──> US-023 (engineer dashb
 US-004 (expanded assumptions) — independent, informs all
 
 US-005 (Hercules MIDI) ──> US-006 (Mixxx feasibility) ──> US-007 (APCmini mapping)
-                           ↑ depends on US-000
+                           ↑ depends on US-000          └──> US-025 (USB music library)
+
+US-000a ──> US-026 (remote music transfer)
 
 US-014 (doc structure) ──> US-015 (theory doc)
                       └──> US-016 (how-to guides)
