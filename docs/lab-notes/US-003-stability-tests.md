@@ -119,6 +119,88 @@ $ scripts/stability/deploy-to-pi.sh
    The stability config unmutes them for passthrough, matching the production config.
    This adds negligible CPU but tests the full 8-channel output path.
 
+### T0.6: Architect's Additional Pre-flight Checks (Post-hoc)
+
+Added after T3b/T3c completed, per architect review.
+
+#### force_turbo status
+
+```bash
+$ grep -i force_turbo /boot/firmware/config.txt
+(not found)
+```
+
+`force_turbo` is NOT set. The Pi uses the default ondemand governor with dynamic
+frequency scaling (confirmed by CPU frequency data: 96.4% at 1500MHz, occasional
+drops to 800-900MHz during idle periods between measurements).
+
+#### PipeWire quantum stability after audio source connects
+
+```bash
+# Before audio: quantum already forced to 256
+$ pw-metadata -n settings | grep quantum
+clock.quantum: 256
+clock.force-quantum: 256
+
+# After aplay opens (checked during T3b health checks)
+# Quantum remained at 256 throughout all 169 samples
+```
+
+PipeWire quantum remained stable at 256 throughout both T3b and T3c. The
+`force-quantum` setting prevents renegotiation when new clients connect.
+
+#### 8-channel Loopback routing via PipeWire (A19)
+
+**ALSA hardware level:** snd-aloop supports 8 channels natively:
+```bash
+$ timeout 2 aplay -D hw:Loopback,0,0 -f S32_LE -r 48000 -c 8 /dev/zero
+Playing raw data '/dev/zero' : Signed 32 bit Little Endian, Rate 48000 Hz, Channels 8
+# Works -- exit via timeout, no error
+
+$ timeout 2 arecord -D hw:Loopback,1,0 -f S32_LE -r 48000 -c 8 /dev/null
+Recording WAVE '/dev/null' : Signed 32 bit Little Endian, Rate 48000 Hz, Channels 8
+# Works -- exit via timeout, no error
+```
+
+**CamillaDSP with 8ch Loopback capture:** Works.
+```bash
+$ sudo camilladsp -p 1234 -a 127.0.0.1 /etc/camilladsp/configs/test_8ch_loopback.yml
+# State: ProcessingState.RUNNING, Load: 20.97%, Buffer: 0
+```
+
+**PipeWire exposure: STEREO ONLY (BLOCKER FOR PRODUCTION)**
+```bash
+$ wpctl status | grep -A1 Loopback
+*  105. Loopback Analog Stereo              [vol: 0.40]   # Sink
+   106. Loopback Analog Stereo              [vol: 1.00]   # Source
+
+$ pw-cli enum-params 63 Profile
+# Only profile: "output:analog-stereo+input:analog-stereo" (Analog Stereo Duplex)
+```
+
+PipeWire's ALSA Card Profile (ACP) module detects the Loopback as a generic ALSA
+card and defaults to a stereo profile. No 8-channel profile is available.
+
+**Impact on completed tests:** None. T3b and T3c used CamillaDSP with direct ALSA
+access (`hw:Loopback,1,0`), and aplay also uses direct ALSA (`hw:Loopback,0,0`).
+Both bypass PipeWire entirely. The tests are valid.
+
+**Impact on production (Reaper live mode):** Reaper uses PipeWire's JACK bridge.
+If Reaper outputs 8 channels, PipeWire would need to route them to the Loopback.
+Since PipeWire only exposes 2 Loopback channels, Reaper would be limited to stereo
+output to the Loopback -- CamillaDSP would then need the stereo_to_octa mixer (as
+used in T3b), which works but means Reaper cannot independently control per-channel
+content (e.g., different IEM mix vs FOH mix).
+
+**Resolution needed:** Either:
+1. Create a custom PipeWire profile for the Loopback (override in
+   `~/.config/wireplumber/` or `/etc/pipewire/`) to expose 8 channels
+2. Use ALSA directly from Reaper (bypass PipeWire JACK bridge)
+3. Accept the 2-channel limitation and use CamillaDSP's mixer for channel routing
+
+This is tracked as a blocker for full production live mode but does NOT invalidate
+the T3b/T3c stability results.
+
 ### Validation
 
 | Check | Expected | Actual | Pass/Fail |
@@ -128,6 +210,10 @@ $ scripts/stability/deploy-to-pi.sh
 | stability_live.yml valid | Config is valid | Config is valid | PASS |
 | PipeWire quantum | 256 | 256 (forced) | PASS |
 | Test audio exists | 35-min stereo WAV | 770MB, 35:00 | PASS |
+| force_turbo | document status | NOT set (ondemand governor) | N/A (documented) |
+| PipeWire quantum stable | 256 after audio connects | 256 throughout | PASS |
+| Loopback 8ch ALSA | Supported | Confirmed (aplay + arecord + CamillaDSP) | PASS |
+| Loopback 8ch PipeWire | 8ch profile | **Stereo only** | **BLOCKER** (production) |
 
 ---
 

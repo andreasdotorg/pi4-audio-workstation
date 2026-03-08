@@ -1,0 +1,55 @@
+# test_8ch_loopback.yml — Test 8-channel capture from Loopback
+# For verifying A19 (8-channel Loopback routing)
+devices:
+  samplerate: 48000
+  chunksize: 256
+  capture:
+    type: Alsa
+    channels: 8
+    device: "hw:Loopback,1,0"
+    format: S32LE
+  playback:
+    type: Alsa
+    channels: 8
+    device: "hw:USBStreamer,0"
+    format: S32LE
+
+filters:
+  left_hp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  right_hp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  sub1_lp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  sub2_lp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+
+pipeline:
+  - type: Filter
+    channels: [0]
+    names:
+      - left_hp
+  - type: Filter
+    channels: [1]
+    names:
+      - right_hp
+  - type: Filter
+    channels: [2]
+    names:
+      - sub1_lp
+  - type: Filter
+    channels: [3]
+    names:
+      - sub2_lp

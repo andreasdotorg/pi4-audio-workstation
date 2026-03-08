@@ -8,9 +8,9 @@ The Pi now runs a complete audio stack: PipeWire for routing, CamillaDSP for
 real-time signal processing, Mixxx for DJ sets, and Reaper for live vocal
 performance. The system is hardened for venue WiFi networks, trimmed for
 headless operation, and benchmarked under load. CPU consumption for 16,384-tap
-FIR convolution on four channels comes in at 5% in DJ mode and about 19% in
-live mode -- far below the limits that would have forced compromises on filter
-quality. The bone-to-electronic latency for the vocalist targets approximately
+FIR convolution on four channels comes in at 5% in DJ mode and about 34% in
+live mode with the full 8-channel production configuration -- far below the
+limits that would have forced compromises on filter quality. The bone-to-electronic latency for the vocalist targets approximately
 21 milliseconds at D-011 parameters -- within the threshold where a singer can
 perform comfortably.
 

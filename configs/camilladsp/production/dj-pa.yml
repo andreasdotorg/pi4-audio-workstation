@@ -1,0 +1,113 @@
+devices:
+  samplerate: 48000
+  chunksize: 2048
+  queuelimit: 4
+  capture:
+    type: Alsa
+    channels: 8
+    device: "hw:Loopback,1,0"
+    format: S32LE
+  playback:
+    type: Alsa
+    channels: 8
+    device: "hw:USBStreamer,0"
+    format: S32LE
+
+mixers:
+  route_dj:
+    channels:
+      in: 8
+      out: 8
+    mapping:
+      # Main L (input ch 0) -> dest 0
+      - dest: 0
+        sources:
+          - channel: 0
+            gain: 0
+            inverted: false
+      # Main R (input ch 1) -> dest 1
+      - dest: 1
+        sources:
+          - channel: 1
+            gain: 0
+            inverted: false
+      # Mono sum L+R -> Sub 1 (dest 2)
+      - dest: 2
+        sources:
+          - channel: 0
+            gain: -6
+          - channel: 1
+            gain: -6
+      # Mono sum L+R -> Sub 2 (dest 3)
+      - dest: 3
+        sources:
+          - channel: 0
+            gain: -6
+          - channel: 1
+            gain: -6
+      # Cue L (input ch 2) -> HP L (dest 4)
+      - dest: 4
+        sources:
+          - channel: 2
+            gain: 0
+            inverted: false
+      # Cue R (input ch 3) -> HP R (dest 5)
+      - dest: 5
+        sources:
+          - channel: 3
+            gain: 0
+            inverted: false
+      # IEM L muted (dest 6)
+      - dest: 6
+        mute: true
+        sources:
+          - channel: 0
+            gain: 0
+      # IEM R muted (dest 7)
+      - dest: 7
+        mute: true
+        sources:
+          - channel: 0
+            gain: 0
+
+filters:
+  left_hp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  right_hp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  sub1_lp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  sub2_lp:
+    type: Conv
+    parameters:
+      type: Wav
+      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+
+pipeline:
+  - type: Mixer
+    name: route_dj
+  - type: Filter
+    channels: [0]
+    names:
+      - left_hp
+  - type: Filter
+    channels: [1]
+    names:
+      - right_hp
+  - type: Filter
+    channels: [2]
+    names:
+      - sub1_lp
+  - type: Filter
+    channels: [3]
+    names:
+      - sub2_lp

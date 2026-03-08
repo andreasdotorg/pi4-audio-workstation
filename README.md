@@ -1,6 +1,6 @@
 # Pi 4B Portable Audio Workstation
 
-A Raspberry Pi 4B that runs an entire live sound system -- crossover filtering,
+A [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) that runs an entire live sound system -- crossover filtering,
 room correction, multi-channel routing, and time alignment -- replacing a
 Windows PC in a portable flight case.
 
@@ -21,14 +21,14 @@ Raspberry Pi -- a $75 credit-card-sized computer -- do the whole job?
 The workstation handles two very different kinds of live events on the same
 hardware:
 
-**Psytrance DJ sets.** Mixxx (open-source DJ software) plays tracks through a
+**Psytrance DJ sets.** [Mixxx](https://mixxx.org/) (open-source DJ software) plays tracks through a
 pair of full-range speakers and two subwoofers. Psytrance lives and dies by its
 kick drums -- they need to hit with physical impact, not arrive as a smeared
 thud. The system applies per-venue room correction that preserves that
 transient punch, using combined filters that handle both the crossover and the
 room correction in a single processing step.
 
-**Cole Porter vocal performances.** Reaper (a digital audio workstation) plays
+**Cole Porter vocal performances.** [Reaper](https://www.reaper.fm/) (a digital audio workstation) plays
 backing tracks while a singer performs live with a microphone. She wears
 in-ear monitors to hear herself, but she also hears the PA speakers in the
 room. If there is too much delay between what she hears in her ears and what
@@ -44,7 +44,7 @@ CPU efficiency for lower latency in live mode).
 
 Sound from the Pi travels through a chain: software application, audio server,
 digital signal processor, USB audio interface, digital-to-analog converter,
-amplifier, and finally speakers. The key piece is **CamillaDSP**, an
+amplifier, and finally speakers. The key piece is **[CamillaDSP](https://github.com/HEnquist/camilladsp)**, an
 open-source DSP engine that reshapes the audio in real time.
 
 ### Room Correction
@@ -80,13 +80,13 @@ speakers designed for it. Every multi-speaker PA system has one.
 When the crossover happens digitally before amplification (as in this system),
 the standard approach is **IIR filters** (Infinite Impulse Response) -- compact
 mathematical formulas that split frequencies efficiently. This is what PA
-processors from d&b, L-Acoustics, and most commercial DSP use. But when a
+processors from [d&b](https://www.dbaudio.com/), [L-Acoustics](https://www.l-acoustics.com/), and most commercial DSP use. But when a
 system also needs per-venue room correction, an IIR crossover requires a
 separate processing stage afterwards -- the room correction filter. Two stages
 means more CPU load and no opportunity to co-optimize the crossover with the
 room correction.
 
-A few high-end processors (Lake, Powersoft) offer **FIR** (Finite Impulse
+A few high-end processors ([Lake](https://www.lakeprocessing.com/), [Powersoft](https://www.powersoft.com/)) offer **FIR** (Finite Impulse
 Response) crossovers -- filters described by a long list of precise
 coefficients called "taps" that give complete control over the filter shape.
 But commercial FIR processors typically max out at around 1,024 taps, which
@@ -129,14 +129,14 @@ distracting.
 
 | Device | Role |
 |--------|------|
-| Raspberry Pi 4B | Main compute (Raspberry Pi OS Trixie, Debian 13) |
-| minidsp USBStreamer B | 8-channel USB-to-ADAT audio interface |
-| Behringer ADA8200 | ADAT-to-analog converter, 8 channels |
+| [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) | Main compute (Raspberry Pi OS Trixie, Debian 13) |
+| [minidsp USBStreamer B](https://www.minidsp.com/products/usb-audio-interface/usbstreamer) | 8-channel USB-to-ADAT audio interface |
+| [Behringer ADA8200](https://www.behringer.com/product.html?modelCode=0805-AAJ) | ADAT-to-analog converter, 8 channels |
 | 4-channel Class D amp (4x450W) | Amplification for speakers |
-| Hercules DJControl Mix Ultra | DJ controller (USB-MIDI) |
-| Akai APCmini mk2 | Grid controller / mixer |
-| Nektar SE25 | 25-key MIDI keyboard |
-| minidsp UMIK-1 | Measurement microphone with calibration file |
+| [Hercules DJControl Mix Ultra](https://www.hercules.com/djcontrol-mix-ultra/) | DJ controller (USB-MIDI) |
+| [Akai APCmini mk2](https://www.akaipro.com/apc-mini-mk2) | Grid controller / mixer |
+| [Nektar SE25](https://nektartech.com/se25/) | 25-key MIDI keyboard |
+| [minidsp UMIK-1](https://www.minidsp.com/products/acoustic-measurement/umik-1) | Measurement microphone with calibration file |
 
 The Pi outputs eight channels simultaneously: left and right main speakers,
 two independently corrected subwoofers, engineer headphones (stereo), and
@@ -148,17 +148,17 @@ monitor channels through untouched.
 
 | Software | Version | Role |
 |----------|---------|------|
-| PipeWire | 1.4.2 | Audio server and routing (replaces JACK/PulseAudio) |
-| CamillaDSP | 3.0.1 | Real-time DSP engine -- crossover, room correction, routing |
-| Mixxx | 2.5.0 | DJ software for psytrance sets |
-| Reaper | 7.31 | Digital audio workstation for live vocal performance |
-| Python 3.13 | with scipy, numpy, soundfile | Measurement pipeline and filter generation |
+| [PipeWire](https://pipewire.org/) | 1.4.2 | Audio server and routing (replaces JACK/PulseAudio) |
+| [CamillaDSP](https://github.com/HEnquist/camilladsp) | 3.0.1 | Real-time DSP engine -- crossover, room correction, routing |
+| [Mixxx](https://mixxx.org/) | 2.5.0 | DJ software for psytrance sets |
+| [Reaper](https://www.reaper.fm/) | 7.31 | Digital audio workstation for live vocal performance |
+| Python 3.13 | with [scipy](https://scipy.org/), [numpy](https://numpy.org/), [soundfile](https://github.com/bastibe/python-soundfile) | Measurement pipeline and filter generation |
 
 ## Project Status
 
 The foundation is proven. The Pi 4B can handle 16,384-tap FIR convolution on
-four channels at 5% CPU in DJ mode and about 19% in live mode -- far below
-what we feared starting out. Latency measurements confirmed that CamillaDSP
+four channels at 5% CPU in DJ mode and about 34% in live mode with the full
+8-channel production configuration -- far below what we feared starting out. Latency measurements confirmed that CamillaDSP
 adds exactly two chunks of delay, and the bone-to-electronic path for the
 vocalist targets approximately 21 milliseconds at the D-011 parameters --
 within the range where a singer can perform comfortably. Stability testing

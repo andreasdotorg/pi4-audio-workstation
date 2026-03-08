@@ -91,10 +91,10 @@ drivers -- still standard, still state of the art for that application.
 Active digital crossovers split the signal before amplification, allowing each
 driver to have its own amplifier channel. The standard approach for active
 digital crossovers is IIR (Infinite Impulse Response) filters -- typically
-Linkwitz-Riley designs that use a compact mathematical formula to split
+[Linkwitz-Riley](https://en.wikipedia.org/wiki/Linkwitz%E2%80%93Riley_filter) designs that use a compact mathematical formula to split
 frequencies with precision. PA processors like dbx DriveRack, Behringer DCX,
-and the DSP built into systems from d&b audiotechnik and L-Acoustics all use
-IIR crossovers effectively, including at psytrance events. CamillaDSP supports
+and the DSP built into systems from [d&b audiotechnik](https://www.dbaudio.com/) and [L-Acoustics](https://www.l-acoustics.com/) all use
+IIR crossovers effectively, including at psytrance events. [CamillaDSP](https://github.com/HEnquist/camilladsp) supports
 them natively.
 
 IIR crossovers would have been the natural choice here, except that this
@@ -109,7 +109,7 @@ crossover and the room correction. The crossover and correction are designed
 independently, even though they interact -- the crossover's phase response
 affects what the room correction filter needs to do.
 
-A few high-end PA processors (Lake, Powersoft) offer FIR crossover capability,
+A few high-end PA processors ([Lake](https://www.lakeprocessing.com/), [Powersoft](https://www.powersoft.com/)) offer FIR crossover capability,
 but they are typically limited to around 1,024 taps. That is enough for a
 standalone crossover but far too short for combined crossover and room
 correction at low frequencies. This project runs 16,384 taps -- 16 times what
@@ -142,17 +142,21 @@ itself. At 80Hz, this pre-echo is about 6 milliseconds ahead of the kick.
 Human hearing is surprisingly sensitive to sounds that arrive before the event
 that caused them. Minimum-phase FIR avoids this entirely.
 
-The tradeoff is that the crossover frequency cannot be adjusted in the
-CamillaDSP configuration file; changing it requires regenerating the FIR
-filter coefficients. For systems that do not need room correction, or where
-crossover flexibility matters more than combined-filter efficiency, IIR
-remains the practical choice.
+The tradeoff of the combined minimum-phase FIR approach is that the crossover
+frequency cannot be adjusted in the CamillaDSP configuration file; changing
+the crossover point requires regenerating the FIR filter coefficients. For
+systems that do not need room correction, or where crossover flexibility
+matters more than combined-filter efficiency, IIR remains the practical
+choice.
 
-This is formalized in **D-001**. The decision was made before any hardware
-testing, but it was made conditional on CPU validation (D-007) -- if the Pi 4B
-could not handle the FIR convolution load, the project would have fallen back
-to IIR crossovers. The benchmarks (US-001) confirmed that the Pi handles it
-easily: about 5% CPU in DJ mode, about 19% in live mode.
+The combined-filter approach is formalized in **D-001**. The decision was made
+before any hardware testing, but was made conditional on CPU validation
+(D-007) -- if the Pi 4B could not handle the FIR convolution load, the project
+would have fallen back to IIR crossovers. The benchmarks (US-001) confirmed
+that the Pi handles the combined FIR convolution easily: about 5% CPU in DJ
+mode, about 19% in live mode with the benchmark configuration (2-channel
+capture). The production configuration with full 8-channel capture and mixing
+raises live mode to approximately 34% -- still well within budget.
 
 
 ## Filter Length: Why 16,384 Taps
@@ -176,30 +180,36 @@ The benchmarks settled the question. At 16,384 taps and chunksize 2048 (DJ
 mode), CamillaDSP uses 5.2% of one CPU core. Even at chunksize 256 (live mode),
 it reaches only about 19%. There was no CPU pressure to compromise on filter length.
 
-This is **D-003**, validated by US-001 benchmarks and made conditional via D-007.
+The choice of 16,384 taps is **D-003**, validated by US-001 benchmarks and made conditional via D-007.
 
 
-## Two Subwoofers, Two Correction Filters
+## Four Independent Correction Filters
 
-Every subwoofer interacts with the room differently depending on where it is
-placed. A sub in a corner gets significant bass reinforcement from the walls --
-typically 6-12dB of gain below 100Hz. A sub in the middle of a wall gets less.
-Two subs at different positions see two entirely different rooms.
+Every output channel gets its own combined FIR filter -- left main, right main,
+sub 1, and sub 2. Each filter integrates both the crossover slope and the room
+correction for that specific channel. The left main gets a highpass crossover
+combined with whatever room correction the left speaker needs in this venue.
+The right main gets its own highpass with its own correction. Each sub gets a
+lowpass crossover combined with its own correction. Four speakers, four filters,
+four independent measurements.
 
-A single correction filter cannot serve both. If you measure the combined
-response and correct for the average, you overcorrect one sub and undercorrect
-the other. The result is worse than no correction at all.
+This per-channel approach is essential because every speaker interacts with the
+room differently. Even the left and right mains, which are nominally symmetric,
+see different boundary conditions -- one might be near a reflective wall while
+the other faces an open doorway. A single "main speaker" correction applied to
+both would overcorrect one and undercorrect the other.
 
-The solution is simple but doubles the filter workload: each sub gets its own
-FIR correction filter, its own delay value (since they are different distances
-from the listening position), and its own gain trim. Both receive the same
-mono sum of the left and right channels as source material -- there is no
-stereo information to preserve in the sub-bass range.
+The independence is especially important for subwoofers. A sub in a corner gets
+significant bass reinforcement from the walls -- typically 6-12dB of gain below
+100Hz. A sub in the middle of a wall gets less. Two subs at different positions
+see two entirely different rooms. Each sub also sits at a different distance
+from the listening position, requiring its own delay value and gain trim. Both
+subs receive the same mono sum of the left and right channels as source material
+-- there is no stereo information to preserve in the sub-bass range.
 
-This is **D-004**. It means four combined FIR filters in total: left main
-(highpass + correction), right main (highpass + correction), sub 1 (lowpass +
-correction), sub 2 (lowpass + correction). The measurement pipeline must
-measure each output independently.
+The per-channel correction approach is **D-004**. The measurement pipeline must
+measure each output independently: four sweeps, four impulse responses, four
+correction filters.
 
 
 ## Latency: A Singer's Perspective
@@ -264,7 +274,7 @@ signal passes through without any FIR processing, adding zero computational
 cost. In DJ mode, those channels are muted (there is no singer). In live mode,
 they carry the monitor mix from Reaper.
 
-This is **D-011**, which supersedes D-002 for live mode. DJ mode remains at
+The revised latency parameters are **D-011**, which supersedes D-002 for live mode. DJ mode remains at
 chunksize 2048 with PipeWire quantum 1024.
 
 
@@ -303,7 +313,7 @@ result is identical, but the digital signal level stays below 0 dBFS. The
 lost loudness is recovered by turning up the analog amplifier gain -- the
 amplifier has headroom to spare.
 
-This is **D-009**, and it supersedes an earlier assumption in CLAUDE.md that
+The cut-only constraint is **D-009**, and it supersedes an earlier assumption in CLAUDE.md that
 allowed up to +12dB of boost.
 
 
@@ -333,7 +343,7 @@ channels, leaving only two for monitoring -- incompatible with the live mode
 requirement for both engineer headphones and singer in-ear monitors. Three-way
 will be available in DJ mode only.
 
-This is **D-010**. It means the 80Hz crossover from D-001 becomes a default
+The speaker profile system is **D-010**. The 80Hz crossover from D-001 becomes a default
 value rather than a fixed parameter.
 
 
@@ -365,7 +375,7 @@ measurements look dramatically different from last time, something has changed
 and the operator should investigate -- but the archived data never drives the
 live system.
 
-This is **D-008**. It means the filter WAV files in `/etc/camilladsp/coeffs/`
+The per-venue measurement approach is **D-008**. The filter WAV files in `/etc/camilladsp/coeffs/`
 are runtime-generated artifacts, never version-controlled. The measurement
 pipeline scripts and their parameters (calibration files, target curves,
 crossover settings) are the version-controlled source of truth.
@@ -386,8 +396,9 @@ any room correction pipeline work began.
 
 The CPU and latency results validated the design with margin to spare:
 
-- 16,384-tap FIR at chunksize 2048: 5.23% CPU (target: under 30%)
-- 16,384-tap FIR at chunksize 256: 19.25% CPU (target: under 45%)
+- 16,384-tap FIR at chunksize 2048: 5.23% CPU (target: under 30%) — benchmark config
+- 16,384-tap FIR at chunksize 256: 19.25% CPU (target: under 45%) — benchmark config
+- Production live config (8ch capture, 8-to-8 mixer): approximately 34% CPU
 - CamillaDSP latency: exactly 2 chunks (not 3 as initially feared)
 
 Stability testing under sustained load (US-003) is in progress at the time of
@@ -429,12 +440,12 @@ DSP load is fundamentally a real-time systems challenge.
 
 ### Why PipeWire
 
-PipeWire is the audio server -- the software layer that routes audio between
+[PipeWire](https://pipewire.org/) is the audio server -- the software layer that routes audio between
 applications and hardware devices. It replaced both JACK and PulseAudio on
 this system, providing a single server that speaks both protocols.
 
-Mixxx and Reaper connect to PipeWire through its JACK bridge, seeing the same
-JACK API they would on a dedicated JACK server. RustDesk (the remote desktop
+[Mixxx](https://mixxx.org/) and [Reaper](https://www.reaper.fm/) connect to PipeWire through its JACK bridge, seeing the same
+JACK API they would on a dedicated JACK server. [RustDesk](https://rustdesk.com/) (the remote desktop
 tool) connects through PipeWire's PulseAudio compatibility layer. This dual
 compatibility eliminates the need to run two audio servers simultaneously, as
 earlier Linux audio setups often required.
@@ -497,10 +508,11 @@ match the processing chunk size and overlaps them correctly -- this keeps
 latency low while still convolving against the full filter length. The
 O(N log N) scaling of FFT versus O(N x M) scaling of direct convolution gives
 roughly a 100x reduction in operations for a 16,384-tap filter. The measured
-19% CPU at chunksize 256 represents approximately 750 million floating-point
-operations per second -- well within the Pi 4B's capability, though the
+19% CPU at chunksize 256 in the benchmark configuration (34% with full
+production 8-channel routing) represents approximately 750 million
+floating-point operations per second -- well within the Pi 4B's capability, though the
 Pi's ARM Cortex-A72 NEON vector unit is not fully exploited. CamillaDSP uses
-RustFFT, which relies on LLVM auto-vectorization to generate NEON instructions
+[RustFFT](https://crates.io/crates/rustfft), which relies on LLVM auto-vectorization to generate NEON instructions
 where the compiler finds opportunities, rather than hand-tuned NEON intrinsics.
 This means there is untapped performance headroom -- future FFT library
 improvements could reduce CPU consumption further without any changes to
@@ -513,7 +525,7 @@ instance. The mixer, per-channel delay, gain trim, and convolution are all
 defined in one YAML configuration file. No external routing or glue scripts.
 
 **Websocket API.** CamillaDSP exposes a websocket interface for runtime
-monitoring and configuration changes. The Python library `pycamilladsp`
+monitoring and configuration changes. The Python library [`pycamilladsp`](https://github.com/HEnquist/pycamilladsp)
 provides programmatic access to load new configurations, query processing
 statistics (including the CPU usage figures cited throughout this document),
 and hot-swap filter coefficients. This is essential for the automated
@@ -562,18 +574,39 @@ Wayland compositor running as a user service.
 
 **What we deliberately skip:**
 
-**No PREEMPT_RT kernel.** A real-time patched kernel reduces worst-case
-scheduling latency from around 1ms to under 50 microseconds. We do not need
-this because our shortest processing deadline is 5.33ms (chunksize 256 at
-48kHz), and CamillaDSP's median processing time is 18% of that deadline.
-Even a 1ms scheduling delay consumes less than 20% of the remaining budget.
-The standard PREEMPT kernel (already included in Raspberry Pi OS) is
-sufficient.
+**No PREEMPT_RT kernel.** The PREEMPT_RT patch transforms the Linux kernel
+into a hard real-time system with guaranteed worst-case scheduling latency --
+typically under 50 microseconds. It achieves this by converting kernel
+spinlocks to sleeping mutexes and making hardware interrupt handlers run as
+schedulable threads, so that a high-priority audio process is never blocked
+by kernel-internal work. Every deadline is met, always. The standard PREEMPT
+kernel (which Raspberry Pi OS ships) provides good average scheduling
+performance with FIFO priority, but it does not guarantee worst-case behavior.
+A PREEMPT kernel may occasionally delay a real-time thread by a millisecond
+or more during heavy kernel activity -- it is statistically unlikely at our
+load levels, but it is not formally excluded.
+
+We chose not to use PREEMPT_RT for two reasons. First, the empirical evidence
+supports the standard kernel at our operating point: zero xruns across all
+stability tests so far, with approximately 66% headroom per processing cycle
+at production load. Our shortest deadline is 5.33ms (chunksize 256 at 48kHz),
+and CamillaDSP's processing time at production load is approximately 34% of
+that deadline -- leaving roughly 3.5ms of slack that can absorb occasional
+scheduling jitter. Second, Raspberry Pi OS Trixie does not
+ship a PREEMPT_RT kernel package. Using PREEMPT_RT would require building a
+custom kernel, which creates a maintenance burden: every upstream kernel
+update would need to be manually patched and rebuilt, breaking the
+reproducibility and update simplicity that the stock distribution provides.
+
+This is a pragmatic bet on statistical safety, not a kernel-level guarantee.
+If future changes eroded the headroom margin, PREEMPT_RT would be the first
+lever to pull -- but it would come at the cost of maintaining a custom kernel.
 
 **No CPU isolation or IRQ pinning.** On systems with very tight budgets,
 dedicating specific CPU cores to audio and pinning hardware interrupts to
-other cores can reduce jitter. With 80%+ headroom, this level of optimization
-is unnecessary and adds operational complexity.
+other cores can reduce jitter. With approximately 66% headroom at production
+live mode load, this level of optimization is unnecessary and adds operational
+complexity.
 
 **No force_turbo.** The Pi 4B's dynamic frequency scaling briefly drops clock
 speed during idle periods. Forcing the CPU to run at maximum frequency
@@ -587,9 +620,10 @@ additional patches would create a maintenance burden with no measurable
 benefit at our operating point.
 
 The theme is clear: these are optimizations we do not need because the system
-has 80%+ headroom at its most demanding operating point. If future changes
-reduced that headroom (more channels, longer filters, additional processing
-stages), any of these could be revisited.
+has approximately 66% headroom at its most demanding operating point (live mode
+with production 8-channel configuration). If future changes reduced that
+headroom (more channels, longer filters, additional processing stages), any of
+these could be revisited.
 
 
 ### How Hard Is the Real-Time?
@@ -606,8 +640,14 @@ undesirable but not catastrophic.
 The processing budget at chunksize 256 and 48kHz is 5.33 milliseconds per
 chunk. CamillaDSP must finish processing all eight channels -- four FIR
 convolutions, four passthrough copies, mixing, delay, and gain -- within that
-window. The measured median processing time is 18.38% of the budget, leaving
-81.62% as headroom.
+window. At production load (8-channel capture, 8-to-8 mixer), CamillaDSP uses
+approximately 34% of the budget, leaving approximately 66% as headroom --
+validated stable with zero xruns in 30-minute sustained testing (US-003 T3b).
+
+(Note: the T3b stability test used the benchmark configuration with 2-channel
+capture, where the median was 18.38% and the P99 was 59.95%. The production
+8-channel configuration raises the median to approximately 34%. A
+production-configuration stability retest is planned.)
 
 The threats to real-time performance, ranked by likelihood:
 
@@ -629,10 +669,13 @@ The threats to real-time performance, ranked by likelihood:
    takes under 1ms but can cause a single xrun if it coincides with a
    processing deadline.
 
-4. **Scheduling jitter.** Even with FIFO priority, the kernel may delay
-   scheduling CamillaDSP by up to ~1ms on the standard PREEMPT kernel (on a
-   PREEMPT_RT kernel this would be under 50us). With 4.35ms of headroom per
-   chunk, this is absorbed without issue.
+4. **Scheduling jitter.** Even with FIFO priority, the standard PREEMPT
+   kernel does not guarantee worst-case scheduling latency. A PREEMPT_RT
+   kernel would bound this to under 50 microseconds; without it, occasional
+   delays of a millisecond or more are possible during heavy kernel activity.
+   With approximately 3.5ms of headroom per chunk at production load, typical
+   scheduling jitter is absorbed without issue -- but this is empirical, not
+   guaranteed.
 
 5. **Memory pressure.** If system memory becomes scarce and the kernel needs
    to reclaim pages, the resulting I/O activity could briefly compete with
@@ -641,7 +684,7 @@ The threats to real-time performance, ranked by likelihood:
 
 None of these threats are unique to this project. Every Linux audio system
 faces them. The difference is headroom: a system running at 90% CPU has no
-margin for any of these events, while a system at 19% can absorb all of them
+margin for any of these events, while a system at 34% can absorb all of them
 simultaneously without missing a deadline.
 
 

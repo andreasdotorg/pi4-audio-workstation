@@ -251,6 +251,15 @@ performance without audio dropouts or thermal shutdown.
 - [ ] T3a executed: DJ mode — CamillaDSP chunksize 2048 + PipeWire quantum 1024 + Mixxx (2 decks, continuous playback) for 30 minutes — PASS if 0 xruns and peak CPU < 85%
 - [ ] T3b executed: Live mode — CamillaDSP chunksize 256 + PipeWire quantum 256 + Reaper (8-track backing + FX) for 30 minutes — PASS if 0 xruns and peak CPU < 85% (D-011)
 - [ ] T3c (stretch): Live mode with quantum 128 — CamillaDSP chunksize 256 + PipeWire quantum 128 + Reaper for 30 minutes — document xrun count and CPU; informs D-011 stretch goal feasibility
+- [ ] T3d: Production-config stability retest — CamillaDSP with live.yml (8-channel capture, full mixer routing, ~33.8% processing load) + Reaper for 30 minutes at quantum 256. Log P99 and max processing load. Previous T3b used benchmark config (2ch, 19.25%) — this validates the actual production config under sustained load
+- [ ] T3e: Kernel comparison test — 4-phase PREEMPT vs PREEMPT_RT comparison. Validates A27 (stock PREEMPT kernel adequate for 5.33ms processing deadline). PREEMPT_RT is available as `linux-image-6.12.47+rpt-rpi-v8-rt` in Trixie repos (same kernel version — zero-risk comparison, stock kernel stays installed as fallback):
+  - **Phase 1 — Stock PREEMPT baseline:** `cyclictest -m -p 89 -t 1 -D 30m` concurrently with CamillaDSP live.yml config + continuous audio. Record worst-case scheduling latency, histogram, P99
+  - **Phase 2 — Install PREEMPT_RT:** `apt install linux-image-6.12.47+rpt-rpi-v8-rt`, reboot into RT kernel. Verify boot, check `uname -v` confirms PREEMPT_RT
+  - **Phase 3 — PREEMPT_RT full regression:** config validation (all services start, USB devices enumerate, PipeWire + CamillaDSP functional), routing test (8ch loopback + USBStreamer), 30-minute stability test (same as T3d: live.yml, quantum 256, log xruns/CPU/processing load), cyclictest (same params as Phase 1)
+  - **Phase 4 — Compare and decide:** side-by-side metrics comparison. Decision criteria:
+    - PREEMPT_RT processing load within ~5% of stock AND zero xruns AND no USB/driver issues → **switch permanently** (record as D-013)
+    - PREEMPT_RT processing load >10% higher than stock → **stay on stock PREEMPT**
+    - PREEMPT_RT causes xruns, USB enumeration issues, or driver regressions → **stay on stock PREEMPT**
 - [ ] T4 executed: thermal test in actual flight case — PASS if CPU temp stays below 75C and clock frequency remains at maximum
 - [ ] PipeWire quantum configured per mode: `10-audio-settings.conf` with quantum 1024 (DJ) or 256/128 (Live) per D-011
 - [ ] All 8 CamillaDSP channels active during tests (IEM ch 7-8 as passthrough per D-011)
@@ -261,9 +270,12 @@ performance without audio dropouts or thermal shutdown.
 
 **DoD:**
 - [ ] Monitoring scripts written and syntax-validated
-- [ ] All test runs completed on Pi 4B hardware (T3a, T3b mandatory; T3c, T4 if hardware available)
+- [ ] All test runs completed on Pi 4B hardware (T3a, T3b mandatory; T3c, T3d, T3e, T4 as available)
 - [ ] Lab note written with thermal curves, CPU timelines, xrun count per test
-- [ ] CLAUDE.md assumption A4 updated with validation result
+- [ ] T3d lab note includes P99 and max CamillaDSP processing load at production config
+- [ ] T3e lab note includes: Phase 1 cyclictest histogram + worst-case latency (stock PREEMPT), Phase 3 regression results + cyclictest (PREEMPT_RT), Phase 4 side-by-side comparison table, kernel decision with rationale
+- [ ] If PREEMPT_RT selected: D-013 decision recorded in decisions.md; CLAUDE.md Pi Hardware State updated to reflect RT kernel
+- [ ] CLAUDE.md assumptions A4 and A27 updated with validation results
 - [ ] D-011 fallback outcome documented if T3b or T3c triggers fallback path
 
 ---
@@ -287,7 +299,7 @@ Blocking findings have been incorporated into the AC/DoD of affected stories
 formalizing and maintaining the expanded assumption register.
 
 **Acceptance criteria:**
-- [ ] All AD findings (A9-A26) formally documented in assumption register with: description, confidence level, validation method, affected stories
+- [ ] All AD findings (A9-A27) formally documented in assumption register with: description, confidence level, validation method, affected stories. A27: "Stock PREEMPT kernel provides adequate scheduling latency for the 5.33ms processing deadline during multi-hour production use" (confidence: HIGH but UNBOUNDED — no formal worst-case guarantee; validation: US-003 T3e cyclictest)
 - [ ] Blocking findings cross-referenced to the stories where they are tracked (US-000: A9/A10/A17, US-005: A14, US-006: A15/A16, US-017: A11)
 - [ ] Categories covered: ALSA card numbering, user/path correctness, CamillaDSP backend type, Bluetooth vs USB-MIDI, Xvfb service correctness, gpu_mem conflicts, loopback routing, Reaper OSC availability, memory budgets, and all others from AD report
 - [ ] Assumptions list added to CLAUDE.md or a referenced document
@@ -308,34 +320,52 @@ formalizing and maintaining the expanded assumption register.
 **I want** PipeWire to expose the ALSA Loopback device as an 8-channel JACK
 sink (not the default stereo),
 **so that** both modes can route independently to multiple output channels
-through the loopback to CamillaDSP: DJ mode needs main stereo (ch 1-2) plus
-headphone cue (ch 5-6), live mode needs all 8 channels (PA, subs, engineer
-HP, singer IEM).
+through the loopback to CamillaDSP: DJ mode needs main stereo plus headphone
+cue (4 channels), live mode needs PA plus engineer HP plus singer IEM
+(6 channels, expanded to 8 by CamillaDSP mixer).
 
 **Status:** draft
 **Depends on:** US-000b (PipeWire configured with RT scheduling), US-003 (stability baseline — validates platform before routing changes)
-**Blocks:** US-006 (Mixxx feasibility — DJ pre-listen/cue requires multi-channel output on ch 5-6), US-017 (IEM routing requires 8-channel loopback for independent PA + IEM paths), US-021 (mode switching must handle 8-channel routing for both modes)
+**Blocks:** US-006 (Mixxx feasibility — DJ pre-listen/cue requires multi-channel output on ch 4-5), US-017 (IEM routing requires 8-channel loopback for independent PA + IEM paths), US-021 (mode switching must handle 8-channel routing for both modes)
 **Cross-references:** A19 (Loopback channel config assumption), A11 (8-channel CamillaDSP routing), D-011 (live mode chunksize 256 + quantum 256, all 8 channels through CamillaDSP)
 **Decisions:** D-011 (all 8 USBStreamer channels route through CamillaDSP — IEM as passthrough on ch 7-8)
 
 **Note:** This is a production blocker for **both** modes, not just live.
 PipeWire's default ALSA adapter exposes `snd-aloop` as a stereo device.
-- **DJ mode** needs at minimum 4 channels: Mixxx main stereo on ch 1-2 plus
-  headphone pre-listen/cue on ch 5-6. Without multi-channel output, the DJ
-  cannot cue the next track privately — a fundamental DJ workflow requirement.
-- **Live mode** needs all 8 channels: PA L/R on ch 1-2, subs on ch 3-4,
-  engineer HP on ch 5-6, singer IEM on ch 7-8.
+
+The Loopback sink is always 8-channel (mode-independent). What changes per
+mode is (a) which application connects to it, (b) how many channels it uses,
+and (c) the CamillaDSP mixer configuration that maps input channels to output
+channels. Channel numbering below uses 0-indexed JACK/ALSA convention.
+
+- **DJ mode (4 input channels → 8 output channels):** Mixxx sends main stereo
+  on ch 0-1 and headphone cue stereo on ch 4-5. CamillaDSP mixer splits main
+  to ch 0-3 (stereo FIR for mains, mono sum + FIR for subs), passes cue
+  through on ch 4-5 (no FIR). Ch 6-7 silent.
+- **Live mode (6 input channels → 8 output channels):** Reaper sends PA stereo
+  on ch 0-1, engineer HP stereo on ch 4-5, and singer IEM stereo on ch 6-7.
+  CamillaDSP mixer splits PA to ch 0-3 (stereo FIR for mains, mono sum + FIR
+  for subs), passes HP on ch 4-5 and IEM on ch 6-7 (passthrough, no FIR).
+
 The solution is a custom PipeWire config node with `audio.channels = 8` and
 AUX0-AUX7 channel positions, suppressing ACP auto-profile. This is the same
 proven pattern used for the USBStreamer PipeWire configuration.
+
+**SETUP-MANUAL gap:** Mixxx headphone output configuration (Sound Hardware
+preferences for cue output) and Reaper multi-channel routing to JACK sink
+are currently undocumented. Both must be documented as part of this story or
+tracked as a TODO for the technical writer.
 
 **Acceptance criteria:**
 - [ ] `snd-aloop` verified to support 8 channels: `aplay -D hw:Loopback,0 --dump-hw-params` confirms 8ch capability
 - [ ] Custom PipeWire config node created for the Loopback device: `audio.channels = 8`, channel positions AUX0-AUX7, ACP auto-profile suppressed
 - [ ] PipeWire exposes an 8-channel JACK sink on the Loopback device (visible via `pw-jack jack_lsp` or `pw-cli list-objects`)
-- [ ] **Live mode routing:** Reaper via `pw-jack` can route independently to all 8 channels of the Loopback sink
-- [ ] **DJ mode routing:** Mixxx routes main stereo to ch 1-2 and headphone cue to ch 5-6 via the 8-channel Loopback. Subs (ch 3-4) receive mono sum from CamillaDSP mixer. IEM channels (ch 7-8) silent in DJ mode
+- [ ] **DJ mode routing:** Mixxx outputs 4 channels (main stereo ch 0-1 + headphone cue stereo ch 4-5) through PipeWire to the 8-channel Loopback. CamillaDSP mixer config splits main to ch 0-3 (stereo FIR for mains, mono sum + FIR for subs), passes cue to ch 4-5 (no FIR processing). Ch 6-7 silent
+- [ ] **Live mode routing:** Reaper outputs 6 channels (PA stereo ch 0-1 + engineer HP stereo ch 4-5 + singer IEM stereo ch 6-7) through PipeWire to the 8-channel Loopback. CamillaDSP mixer config splits PA to ch 0-3 (stereo FIR for mains, mono sum + FIR for subs), passes HP on ch 4-5 and IEM on ch 6-7 (passthrough, no FIR processing)
+- [ ] **Two CamillaDSP mixer configs:** DJ mode (4→8 channel mapping) and live mode (6→8 channel mapping) defined as separate config sections or templates. Mode switch (US-021) selects the appropriate config
 - [ ] CamillaDSP captures all 8 channels from the Loopback playback side (`hw:Loopback,1` with 8 channels)
+- [ ] **Mixxx headphone output configured:** Mixxx Sound Hardware preferences set to route cue/pre-listen to JACK channels 4-5 (not the default stereo output). Documented in lab note
+- [ ] **Reaper channel routing configured:** Reaper master/bus outputs mapped to correct JACK channels (PA ch 0-1, HP ch 4-5, IEM ch 6-7). Documented in lab note
 - [ ] Zero xruns at PipeWire quantum 256 with 8-channel Loopback active (D-011 live mode target)
 - [ ] Zero xruns at PipeWire quantum 1024 with 8-channel Loopback active (DJ mode)
 - [ ] Configuration persists across reboot
@@ -343,11 +373,13 @@ proven pattern used for the USBStreamer PipeWire configuration.
 
 **DoD:**
 - [ ] PipeWire config file written (e.g., `~/.config/pipewire/pipewire.conf.d/loopback-8ch.conf` or system-wide equivalent)
-- [ ] Syntax-validated and tested on Pi 4B
-- [ ] 8-channel routing verified with actual audio: test tone on each channel independently, confirm correct channel mapping end-to-end (Reaper -> Loopback -> CamillaDSP -> USBStreamer)
-- [ ] Lab note documenting: config file contents, verification commands, channel mapping, and how DJ mode stereo coexists with live mode 8-channel
-- [ ] Architect review: config approach is consistent with USBStreamer pattern
-- [ ] Audio engineer review: channel mapping is correct for the production signal flow
+- [ ] Both CamillaDSP mixer configs (DJ 4→8, live 6→8) written and syntax-validated
+- [ ] Tested on Pi 4B with actual audio routing end-to-end per mode
+- [ ] Per-channel verification: test tone on each input channel independently, confirm correct mapping through CamillaDSP to USBStreamer output
+- [ ] Mixxx headphone cue output and Reaper multi-channel routing documented in lab note (addresses SETUP-MANUAL gap)
+- [ ] Lab note documenting: PipeWire config, CamillaDSP mixer configs, channel mapping diagrams for both modes, verification commands
+- [ ] Architect review: config approach is consistent with USBStreamer pattern, mixer configs are correct
+- [ ] Audio engineer review: channel mapping is correct for the production signal flow in both modes
 
 ---
 
@@ -404,7 +436,7 @@ UI responsiveness and audio performance,
 **so that** I can use it as my DJ software for PA/DJ sets.
 
 **Status:** draft
-**Depends on:** US-000 (Mixxx must be installed), US-005 (need working MIDI controller to test DJ workflow), US-028 (8-channel Loopback — DJ pre-listen/cue requires ch 5-6)
+**Depends on:** US-000 (Mixxx must be installed), US-005 (need working MIDI controller to test DJ workflow), US-028 (8-channel Loopback — DJ pre-listen/cue requires ch 4-5)
 **Blocks:** US-003/T3a (stability test with Mixxx requires Mixxx to be working)
 **Decisions:** none yet
 
