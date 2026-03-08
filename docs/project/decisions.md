@@ -78,3 +78,33 @@ decision. Add a new one that supersedes it (reference the old one).
 **Rationale:** The decision tree in CLAUDE.md already documents fallback paths (8,192 taps, chunksize 1024, etc.). This decision formalizes that the current parameters are not yet validated on hardware and may change based on test results.
 
 **Impact:** No change to current story AC or planning. All stories should continue to reference D-001/D-002/D-003 as the target configuration. The test stories (US-001, US-002, US-003) include decision tree outcomes in their DoD — if a fallback is triggered, a new decision entry will be added.
+
+## D-008: Per-venue measurement — all corrections regenerated fresh at each location (2026-03-08)
+
+**Context:** Room correction filters and time alignment values are venue-specific. Platform behavior (USB timing, driver updates, kernel changes) may also shift between gigs. Running measurements at each venue ensures corrections are valid for the actual conditions, not stale data from a previous location or system state.
+
+**Decision:** The measurement pipeline is an operational tool, run at every gig setup. Filter coefficients and delay values are ephemeral derived artifacts, regenerated fresh at each venue. The pipeline includes a platform self-diagnostic (loopback self-test) to detect system-level drift. Filters and delays are deployed as an atomic matched set — never update one without the other.
+
+**Rationale:** (1) Different venues have different acoustics. (2) System updates could shift USB/ADAT timing. (3) Regenerating fresh removes stale-config bugs. (4) Historical measurements enable regression detection.
+
+**Impact:** Filter WAV files under `/etc/camilladsp/coeffs/` are runtime-generated, never version-controlled. Pipeline scripts + parameters (calibration files, target curves, crossover settings) are the version-controlled source. CamillaDSP config YAML is generated from templates with measured delay values — the deployed config is a derived artifact.
+
+## D-009: Zero-gain correction filters — cut only, -0.5dB safety margin (2026-03-08)
+
+**Context:** Psytrance tracks routinely hit -0.5 LUFS (near 0 dBFS digital full scale). Any filter gain above 0dB at any frequency will cause hard clipping — immediately and painfully audible on a PA system.
+
+**Decision:** All correction filters must have gain ≤ -0.5dB at every frequency. Correction operates by cut only: room peaks are attenuated, nulls are left uncorrected. Target curves are applied as relative attenuation (cut mid/treble relative to bass), not as boost. Every generated filter is programmatically verified before deployment — no frequency bin may exceed -0.5dB. The CamillaDSP pipeline gain structure must be audited: no stage may produce net gain.
+
+**Rationale:** (1) Zero headroom in source material makes any boost unsafe. (2) Cut-only correction is 80%+ as effective as boost+cut — room peaks are the dominant audible problem. (3) Nulls should not be boosted regardless of headroom — they're position-dependent and boost wastes power. (4) This aligns with best practice in professional room correction. (5) The -0.5dB safety margin accounts for FIR truncation ripple, Gibbs phenomenon, and numerical precision.
+
+**Impact:** Supersedes the +12dB max boost in CLAUDE.md. Target curve implementation changes from "boost bass" to "cut mid/treble relative to bass" — same perceptual result at lower digital level, compensated by analog gain. Lower SPL tiers require more amplifier gain.
+
+## D-010: Speaker profiles and configurable crossover (2026-03-08)
+
+**Context:** The system may be used with different speaker configurations at different venues — different crossover frequencies, sealed vs ported subs, potentially 3-way speakers.
+
+**Decision:** Crossover frequency, slope, speaker type (sealed/ported), and target SPL are per-venue parameters stored in named speaker profiles (YAML files). Ported sub protection (subsonic rolloff below port tuning frequency) is mandatory. Three-way support is Phase 2 (after 2-way pipeline is proven), DJ mode only (channel budget constraint). Speaker profiles are pre-defined with a custom override option.
+
+**Rationale:** (1) Different speaker combinations need different crossover points. (2) Ported subs need protection below port tuning to prevent mechanical damage. (3) 3-way requires 6 speaker channels, leaving only 2 for monitoring — incompatible with live mode's IEM requirement. (4) Pre-defined profiles reduce setup errors at gigs.
+
+**Impact:** Pipeline must accept speaker profile as input. CamillaDSP config generation is templated based on profile. Filter generation adapts crossover shape to profile parameters. The earlier hardcoded 80Hz crossover (D-001) becomes the default value, not a fixed requirement.

@@ -2,7 +2,7 @@
 
 ## Overall Status
 
-**US-000 DONE.** US-000b (Desktop Trimming) done — all success criteria passed. RTKit installed, PipeWire RT scheduling active (FIFO rtprio 83-88), -95Mi RAM freed. Pending security + architect review sign-off on US-000b. Tier 1 (US-001 CPU benchmarks) launches after sign-off.
+**US-001 DONE — ALL 5 TESTS PASS.** 16,384-tap FIR confirmed for both DJ and Live modes (ideal outcome). T1a: 5.23% CPU (DJ), T1b: 10.42% CPU (Live). Zero xruns, temps 64-71°C. Assumptions A1 and A2 validated. US-002 (latency measurement) next.
 
 ## Component Status
 
@@ -20,7 +20,8 @@
 | Web UI platform | not started | Stories US-022, US-023, US-018 defined (deferred per owner: validation first) |
 | Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, RustDesk 1.3.9, Python venv. 7.5G/117G disk. |
 | Platform security | partial | US-000a: firewall active, SSH hardened, services disabled. CamillaDSP systemd service with `-a 127.0.0.1` (F-002 resolved). nfs-blkmap masked (F-011). |
-| Desktop trimming (US-000b) | done (pending review) | lightdm disabled, labwc user service, RTKit installed, PipeWire FIFO rtprio 83-88. RAM: 397→302Mi. USBStreamer path fixed (hw:USBStreamer,0). |
+| Desktop trimming (US-000b) | done | lightdm disabled, labwc user service, RTKit installed, PipeWire FIFO rtprio 83-88. RAM: 397→302Mi. USBStreamer path fixed (hw:USBStreamer,0). |
+| CamillaDSP benchmarks (US-001) | done | 16k taps @ 2048: 5.23% CPU, 16k @ 512: 10.42% CPU. Zero xruns. A1/A2 validated. |
 
 ## DoD Tracking
 
@@ -28,26 +29,27 @@
 |-------|-------|--------|
 | US-000 | 3/3 | **done** (all advisors signed off: audio engineer, security specialist, technical writer) |
 | US-000a | 4/4 | in-review (F-002 resolved: CamillaDSP systemd service; F-011 resolved: nfs-blkmap masked; verified across reboot in US-000b T7) |
-| US-000b | 13/13 | in-review (all success criteria passed; pending security specialist + architect sign-off) |
-| US-001 | 0/4 | ready (launches after US-000b sign-off) |
-| US-002 | 0/4 | ready (unblocked — after US-001) |
+| US-000b | 13/13 | done (security specialist + architect signed off) |
+| US-001 | 4/4 | **done** (all 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 20.43%, T1d 5.21%, T1e 10.39%. 16k taps both modes. A1/A2 validated.) |
+| US-002 | 0/4 | ready (next — launches now) |
 | US-004 | 0/3 | ready (independent) |
 | US-005 | 0/3 | ready (after Tier 1; Hercules already visible as USB-MIDI — positive signal) |
 | US-006 | 0/3 | ready (unblocked by US-000 + US-005) |
 
 ## In Progress
 
-- **US-000b** (in-review): Desktop trimming complete. 13/13 success criteria PASS. Key results:
-  - RTKit installed, PipeWire FIFO rtprio 83-88 on data-loop threads
-  - RAM: 397→302Mi (-95Mi), services: 19→16
-  - lightdm disabled, labwc via user service, TTY autologin
-  - USBStreamer ALSA path fixed: `hw:3,0` → `hw:USBStreamer,0` (validates AD finding A9)
-  - Boot time: 23.4s (stable vs 23.3s baseline)
-  - Deviations: PipeWire failed on first boot (USB device renumbering), RTKit alone insufficient (rlimits needed), RustDesk appindicator warnings (cosmetic)
-  - Awaiting security specialist + architect review
-- **US-000a** (in-review): 4/4 DoD — F-002 and F-011 both resolved, verified across US-000b reboot
-- **Remaining TODOs**: cloud-init ~3.3s boot overhead (US-024 candidate), CamillaDSP needs `active.yml` before service enable
-- **Next:** US-001 (CPU benchmarks) launches after US-000b sign-off, then US-002 (latency) — sequential, both need Pi lock
+- **US-001** (done): CamillaDSP CPU benchmarks complete. All 5 tests PASS. 16k taps confirmed for both modes.
+  - T1a: 16k @ 2048 = 5.23% CPU (threshold <30%) — massive headroom
+  - T1b: 16k @ 512 = 10.42% CPU (threshold <45%) — plenty of room
+  - Zero xruns across all tests, temperature 64-71°C
+  - Decision tree outcome: 16,384 taps for both DJ and Live modes (ideal path)
+  - Deviation: USBStreamer requires 8 playback channels in CamillaDSP config
+  - Note: PipeWire still TS scheduling during benchmarks (RTKit issue to investigate)
+  - Assumptions A1 (16k @ 2048 fits CPU) and A2 (16k @ 512 fits CPU) VALIDATED
+- **US-000b** (done): Desktop trimming complete, security + architect signed off
+- **US-000a** (in-review): 4/4 DoD — F-002 and F-011 both resolved, verified across reboot
+- **Remaining TODOs**: cloud-init ~3.3s boot overhead (US-024 candidate), CamillaDSP needs `active.yml` before service enable, PipeWire TS scheduling issue (RTKit installed but not taking effect during benchmarks)
+- **Next:** US-002 (latency measurement) — needs Pi lock
 
 ## Blockers
 

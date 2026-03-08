@@ -234,10 +234,12 @@ accompanying scripts. The pipeline automates:
       response before computing the inverse. 1/6 octave below 200Hz, 1/3 octave
       200-1kHz, 1/2 octave above 1kHz. This prevents the filter from chasing
       narrow-band artifacts that aren't perceptually relevant.
-   d. **Regularization**: Limit the maximum boost the correction filter can apply
-      (e.g., +12dB). Nulls in the room response cannot be corrected by boosting —
-      they're caused by destructive interference and boosting just wastes amplifier
-      power and risks driver damage. Constrain to gentle fills.
+   d. **Regularization**: Cut-only correction with -0.5dB safety margin (D-009).
+      All correction filters must have gain ≤ -0.5dB at every frequency. Room
+      peaks are attenuated; nulls are left uncorrected. Target curves are applied
+      as relative attenuation (cut mid/treble relative to bass), not as boost.
+      Every generated filter is programmatically verified before deployment.
+      Psytrance source material at -0.5 LUFS leaves zero headroom for boost.
    e. **Phase handling**: The entire chain must be consistently minimum-phase.
       - UMIK-1 calibration: minimum-phase (it's a magnitude-only correction file)
       - Measured impulse response: extract minimum-phase component
@@ -264,7 +266,7 @@ automatically. The script should:
 - Generate and deploy filters
 - Update CamillaDSP delay values
 - Restart CamillaDSP with new filters
-- Optionally run a verification measurement to show before/after
+- Run a mandatory verification measurement to confirm correction effectiveness (per design principle #7)
 
 ### Tools
 - Python with scipy, numpy, soundfile for DSP
@@ -325,6 +327,10 @@ automatically. The script should:
 6. **Automation**: The room correction pipeline should be one-button for each venue.
    The gig setup workflow: power on → audio stack auto-starts → place mic → run
    calibration script → remove mic → ready to perform.
+7. **Fresh measurements per venue**: All room correction filters and time alignment
+   values are regenerated at each venue setup. The measurement pipeline is an
+   operational tool, not a one-time calibration. Platform self-diagnostics run
+   before each measurement session to detect drift from system updates.
 
 ## Session History
 

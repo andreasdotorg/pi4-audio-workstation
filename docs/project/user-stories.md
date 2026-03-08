@@ -171,7 +171,7 @@ and FIR filter length combinations on the Pi 4B,
 **so that** I can confirm the hardware can handle the DSP workload and make
 informed decisions about filter length and chunksize for each operating mode.
 
-**Status:** ready (unblocked by US-000 completion)
+**Status:** done (all 5 tests pass 2026-03-08: T1a 5.23%, T1b 10.42%, T1c 20.43%, T1d 5.21%, T1e 10.39%. 16k taps both modes. A1/A2 validated.)
 **Depends on:** US-000 (CamillaDSP must be installed)
 **Blocks:** US-003 (stability tests use the config validated here), US-008 through US-011 (pipeline filter length depends on CPU budget), US-010 (correction filter tap count)
 **Decisions:** D-002 (dual chunksize), D-003 (16,384-tap FIR)
@@ -187,6 +187,7 @@ informed decisions about filter length and chunksize for each operating mode.
   - T1e: 32,768 taps @ chunksize 2048 — PASS if < 40% CPU
 - [ ] CPU measurement method documented (sampling interval, stabilization period, tool used)
 - [ ] Decision tree outcome recorded: which filter length for DJ mode, which for live mode
+- [ ] Note: if initial 4-channel results leave headroom, run T1f (7-8 channel convolution at 16,384 taps @ chunksize 2048) to validate 3-way speaker profile feasibility (D-010 Phase 2)
 - [ ] Results captured in lab notes with raw data
 
 **DoD:**
@@ -431,12 +432,12 @@ and computes the impulse response via deconvolution,
 **Status:** draft
 **Depends on:** US-001 (confirms viable filter length), US-002 (confirms latency path works)
 **Blocks:** US-009 (time alignment needs impulse responses), US-010 (correction needs impulse responses), US-012 (end-to-end script wraps this)
-**Decisions:** D-001 (minimum-phase FIR), D-004 (independent sub correction)
+**Decisions:** D-001 (minimum-phase FIR), D-004 (independent sub correction), D-010 (speaker profiles — channel iteration from profile topology)
 
 **Acceptance criteria:**
 - [ ] Log sweep generation: 20Hz-20kHz, configurable duration (default 5s), 48kHz sample rate
 - [ ] UMIK-1 calibration file parsing: reads frequency/dB pairs from `/home/ela/7161942.txt`, applies magnitude correction to recorded response
-- [ ] Per-channel measurement: plays sweep through one output channel at a time (channels 1-4), records on UMIK-1 input
+- [ ] Per-channel measurement: plays sweep through each output channel defined in the speaker profile (D-010), records on UMIK-1 input. Channel list comes from the profile's topology, not hardcoded (supports 2-way with 4 channels, 3-way with 6+ channels)
 - [ ] Deconvolution: computes impulse response from recorded sweep using inverse filter method
 - [ ] Multiple measurement positions: supports taking 3-5 measurements at different mic positions, stores each separately
 - [ ] Spatial averaging: averages multiple impulse responses (complex average in frequency domain) to reduce position sensitivity
@@ -496,22 +497,26 @@ artifacts or wasting amplifier headroom on uncorrectable nulls.
 **Status:** draft
 **Depends on:** US-008 (needs measured impulse responses)
 **Blocks:** US-011 (crossover integration convolves correction with crossover shape), US-012 (end-to-end script wraps this)
-**Decisions:** D-001 (minimum-phase FIR), D-003 (16,384-tap FIR)
+**Decisions:** D-001 (minimum-phase FIR), D-003 (16,384-tap FIR), D-009 (cut-only correction), D-010 (speaker profiles)
 
 **Acceptance criteria:**
-- [ ] Target curve support: at minimum Harman-like curve with SPL-dependent bass shelf. User can select from presets or provide custom curve file
+- [ ] Target curve support: at minimum Harman-like curve with SPL-dependent bass shelf. Target curves applied as relative attenuation (cut mid/treble relative to bass), not as boost (per D-009). User can select from presets or provide custom curve file
 - [ ] Frequency-dependent windowing: aggressive correction below ~300Hz (room modes), gentle correction above 300Hz (only broad speaker response deviations, not individual reflections/comb filtering)
 - [ ] Psychoacoustic smoothing applied to measured response before inversion: 1/6 octave below 200Hz, 1/3 octave 200Hz-1kHz, 1/2 octave above 1kHz
-- [ ] Regularization: maximum boost limited (configurable, default +12dB). Nulls are gently filled, not aggressively boosted
+- [ ] Cut-only correction with -0.5dB safety margin (D-009): all correction filters must have gain <= -0.5dB at every frequency. Room peaks attenuated, nulls left uncorrected. Every generated filter programmatically verified before deployment -- no frequency bin may exceed -0.5dB
 - [ ] Minimum-phase chain preserved throughout: measured IR minimum-phase extraction, inverse computation in minimum-phase domain
-- [ ] Output: per-channel correction filter as minimum-phase FIR (not yet combined with crossover — that is US-011)
+- [ ] Output: per-channel correction filter as minimum-phase FIR (not yet combined with crossover -- that is US-011)
 - [ ] Configurable filter length (default 16,384 taps, fallback 8,192)
+- [ ] Accepts speaker profile as input (D-010): crossover frequency, slope, speaker type (sealed/ported), target SPL read from named YAML profile
+- [ ] Ported sub protection: mandatory subsonic rolloff below port tuning frequency when speaker type is ported (D-010)
 
 **DoD:**
 - [ ] Python module written with clear API
 - [ ] Syntax-validated (`python -m py_compile`)
 - [ ] Unit tests: synthetic room response with known mode -> verify correction flattens it
 - [ ] Unit tests: verify output filter is minimum-phase (check via Hilbert transform)
+- [ ] Unit tests: verify no frequency bin exceeds -0.5dB gain (D-009 compliance)
+- [ ] Unit tests: ported sub protection rolloff present when speaker type is ported
 - [ ] Lab note with example correction curves (before/after magnitude plots)
 
 ---
@@ -527,13 +532,14 @@ crossover and room correction with minimum latency and no pre-ringing.
 
 **Status:** draft
 **Depends on:** US-010 (needs per-channel correction filters)
-**Blocks:** US-012 (end-to-end script wraps this), US-013 (T5 verification needs real combined filters)
-**Decisions:** D-001 (combined minimum-phase FIR), D-003 (16,384-tap FIR)
+**Blocks:** US-011b (profile schema and config generator needs crossover integration defined), US-012 (end-to-end script wraps this), US-013 (T5 verification needs real combined filters)
+**Decisions:** D-001 (combined minimum-phase FIR), D-003 (16,384-tap FIR), D-009 (cut-only correction), D-010 (speaker profiles)
 
 **Acceptance criteria:**
-- [ ] Crossover shape generation: highpass and lowpass as minimum-phase FIR, configurable crossover frequency (default 80Hz), configurable slope (48-96 dB/oct)
+- [ ] Crossover shape generation: highpass, lowpass, and bandpass as minimum-phase FIR. Bandpass type supports 3-way mid drivers (Phase 2, D-010). Crossover frequency/frequencies and slope read from speaker profile (D-010, default 80Hz for 2-way, 48-96 dB/oct)
 - [ ] Convolution of crossover shape with correction filter (multiply in frequency domain)
 - [ ] Final combined filter converted to minimum-phase via Hilbert transform of log magnitude
+- [ ] Final combined filter verified: no frequency bin exceeds -0.5dB gain (D-009 compliance check on the combined result, not just the correction component)
 - [ ] Truncation/windowing to target length (16,384 or 8,192 taps)
 - [ ] Export as WAV files to CamillaDSP coefficients directory:
   - `combined_left_hp.wav` — Left main (highpass + correction)
@@ -548,8 +554,61 @@ crossover and room correction with minimum latency and no pre-ringing.
 - [ ] Syntax-validated (`python -m py_compile`)
 - [ ] Unit tests: synthetic correction + crossover -> verify combined response shape
 - [ ] Unit tests: verify output is minimum-phase
+- [ ] Unit tests: verify no frequency bin exceeds -0.5dB gain (D-009)
 - [ ] Unit tests: verify WAV file format and length
 - [ ] Lab note with example combined filter plots
+
+---
+
+## US-011b: Speaker Profile Schema and CamillaDSP Config Generator
+
+**As** the sound engineer,
+**I want** a validated YAML schema for speaker profiles that defines speaker
+topology, crossover parameters, channel assignment, and monitoring routing,
+plus a generator that produces a complete CamillaDSP configuration YAML from
+a profile and venue measurement results,
+**so that** different speaker configurations can be supported without manual
+CamillaDSP config editing, and channel budgets are validated before deployment.
+
+**Status:** draft
+**Depends on:** US-011 (crossover integration must be defined before config generation can reference combined filters)
+**Blocks:** US-012 (automation script uses profile schema and config generator)
+**Decisions:** D-010 (speaker profiles and configurable crossover)
+
+**Note:** The profile system is designed to support 3-way from the start but
+validated with 2-way first (architect + audio engineer recommendation). 3-way
+is Phase 2, DJ mode only — 3-way requires 6 speaker channels, leaving only
+2 for monitoring, which is incompatible with live mode's IEM requirement
+(channels 7-8). The schema must enforce this constraint via channel budget
+validation.
+
+**Acceptance criteria:**
+- [ ] YAML schema defined for speaker profiles with the following fields:
+  - `name`: profile identifier (e.g., "2way-80hz-ported", "3way-80-3k")
+  - `topology`: "2way" or "3way" (extensible)
+  - `crossover`: list of crossover points, each with frequency (Hz), slope (dB/oct), and type (HP/LP/BP)
+  - `speakers`: list of speaker definitions, each with role (main/sub/mid), channel assignment, speaker type (sealed/ported), and optional port tuning frequency
+  - `monitoring`: headphone and IEM channel assignments
+  - `target_spl`: reference SPL for target curve selection
+- [ ] Channel budget validation: total channels (speakers + monitoring) must be <= 8 (USBStreamer limit). Validator rejects profiles that exceed budget
+- [ ] Crossover consistency validation: crossover points must be monotonically increasing, bandpass ranges must not overlap, every speaker must have a matching crossover filter type
+- [ ] 3-way mode constraint: when topology is "3way", validator warns that live mode is unsupported (no IEM channels available) and requires DJ-mode-only flag
+- [ ] CamillaDSP config YAML generator: takes a speaker profile + venue measurement results (delay values, filter WAV paths) and produces a complete, deployable CamillaDSP config
+- [ ] Generated config includes: device settings (chunksize per mode), filters (referencing combined WAV files), pipeline with per-channel delay and gain, mixer routing
+- [ ] Config generator parameterized by operating mode (DJ/Live) — chunksize and monitoring routing differ per D-002
+- [ ] Ships with 2-3 built-in profiles:
+  - `2way-80hz-sealed`: 2-way, 80Hz crossover, sealed subs (default)
+  - `2way-80hz-ported`: 2-way, 80Hz crossover, ported subs with subsonic protection
+  - `3way-80-3k-sealed`: 3-way, 80Hz/3kHz crossovers, sealed subs (Phase 2 placeholder, DJ mode only)
+
+**DoD:**
+- [ ] YAML schema documented (field descriptions, constraints, examples)
+- [ ] Python validation module written and syntax-validated (`python -m py_compile`)
+- [ ] Config generator module written and syntax-validated
+- [ ] Unit tests: valid profiles pass validation, invalid profiles (over-budget, overlapping crossovers, 3-way without DJ flag) are rejected with clear error messages
+- [ ] Unit tests: generated CamillaDSP config is valid YAML and matches expected structure for each built-in profile
+- [ ] Built-in profiles shipped and validated
+- [ ] Lab note with example generated configs for each built-in profile
 
 ---
 
@@ -563,30 +622,45 @@ delay values, and optionally runs a verification measurement,
 minimal manual intervention.
 
 **Status:** draft
-**Depends on:** US-008 (measurement engine), US-009 (time alignment), US-010 (correction filters), US-011 (crossover integration)
+**Depends on:** US-008 (measurement engine), US-009 (time alignment), US-010 (correction filters), US-011 (crossover integration), US-011b (speaker profile schema and config generator)
 **Blocks:** none
-**Decisions:** D-001, D-002, D-003, D-004
+**Decisions:** D-001, D-002, D-003, D-004, D-008 (per-venue measurement), D-009 (cut-only), D-010 (speaker profiles)
+
+**Note:** Per D-008 and design principle #7 ("fresh measurements per venue"),
+this script is an operational tool run at every venue setup, not a one-time
+development utility. It must be robust, repeatable, and fast enough to run as
+part of the standard gig setup workflow. Previous venue measurements are never
+reused. Filter WAV files and CamillaDSP delay configs are ephemeral derived
+artifacts (never version-controlled); the pipeline scripts, calibration files,
+target curves, and crossover settings are the version-controlled source.
 
 **Acceptance criteria:**
+- [ ] Platform self-diagnostic: loopback self-test runs before measurement to detect system-level drift (USB timing, driver changes) per D-008
 - [ ] Interactive guided workflow: prompts user for mic placement, confirms before proceeding to each phase
 - [ ] Runs measurement phase: per-channel sweeps, multiple positions per the user's choice
 - [ ] Computes time alignment and displays results for user confirmation
-- [ ] Generates combined FIR filters with user-selected target curve and crossover parameters
-- [ ] Deploys filter WAV files to `/etc/camilladsp/coeffs/`
-- [ ] Updates CamillaDSP configuration with new delay values
+- [ ] Speaker profile selection: user selects a named speaker profile (YAML) or provides custom parameters. Profile specifies crossover freq, slope, speaker type, target SPL (D-010)
+- [ ] Generates combined FIR filters with user-selected target curve and speaker profile parameters
+- [ ] Pre-deployment gain verification: every generated filter checked for D-009 compliance (no frequency bin exceeds -0.5dB). Script refuses to deploy non-compliant filters
+- [ ] CamillaDSP pipeline gain audit: verifies no stage in the pipeline produces net gain (D-009)
+- [ ] Atomic deployment: filter WAVs and delay values deployed together as a matched set -- never update one without the other (per D-008)
+- [ ] CamillaDSP config YAML generated from templates with measured delay values and speaker profile parameters (deployed config is a derived artifact per D-008)
 - [ ] Restarts CamillaDSP with new configuration (or hot-swaps via websocket API if available)
-- [ ] Optional verification measurement: runs a quick sweep post-correction and displays before/after comparison
+- [ ] Mandatory verification measurement: runs a post-correction sweep and displays before/after comparison (not optional -- per design principle #7, verification is part of every setup)
 - [ ] All parameters configurable via command-line arguments or config file (crossover freq, target curve, filter length, max boost, number of measurement positions)
-- [ ] Memory budget estimated and documented: peak RAM usage during filter computation (FFT of 16k+ tap filters, multiple channels, spatial averaging) must fit within Pi 4B's 4GB alongside running CamillaDSP and PipeWire (AD finding — memory is constrained)
+- [ ] Memory budget estimated and documented: peak RAM usage during filter computation (FFT of 16k+ tap filters, multiple channels, spatial averaging) must fit within Pi 4B's 4GB alongside running CamillaDSP and PipeWire (AD finding -- memory is constrained)
+- [ ] Previous calibration archived (timestamped backup of old filter WAVs and config) before deploying new one -- historical measurements enable regression detection
 - [ ] Graceful error handling: any failure rolls back to previous configuration
 - [ ] Progress output: clear status messages throughout the process
+- [ ] Total calibration time target: under 10 minutes for a full 4-channel calibration with verification (operational tool must be fast enough for gig setup)
 
 **DoD:**
 - [ ] Script written and syntax-validated
 - [ ] Peak memory usage measured during a full calibration run (document actual vs budget)
 - [ ] End-to-end test on Pi 4B with real speakers and UMIK-1
+- [ ] Tested at two different locations to confirm the "fresh measurements" workflow works in practice
 - [ ] Lab note documenting a complete calibration run with before/after measurements
-- [ ] How-to guide written for the calibration procedure
+- [ ] How-to guide written for the calibration procedure (gig-day workflow focus)
 
 ---
 
@@ -596,12 +670,20 @@ minimal manual intervention.
 **I want** to verify that the generated 16,384-tap FIR correction filters
 actually provide effective room correction down to 20Hz,
 **so that** I can confirm the filter design achieves its stated goals and the
-sub-bass correction works as designed.
+sub-bass correction works as designed at every venue.
 
 **Status:** draft
 **Depends on:** US-011 (needs real combined filters generated from real measurements)
 **Blocks:** none
-**Decisions:** D-003 (16,384-tap FIR)
+**Decisions:** D-003 (16,384-tap FIR), D-008 (per-venue measurement)
+
+**Note:** Per D-008 and design principle #7 ("fresh measurements per venue"), verification
+is mandatory at every venue setup, not a one-time validation. The initial run
+of this story validates the filter design itself (does 16k taps correct down
+to 20Hz?). After that, the verification step is built into US-012's automation
+script as a mandatory post-calibration check at every venue. Verification
+also serves as a regression check: if an OS/security update changes platform
+behaviour (latency, CPU), the verification measurement will catch it.
 
 **Acceptance criteria:**
 - [ ] Before/after measurement: magnitude response measured at listening position with and without FIR correction active
@@ -611,10 +693,13 @@ sub-bass correction works as designed.
 - [ ] Specific check at 30Hz: confirm solid correction (10.2 cycles at 16k taps)
 - [ ] If 20Hz correction is insufficient: document the shortfall and evaluate whether longer filters (32k taps) are viable given T1e CPU results
 - [ ] Results compared against target curve overlay
+- [ ] Pass/fail criteria defined for operational use: what deviation from target curve is acceptable at each venue? (e.g., within +/-3dB 30Hz-16kHz, within +/-6dB at 20Hz)
+- [ ] Verification integrated into US-012 automation script as a mandatory (non-skippable) final step
 
 **DoD:**
 - [ ] Measurements completed in a real room on Pi 4B hardware
 - [ ] Lab note with before/after frequency response plots
+- [ ] Pass/fail thresholds documented for ongoing operational verification
 - [ ] CLAUDE.md assumption A5 updated with validation result
 
 ---
@@ -920,34 +1005,44 @@ Future stories for production hardening.
 
 ---
 
-## US-019: Reproducible System Setup — Lab Notes and Migration Path to NixOS
+## US-019: Reproducible System Setup — Tool-Agnostic State Capture
 
 **As** the system builder,
-**I want** meticulous lab notes documenting every installation step, package
-version, and configuration choice on the current Trixie platform, plus a
-deferred plan for NixOS migration,
-**so that** I can reproduce the entire setup on a new SD card or new Pi, and
-eventually migrate to a fully declarative NixOS configuration.
+**I want** all system state (configuration files, package manifests, manual
+steps) captured in the repo in a tool-agnostic format,
+**so that** the setup can be reproduced on a new SD card or new Pi using
+whichever provisioning approach is eventually chosen.
 
-**Status:** draft (NixOS migration deferred; lab notes active)
+**Status:** draft (active — state capture is ongoing; tool choice deferred)
 **Depends on:** none
 **Blocks:** none directly
 
-**Note:** Owner direction: experiment on Trixie now, keep meticulous notes.
-NixOS migration is a future goal, blocked by uncertainty about CamillaDSP,
-Mixxx, and Reaper packaging for NixOS.
+**Note:** Owner direction (2026-03-08): provisioning tool choice is explicitly
+deferred. Could be configuration management (Ansible, Chef, Puppet),
+infrastructure-as-code (Terraform), or NixOS flake. Current priority is
+capturing all information needed to reproduce the system, regardless of which
+tool is eventually chosen. The captured state works as input to any approach.
+
+**Housekeeping micro-task:** After US-001 benchmarks complete, run a quick
+config-backup task (copy config files from Pi into repo, generate package
+manifest via `dpkg --get-selections` or `apt list --installed`). This is not
+a full story — it's housekeeping that improves all subsequent work by getting
+the Pi's current state into version control early.
 
 **Acceptance criteria:**
-- [ ] Every package installation captured with exact version (`apt list --installed` snapshot or equivalent)
+- [ ] All configuration files from the Pi copied into the repo (under a dedicated directory, e.g., `pi-config/`)
+- [ ] Package manifest generated and committed (`dpkg --get-selections` or equivalent)
+- [ ] System state checklist maintained: kernel version, boot config, systemd services enabled/disabled, udev rules, firewall rules, user accounts
 - [ ] Every configuration file change documented with rationale
 - [ ] Every manual step documented in lab notes with enough detail for reproduction
-- [ ] NixOS feasibility assessment: which components have Nix packages, which would need custom derivations
-- [ ] Migration plan outlined as a future story (not implemented now)
+- [ ] State capture is tool-agnostic: no assumption about which provisioning tool will consume it
+- [ ] Provisioning tool assessment deferred: document candidate approaches (NixOS flake, Ansible playbook, shell script, etc.) but do not select one yet
 
 **DoD:**
+- [ ] Config files and package manifest committed to repo
 - [ ] Lab notes maintained throughout all other stories
-- [ ] NixOS assessment document written (can be brief)
-- [ ] Reproducibility verified: could someone rebuild from the lab notes alone? (review by technical writer)
+- [ ] Provisioning tool assessment document written (brief comparison of candidates, no selection)
+- [ ] Reproducibility verified: could someone rebuild from the captured state alone? (review by technical writer)
 
 ---
 
@@ -1126,8 +1221,8 @@ US-000 (software install) ──> US-000a (security hardening) ──> [venue de
                           │                             ├──> US-003 (stability) ──> US-017 (IEM mix)
                           └──> US-002 (latency) ────────┘                      └──> US-021 (mode switch)
 
-US-001 ──> US-008 (measurement) ──> US-009 (time alignment) ──> US-012 (automation) ──> US-013 (T5 verification)
-                                └──> US-010 (correction) ──> US-011 (crossover) ──┘
+US-001 ──> US-008 (measurement) ──> US-009 (time alignment) ──┐
+                                └──> US-010 (correction) ──> US-011 (crossover) ──> US-011b (profiles/config gen) ──> US-012 (automation) ──> US-013 (T5 verification)
 
 US-000 + US-000a ──> US-022 (web UI platform) ──> US-023 (engineer dashboard)
                                                └──> US-018 (singer IEM self-control)
