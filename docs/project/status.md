@@ -107,6 +107,7 @@ ahead.
 - Split ALSA device access for USBStreamer capture vs playback (production fix for F-015)
 - A21 validation: Reaper OSC on ARM Linux (gates D-020 Stage 4)
 - 14-blind-spot monitoring map review (from researcher)
+- F-019 Headless labwc startup regression (WLR_LIBINPUT_NO_DEVICES removed -- labwc may fail without input devices)
 - cloud-init ~3.3s boot overhead (TK-007)
 
 ## Blockers
@@ -134,6 +135,7 @@ See `docs/project/defects.md` for full details.
 | F-016 | Medium | Open | Operational reliability |
 | F-017 | High | Open | US-003, US-006, D-013 (RT kernel stability) |
 | F-018 | High | Resolved | -- |
+| F-019 | Medium | Open | US-000b (headless operation) |
 
 ## External Dependencies
 

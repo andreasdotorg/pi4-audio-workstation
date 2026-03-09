@@ -279,3 +279,38 @@ persists the PREEMPT_RT kernel selection across reboot.
 
 All four config items (CamillaDSP FIFO 80, PipeWire quantum 256, PipeWire
 force-quantum 256, RT kernel) confirmed surviving reboot.
+
+---
+
+## F-019: Headless labwc startup regression after WLR_LIBINPUT_NO_DEVICES removal (OPEN)
+
+**Severity:** Medium
+**Status:** Open
+**Found in:** labwc mouse input fix (2026-03-09)
+**Affects:** US-000b (headless operation), production headless use
+**Found by:** Team (identified during mouse input fix analysis)
+
+**Description:** The `WLR_LIBINPUT_NO_DEVICES=1` environment variable was removed
+from the labwc systemd user service to fix mouse input on the Pi (mouse was not
+functional with the variable set). Without this variable, labwc will fail to start
+when no input devices are connected -- which is the normal headless/audio-workstation
+scenario.
+
+**Root cause:** `WLR_LIBINPUT_NO_DEVICES=1` tells wlroots to start even without
+input devices. Removing it restores the default behavior where wlroots refuses to
+start if no input devices are found. The variable was originally added for headless
+operation but broke mouse input via wayvnc.
+
+**Current impact:** None -- the Pi currently has USB peripherals connected (Hercules
+controller, APCmini, Nektar SE25, UMIK-1) which register as input devices. The
+defect will manifest when the Pi runs in pure headless/audio-workstation mode without
+peripherals.
+
+**Fix candidates:**
+1. Conditional environment variable based on whether input devices are present at boot
+2. udev rule that sets the variable dynamically
+3. Virtual input device fallback (e.g. `uinput` dummy device)
+4. labwc/wlroots configuration option to ignore missing input devices without the
+   environment variable side effect
+
+**Priority:** Must be fixed before headless production use (no peripherals connected).
