@@ -322,17 +322,15 @@ Server validates subscription against role. Singer requesting "spectrograph" get
 |  Audio Workstation -- Engineer                   [Connected] 62C  |
 +------------------------------------------------------------------+
 |                                                                    |
-|  INPUTS (pre-DSP)                 OUTPUTS (post-DSP)              |
-|  In L   In R                      L Main  R Main  Sub1  Sub2     |
-|  |####  |####                     |====   |====   |==   |==      |
-|  |####  |####                     |====   |====   |==   |==      |
-|  |####  |####                     |====   |====   |==   |==      |
-|  |####  |####                     |====   |====   |==   |==      |
-|  -18dB  -18dB                     -18dB   -18dB   -24dB -24dB    |
+|  CAPTURE          PA SENDS                 MONITOR SENDS          |
+|  In L  In R       ML   MR   S1   S2       EL   ER   IL   IR     |
+|  |#### |####      |==  |==  |==  |==      |==  |==  |==  |==    |
+|  |#### |####      |==  |==  |==  |==      |==  |==  |==  |==    |
+|  |#### |####      |==  |==  |==  |==      |==  |==  |==  |==    |
+|  |#### |####      |==  |==  |==  |==      |==  |==  |==  |==    |
+|  -18dB -18dB      -18  -18  -24  -24      -21  -21  -22  -22    |
 |                                                                    |
-|  (In 3-8: auto-show >-60dB)      Eng HP L  Eng HP R  IEM L  IEM R|
-|                                   |====     |====     |===   |=== |
-|                                   -21dB     -21dB     -22dB  -22dB|
+|  (In 3-8: auto-show >-60dB)                                      |
 |                                                                    |
 +------------------------------------------------------------------+
 |  SPECTROGRAPH (L+R+Sub, 30fps)                                   |
@@ -351,13 +349,30 @@ Server validates subscription against role. Singer requesting "spectrograph" get
 
 (Note: `####` represents cyan-colored meter bars for inputs; `====` represents standard green/yellow/red meter bars for outputs.)
 
+**Abbreviated label legend:**
+
+| Label | Full name | CamillaDSP channel |
+|-------|-----------|-------------------|
+| In L | Capture input left | Capture ch 1 (Loopback from Reaper/Mixxx L) |
+| In R | Capture input right | Capture ch 2 (Loopback from Reaper/Mixxx R) |
+| ML | Main left | Playback ch 1 (left wideband speaker) |
+| MR | Main right | Playback ch 2 (right wideband speaker) |
+| S1 | Subwoofer 1 | Playback ch 3 |
+| S2 | Subwoofer 2 | Playback ch 4 |
+| EL | Engineer headphone left | Playback ch 5 |
+| ER | Engineer headphone right | Playback ch 6 |
+| IL | Singer IEM left | Playback ch 7 |
+| IR | Singer IEM right | Playback ch 8 |
+
 **Layout principles:**
-- Meters follow signal-flow order: inputs (pre-DSP) on the left, outputs (post-DSP) on the right. Input meters use cyan (#00BCD4) to visually distinguish from output meters (green/yellow/red). Input meters are read-only (no faders) -- CamillaDSP capture side has no gain control.
+- Meters follow signal-flow order in 3 functional groups: CAPTURE (pre-DSP, cyan #00BCD4) | PA SENDS (post-DSP, green/yellow/red) | MONITOR SENDS (post-DSP, green/yellow/red). Capture meters are read-only (no faders) -- CamillaDSP capture side has no gain control.
 - Spectrograph occupies full width, below meters. Scrolling waterfall (time on X, frequency on Y, magnitude as color).
 - Status bar at bottom -- scannable at a glance during performance.
 - Each meter shows peak hold indicator (thin line above current bar, decays over 2s).
 - Clip indicators: meter bar turns red when peak exceeds -1 dBFS. Stays red for 3 seconds.
 - All meters have dB scale labels at 0, -6, -12, -24, -48 dB.
+
+**Future extensibility:** When ADA8200 input monitoring is added (US-035), a fourth group "INPUTS" appears to the left of CAPTURE. Signal-flow order becomes: INPUTS | CAPTURE | PA SENDS | MONITOR SENDS. This adds 2 meters (VC = vocal mic, SP = spare), bringing the total to 12 meters in the primary row. At 40px per meter + gaps, this fits within 70% of a 1024px tablet viewport.
 
 **Interaction:**
 - Gain faders: slider per output channel (engineer only). Sends gain change to CamillaDSP via pycamilladsp.
