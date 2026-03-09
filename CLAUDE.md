@@ -38,7 +38,20 @@ Gabriela Bogk. This is a personal project, not mobile.de work.
 
 ## Current Mission
 
-See `docs/project/status.md` for current state. Decisions in `docs/project/decisions.md`.
+**Next session: TK-055 — apply upstream V3D RT fix and test hardware GL on PREEMPT_RT.**
+
+Upstream patch found (`raspberrypi/linux#7035`, Melissa Wen / Igalia) that fixes the
+exact V3D ABBA deadlock we diagnosed in F-012. Confirmed working on Pi 4B + Pi 5 by
+2 independent reporters. If it works on our system: D-021 software rendering requirement
+eliminated, hardware GL restored, Mixxx CPU drops from 142-166% to ~85%, DJ-A becomes
+trivially viable. Evaluate TK-055 BEFORE TK-054 (software rendering fallback).
+
+**Pi is currently on stock PREEMPT kernel with hardware GL** (switched for listening
+session 2026-03-09 evening). labwc service `WLR_RENDERER=pixman` line was removed.
+Before resuming RT work: either apply the patch and test with hardware GL, or restore
+the pixman line and switch back to RT kernel.
+
+See `docs/project/status.md` for full current state. Decisions in `docs/project/decisions.md`.
 
 ## Team
 
@@ -59,9 +72,9 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 
 ## Pi Hardware State (verified 2026-03-09)
 
-- **OS:** Debian 13 Trixie. PREEMPT_RT kernel (`6.12.47+rpt-rpi-v8-rt`) currently booted.
-- **Desktop:** labwc (Wayland) with `WLR_RENDERER=pixman` (in `~/.config/systemd/user/labwc.service`). lightdm disabled, labwc runs as systemd user service.
-- **V3D:** MUST be eliminated system-wide on PREEMPT_RT. `WLR_RENDERER=pixman` on labwc + `LIBGL_ALWAYS_SOFTWARE=1` on all GUI apps. V3D client rendering ALSO triggers lockup (Test 5 confirmed). See D-021.
+- **OS:** Debian 13 Trixie. **Currently booted: stock PREEMPT kernel (`6.12.47+rpt-rpi-v8`)**. Switched from RT for listening session 2026-03-09 evening. `config.txt` has `kernel=kernel8.img`.
+- **Desktop:** labwc (Wayland) with **hardware V3D GL** (safe on stock PREEMPT). `WLR_RENDERER=pixman` line removed from `~/.config/systemd/user/labwc.service`. lightdm disabled, labwc runs as systemd user service. **NOTE:** before switching back to RT kernel, either apply TK-055 V3D patch or re-add `WLR_RENDERER=pixman` to labwc service.
+- **V3D:** On PREEMPT_RT, V3D causes ABBA deadlock (F-012). **Upstream fix available:** `raspberrypi/linux#7035`. On stock PREEMPT, V3D is safe. Current state: V3D loaded and active (stock kernel).
 - **Audio:** PipeWire 1.4.2, CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). PipeWire RT module FAILS to self-promote to FIFO on PREEMPT_RT (F-020) — needs manual `sudo chrt -f -p 88 $(pgrep -x pipewire)` after each start.
 - **Quantum:** Production config at `~/.config/pipewire/pipewire.conf.d/10-audio-settings.conf` sets quantum 256. DJ mode needs quantum 1024 (set at runtime via `pw-metadata -n settings 0 clock.force-quantum 1024`).
 - **99-no-rt.conf:** DELETED (was Test 3 artifact forcing PipeWire to SCHED_OTHER).

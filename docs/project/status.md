@@ -121,6 +121,7 @@ ahead.
 - DJ-A strategy alignment (architect + audio-engineer consensus): DJ-A = PREEMPT_RT for BOTH modes (RT + V3D blacklisted + quantum 1024 for DJ, quantum 256 for live). DJ-B = stock PREEMPT for DJ mode (V3D available, hardware GL), PREEMPT_RT for live mode only. Scheduling math validated: audio work per quantum 1024 cycle = ~1.8ms out of 21.3ms deadline (8.5% utilization). FIFO 80-88 preempts llvmpipe SCHED_OTHER unconditionally on RT.
 - Pi recovered after Test 5 (watchdog reboot ~22:46 CET). 7-step recovery: PipeWire FIFO 88, quantum 1024, CamillaDSP FIFO 80, Mixxx launched with software rendering. System running stably when session crashed.
 - **Session crashed at ~22:48 CET.** Pi was fine -- Claude Code orchestration crashed. All team agents lost. Team state recovered from `~/.claude/teams/wondrous-riding-lerdorf/` inbox files. No uncommitted code was lost (all code changes were committed in 1ff916c or earlier). Lost items: in-flight team context and the planned DJ-A 15-minute stability test which had not yet started.
+- **UPSTREAM V3D FIX FOUND (late evening).** `raspberrypi/linux#7035`: patch by Melissa Wen (Igalia, DRM/V3D maintainer) fixes the exact ABBA deadlock in `v3d_job_update_stats`. Confirmed by 2 reporters on Pi 4B + Pi 5. Kernel trace from MmAaXx500 matches our F-012 root cause exactly (`6.12.47+rpt-rpi-v8-rt`, Pi 4B). TK-055 filed: apply patch and test RT + hardware GL. If it works, D-021 software rendering is no longer needed.
 
 ### Remaining TODOs
 - ~~Configure persistent journald on Pi~~ DONE (configured during PoC session, confirmed surviving power cycles)
@@ -141,11 +142,12 @@ ahead.
 - **F-020** PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured rt.prio=88, only achieves nice=-11. Manual `chrt` works. Investigate root cause; persist workaround via systemd override or startup script.
 - F-019 Headless labwc startup regression (WLR_LIBINPUT_NO_DEVICES removed -- labwc may fail without input devices)
 - cloud-init ~3.3s boot overhead (TK-007)
-- **TK-054** DJ-A 15-minute stability test: Mixxx on PREEMPT_RT + V3D blacklisted + quantum 1024 + chunksize 2048. Pass criteria: 0 xruns, temp < 78C. Source: architect + audio-engineer consensus (2026-03-09). Test NOT YET RUN -- session crashed before it could start.
+- **TK-055 (HIGHEST PRIORITY):** Apply upstream V3D RT fix (`raspberrypi/linux#7035`, Melissa Wen patch) and test PREEMPT_RT with hardware GL. If PASS: eliminates D-021 software rendering, restores hardware compositing + GL on RT. Evaluate BEFORE TK-054.
+- **TK-054** DJ-A 15-minute stability test: Mixxx on PREEMPT_RT + V3D blacklisted + quantum 1024 + chunksize 2048. Pass criteria: 0 xruns, temp < 78C. **Fallback if TK-055 fails.** Test NOT YET RUN.
 
 ## Blockers
 
-- **F-012: MITIGATED (D-021, committed 20ae9f0).** V3D GPU driver ABBA deadlock on PREEMPT_RT. 11 lockup events across investigation. **Fix:** `WLR_RENDERER=pixman` + V3D blacklist eliminates all V3D usage. Test 4: 5 min stable. Test 5 (1ff916c): V3D blacklist confirmed mandatory. **Remaining:** persist V3D blacklist, TK-054 DJ-A 15-min stability test, upstream bug report.
+- **F-012: MITIGATED (D-021, committed 20ae9f0). UPSTREAM FIX AVAILABLE.** V3D GPU driver ABBA deadlock on PREEMPT_RT. 11 lockup events across investigation. **Workaround:** `WLR_RENDERER=pixman` + V3D blacklist eliminates all V3D usage (D-021). **Upstream fix:** `raspberrypi/linux#7035` — Melissa Wen patch creates dedicated lock for DMA fence, fixes the `v3d_job_update_stats` spinlock. Confirmed working by 2 reporters. **TK-055: apply patch, test RT + hardware GL. Evaluate BEFORE TK-054.** If patch works: D-021 software rendering requirement eliminated, hardware GL restored on RT.
 - **F-013: PARTIALLY RESOLVED.** wayvnc password auth added. **TLS required before US-018** deployment (guest musicians' phones on network).
 - **F-014: RESOLVED.** RustDesk firewall rules removed (TK-048).
 - **F-015: RESOLVED (workaround).** USB bandwidth contention from ada8200-in. Workaround: adapter disabled. **Production fix needed:** split ALSA device access.
