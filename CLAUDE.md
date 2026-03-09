@@ -57,14 +57,18 @@ Orchestration protocol: `.claude/team/protocol/` (self-contained copy)
 All SSH to Pi goes through the Change Manager to prevent conflicts.
 Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 
-## Pi Hardware State (verified 2026-03-08)
+## Pi Hardware State (verified 2026-03-09)
 
-- **OS:** Debian 13 Trixie, kernel 6.12.47+rpt-rpi-v8 (stock PREEMPT) per D-015. PREEMPT_RT kernel retained on SD card but causes F-012 (Reaper hard lockup). Fix before shipping.
+- **OS:** Debian 13 Trixie. PREEMPT_RT kernel (`6.12.47+rpt-rpi-v8-rt`) currently booted.
+- **Desktop:** labwc (Wayland) with `WLR_RENDERER=pixman` (in `~/.config/systemd/user/labwc.service`). lightdm disabled, labwc runs as systemd user service.
+- **V3D:** MUST be eliminated system-wide on PREEMPT_RT. `WLR_RENDERER=pixman` on labwc + `LIBGL_ALWAYS_SOFTWARE=1` on all GUI apps. V3D client rendering ALSO triggers lockup (Test 5 confirmed). See D-021.
+- **Audio:** PipeWire 1.4.2, CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). PipeWire RT module FAILS to self-promote to FIFO on PREEMPT_RT (F-020) — needs manual `sudo chrt -f -p 88 $(pgrep -x pipewire)` after each start.
+- **Quantum:** Production config at `~/.config/pipewire/pipewire.conf.d/10-audio-settings.conf` sets quantum 256. DJ mode needs quantum 1024 (set at runtime via `pw-metadata -n settings 0 clock.force-quantum 1024`).
+- **99-no-rt.conf:** DELETED (was Test 3 artifact forcing PipeWire to SCHED_OTHER).
+- **Mixxx:** Requires `LIBGL_ALWAYS_SOFTWARE=1 pw-jack mixxx`. Software rendering = 92-166% CPU. Waveforms disabled, framerate 5 FPS. Still glitches at quantum 256 — testing quantum 1024 (DJ mode).
 - **USB devices:** UMIK-1, USBStreamer, Hercules DJControl Mix Ultra, APCmini mk2, Nektar SE25
 - **UMIK-1 calibration:** `/home/ela/7161942.txt` (magnitude-only, serial 7161942, -1.378dB sensitivity)
-- **Audio:** PipeWire running (pipewire, pipewire-pulse, wireplumber). Currently at quantum 1024 (default). Needs `10-audio-settings.conf` for production quantum values (256 live, 1024 DJ).
-- **Desktop:** labwc (Wayland), lightdm — full desktop session active
-- **Firewall:** NONE (nftables empty, iptables not installed)
+- **Firewall:** nftables active (US-000a). Port 8080 runtime-only rule for PoC.
 - **SSH:** Password auth likely enabled (default), key-based working
 - **Listening ports:** SSH (22), rpcbind (111), CUPS (631/localhost only)
 - **Installed:** CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc 0.9.1. RustDesk removed (D-018).
@@ -308,14 +312,17 @@ automatically. The script should:
 - [ ] Verify REW runs on Pi 4 ARM (Java-based, should work but needs testing)
 - [x] ~~Decide if measurement pipeline should use REW or pure Python~~ D-016: both. REW for exploratory work, Python for automation pipeline.
 - [ ] Determine if `gpu_mem=128` is needed for Mixxx or if Xvfb works with `gpu_mem=16`
-- [x] ~~Check if Raspberry Pi OS Trixie ships a PREEMPT_RT kernel package~~ YES: `linux-image-6.12.47+rpt-rpi-v8-rt` available. Installed in T3e (PASS). D-013: PREEMPT_RT mandatory for production — but **D-015 defers to stock PREEMPT** due to F-012 (Reaper hard lockup on RT kernel). Fix before shipping.
+- [x] ~~Check if Raspberry Pi OS Trixie ships a PREEMPT_RT kernel package~~ YES. D-013 + D-021: PREEMPT_RT mandatory with V3D eliminated.
 - [ ] Test whether PipeWire or native JACK gives better latency/stability on Pi 4
-- [ ] Investigate CamillaDSP's websocket API for runtime filter hot-swapping — `set_active()` supports reload with brief audio gap (architect analysis). Pending 5-min Pi validation (TK-005).
-  (can we update coefficients without restarting the service?)
-- [ ] Consider: should the live mode config use a separate set of shorter FIR filters
-  optimized for chunksize 512, or the same 16k-tap filters as DJ mode?
+- [ ] Investigate CamillaDSP's websocket API for runtime filter hot-swapping
 - [ ] Flight case design: ventilation, cable routing, power distribution
 - [ ] Write the automated room correction pipeline document + scripts
+- [ ] **F-020:** Investigate PipeWire RT module self-promotion failure on PREEMPT_RT. Persist workaround (systemd override or ExecStartPost chrt).
+- [ ] **Mixxx perf:** Investigate further CPU reduction — 92% with waveforms off is too much for quantum 256. Options: lighter skin, QT_QPA_PLATFORM=offscreen for controller-only use, stock PREEMPT for DJ mode.
+- [ ] **Quantum 1024 DJ mode test:** Currently in progress. Does 21ms buffer absorb llvmpipe scheduling jitter?
+- [ ] **T3d:** 30-min stability test on PREEMPT_RT with Option B. Prerequisite: F-020 workaround persisted, quantum 1024 for DJ mode.
+- [ ] **Watchdog reliability:** BCM2835 watchdog failed on Test 3 and Test 5 (2/11 lockups). Investigate.
+- [ ] **Upstream V3D bug report:** Reproduction steps clean (Test 1). Include Test 5 (client-only V3D also deadlocks).
 
 ## Design Principles
 

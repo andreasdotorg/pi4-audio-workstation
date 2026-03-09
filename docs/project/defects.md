@@ -55,8 +55,9 @@ US-000b T7.
 
 **Description:** GUI applications using OpenGL (Reaper, Mixxx) cause
 reproducible hard kernel lockups on `6.12.47+rpt-rpi-v8-rt` within 1-2
-minutes of launch. 9 events total across both apps (Reaper 4, Mixxx 3,
-Test 1 isolated GPU 1, Event #9 software rendering + audio 1).
+minutes of launch. 11 events total (Reaper 4, Mixxx 3, Test 1 isolated GPU 1,
+Event #9 software rendering + audio 1, Test 3 SCHED_OTHER audio 1, Test 5
+V3D client + pixman compositor 1).
 CamillaDSP (headless, no GPU) is stable for hours on the same kernel. Not
 OOM, not thermal (lockups at 45-47C), not a userspace issue (systemd watchdog
 stops being fed, confirming kernel-level lockup). BCM2835 hardware watchdog
@@ -83,6 +84,11 @@ identical lockup pattern. F-017 confirmed as same root cause class.
 - Crash 10 / Test 3 (2026-03-09, Mixxx): `LIBGL_ALWAYS_SOFTWARE=1` + audio at
   SCHED_OTHER (no RT priority). Hard lockup during song selection. **Eliminates
   priority inversion** -- V3D deadlocks regardless of audio thread priority.
+- PASS / Test 4 (2026-03-09, Mixxx): pixman compositor + `LIBGL_ALWAYS_SOFTWARE=1`
+  + CamillaDSP FIFO 80. 5 min stable. V3D eliminated system-wide = no deadlock.
+- Crash 11 / Test 5 (2026-03-09, Mixxx): pixman compositor but Mixxx using V3D
+  hardware GL (no `LIBGL_ALWAYS_SOFTWARE=1`). Hard lockup. **Confirms V3D must
+  be eliminated from ALL processes** -- compositor fix alone insufficient.
 - PASS (stock PREEMPT): Both Reaper and Mixxx run without issue on stock kernel.
 
 **Root cause (confirmed by Tests 1+3):** V3D internal ABBA deadlock under
@@ -103,13 +109,13 @@ priority inversion -- V3D deadlocks regardless of audio thread priority).
 **Active workaround:** D-015 -- all GUI apps on stock PREEMPT kernel only.
 This remains the only confirmed-stable configuration for GUI apps + audio stack.
 
-**Fix (VALIDATED -- Option B):** `WLR_RENDERER=pixman` on labwc compositor +
-`LIBGL_ALWAYS_SOFTWARE=1` on GUI apps (Mixxx, Reaper). Eliminates all V3D
-usage system-wide. Test 4 (2026-03-09): Mixxx + CamillaDSP FIFO 80 + full
-audio stack on PREEMPT_RT -- 5 minutes stable, all 10 checkpoints PASS, peak
-temp 53.5C, peak load 4.84, zero V3D renderD mappings in labwc. This is the
-production fix for F-012/F-017. Pending: D-021 formalization by architect,
-30-min T3d stability test, persistence via systemd environment.
+**Fix (D-021 -- V3D must be eliminated system-wide):** Three layers required:
+(a) `WLR_RENDERER=pixman` on labwc compositor, (b) `LIBGL_ALWAYS_SOFTWARE=1`
+on all GUI apps, (c) V3D kernel module blacklisted via
+`/etc/modprobe.d/blacklist-v3d.conf` (mandatory -- Test 5 proved compositor
+fix alone is insufficient). Test 4 validated full system-wide V3D elimination.
+Test 5 confirmed that client-side V3D usage triggers the same deadlock even
+with a pixman compositor. Pending: 30-min T3d stability test.
 
 **Upstream fix:** V3D driver needs PREEMPT_RT-safe locking. Report to kernel
 maintainers with reproduction steps (Test 1 from lab note). Serial console
@@ -166,8 +172,23 @@ Zero V3D renderD mappings in labwc process.
 activity is eliminated. The V3D kernel module may still be loaded but is never
 exercised, avoiding the deadlocking lock path entirely.
 
-**Remaining:** D-021 formalization (architect), 30-min T3d stability test to
-confirm long-duration stability, persistence via systemd environment files.
+**Remaining:** ~~D-021 formalization~~ DONE (committed 20ae9f0). 30-min T3d
+stability test. V3D blacklist persistence on Pi.
+
+### Update 2026-03-09: Test 5 LOCKUP -- V3D client triggers deadlock even with pixman compositor
+**Test 5:** Mixxx launched with V3D hardware GL (no `LIBGL_ALWAYS_SOFTWARE=1`)
+on pixman compositor (`WLR_RENDERER=pixman`). Hard lockup. This proves the
+V3D deadlock is triggered by ANY V3D client, not just the compositor.
+
+**D-021 point 2 (V3D module blacklist) is mandatory, not defense-in-depth.**
+The pixman compositor fix alone does not prevent client apps from opening the
+V3D render node. Only the module blacklist guarantees system-wide V3D
+elimination.
+
+**Mixxx software rendering performance:** llvmpipe consumes 142-166% CPU on
+Pi 4B (92% with waveforms disabled, framerate 5 FPS). Causes audio underruns
+at quantum 256. DJ mode quantum 1024 (D-002) under investigation as
+mitigation.
 
 ---
 
