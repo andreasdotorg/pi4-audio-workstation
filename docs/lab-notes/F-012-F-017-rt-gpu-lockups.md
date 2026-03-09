@@ -88,8 +88,35 @@ This explains why Test 2 passed (no audio stack = no RT thread contention with
 V3D compositor) and Event #9 failed (audio stack RT threads + V3D compositor =
 priority inversion triggering the deadlock).
 
-**Diagnostic data:** Pending -- awaiting change-manager's confirmation that
-labwc process maps show V3D shared libraries loaded.
+**Diagnostic data:** Confirmed. labwc process maps show V3D shared libraries
+loaded (see "Diagnostic: labwc V3D Confirmation" section).
+
+---
+
+## Diagnostic: labwc V3D Confirmation
+
+Verified on Pi after Event #9 reboot. labwc uses V3D hardware OpenGL for
+compositing -- **confirmed**.
+
+**DRI render node:**
+- `/dev/dri/renderD128` driver path: `../../../../bus/platform/drivers/v3d`
+
+**Kernel module:**
+- `v3d` module loaded with 4 references (actively in use)
+
+**labwc process maps (shared libraries):**
+- `libgallium-25.0.7` (Mesa Gallium driver framework)
+- `libEGL_mesa` (EGL implementation)
+- `libGLESv2` (OpenGL ES 2.0 -- used for compositing)
+- `libEGL` (EGL loader)
+- `libGLdispatch` (GL dispatch)
+- Mesa shader cache active
+- 7 `/dev/dri/renderD128` mappings in labwc's process address space
+
+This confirms the hypothesis: labwc performs hardware-accelerated GL
+compositing via V3D. `LIBGL_ALWAYS_SOFTWARE=1` on a client app does not
+affect labwc's own GL context. The V3D deadlock can be triggered through
+labwc's compositor path when RT-priority audio threads are running.
 
 ---
 
@@ -226,9 +253,10 @@ Replace labwc with a headless Wayland compositor (e.g., `cage`, `weston
 Trade-off: no hardware-accelerated display. Acceptable for an audio
 workstation where visual performance is not critical.
 
-**D-021 (RT + GUI architecture decision): ON HOLD** pending resolution of
-the labwc V3D question. Confirmation needed: change-manager to verify labwc
-process maps show V3D shared libraries loaded.
+**D-021 (RT + GUI architecture decision): ON HOLD** pending architect's
+decision on fix option. labwc V3D usage confirmed (see "Diagnostic: labwc
+V3D Confirmation" section). Architect recommends Option B (blacklist V3D
+kernel module).
 
 ---
 

@@ -127,6 +127,27 @@ with CamillaDSP and PipeWire stopped).
 Test 2: Reaper stable 5+ min on RT with software rendering vs 1-2 min lockup
 with hardware rendering. This is a game-changer for D-013 compliance.
 
+### Update 2026-03-09: Workaround downgraded to PARTIALLY VALIDATED (Event #9)
+**Event #9 (~21:37 CET):** Mixxx running with `LIBGL_ALWAYS_SOFTWARE=1` was
+stable for 5+ min WITHOUT the audio stack (Test 2 conditions). PipeWire and
+CamillaDSP were then restarted. The Pi locked up ~30-60s after the audio stack
+came back. Temperature was rising toward ~53C (software rendering CPU load +
+audio stack).
+
+**Analysis:** `LIBGL_ALWAYS_SOFTWARE=1` only affects the client app (Mixxx).
+labwc (the Wayland compositor) still uses V3D hardware GL for compositing.
+The rendering pipeline is: Mixxx (llvmpipe) -> SHM buffer -> labwc (V3D
+hardware GL compositing) -> DRM/KMS scanout. When the RT audio stack
+restarted (PipeWire FIFO 88, CamillaDSP FIFO 80), the V3D deadlock was
+triggered through labwc's compositor path.
+
+**Impact on D-013:** `LIBGL_ALWAYS_SOFTWARE=1` alone cannot enable RT + GUI.
+D-013 revision is more complex than previously thought. Stock PREEMPT (D-015)
+remains the only confirmed-stable configuration for GUI apps + full audio
+stack. Remaining viable paths: (a) stock PREEMPT for all modes with GUI apps,
+(b) force labwc to software rendering (feasibility unknown), (c) headless
+compositor bypassing V3D entirely (Xvfb/cage), (d) blacklist V3D kernel module.
+
 ---
 
 ## F-013: wayvnc unencrypted session (PARTIALLY RESOLVED)
