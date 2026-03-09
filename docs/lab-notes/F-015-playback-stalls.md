@@ -24,7 +24,7 @@ CamillaDSP's exclusive ALSA playback on the same USB device. This caused isochro
 USB bandwidth contention on the Pi 4's VL805 USB controller.
 
 **Severity:** High (complete audio dropout, repeating)
-**Status:** Fix verified (output-only PASS 300s, capture-active PASS 120s on both PREEMPT and PREEMPT_RT). RT kernel shows decisive improvement: peak load halved, zero throttling. F-012 (Reaper lockup on RT) remains the only blocker to full RT adoption.
+**Status:** Fix verified (output-only PASS 300s, capture-active PASS 120s on both PREEMPT and PREEMPT_RT). RT kernel shows decisive improvement: peak load halved, zero throttling. Quantum 128 FAIL (catastrophic) — I/O stack timing, not CPU. D-011 (quantum 256) confirmed as hardware floor. F-012 (Reaper lockup on RT) remains the only blocker to full RT adoption.
 
 ---
 
@@ -842,3 +842,49 @@ service configuration or a startup script. [TBC -- how this will be persisted]
    The ~2:1 ratio suggests the capture adapter was failing first and more frequently,
    with downstream effects on the loopback sink. This supports the USB bandwidth
    contention theory where the capture stream's failures cascade through the graph.
+
+---
+
+## Phase 10: Quantum 128 Test — Hardware Floor Validation
+
+### 10a. T6-128-idle: FAIL (catastrophic)
+
+**Test:** 120s idle-system test at PipeWire quantum 128 on PREEMPT_RT kernel.
+**Kernel:** 6.12.47+rpt-rpi-v8-rt (PREEMPT_RT)
+
+| Metric | Value |
+|--------|-------|
+| JACK xruns | 1750 (~14.6/sec) |
+| Callback gaps | 189 (5.3-7.9ms vs expected 2.7ms) |
+| CamillaDSP anomalies | 167 (repeatedly STALLED) |
+| Buffer min / max / mean | 6 / 19 / 10.9 (>50% drain from peak) |
+| Processing load min / max / mean | 25.9% / 50.8% / 36.4% |
+| Temperature | 64.7C |
+| Throttle flags | 0x0 (none) |
+
+### 10b. Root Cause
+
+The failure is an I/O stack timing failure, NOT a CPU budget issue. Processing load
+(36.4% mean, 50.8% peak) was well within budget. The 2.67ms deadline at quantum 128
+is too tight for the combination of:
+
+- Pi 4B's VL805 USB controller jitter (PCIe-to-USB bridge, not native)
+- PipeWire graph scheduling overhead
+- ALSA round-trip latency through the Loopback + USBStreamer chain
+
+The callback gaps (5.3-7.9ms vs 2.7ms expected) confirm the I/O stack cannot
+consistently deliver data within the quantum 128 deadline. CamillaDSP repeatedly
+entering STALLED state and the buffer draining to 6 (from a peak of 19) show the
+pipeline is starving for data, not for CPU.
+
+### 10c. Conclusion
+
+**D-011 (quantum 256) is validated as the hardware floor.** No further quantum
+reduction is viable on the Pi 4B without hardware changes. The VL805 USB controller's
+inherent jitter sets a hard lower bound that cannot be overcome by kernel tuning or
+scheduling improvements.
+
+Potential paths to quantum 128 (all require hardware changes):
+- Pi 5 (native USB controller, no PCIe bridge)
+- External USB audio interface with lower jitter characteristics
+- Native I2S/ADAT interface bypassing USB entirely
