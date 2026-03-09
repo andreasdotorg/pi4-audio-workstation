@@ -22,7 +22,7 @@ ahead.
 
 ## Overall Status
 
-**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T6-128 FAIL (1750 xruns), T3d unblocked by F-015 fix, T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011 confirmed: live mode chunksize 256 + quantum 256 -- quantum 128 tested and failed catastrophically (1750 xruns), 256 is the Pi 4B hardware floor. IEM through CamillaDSP passthrough confirmed as net benefit. First end-to-end Reaper test exposed F-015 (USB bandwidth contention) -- fixed with workaround, production fix pending. D-020 (web UI architecture) committed. F-018 (config persistence) resolved -- all audio configs persist across reboot.
+**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T6-128 FAIL (1750 xruns), T3d deferred to next session (must run on stock PREEMPT -- F-012 Event #9 proved RT + GUI + audio is unstable even with software rendering), T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011 confirmed: live mode chunksize 256 + quantum 256 -- quantum 128 tested and failed catastrophically (1750 xruns), 256 is the Pi 4B hardware floor. IEM through CamillaDSP passthrough confirmed as net benefit. F-012/F-017 root cause confirmed (V3D GPU deadlock on RT), workaround (`LIBGL_ALWAYS_SOFTWARE=1`) partially validated -- fails under full audio load. D-020 (web UI architecture) committed. F-018 (config persistence) resolved -- all audio configs persist across reboot.
 
 ## Component Status
 
@@ -108,6 +108,8 @@ ahead.
 - `LIBGL_ALWAYS_SOFTWARE=1` partially validated (stable without audio, FAILS with audio -- Event #9)
 - F-012/F-017 consolidated lab note committed
 - T3d attempted on RT kernel -- F-012 crash during setup, deferred to next session
+- Event #9: `LIBGL_ALWAYS_SOFTWARE=1` + audio stack = lockup. Workaround downgraded to partially validated
+- labwc V3D compositor hypothesis identified (explains Event #9 failure path)
 
 ### Remaining TODOs
 - ~~Configure persistent journald on Pi~~ DONE (configured during PoC session, confirmed surviving power cycles)
