@@ -1,0 +1,6 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+websockets>=13.0
+JACK-Client>=0.5.4
+numpy>=1.24
+camilladsp>=3.0.0
