@@ -70,7 +70,7 @@ Deployed to the Pi at `~/.config/pipewire/pipewire.conf.d/` (user-level).
 | File | Description |
 |------|-------------|
 | `10-audio-settings.conf` | PipeWire quantum settings (256 for live, 1024 for DJ). |
-| `20-usbstreamer.conf` | PipeWire adapter for ADA8200 inputs via USBStreamer (`hw:USBStreamer,0`, 8ch S32LE capture). Node name: `ada8200-in`. **Currently disabled on Pi** (renamed to `.disabled`) due to F-015: causes isochronous USB bandwidth contention with CamillaDSP's playback on the same device. Required for production mic input -- pending split-access fix. |
+| `20-usbstreamer.conf` | PipeWire capture-only adapter for ADA8200 inputs via USBStreamer (`hw:USBStreamer,0`, 8ch S32LE capture). Node name: `ada8200-in`. Rewritten for F-015 split-access fix: `node.driver=false`, `priority.driver=0`, `priority.session=0` to prevent graph driver contention with CamillaDSP's exclusive playback. Requires `50-usbstreamer-disable-acp.conf` to suppress WirePlumber auto-detected duplex nodes. |
 | `25-loopback-8ch.conf` | PipeWire adapter for 8-channel ALSA Loopback sink (`hw:Loopback,0,0`). Node name: `loopback-8ch-sink`, description: "CamillaDSP 8ch Input". Hardened against suspension: `node.pause-on-idle=false`, `node.always-process=true`, `session.suspend-timeout-seconds=0`, `priority.driver=2000`. |
 
 ---
@@ -81,6 +81,7 @@ Deployed to the Pi at `~/.config/wireplumber/wireplumber.conf.d/` (user-level).
 
 | File | Description |
 |------|-------------|
+| `50-usbstreamer-disable-acp.conf` | Disables WirePlumber ACP for the USBStreamer. Prevents auto-detected duplex nodes from conflicting with CamillaDSP's exclusive playback access. Required companion to `20-usbstreamer.conf` capture-only adapter (F-015 fix). |
 | `51-loopback-disable-acp.conf` | Disables WirePlumber ACP (audio card profiles) for the loopback device. |
 | `52-umik1-low-priority.conf` | Lowers UMIK-1 priority so WirePlumber does not select it as default audio source. |
 
