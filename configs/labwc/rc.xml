@@ -16,19 +16,18 @@
   </mouse>
 
   <windowRules>
-    <windowRule identifier="org.mixxx.Mixxx">
+    <!-- Mixxx: may launch as native Wayland (org.mixxx.Mixxx) or XWayland (mixxx).
+         Matching is case-insensitive. matchOnce prevents multi-window toggle issues. -->
+    <windowRule identifier="org.mixxx.Mixxx" type="normal" matchOnce="true" serverDecoration="no">
       <action name="ToggleFullscreen"/>
     </windowRule>
-    <windowRule identifier="org.mixxx.mixxx">
+    <windowRule identifier="mixxx" type="normal" matchOnce="true" serverDecoration="no">
       <action name="ToggleFullscreen"/>
     </windowRule>
-    <windowRule identifier="mixxx">
-      <action name="ToggleFullscreen"/>
-    </windowRule>
-    <windowRule identifier="REAPER">
-      <action name="ToggleFullscreen"/>
-    </windowRule>
-    <windowRule identifier="reaper">
+    <!-- Reaper: runs under XWayland, WM_CLASS "REAPER","REAPER". Creates 3 X11
+         windows (main + 2 menus). type="normal" excludes menus, matchOnce ensures
+         only the main window gets fullscreened. -->
+    <windowRule identifier="REAPER" type="normal" matchOnce="true" serverDecoration="no">
       <action name="ToggleFullscreen"/>
     </windowRule>
   </windowRules>
