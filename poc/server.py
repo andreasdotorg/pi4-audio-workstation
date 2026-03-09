@@ -54,6 +54,8 @@ jack_client: jack.Client | None = None
 def _jack_process(frames: int) -> None:
     """JACK process callback – RT-safe, no Python allocation."""
     global write_pos
+    if jack_client is None:
+        return
     # frames == QUANTUM (256) in normal operation
     for ch in range(NUM_CHANNELS):
         buf = jack_client.inports[ch].get_array()  # float32 numpy view
@@ -80,13 +82,14 @@ def _start_jack() -> jack.Client:
     for i in range(NUM_CHANNELS):
         client.inports.register(f"input_{i}")
 
+    jack_client = client  # assign BEFORE activate so callback can access it
     client.activate()
 
-    # Discover Loopback monitor ports by pattern
-    monitor_ports = client.get_ports("Loopback.*:monitor.*", is_output=True)
+    # Discover CamillaDSP monitor ports by pattern
+    monitor_ports = client.get_ports("CamillaDSP.*:monitor.*", is_output=True)
     if len(monitor_ports) < NUM_CHANNELS:
         logger.warning(
-            "Found only %d Loopback monitor ports (need %d). "
+            "Found only %d CamillaDSP monitor ports (need %d). "
             "Connect manually with jack_connect.",
             len(monitor_ports),
             NUM_CHANNELS,
@@ -94,8 +97,6 @@ def _start_jack() -> jack.Client:
     for i, port in enumerate(monitor_ports[:NUM_CHANNELS]):
         client.connect(port, client.inports[i])
         logger.info("Connected %s -> %s", port.name, client.inports[i].name)
-
-    jack_client = client
     logger.info("JACK client started: %s (%d ports)", client.name, NUM_CHANNELS)
     return client
 
@@ -193,14 +194,14 @@ async def ws_levels(ws: WebSocket) -> None:
             try:
                 levels = cdsp.levels.levels_since_last()
                 payload = {
-                    "capture_rms": levels.capture_rms(),
-                    "capture_peak": levels.capture_peak(),
-                    "playback_rms": levels.playback_rms(),
-                    "playback_peak": levels.playback_peak(),
+                    "capture_rms": levels["capture_rms"],
+                    "capture_peak": levels["capture_peak"],
+                    "playback_rms": levels["playback_rms"],
+                    "playback_peak": levels["playback_peak"],
                 }
                 await ws.send_json(payload)
-            except Exception:
-                logger.warning("CamillaDSP read failed – reconnecting")
+            except Exception as e:
+                logger.warning("CamillaDSP read failed (%s: %s) – reconnecting", type(e).__name__, e)
                 try:
                     cdsp.disconnect()
                 except Exception:

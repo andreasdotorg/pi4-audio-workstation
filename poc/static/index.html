@@ -48,7 +48,12 @@ class PcmFeeder extends AudioWorkletProcessor {
     this.buf = [];       // queue of Float32Array chunks (interleaved 3ch)
     this.offset = 0;     // read offset into buf[0]
     this.channels = 3;
-    this.port.onmessage = (e) => { this.buf.push(e.data); };
+    this.maxQueue = 32;  // cap queue to prevent unbounded growth when suspended
+    this.port.onmessage = (e) => {
+      this.buf.push(e.data);
+      // Drop oldest chunks if queue grows too large (e.g. AudioContext was suspended)
+      while (this.buf.length > this.maxQueue) { this.buf.shift(); this.offset = 0; }
+    };
   }
   process(inputs, outputs) {
     const out = outputs[0];
@@ -370,10 +375,21 @@ function connectLevels() {
 // =========================================================================
 async function boot() {
   buildMeters();
-  await initAudio();
-  connectPcm();
-  connectLevels();
-  requestAnimationFrame(drawSpectrograph);
+  connectLevels();  // levels don't need AudioContext — start immediately
+
+  // Defer audio init until user gesture (AudioContext requires it)
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;cursor:pointer';
+  overlay.innerHTML = '<div style="color:#fff;font-size:24px;text-align:center">Click to start audio<br><span style="font-size:14px;color:#aaa">Browser requires user gesture for AudioContext</span></div>';
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('click', async () => {
+    overlay.remove();
+    await initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    connectPcm();
+    requestAnimationFrame(drawSpectrograph);
+  }, { once: true });
 }
 boot();
 </script>

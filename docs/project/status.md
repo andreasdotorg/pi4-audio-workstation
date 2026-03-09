@@ -71,6 +71,9 @@ ahead.
 - **D-020** (committed): Web UI architecture -- FastAPI + raw PCM streaming + browser-side FFT. Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **US-004** (in-review): Assumption register (A1-A26). Gap: A27 not in register. Pending DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD -- F-002 and F-011 both resolved, verified across reboot
+- **D-020 PoC deployment** (pending): poc/ code committed (ea49810). Needs deployment to Pi: pip install, uvicorn start, pass/fail tests P1-P8. Blocked on Pi stability after latest crash.
+- **Persistent journald** (not done, prerequisite): Required for all crash investigations (F-012, F-017, latest crash). Still volatile -- every crash loses diagnostic data.
+- **Pi crash (latest)** (investigating): Another unexplained crash after power cycle. labwc-fix-worker checking diagnostics. No display output before crash. Thermal suspected. May become F-020.
 
 ### Key Findings from Brain Dump (2026-03-09)
 - **CamillaDSP levels API correction:** pycamilladsp `client.levels.levels_since_last()` provides per-channel peak+RMS for both capture and playback (8+8 channels). This informs D-020 metering design.
@@ -99,7 +102,9 @@ ahead.
 - 5 commits pushed: 10a5342, 4a2d711, 5682fbd, 0749693, 6042138
 
 ### Remaining TODOs
+- **Configure persistent journald on Pi** (URGENT prerequisite -- blocks all crash investigation: F-012, F-017, latest crash)
 - ~~Quantum reduction testing on RT~~ COMPLETE: quantum 128 CATASTROPHIC FAIL (1750 xruns), D-011 confirmed
+- Deploy and test D-020 PoC on Pi (poc/ committed ea49810, needs pip install + uvicorn + P1-P8 pass/fail)
 - F-012 Reaper RT lockup (requires serial console test rig -- fix before shipping)
 - F-017 Unexplained Mixxx reboot on RT (configure persistent journald first, then reproduce)
 - F-016 PipeWire restart glitches (investigate graph clock settling)
