@@ -39,7 +39,7 @@ ahead.
 | Room correction pipeline | not started | Stories US-008 through US-013 defined |
 | Documentation suite | not started | Stories US-014 through US-016 defined |
 | Web UI platform | not started | Stories US-022, US-023, US-018 defined (deferred per owner: validation first) |
-| Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, RustDesk 1.3.9, Python venv. 7.5G/117G disk. |
+| Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc, Python venv. 7.5G/117G disk. RustDesk removed per D-018. |
 | Platform security | partial | US-000a: firewall active, SSH hardened, services disabled. CamillaDSP systemd service with `-a 127.0.0.1` (F-002 resolved). nfs-blkmap masked (F-011). |
 | Desktop trimming (US-000b) | done | lightdm disabled, labwc user service, RTKit installed, PipeWire FIFO rtprio 83-88. RAM: 397→302Mi. USBStreamer path fixed (hw:USBStreamer,0). |
 | CamillaDSP benchmarks (US-001) | done | 16k taps @ 2048: 5.23% CPU, 16k @ 512: 10.42% CPU. Zero xruns. A1/A2 validated. |
@@ -76,7 +76,7 @@ ahead.
 | Dependency | Status | Notes |
 |------------|--------|-------|
 | Pi 4B hardware available for testing | available | SSH access verified, PipeWire running, all USB devices connected |
-| Core software installation | complete | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, RustDesk 1.3.9 installed and smoke-tested |
+| Core software installation | complete | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc installed and smoke-tested. RustDesk removed per D-018. |
 | Hercules DJControl Mix Ultra USB-MIDI verification | waiting | USB enumeration confirmed, functional MIDI test pending (US-005) |
 | APCmini mk2 Mixxx mapping | waiting | Needs research / community check (US-007) |
 
@@ -99,3 +99,4 @@ ahead.
 - D-015: Stock PREEMPT for development — PREEMPT_RT deferred pending Reaper bug F-012 fix (2026-03-08)
 - D-016: Measurement pipeline uses both REW (exploratory) and Python (automation) (2026-03-09)
 - D-017: Offline venue operation — no Internet required at runtime; system self-sufficient on local network (2026-03-09)
+- D-018: wayvnc replaces RustDesk as sole remote desktop — RustDesk removed due to unfixable Wayland mouse input limitation (2026-03-09)

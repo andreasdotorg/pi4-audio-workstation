@@ -279,10 +279,9 @@ CLAUDE.md owner preferences state "Remote desktop: RustDesk (not VNC)."
 Documentation and owner preferences are misaligned.
 
 **Confidence:** HIGH — documentation inconsistency
-**Validation:** Update SETUP-MANUAL.md to use RustDesk as primary method.
-VNC remains as a documented fallback.
+**Validation:** Update SETUP-MANUAL.md to use wayvnc as primary method.
 **Affects:** US-000a (security hardening), US-006 (remote operation)
-**Status:** open
+**Status:** superseded — D-018 removes RustDesk entirely; wayvnc is the sole remote desktop (VNC is now the primary method, not a fallback)
 
 ---
 
@@ -350,12 +349,12 @@ the system is self-sufficient.
 **Confidence:** HIGH — Pi 4B has onboard WiFi capable of AP mode via hostapd.
 Portable travel routers are inexpensive and reliable. The core audio stack
 has zero network dependency. The only networked features are remote access
-(RustDesk/VNC/SSH) and web UI (US-022/US-018), which operate on the local
+(wayvnc/SSH per D-018) and web UI (US-022/US-018), which operate on the local
 network the Pi itself creates or joins.
 **Validation:** Test Pi as WiFi AP with hostapd: operator laptop and singer
-phone connect to Pi's AP, web UI and RustDesk/VNC work. Alternatively,
+phone connect to Pi's AP, web UI and wayvnc work. Alternatively,
 test with a portable router and no Internet uplink.
-**Affects:** D-017 (offline venue operation), US-000a (RustDesk LAN direct), US-022 (bundled assets), US-018 (singer phone), US-031 (offline rehearsal)
+**Affects:** D-017 (offline venue operation), US-000a (wayvnc + SSH remote access), US-022 (bundled assets), US-018 (singer phone), US-031 (offline rehearsal)
 **Status:** open
 
 ---
@@ -400,9 +399,9 @@ A28 was added based on D-017 (offline venue operation).
 |----------|-----------------|------|--------------------|
 | HIGH (A1-A3, A9-A13) | 9 | 3 (A4-equivalent: A12, A13 partially; A9 partially) | 6 (A1, A2 validated; A3 invalidated/superseded; A9, A10 resolved; A11 partially-resolved) |
 | MEDIUM (A14-A22, A27) | 10 | 10 | 0 |
-| LOW (A23-A26, A28) | 5 | 5 | 0 |
+| LOW (A23-A26, A28) | 5 | 4 | 1 (A24 superseded by D-018) |
 | UNKNOWN (A6, A8) | 2 | 2 | 0 |
-| **Total** | **28** | **20** | **8** |
+| **Total** | **28** | **19** | **9** |
 
 Note: A4 (LOW), A5 (MEDIUM), A6 (UNKNOWN), A7 (MEDIUM), A8 (UNKNOWN) from the
 original set remain open pending hardware validation.

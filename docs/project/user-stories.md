@@ -26,8 +26,7 @@ room correction pipeline) have a working software foundation.
 **Decisions:** none yet
 
 **Note:** As of 2026-03-08, the Pi has PipeWire running (pipewire, pipewire-pulse,
-wireplumber) and a labwc Wayland desktop. CamillaDSP, Mixxx, Reaper, and
-RustDesk are not installed. Actual user on Pi is `ela` (not `pi`) — all
+wireplumber) and a labwc Wayland desktop. CamillaDSP, Mixxx, and Reaper are not installed. Actual user on Pi is `ela` (not `pi`) — all
 service files and paths from SETUP-MANUAL.md must be corrected (AD finding A10).
 
 **Acceptance criteria:**
@@ -39,7 +38,7 @@ service files and paths from SETUP-MANUAL.md must be corrected (AD finding A10).
 - [ ] Reaper installed (via Pi-Apps or manual download of ARM build)
 - [ ] Python 3 with scipy, numpy, soundfile installed (for room correction pipeline)
 - [ ] pycamilladsp Python package installed (for CamillaDSP API access)
-- [ ] RustDesk installed for remote desktop access
+- [ ] wayvnc installed and verified for remote desktop access (D-018: wayvnc replaces RustDesk)
 - [ ] ALSA loopback module loaded and verified (CamillaDSP capture source)
 - [ ] ALSA card numbering stabilized: udev rules or equivalent to ensure consistent device ordering across reboots (AD finding A9)
 - [ ] PipeWire JACK bridge verified: applications can connect to JACK ports
@@ -64,7 +63,7 @@ any venue WiFi network,
 same network, protecting both system integrity and live performance availability.
 
 **Status:** in-progress (partial: firewall, SSH, rpcbind/ModemManager/CUPS done; CamillaDSP localhost binding deferred to US-000 completion)
-**Depends on:** US-000 (CamillaDSP and RustDesk must be installed before their configs can be hardened)
+**Depends on:** US-000 (CamillaDSP must be installed before its config can be hardened)
 **Blocks:** none directly, but should be completed before any venue deployment
 **Decisions:** D-006 (security specialist scope: availability/integrity for live performance)
 
@@ -77,7 +76,7 @@ by default when installed.
 - [ ] **nftables firewall** configured and persistent across reboot:
   - Default policy: deny inbound
   - SSH (port 22) allowed
-  - RustDesk: stateful outbound allowed (client-only mode, no inbound ports needed)
+  - wayvnc VNC (port 5900) allowed from LAN only (D-018: wayvnc is sole remote desktop)
   - All other inbound traffic dropped
 - [ ] **SSH hardened:**
   - `PasswordAuthentication no` in sshd_config
@@ -86,7 +85,7 @@ by default when installed.
 - [ ] **rpcbind disabled:** `systemctl disable --now rpcbind.service rpcbind.socket` (no NFS needed)
 - [ ] **CamillaDSP websocket** (port 1234) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
 - [ ] **CamillaDSP GUI** (port 5005) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
-- [ ] **RustDesk** configured as client-only (Option A per security specialist): LAN direct mode for venue operation (no Internet dependency per D-017), public relay optional for non-venue remote access only, strong permanent password set
+- [ ] **wayvnc** configured with VNC authentication (password or certificate-based), bound to LAN only (D-018: replaces RustDesk; no Internet dependency per D-017)
 - [ ] Verification: `ss -tlnp` shows no unexpected services listening on 0.0.0.0
 - [ ] Security specialist review passed
 
@@ -107,12 +106,12 @@ display manager replaced with a minimal alternative,
 surface is reduced.
 
 **Status:** draft
-**Depends on:** US-000 (core software installed — need to verify trimming doesn't break Mixxx, Reaper, or RustDesk)
+**Depends on:** US-000 (core software installed — need to verify trimming doesn't break Mixxx or Reaper)
 **Blocks:** none directly, but improves Tier 1 benchmark results (US-001 through US-003 benefit from freed resources)
 **Decisions:** none yet
 
 **Note:** Joint recommendation from architect and security specialist.
-Owner confirmed: no login process needed, RustDesk provides auth, apps autostart.
+Owner confirmed: no login process needed, wayvnc provides remote access, apps autostart.
 Estimated savings: ~60-75MB RAM, ~2% CPU.
 
 **Services to REMOVE from autostart:**
@@ -123,7 +122,7 @@ Estimated savings: ~60-75MB RAM, ~2% CPU.
 - screensaver (wastes CPU, no one at the screen)
 
 **Services to KEEP:**
-- labwc (Wayland compositor — needed for RustDesk, Mixxx, Reaper GUI)
+- labwc (Wayland compositor — needed for wayvnc, Mixxx, Reaper GUI)
 - D-Bus (required by PipeWire, systemd, many services)
 - PipeWire (audio stack)
 - avahi (mDNS — useful for `.local` hostname resolution on LAN)
@@ -138,7 +137,7 @@ Estimated savings: ~60-75MB RAM, ~2% CPU.
 - [ ] pcmanfm, wf-panel-pi, notification daemon, polkit agent, and screensaver removed from autostart
 - [ ] lightdm replaced with greetd (preferred) or TTY autologin + labwc user service
 - [ ] labwc session starts automatically on boot without interactive login
-- [ ] Verification: RustDesk still works (can connect and see/control desktop)
+- [ ] Verification: wayvnc still works (can connect and see/control desktop via VNC client)
 - [ ] Verification: Mixxx still launches (if installed at this point)
 - [ ] Verification: Reaper still launches (if installed at this point)
 - [ ] Verification: PipeWire and audio stack unaffected
@@ -439,7 +438,7 @@ UI responsiveness and audio performance,
 **Decisions:** none yet
 
 **Note:** The Pi runs labwc (Wayland compositor) with lightdm. Mixxx may need
-X11/XWayland — verify. Remote access is via RustDesk (not VNC).
+X11/XWayland — verify. Remote access is via wayvnc (D-018).
 
 **Known issues from AD review:**
 - **A15:** The Xvfb systemd service in SETUP-MANUAL.md has a bug: trailing `&`
@@ -455,7 +454,7 @@ X11/XWayland — verify. Remote access is via RustDesk (not VNC).
 - [ ] Waveform rendering tested: "Simple" renderer, GL renderer, disabled — document which works and performance of each
 - [ ] Audio routing verified: Mixxx main output reaches CamillaDSP via PipeWire JACK bridge
 - [ ] Two-deck playback tested with actual audio files — no audible glitches
-- [ ] Remote operation tested: Mixxx controllable via RustDesk and/or entirely via MIDI controller
+- [ ] Remote operation tested: Mixxx controllable via wayvnc and/or entirely via MIDI controller
 - [ ] Headless feasibility assessed: fix Xvfb service bug (trailing `&` in ExecStartPre, AD finding A15) or find alternative virtual display approach under Wayland
 - [ ] If Mixxx is not viable: document the failure and evaluate alternatives
 
@@ -883,7 +882,7 @@ corresponding features are implemented.
   - Initial hardware setup (power on, verify audio stack starts)
   - Switching between DJ/PA and Live mode
   - Connecting and verifying MIDI controllers
-  - Remote operation via RustDesk
+  - Remote operation via wayvnc
   - Basic troubleshooting (no sound, xruns, high CPU)
 - [ ] Each guide is self-contained: a user can follow it without reading other docs
 - [ ] Each guide includes prerequisites and expected outcomes
@@ -1065,7 +1064,7 @@ architecture: the Pi is the data source, the browser is the rendering engine.
 DSP load, CPU temperature, xrun count, filter state) with controls for
 adjusting levels and switching configurations,
 **so that** I can monitor and adjust the system from a tablet or laptop without
-needing SSH or RustDesk.
+needing SSH or VNC.
 
 **Status:** draft
 **Depends on:** US-022 (web UI platform must exist)
@@ -1214,7 +1213,7 @@ dashboard, and review a persistent log after each session.
 the dashboard UI (US-027b). It runs as an async Python daemon alongside
 CamillaDSP and outputs two streams: (1) structured JSON Lines to a log file
 for post-gig analysis and future UI consumption, and (2) human-readable CLI
-output for immediate use during tests via SSH/RustDesk. No web UI dependency.
+output for immediate use during tests via SSH/VNC. No web UI dependency.
 
 The scope covers four domains: (1) audio faults — xruns, clipping, DSP
 overload, PipeWire errors; (2) system resources — CPU load, memory pressure,
@@ -1252,7 +1251,7 @@ when running as a systemd service (D-013).
 
 *Output:*
 - [ ] **Structured JSON Lines log:** each event written as a single JSON line with fields: timestamp (ISO 8601), event_type, severity (info/warning/critical), source, details. File path configurable, default `/tmp/audio-monitor.jsonl`
-- [ ] **CLI summary output:** human-readable event stream to stdout, suitable for `ssh ela@mugge monitor-audio` or viewing via RustDesk terminal
+- [ ] **CLI summary output:** human-readable event stream to stdout, suitable for `ssh ela@mugge monitor-audio` or viewing via VNC terminal
 - [ ] **Periodic health snapshot:** aggregate system state (CPU, memory, temperature, CamillaDSP load) emitted as an info-level JSON line at configurable interval (default every 60s) for trend analysis
 
 *Operational:*
@@ -1427,15 +1426,15 @@ third-party VNC clients on macOS.
 **Priority:** low (Remmina via nix-shell works as a workaround)
 **Depends on:** US-000b (labwc/wayvnc running as user session)
 **Blocks:** none
-**Cross-references:** A24 (VNC documented but RustDesk preferred — this story improves the VNC fallback path)
+**Cross-references:** A24 (superseded by D-018 — wayvnc is now the primary remote desktop, not a fallback)
 
-**Note:** wayvnc on the Pi currently works with Remmina (Linux VNC client,
-available via nix-shell) but macOS's built-in Screen Sharing app fails to
-connect. The `nc` test confirms port 5900 is reachable from macOS, so the
-issue is protocol or authentication negotiation, not network connectivity.
-RustDesk remains the primary remote access method per owner preference; this
-story improves the VNC fallback for macOS users who do not want to install
-additional software.
+**Note:** wayvnc is the sole remote desktop solution (D-018: RustDesk removed
+due to unfixable Wayland mouse input limitation). wayvnc works with Remmina
+(Linux VNC client, available via nix-shell) but macOS's built-in Screen
+Sharing app fails to connect. The `nc` test confirms port 5900 is reachable
+from macOS, so the issue is protocol or authentication negotiation, not
+network connectivity. Resolving macOS compatibility is important because the
+owner uses a MacBook as the primary operator laptop.
 
 **Acceptance criteria:**
 
@@ -1456,7 +1455,7 @@ additional software.
 
 *Compatibility:*
 - [ ] Remmina (Linux) still works after any wayvnc configuration changes
-- [ ] RustDesk unaffected: remains the primary remote access method
+- [ ] wayvnc runs as a systemd user service, starts automatically with labwc session
 
 **DoD:**
 - [ ] macOS Screen Sharing tested from a real MacBook to the Pi on the same LAN
@@ -1505,7 +1504,7 @@ artifacts, transition glitches, controller feel, workflow friction.
 - [ ] Crossover audibly correct: no obvious frequency gap or overlap between mains and subs
 - [ ] No audible artifacts: no clicks, pops, dropouts, or distortion during 30+ minutes of continuous mixing
 - [ ] Controller responsiveness: faders, EQ knobs, jog wheels respond without perceptible lag
-- [ ] RustDesk remote operation tested: Mixxx UI visible and responsive via remote desktop
+- [ ] wayvnc remote operation tested: Mixxx UI visible and responsive via VNC client
 - [ ] Owner subjective assessment: "I would use this at a gig" — yes/no with notes on any issues
 
 **DoD:**
@@ -1586,7 +1585,7 @@ test filters.
 - [ ] Mode switch: transition from DJ/PA to Live mode using US-021 procedure
 - [ ] Live vocal set: minimum 15 minutes with real backing tracks and live vocals
 - [ ] Both modes validated in a single session without reboot (except mode switch if required)
-- [ ] Remote monitoring via RustDesk verified during performance
+- [ ] Remote monitoring via wayvnc verified during performance
 - [ ] System stable throughout: zero xruns, no thermal throttling, no audio dropouts
 - [ ] Offline operation verified: full rehearsal performed with no Internet connection (Pi on local network only, or Pi as WiFi AP, per D-017)
 - [ ] Shutdown procedure: clean shutdown, no data loss
