@@ -1,0 +1,12 @@
+[Unit]
+Description=Force PipeWire quantum to configured value
+After=pipewire.service
+Requires=pipewire.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pw-metadata -n settings 0 clock.force-quantum 256
+RemainAfterExit=yes
+
+[Install]
+WantedBy=pipewire.service

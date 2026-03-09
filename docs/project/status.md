@@ -22,7 +22,7 @@ ahead.
 
 ## Overall Status
 
-**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T3d unblocked by F-015 fix, T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011: live mode chunksize 256 + quantum 256. IEM through CamillaDSP passthrough confirmed as net benefit. First end-to-end Reaper test exposed F-015 (USB bandwidth contention) -- fixed with workaround, production fix pending.
+**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T3d unblocked by F-015 fix, T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011: live mode chunksize 256 + quantum 256 (owner wants quantum reduction testing on RT -- may supersede D-011). IEM through CamillaDSP passthrough confirmed as net benefit. First end-to-end Reaper test exposed F-015 (USB bandwidth contention) -- fixed with workaround, production fix pending. D-020 (web UI architecture) committed. F-018 (config persistence) partially resolved -- CamillaDSP FIFO 80 persists, PipeWire force-quantum needs systemd user service.
 
 ## Component Status
 
@@ -33,12 +33,12 @@ ahead.
 | Team configuration | current | 10 core members, consultation matrix with 14 project-specific rules |
 | Orchestration protocol | current | Self-contained copy in `.claude/team/protocol/` |
 | Role prompts | current | All role files in `.claude/team/roles/` |
-| User stories | active | 39 stories (US-000 through US-034 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md` |
+| User stories | active | 40 stories (US-000 through US-035 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md` |
 | CamillaDSP configs | draft | In SETUP-MANUAL.md, not yet tested on hardware. D-011: all 8 channels must route through CamillaDSP (IEM as passthrough on ch 6-7). |
 | US-002 latency measurement | done | Pass 1 + Pass 2 complete. CamillaDSP = 2 chunks latency. PipeWire ~21ms/traversal @ quantum 1024. ALSA-direct T2b=30.3ms. D-011 approved. |
 | Room correction pipeline | not started | Stories US-008 through US-013 defined |
 | Documentation suite | not started | Stories US-014 through US-016 defined |
-| Web UI platform | not started | Stories US-022, US-023, US-018 defined (deferred per owner: validation first) |
+| Web UI platform | architecture done | D-020 committed (`docs/architecture/web-ui.md`). Stories US-022, US-023, US-018 defined. FastAPI + raw PCM streaming + browser-side analysis. 4-stage implementation plan. |
 | Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc, Python venv. 7.5G/117G disk. RustDesk removed per D-018. |
 | Platform security | partial | US-000a: firewall active, SSH hardened, services disabled. CamillaDSP systemd service with `-a 127.0.0.1` (F-002 resolved). nfs-blkmap masked (F-011). wayvnc password auth (F-013 partially resolved — TLS needed before US-018 guest devices). RustDesk purged, firewall cleaned (F-014 resolved). |
 | Desktop trimming (US-000b) | done | lightdm disabled, labwc user service, RTKit installed, PipeWire FIFO rtprio 83-88. RAM: 397→302Mi. USBStreamer path fixed (hw:USBStreamer,0). |
@@ -60,36 +60,53 @@ ahead.
 
 ## In Progress
 
-- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS (PREEMPT_RT 30min stability). **This session:** F-015 diagnosed and fixed (workaround), JACK test script PASS (60s, 0 xruns). T3d unblocked -- pending Reaper end-to-end verification. T3a blocked on US-005/US-006 (external deps). T4 requires physical hardware.
-- **F-012** (open, critical): Reaper hard kernel lockup on PREEMPT_RT. `chrt -o 0` workaround failed (TK-023 FAIL). Proceeding on stock PREEMPT per D-015. Fix before shipping.
-- **F-013** (partially resolved): wayvnc password auth added (TK-047 done), but VNC session is unencrypted. TLS required before US-018 (guest musicians' phones on network). Sufficient for current testing phase.
-- **F-015** (resolved -- workaround): CamillaDSP playback stalls caused by USB bandwidth contention from ada8200-in adapter. Fixed by disabling adapter + loopback hardening + CamillaDSP RT priority. JACK test PASS. **Production fix needed:** split ALSA device access for capture vs playback. Lab note: `docs/lab-notes/F-015-playback-stalls.md`.
-- **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture-only adapter active. Does not reproduce without restart. Root cause TBD (PipeWire graph clock settling suspected).
-- **US-004** (in-review): Assumption register written (A1-A26), accuracy corrections committed (`0720f94`). Gap: A27 in AC not yet in register. Pending: DoD sign-off.
+- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS. **This session:** F-015 diagnosed and fixed, capture-only adapter designed and verified (300s output-only PASS, 120s capture-active PASS on both kernels), RT vs non-RT comparison completed (peak load 35.6% RT vs 63-70% stock). T3d unblocked -- pending Reaper end-to-end. T3a blocked on US-005/US-006. T4 requires physical hardware.
+- **Quantum reduction testing** (new, owner-requested): Test quantum 128, 64, 32 (possibly 16) on PREEMPT_RT. RT kernel headroom (35.6% peak load) makes lower quantum feasible. Results could supersede D-011. Needs story or task entry.
+- **F-012** (open, critical): Reaper hard lockup on PREEMPT_RT. Proceeding on stock PREEMPT per D-015. Fix before shipping.
+- **F-013** (partially resolved): wayvnc password auth added. TLS required before US-018.
+- **F-015** (resolved -- workaround): USB bandwidth contention. Capture-only adapter designed (Phase 9) and verified on both kernels. Lab note: `docs/lab-notes/F-015-playback-stalls.md`.
+- **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
+- **F-017** (open, high): Unexplained Pi reboot during Mixxx on RT kernel (~10 min into test). Journal entries lost. Second app (after Reaper) to crash RT kernel -- 0/2 GUI apps stable on RT. D-015 scope extends to Mixxx. Lab note: `docs/lab-notes/F-017-unexplained-reboot.md`.
+- **F-018** (partially resolved): CamillaDSP SCHED_FIFO 80 now persisted via systemd override (deployed to Pi, survives reboot). PipeWire quantum 256 partially persisted (default.clock.quantum + min-quantum in config, but force-quantum needs systemd user service to run `pw-metadata` after PipeWire starts).
+- **D-020** (committed): Web UI architecture -- FastAPI + raw PCM streaming + browser-side FFT. Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
+- **US-004** (in-review): Assumption register (A1-A26). Gap: A27 not in register. Pending DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD -- F-002 and F-011 both resolved, verified across reboot
+
+### Key Findings from Brain Dump (2026-03-09)
+- **CamillaDSP levels API correction:** pycamilladsp `client.levels.levels_since_last()` provides per-channel peak+RMS for both capture and playback (8+8 channels). This informs D-020 metering design.
+- **RT kernel strongly validates D-013:** Peak load nearly halved (35.6% vs 63-70%), buffer trends upward (vs draining on stock), 3C cooler, zero throttle events. RT is unambiguously better for DSP -- only F-012/F-017 block production use.
+- **Monitoring blind spots:** Researcher identified 14 blind spots in current monitoring. Report pending review.
+- **Mixxx ran ~10 min on RT before crash** (F-017). First-time combination. No diagnostic data due to volatile journald.
 
 ### Completed (previous sessions)
 - US-000, US-000b, US-001 (16k taps both modes), US-002 (D-011 confirmed), T3e Phases 1-3 (PREEMPT_RT installed + validated), TK-002 (active.yml symlink)
 
 ### Completed (this session, 2026-03-09)
-- F-015 diagnosis and workaround (ada8200-in disabled, loopback hardened, CamillaDSP RT priority)
+- F-015 diagnosis, workaround, and capture-only adapter design (Phases 1-9)
+- F-015 RT vs non-RT comparison (Phase 9f-9h)
 - JACK tone generator test script (`scripts/test/jack-tone-generator.py`)
 - CamillaDSP monitor script (`scripts/test/monitor-camilladsp.py`)
 - Audio path test runner (`scripts/stability/run-audio-test.sh`)
-- PipeWire 8ch loopback config (`configs/pipewire/25-loopback-8ch.conf` hardened)
-- WirePlumber loopback ACP disable (`configs/wireplumber/51-loopback-disable-acp.conf`)
-- UMIK-1 low priority config (`configs/wireplumber/52-umik1-low-priority.conf`)
-- F-015 lab note (`docs/lab-notes/F-015-playback-stalls.md`)
+- PipeWire configs: 8ch loopback (hardened), capture-only USBStreamer adapter, USBStreamer ACP disable
+- WirePlumber configs: loopback ACP disable, UMIK-1 low priority
+- F-018 partial fix: CamillaDSP FIFO 80 persisted via systemd override, PipeWire quantum in config
+- D-020 web UI architecture (`docs/architecture/web-ui.md`)
+- US-035 story (Feedback Suppression for Live Vocal Performance)
+- F-015 lab note (9 phases), F-017 lab note
 - Defects log populated (F-002 through F-018)
+- 5 commits pushed: 10a5342, 4a2d711, 5682fbd, 0749693, 6042138
 
 ### Remaining TODOs
-- F-012 Reaper RT lockup (requires test rig -- fix before shipping)
+- Quantum reduction testing on RT (owner-requested -- needs story/task)
+- F-012 Reaper RT lockup (requires serial console test rig -- fix before shipping)
+- F-017 Unexplained Mixxx reboot on RT (configure persistent journald first, then reproduce)
+- F-018 remaining: PipeWire force-quantum persistence via systemd user service
 - F-016 PipeWire restart glitches (investigate graph clock settling)
-- F-017 Unexplained Pi reboot during Mixxx on RT kernel (configure persistent journald, reproduce)
-- F-018 Persist audio config across reboot (CamillaDSP systemd override + PipeWire 10-audio-settings.conf)
-- cloud-init ~3.3s boot overhead (TK-007)
-- T3d Reaper end-to-end stability test (unblocked, pending execution)
+- T3d Reaper end-to-end 30-min stability test (unblocked, pending execution)
 - Split ALSA device access for USBStreamer capture vs playback (production fix for F-015)
+- A21 validation: Reaper OSC on ARM Linux (gates D-020 Stage 4)
+- 14-blind-spot monitoring map review (from researcher)
+- cloud-init ~3.3s boot overhead (TK-007)
 
 ## Blockers
 
@@ -99,7 +116,7 @@ ahead.
 - **F-015: RESOLVED (workaround).** USB bandwidth contention from ada8200-in. Workaround: adapter disabled. **Production fix needed:** split ALSA device access.
 - **F-016: OPEN.** Audible glitches after PipeWire restart with capture adapter active. Root cause TBD.
 - **F-017: OPEN (high).** Unexplained Pi reboot during Mixxx test on RT kernel. Journal entries lost. Could be same class as F-012 or separate issue. Persistent journald storage needed.
-- **F-018: OPEN (high).** CamillaDSP SCHED_FIFO 80 and PipeWire quantum 256 are runtime-only, lost on every reboot. Violates one-button venue setup goal. Fix: systemd override + PipeWire config drop-in.
+- **F-018: PARTIALLY RESOLVED.** CamillaDSP SCHED_FIFO 80 persisted via systemd override (deployed). PipeWire quantum 256 partially persisted (default.clock.quantum + min-quantum in config). **Remaining:** force-quantum needs systemd user service to run `pw-metadata` after PipeWire starts.
 
 ## Open Defects Summary
 
@@ -115,7 +132,7 @@ See `docs/project/defects.md` for full details.
 | F-015 | High | Resolved (workaround) | Production live mode (mic input) |
 | F-016 | Medium | Open | Operational reliability |
 | F-017 | High | Open | US-003, US-006, D-013 (RT kernel stability) |
-| F-018 | High | Open | Operational reliability, D-008 (one-button setup) |
+| F-018 | High | Partially resolved | Operational reliability, D-008 (one-button setup) |
 
 ## External Dependencies
 
@@ -147,3 +164,4 @@ See `docs/project/defects.md` for full details.
 - D-017: ~~Offline venue operation~~ WITHDRAWN — conflated requirement with unvalidated network assumptions; replaced by US-034 (2026-03-09)
 - D-018: wayvnc replaces RustDesk as sole remote desktop — RustDesk removed due to unfixable Wayland mouse input limitation (2026-03-09)
 - D-019: Hercules USB-MIDI only — Bluetooth scrapped for production (2026-03-09)
+- D-020: Web UI Architecture — FastAPI + raw PCM streaming + browser-side analysis (2026-03-09)

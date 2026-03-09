@@ -1076,7 +1076,7 @@ without burdening the Pi's CPU with rendering work.
 **Status:** draft
 **Depends on:** US-000 (core software must be installed), US-000a (network access must be secured)
 **Blocks:** US-018 (singer self-control uses this platform), US-023 (engineer dashboard uses this platform)
-**Decisions:** none yet — pending formal decision record
+**Decisions:** D-020 (FastAPI + raw PCM streaming + browser-side analysis)
 
 **Note:** Owner direction: browser-side rendering is key. The Pi should serve
 data streams (audio levels, DSP state, CamillaDSP stats) and the browser
