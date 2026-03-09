@@ -100,3 +100,4 @@ ahead.
 - D-016: Measurement pipeline uses both REW (exploratory) and Python (automation) (2026-03-09)
 - D-017: Offline venue operation — no Internet required at runtime; system self-sufficient on local network (2026-03-09)
 - D-018: wayvnc replaces RustDesk as sole remote desktop — RustDesk removed due to unfixable Wayland mouse input limitation (2026-03-09)
+- D-019: Hercules USB-MIDI only — Bluetooth scrapped for production (2026-03-09)

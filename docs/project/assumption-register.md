@@ -124,7 +124,7 @@ but it's been disabled at the hardware level.
 **Validation:** Do NOT disable Bluetooth until A6 (USB-MIDI) is validated.
 US-005 must complete before Bluetooth disable is applied.
 **Affects:** A6, US-005
-**Status:** open — requires sequencing: US-005 before BT disable
+**Status:** superseded — D-019: Bluetooth scrapped for production. No BT fallback. If USB-MIDI fails, Hercules is dropped entirely.
 
 ---
 
@@ -364,7 +364,7 @@ test with a portable router and no Internet uplink.
 | Story | Blocking Assumptions | Notes |
 |-------|---------------------|-------|
 | US-000 | ~~A9~~ (resolved in US-000b), ~~A10~~ (resolved in US-000), A17 (ALSA-only binary — informational) | A9, A10 resolved; A17 is a constraint, not a blocker |
-| US-005 | A14 (BT disabled before USB-MIDI tested) | Must test USB-MIDI BEFORE disabling BT |
+| US-005 | ~~A14~~ (superseded by D-019) | BT scrapped — USB-MIDI only, no fallback |
 | US-006 | A15 (Xvfb systemd bug), A16 (gpu_mem conflict) | Headless Mixxx will not work as documented |
 | US-017 | A11 (8ch CamillaDSP routing) | D-011 resolved the architecture but configs need updating |
 | US-021 | A13 (quantum/chunksize alignment), A16 (gpu_mem), A19 (loopback channels) | Mode switching must be atomic |
@@ -398,10 +398,10 @@ A28 was added based on D-017 (offline venue operation).
 | Severity | Entries (A1-A28) | Open | Resolved/Validated |
 |----------|-----------------|------|--------------------|
 | HIGH (A1-A3, A9-A13) | 9 | 3 (A4-equivalent: A12, A13 partially; A9 partially) | 6 (A1, A2 validated; A3 invalidated/superseded; A9, A10 resolved; A11 partially-resolved) |
-| MEDIUM (A14-A22, A27) | 10 | 10 | 0 |
+| MEDIUM (A14-A22, A27) | 10 | 9 | 1 (A14 superseded by D-019) |
 | LOW (A23-A26, A28) | 5 | 4 | 1 (A24 superseded by D-018) |
 | UNKNOWN (A6, A8) | 2 | 2 | 0 |
-| **Total** | **28** | **19** | **9** |
+| **Total** | **28** | **18** | **10** |
 
 Note: A4 (LOW), A5 (MEDIUM), A6 (UNKNOWN), A7 (MEDIUM), A8 (UNKNOWN) from the
 original set remain open pending hardware validation.
