@@ -202,3 +202,15 @@ decision. Add a new one that supersedes it (reference the old one).
 **Rationale:** (1) RustDesk's Wayland mouse input limitation is confirmed unfixable — it is an architectural constraint of how RustDesk captures the compositor's framebuffer without input injection. (2) wayvnc integrates natively with labwc via the wlr-export-dmabuf and wlr-virtual-pointer protocols — full input support is inherent. (3) wayvnc is already installed and working (confirmed with Remmina on Linux). (4) Removing RustDesk simplifies the stack: fewer services, fewer firewall rules, fewer ports, one less application to maintain. (5) SSH provides file transfer (scp/sftp) and terminal access — RustDesk's file transfer feature is not needed. (6) D-017 (offline venue operation) is better served by wayvnc, which has zero Internet dependency by design.
 
 **Impact:** Supersedes owner preference "Remote desktop: RustDesk (not VNC)" from 2026-03-08. All RustDesk references removed from stories and documentation. US-000 AC updated (RustDesk installation removed). US-000a AC updated (firewall rules changed to VNC port 5900, RustDesk hardening removed). US-000b references updated. US-032 scope clarified (wayvnc is now the primary tool, not a fallback). A24 superseded (VNC is now the primary method, not a fallback).
+
+---
+
+## D-019: Hercules USB-MIDI only — Bluetooth scrapped for production (2026-03-09)
+
+**Context:** The Hercules DJControl Mix Ultra is a Bluetooth-primary controller that also supports USB-MIDI. The project originally maintained Bluetooth as a fallback path in case USB-MIDI did not work on Linux (A6 UNKNOWN, A14 sequencing concern). USB enumeration has been confirmed by the owner (`lsusb` shows the device). The owner has now decided that Bluetooth has no place on a production audio setup.
+
+**Decision:** The Hercules DJControl Mix Ultra will be used exclusively via USB-MIDI. Bluetooth (BLE/BT) is not permitted on the production system. Bluetooth can be disabled at the hardware level (`dtoverlay=disable-bt` in config.txt) regardless of USB-MIDI verification status. If USB-MIDI does not work, the Hercules is not viable — there is no Bluetooth fallback.
+
+**Rationale:** (1) Bluetooth introduces unpredictable latency and connection reliability issues inappropriate for live performance. (2) BLE/BT radio generates RF interference that can couple into audio paths. (3) Disabling Bluetooth frees a UART and reduces system complexity. (4) USB-MIDI is deterministic and has proven reliability for live performance controllers. (5) USB enumeration is already confirmed — functional MIDI verification (US-005) is the remaining gate.
+
+**Impact:** A14 (Bluetooth sequencing concern) superseded — the sequencing constraint no longer applies because Bluetooth is unconditionally disabled. A6 (USB-MIDI verification) remains open but the failure mode changes: if USB-MIDI fails, the Hercules is dropped from the stack entirely rather than falling back to Bluetooth. US-005 AC updated to remove Bluetooth fallback path. US-000b services-to-keep updated (bluetooth removed).
