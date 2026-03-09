@@ -152,13 +152,13 @@ All events across this session and previous sessions combined:
 | Reaper | stock PREEMPT | NO | Stable | -- |
 | Mixxx | stock PREEMPT | NO | Stable (US-000b) | -- |
 
-**Pattern:** 10 lockup events total. All involve V3D hardware activity through
-labwc compositor on PREEMPT_RT. The bug is an internal ABBA deadlock in V3D's
-lock ordering under rt_mutex conversion -- NOT priority inversion (Test 3
-confirmed: lockup even with audio at SCHED_OTHER). Test 4 validates the fix:
-`WLR_RENDERER=pixman` eliminates V3D from the compositing path entirely.
-labwc with pixman + Mixxx with llvmpipe + CamillaDSP at FIFO 80 = stable on
-PREEMPT_RT.
+**Pattern:** 10 lockup events, 0 on stock PREEMPT. All lockups involve V3D
+hardware activity through labwc compositor on PREEMPT_RT. The bug is an
+internal ABBA deadlock in V3D's lock ordering under rt_mutex conversion --
+NOT priority inversion (Test 3: lockup with audio at SCHED_OTHER). Test 4
+validates the fix: `WLR_RENDERER=pixman` eliminates V3D from the compositing
+path. labwc with pixman + Mixxx with llvmpipe + CamillaDSP at FIFO 80 =
+stable on PREEMPT_RT.
 
 ---
 
@@ -180,15 +180,17 @@ Based on cumulative evidence:
 
 ## Hypothesis
 
-**V3D internal lock ordering deadlock under PREEMPT_RT rt_mutex conversion
+**V3D internal ABBA deadlock under PREEMPT_RT rt_mutex conversion
 (confirmed).** On PREEMPT_RT, spinlocks are converted to sleeping rt_mutexes.
-The V3D driver (BCM2711 GPU) has an internal lock ordering problem that
-deadlocks under these conditions. This is NOT priority inversion -- Test 3
-proved the deadlock occurs even with all userspace audio threads at
-SCHED_OTHER (normal priority, no FIFO). The bug is in the V3D driver's lock
-ordering itself, exposed only when spinlocks become sleeping mutexes.
-**Test 4 validates the fix:** `WLR_RENDERER=pixman` on labwc eliminates V3D
-compositing, breaking the deadlock cycle.
+The V3D driver (BCM2711 GPU) has an internal ABBA lock ordering problem:
+spinlocks converted to sleeping rt_mutexes create a preemption window between
+lock acquisitions that enables a deadlock cycle between the compositor thread
+and the V3D IRQ handler. This is NOT priority inversion -- Test 3 proved the
+deadlock occurs even with all userspace audio threads at SCHED_OTHER (normal
+priority, no FIFO). The bug is in the V3D driver's lock ordering itself,
+exposed only when spinlocks become sleeping mutexes. **Test 4 validates the
+fix:** `WLR_RENDERER=pixman` on labwc eliminates V3D compositing, breaking
+the deadlock cycle.
 
 **Key evidence chain:**
 - Test 1: Lockup with NO audio stack at all (V3D deadlock is driver-internal)
@@ -449,13 +451,22 @@ contention occurs. Combined with `LIBGL_ALWAYS_SOFTWARE=1` on the client app,
 zero V3D rendering activity occurs system-wide.
 
 **Caveats:**
-1. PipeWire was at SCHED_OTHER during this test (RTKit not re-engaged). A full
-   reboot with the pixman config is needed to validate the complete production
-   audio stack (PipeWire at FIFO 83-88). This is the T3d 30-minute test.
-2. 5 minutes is necessary but not sufficient for production approval. T3d
+1. PipeWire was at SCHED_OTHER during this test. The Test 3 artifact
+   `~/.config/pipewire/pipewire.conf.d/99-no-rt.conf` was still present,
+   forcing PipeWire to SCHED_OTHER. This caused ~1 underrun/second when Mixxx
+   was playing audio. The file was removed post-test and PipeWire was manually
+   promoted to SCHED_FIFO 88 via `chrt -f -p 88`. A full reboot with the
+   pixman config is needed to validate the complete production audio stack.
+   This is the T3d 30-minute test.
+2. PipeWire's RT module (`libpipewire-module-rt`, `rt.prio=88`) failed to
+   achieve SCHED_FIFO on the PREEMPT_RT kernel -- fell back to `nice=-11`
+   only. The user has appropriate rlimits (audio group, `rtprio 95`) and
+   manual `chrt -f 88` works. RTKit is running. This may be a PipeWire 1.4.2
+   bug or an interaction with PREEMPT_RT. Filed as F-020.
+3. 5 minutes is necessary but not sufficient for production approval. T3d
    (30-minute stability) required.
-3. No xrun data was collected (quick validation, not instrumented).
-4. The V3D module was loaded but unused. For production, D-021 recommends
+4. No xrun data was collected (quick validation, not instrumented).
+5. The V3D module was loaded but unused. For production, D-021 recommends
    blacklisting via `/etc/modprobe.d/blacklist-v3d.conf` as defense-in-depth.
 
 ---
@@ -485,8 +496,9 @@ zero V3D rendering activity occurs system-wide.
 - **Remaining validation:** T3d (30-minute production stability test) required
   before production approval. Test 4 (5 minutes) is necessary but not
   sufficient. T3d must run after a clean reboot with the full pixman
-  configuration to ensure PipeWire runs at its normal FIFO priority (RTKit
-  was not engaged during Test 4).
+  configuration. PipeWire RT self-promotion must be resolved first (F-020:
+  PipeWire's RT module fails to achieve SCHED_FIFO on PREEMPT_RT, falling
+  back to nice=-11 only despite correct rlimits and RTKit).
 - **F-012 status: MITIGATED (D-021).** The V3D driver ABBA deadlock persists
   in the kernel but the trigger is eliminated by blacklisting and pixman.
   Upstream bug report recommended with Test 1 and Test 3 reproduction steps.

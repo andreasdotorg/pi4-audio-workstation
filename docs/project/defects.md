@@ -85,13 +85,15 @@ identical lockup pattern. F-017 confirmed as same root cause class.
   priority inversion** -- V3D deadlocks regardless of audio thread priority.
 - PASS (stock PREEMPT): Both Reaper and Mixxx run without issue on stock kernel.
 
-**Root cause (confirmed by Tests 1+3):** V3D internal lock ordering deadlock
-under PREEMPT_RT rt_mutex conversion. NOT priority inversion (Test 3: lockup
-with audio at SCHED_OTHER, no FIFO threads above V3D IRQ handler). The bug is
-in V3D's lock ordering itself -- spinlocks converted to sleeping rt_mutexes
-create a deadlock path that does not exist on stock PREEMPT. labwc compositor
-uses V3D hardware GL for compositing (confirmed via /proc maps), so any GUI
-app that generates frames triggers V3D activity through the compositor.
+**Root cause (confirmed by Tests 1+3):** V3D internal ABBA deadlock under
+PREEMPT_RT rt_mutex conversion. NOT priority inversion (Test 3: lockup with
+audio at SCHED_OTHER, no FIFO threads above V3D IRQ handler). Spinlocks
+converted to sleeping rt_mutexes create a preemption window between lock
+acquisitions, enabling a deadlock cycle between the compositor thread and the
+V3D IRQ handler. This path does not exist on stock PREEMPT (spinlocks are
+non-preemptible). labwc compositor uses V3D hardware GL for compositing
+(confirmed via /proc maps), so any GUI app that generates frames triggers V3D
+activity through the compositor.
 
 **`LIBGL_ALWAYS_SOFTWARE=1`: INSUFFICIENT.** Only affects client app rendering.
 labwc compositor still uses V3D hardware for compositing. Event #9 locked up
@@ -274,10 +276,10 @@ recovery), any restart-induced glitches are production defects.
 
 ---
 
-## F-017: Mixxx hard kernel lockup on PREEMPT_RT (RESOLVED -- workaround, same root cause as F-012)
+## F-017: Mixxx hard kernel lockup on PREEMPT_RT (MITIGATED -- D-021, same root cause as F-012)
 
 **Severity:** High
-**Status:** Resolved (workaround -- Option B validated under F-012)
+**Status:** Mitigated (D-021 -- same root cause and mitigation as F-012)
 **Found in:** Mixxx testing on PREEMPT_RT kernel (2026-03-09)
 **Affects:** US-003 (stability), US-006 (Mixxx feasibility), D-013 (PREEMPT_RT production use)
 **Found by:** Owner (observed reboot during testing)
@@ -288,9 +290,9 @@ recovery), any restart-induced glitches are production defects.
 kernel. 3 events total (original + 2 reproductions on 2026-03-09). Identical
 symptoms to F-012: hard freeze, SSH down, BCM2835 watchdog reboot.
 
-**Root cause:** Same as F-012 -- V3D GPU driver deadlock under PREEMPT_RT.
-Mixxx uses OpenGL for its GUI, triggering the same V3D lock contention that
-causes Reaper lockups. This was originally filed as "unexplained" because the
+**Root cause:** Same as F-012 -- V3D GPU driver ABBA deadlock under PREEMPT_RT
+rt_mutex conversion. Mixxx uses OpenGL for its GUI, triggering the same V3D
+lock contention that causes Reaper lockups. This was originally filed as "unexplained" because the
 first event had no diagnostic data and the relationship to F-012 was uncertain.
 Two additional reproductions on 2026-03-09 (at 45-47C with active cooling)
 confirmed the pattern: all OpenGL apps lock up on RT, all headless apps are
@@ -401,3 +403,44 @@ peripherals.
    environment variable side effect
 
 **Priority:** Must be fixed before headless production use (no peripherals connected).
+
+---
+
+## F-020: PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT kernel (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** Option B validation session (2026-03-09)
+**Affects:** US-003 (stability), audio quality (glitch-free operation on RT kernel)
+**Found by:** Team (during Test 4 / Option B validation)
+
+**Description:** PipeWire's RT module is configured for `rt.prio=88` but only
+achieves `nice=-11` (SCHED_OTHER) on the PREEMPT_RT kernel. The user has
+appropriate rlimits (`rtprio 95`). Manual promotion via `chrt -f -p 88 <pid>`
+works and resolves audible glitches, but PipeWire fails to self-promote.
+
+**Root cause:** TBD. Possible causes:
+1. PipeWire RT module initialization race on PREEMPT_RT (different timing than
+   stock PREEMPT where self-promotion works)
+2. RTKit interaction -- PipeWire may delegate to RTKit which may behave
+   differently on PREEMPT_RT
+3. Capability/seccomp issue specific to PREEMPT_RT kernel
+4. Interaction with the `99-no-rt.conf` artifact (now removed, but may have
+   masked the underlying issue)
+
+**Impact:** Without SCHED_FIFO, PipeWire runs at normal priority and competes
+with GUI apps and system processes for CPU time. This causes audible glitches
+in the audio path, especially under load (software rendering + DSP + GUI).
+CamillaDSP at FIFO 80 is fine (persisted via systemd override), but PipeWire
+at nice=-11 is the weak link in the RT audio chain.
+
+**Workaround:** Manual `chrt -f -p 88 <pid>` after PipeWire starts. Needs
+persistence via systemd service override or startup script (same pattern as
+F-018 CamillaDSP fix).
+
+**Fix candidates:**
+1. systemd service override with `CPUSchedulingPolicy=fifo` and
+   `CPUSchedulingPriority=88` (same approach as CamillaDSP F-018 fix)
+2. Post-start `ExecStartPost=` script that promotes PipeWire via `chrt`
+3. Investigate and fix PipeWire RT module self-promotion failure
+4. Disable RTKit delegation, configure PipeWire for direct RT scheduling

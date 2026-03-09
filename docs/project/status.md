@@ -71,6 +71,7 @@ ahead.
 - **D-020** (PoC validated): Web UI architecture validated on Pi 4B. **8/8 PASS** (P8 marginal: 871us JACK callback, 0.6 errors/min over 35 min -- architect has Option 4 fix, deferred to Stage 2). Lab note: `docs/lab-notes/D-020-poc-validation.md`. 6 deployment bugs found and fixed (commit 4ad556b). Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **US-004** (in-review): Assumption register (A1-A26). Gap: A27 not in register. Pending DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD -- F-002 and F-011 both resolved, verified across reboot
+- **F-020** (open, high): PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured for rt.prio=88, only achieves nice=-11. Manual `chrt` works. Causes audible glitches until manually promoted. Workaround: `chrt -f -p 88 <pid>` post-start. Needs persistence via systemd override.
 - **Persistent journald** (DONE): Configured during PoC deployment session. `mkdir -p /var/log/journal`, reboot required for systemd 257. Confirmed surviving power cycles. F-012/F-017 crash investigations now unblocked.
 
 ### Key Findings from Brain Dump (2026-03-09)
@@ -112,6 +113,10 @@ ahead.
 - labwc V3D compositor confirmed (7 renderD128 mappings, v3d driver)
 - Test 3: SCHED_OTHER audio + V3D = LOCKUP. Eliminates priority inversion -- V3D deadlocks regardless of audio thread priority.
 - **Test 4 / Option B VALIDATED:** `WLR_RENDERER=pixman` + `LIBGL_ALWAYS_SOFTWARE=1` -- 5 min stable on PREEMPT_RT with full audio stack. F-012/F-017 resolved.
+- labwc.service updated with `WLR_RENDERER=pixman`
+- Audio confirmed through Mixxx JACK: Master -> CamillaDSP ch 0-1 (mains), Headphones -> CamillaDSP ch 4-5 (engineer HP)
+- `99-no-rt.conf` (Test 3 artifact) removed from Pi -- was forcing PipeWire to SCHED_OTHER, causing glitches
+- F-020 filed: PipeWire RT module fails to self-promote to SCHED_FIFO on PREEMPT_RT
 
 ### Remaining TODOs
 - ~~Configure persistent journald on Pi~~ DONE (configured during PoC session, confirmed surviving power cycles)
@@ -128,19 +133,21 @@ ahead.
 - A21 validation: Reaper OSC on ARM Linux (gates D-020 Stage 4)
 - 14-blind-spot monitoring map review (from researcher)
 - ~~Verify labwc process maps show V3D shared libraries loaded~~ CONFIRMED: 7 `/dev/dri/renderD128` mappings in labwc process, driver is v3d.
-- D-021 (RT + GUI architecture): Option B validated. Pending architect formalization. Persist `WLR_RENDERER=pixman` in labwc systemd service, `LIBGL_ALWAYS_SOFTWARE=1` in Mixxx/Reaper launchers.
+- ~~D-021 (RT + GUI architecture)~~ DECIDED: PREEMPT_RT mandatory with V3D blacklisted, labwc pixman, llvmpipe apps. Committed to `docs/project/decisions.md`. Remaining: persist V3D blacklist (`/etc/modprobe.d/blacklist-v3d.conf`), T3d 30-min validation.
+- **F-020** PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured rt.prio=88, only achieves nice=-11. Manual `chrt` works. Investigate root cause; persist workaround via systemd override or startup script.
 - F-019 Headless labwc startup regression (WLR_LIBINPUT_NO_DEVICES removed -- labwc may fail without input devices)
 - cloud-init ~3.3s boot overhead (TK-007)
 
 ## Blockers
 
-- **F-012: RESOLVED (workaround -- Option B VALIDATED).** V3D GPU driver deadlock on PREEMPT_RT. 10 lockup events across investigation. **Fix:** `WLR_RENDERER=pixman` + `LIBGL_ALWAYS_SOFTWARE=1` eliminates all V3D usage. Test 4: 5 min stable on RT with full audio stack. **Remaining:** persist via systemd, 30-min T3d validation, upstream bug report.
+- **F-012: MITIGATED (D-021).** V3D GPU driver ABBA deadlock on PREEMPT_RT. 10 lockup events across investigation. **Fix:** `WLR_RENDERER=pixman` + V3D blacklist eliminates all V3D usage. Test 4: 5 min stable on RT with full audio stack. **Remaining:** persist V3D blacklist, 30-min T3d validation, upstream bug report.
 - **F-013: PARTIALLY RESOLVED.** wayvnc password auth added. **TLS required before US-018** deployment (guest musicians' phones on network).
 - **F-014: RESOLVED.** RustDesk firewall rules removed (TK-048).
 - **F-015: RESOLVED (workaround).** USB bandwidth contention from ada8200-in. Workaround: adapter disabled. **Production fix needed:** split ALSA device access.
 - **F-016: OPEN.** Audible glitches after PipeWire restart with capture adapter active. Root cause TBD.
-- **F-017: RESOLVED (workaround -- same fix as F-012).** Mixxx hard lockup on PREEMPT_RT. Fixed by Option B. Test 4 validated with Mixxx specifically.
+- **F-017: MITIGATED (D-021, same root cause as F-012).** Mixxx hard lockup on PREEMPT_RT. Same V3D ABBA deadlock. Same mitigation (D-021). Test 4 validated with Mixxx specifically.
 - **F-018: RESOLVED.** All audio configs persist across reboot (CamillaDSP FIFO 80 via systemd override, PipeWire quantum 256 via static config + user service, RT kernel via config.txt). Verified.
+- **F-020: OPEN (high).** PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured rt.prio=88, only achieves nice=-11. Causes audible glitches. Manual `chrt -f -p 88` works. Needs persistence.
 
 ## Open Defects Summary
 
@@ -150,14 +157,15 @@ See `docs/project/defects.md` for full details.
 |--------|----------|--------|--------|
 | F-002 | Medium | Resolved | -- |
 | F-011 | Low | Resolved | -- |
-| F-012 | Critical | Resolved (workaround -- Option B validated) | Persist via systemd, T3d 30-min validation |
+| F-012 | Critical | Mitigated (D-021) | T3d 30-min validation, V3D blacklist persistence |
 | F-013 | Medium | Partially resolved | US-018 |
 | F-014 | Low | Resolved | -- |
 | F-015 | High | Resolved (workaround) | Production live mode (mic input) |
 | F-016 | Medium | Open | Operational reliability |
-| F-017 | High | Resolved (workaround -- same fix as F-012) | -- |
+| F-017 | High | Mitigated (D-021, same as F-012) | -- |
 | F-018 | High | Resolved | -- |
 | F-019 | Medium | Open | US-000b (headless operation) |
+| F-020 | High | Open | Audio quality on PREEMPT_RT, T3d |
 
 ## External Dependencies
 
@@ -190,4 +198,4 @@ See `docs/project/defects.md` for full details.
 - D-018: wayvnc replaces RustDesk as sole remote desktop — RustDesk removed due to unfixable Wayland mouse input limitation (2026-03-09)
 - D-019: Hercules USB-MIDI only — Bluetooth scrapped for production (2026-03-09)
 - D-020: Web UI Architecture — FastAPI + raw PCM streaming + browser-side analysis (2026-03-09)
-- D-021: (pending architect formalization) PREEMPT_RT with pixman compositor + per-app software rendering — eliminates V3D, fixes F-012/F-017 (2026-03-09)
+- D-021: PREEMPT_RT with V3D GPU driver disabled for production — supersedes D-015, reinstates D-013, mitigates F-012/F-017 (2026-03-09)
