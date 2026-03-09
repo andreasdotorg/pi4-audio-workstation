@@ -7,7 +7,7 @@ missing icon themes, Reaper audio device access, and fullscreen window
 configuration.
 
 All fixes stem from the owner's VNC testing session on 2026-03-09, documented
-as TK-035 through TK-041 in the task register.
+as TK-035 through TK-046 in the task register.
 
 ---
 
@@ -281,6 +281,10 @@ conflicted with CamillaDSP's exclusive ALSA access.
 **After:** USBStreamer 8ch capture visible at system level. Reaper running
 (PID 3565188).
 
+**Note:** PipeWire nodes subsequently renamed to `ada8200-in` / `ada8200-out`
+(commit `8d9ec50`) for clarity in Reaper's port list. Reaper may need relaunch
+to pick up the new names.
+
 **Status:** Fix applied. Pending owner verification that all 8 channels appear
 in Reaper's GUI via VNC. Blocks TK-039 (end-to-end audio validation).
 
@@ -299,22 +303,200 @@ controllers (Hercules, APCmini, Nektar SE25).
   NOT the Hercules controller. Owner confirmed USB-MIDI works; Bluetooth
   scrapped (PO decision recorded).
 
-**Key diagnostic:** `cat /proc/asound/seq/clients` to identify source of
-phantom ports.
-
-**Fix options:** Unload `snd-virmidi` module, or add PipeWire/WirePlumber
-filter rule to suppress phantom enumeration.
+**Key diagnostic:** `cat /proc/asound/seq/clients` confirmed the ALSA
+sequencer layer as the source.
 
 **Observation from TK-040:** The `pw-jack jack_lsp` MIDI section shows only
 the 3 physical USB-MIDI controllers plus Midi Through -- clean, no phantom 64
-ports visible via the JACK MIDI bridge. The 64 phantoms likely appear only in
-Reaper's ALSA MIDI view, not the JACK MIDI bridge. This narrows the root cause
-to the ALSA sequencer layer (`/proc/asound/seq/clients`).
+ports via the JACK MIDI bridge. The 64 phantoms appeared only in Reaper's ALSA
+MIDI view, confirming the root cause was in the ALSA sequencer layer.
 
-> **Evidence gap:** `cat /proc/asound/seq/clients` output not yet captured.
-> CM to provide when diagnostics are run.
+**Fix applied:**
+- **BLE MIDI:** Bluetooth disabled and masked (systemd). The BLE MIDI phantom
+  was a BlueALSA artifact, not the Hercules controller.
+- **64 phantom ports:** `snd-virmidi` kernel module blacklisted.
 
-**Status:** Open. Should be cleaned up before US-030 Live UAT.
+**Before:** 64 phantom MIDI ports + BLE MIDI device in Reaper.
+**After:** Only physical USB-MIDI controllers visible (Hercules, SE25, APC
+mini mk2). JACK MIDI bridge was already clean.
+
+**Status:** DONE.
+
+---
+
+## UMIK-1 Low-Priority WirePlumber Rule
+
+**Problem:** The UMIK-1 measurement microphone is a USB audio device that
+PipeWire may assign higher priority than desired, potentially interfering with
+the USBStreamer audio routing.
+
+**Fix:** WirePlumber rule deployed to set UMIK-1 session and driver priority
+to 0 (lowest), preventing it from being selected as PipeWire's default audio
+source.
+
+**File:** `~/.config/wireplumber/wireplumber.conf.d/52-umik1-low-priority.conf`
+(repo copy: `configs/wireplumber/52-umik1-low-priority.conf`)
+
+```lua
+monitor.alsa.rules = [
+  {
+    matches = [
+      { node.name = "~alsa_input.*UMIK*" }
+    ]
+    actions = {
+      update-props = {
+        priority.session = 0
+        priority.driver = 0
+      }
+    }
+  }
+]
+```
+
+**Effect:** The USBStreamer remains the primary audio device. The UMIK-1 is
+still available for measurement use but will not be auto-selected by PipeWire
+as the default source.
+
+**Status:** Applied.
+
+---
+
+## PipeWire Node Rename (commit 8d9ec50)
+
+PipeWire nodes for the USBStreamer were renamed from generic `USBStreamer 8ch
+Input` to descriptive `ada8200-in` / `ada8200-out` names. This makes port
+identification clearer in Reaper and other JACK-aware applications.
+
+The rename was applied in the PipeWire configuration and committed as
+`8d9ec50`. Applications (Reaper, Mixxx) may need relaunch to pick up the new
+port names.
+
+---
+
+## TK-046: Fix Reaper Sample Rate Mismatch -- Owner Applied via GUI
+
+**Problem:** Flagged during TK-037 documentation: `linux_audio_srate=44100` in
+`~/.config/REAPER/reaper.ini` does not match PipeWire and CamillaDSP (both at
+48000 Hz). The mismatch forces PipeWire to perform sample rate conversion
+(~1-2 ms additional latency, wasted CPU on 8 channels).
+
+**Audio engineer assessment:** Real issue, fix immediately. SRC in a pro audio
+path is non-negotiable. Artifacts are below -100 dB but the latency and CPU
+cost are not acceptable.
+
+**Fix:** Owner corrected the sample rate to 48000 Hz via Reaper's GUI (Audio
+Settings dialog). Two parts required:
+1. `reaper.ini`: `linux_audio_srate=48000`
+2. Any `.RPP` project: File > Project Settings > Project Sample Rate = 48000
+
+Both must match -- if only the ini is fixed but the project is at 44100,
+Reaper resamples internally.
+
+**Status:** DONE (owner applied). Must be verified in TK-044 reboot test and
+captured in TK-045 (version-control Reaper config).
+
+---
+
+## USB Hot-Plug Resilience Analysis (Architect)
+
+The architect assessed USB hot-plug behavior for the three device categories:
+
+| Device | Hot-Plug Safe | Notes |
+|--------|---------------|-------|
+| UMIK-1 | Yes | Measurement mic, only needed during calibration. Safe to disconnect/reconnect at any time. PipeWire handles appearance/disappearance. |
+| MIDI controllers | Yes | Hercules, SE25, APC mini mk2. USB-MIDI hot-plug works -- PipeWire MIDI bridge re-enumerates automatically. |
+| USBStreamer | No | CamillaDSP holds exclusive ALSA access to `hw:USBStreamer,0`. Disconnection causes CamillaDSP to lose its audio device. **Recovery requires udev rule** to restart CamillaDSP on USBStreamer reconnection. No udev rule exists yet. |
+
+**Recommendation:** A udev rule for USBStreamer recovery should be created
+before production use. The USBStreamer is permanently connected in the flight
+case, so hot-plug is an edge case (power glitch, loose cable), but the
+recovery path should be automatic.
+
+---
+
+## TK-044: Reboot Verification -- 8 PASS, 1 FAIL, 2 NOT TESTED
+
+**Purpose:** Verify all VNC session changes survive reboot. Must complete
+before TK-039 (end-to-end audio validation).
+
+**Results (11-item checklist):**
+
+| # | Check | Command | Result |
+|---|-------|---------|--------|
+| 1 | Fresh boot | `uptime` | `11:38:01 up 0 min, 1 user` -- PASS |
+| 2 | PipeWire active | `systemctl --user is-active pipewire` | `active` -- PASS |
+| 3 | CamillaDSP active | `systemctl is-active camilladsp` | `inactive` -- **FAIL** (crash-looping) |
+| 4 | USBStreamer visible | `aplay -l \| grep usb` | `card 3: USBStreamer` -- PASS |
+| 5 | Loopback at card 10 | `cat /proc/asound/cards` | `10 [Loopback]: Loopback` -- PASS |
+| 6 | qt6-wayland | `dpkg -l qt6-wayland` | `ii 6.8.2-4` -- PASS |
+| 7 | pipewire-jack | `dpkg -l pipewire-jack` | `ii 1.4.2-1+rpt3` -- PASS |
+| 8 | labwc env | `cat ~/.config/labwc/environment` | Has `QT_QPA_PLATFORMTHEME=gtk3` + `LABWC_FALLBACK_OUTPUT` -- PASS |
+| 9 | Mixxx Wayland | -- | NOT TESTED (deferred pending CamillaDSP fix) |
+| 10 | Reaper JACK | -- | NOT TESTED (deferred pending CamillaDSP fix) |
+| 11 | PipeWire quantum | `pw-metadata -n settings` | `quantum=256, rate=48000, allowed=[48000]` -- PASS |
+
+**Additional checks:**
+
+- `wlr-randr`: NOOP-fallback "Headless output 2" at 1920x1080 -- PASS
+- Full ALSA card list: vc4-hdmi-0 (0), vc4-hdmi-1 (1), bcm2835 Headphones
+  (2), USBStreamer (3), UMIK-1 (4), DJControl Mix Ultra (5), SE25 (6), APC
+  mini mk2 (7), Loopback (10)
+
+### CamillaDSP FAIL: systemd path mismatch
+
+CamillaDSP crash-looping after reboot (restart counter hit 5 before manual
+stop). Service is also `disabled` -- never auto-started on boot.
+
+```
+journalctl -u camilladsp:
+ERROR [src/bin.rs:939] Could not open config file '/etc/camilladsp/configs/active.yml'.
+Reason: No such file or directory (os error 2)
+```
+
+**Root cause:** Path mismatch between the systemd unit file and the actual
+symlink location:
+- systemd ExecStart references: `/etc/camilladsp/configs/active.yml`
+- Actual symlink (created in TK-002): `/etc/camilladsp/active.yml` ->
+  `production/live.yml`
+
+Exit code 101 (config file not found).
+
+**Fix applied:** systemd drop-in override created at
+`/etc/systemd/system/camilladsp.service.d/override.conf`. Key finding during
+fix: the CamillaDSP binary is at `/usr/local/bin/camilladsp` (not
+`/usr/bin/`), so the ExecStart also needed the correct binary path. Config
+path corrected to `/etc/camilladsp/active.yml`.
+
+CamillaDSP is now running and stable.
+
+> **Note:** Service is still `disabled` -- needs `systemctl enable camilladsp`
+> to auto-start on boot. Currently requires manual `systemctl start` after
+> reboot.
+
+### Combined checks
+
+- **TK-042 (ALSA path verification):** Inconclusive. CamillaDSP not running
+  after reboot, so `fuser -v /dev/snd/*` cannot verify the direct ALSA path.
+  Must re-run after CamillaDSP path is fixed.
+- **TK-043 (package state capture):** DONE. `dpkg --get-selections` captured
+  1698 packages to `~/pkg-state-2026-03-09.txt`.
+
+### Additional findings
+
+- **wayvnc autostart configured.** Added to `~/.config/labwc/autostart`.
+  wayvnc will now start automatically when labwc launches.
+- **wayvnc password configured.** Created `~/.config/wayvnc/config` with
+  `password=234269` (per owner instruction). File permissions set to 600.
+  wayvnc now requires password for connections.
+- **CamillaDSP service disabled.** Even after fixing the config path, the
+  service needs `systemctl enable camilladsp` to start automatically on boot.
+- **RustDesk still installed on Pi.** D-018 (RustDesk removal) was never
+  implemented. Removal pending -- security specialist providing commands.
+
+**Status:** CamillaDSP path FIXED (now running). wayvnc autostart FIXED.
+Items 9-10 (Mixxx/Reaper launch) still deferred -- need retest. TK-042
+(fuser) can now be run. CamillaDSP `enable` and RustDesk removal still
+pending.
 
 ---
 
@@ -324,7 +506,17 @@ to the ALSA sequencer layer (`/proc/asound/seq/clients`).
 |----|-------------|--------|
 | TK-035 | qt6-wayland install | DONE -- native Wayland rendering confirmed |
 | TK-036 | Mixxx missing icons | Applied -- pending owner visual verification |
-| TK-037 | Reaper audio device | DONE -- pipewire-jack, pw-jack wrapper. Sample rate mismatch (44100 vs 48000) flagged |
+| TK-037 | Reaper audio device | DONE -- pipewire-jack, pw-jack wrapper |
 | TK-038 | Fullscreen config | DONE -- ToggleFullscreen rules in rc.xml, pending owner visual verification |
-| TK-040 | USBStreamer 8ch in Reaper | Fix applied -- playback sink removed from 20-usbstreamer.conf, pending owner 8ch verification |
-| TK-041 | Phantom MIDI devices | Open -- JACK MIDI clean, phantoms likely ALSA-only, pending diagnostics |
+| TK-040 | USBStreamer 8ch in Reaper | Fix applied -- playback sink removed, nodes renamed to ada8200-in/out |
+| TK-041 | Phantom MIDI + BLE MIDI | DONE -- snd-virmidi blacklisted, BT disabled and masked |
+| TK-042 | CamillaDSP ALSA path verify | Ready to retest -- CamillaDSP now running |
+| TK-043 | Package state capture | DONE -- 1698 packages in ~/pkg-state-2026-03-09.txt |
+| TK-044 | Reboot verification | **8 PASS, 1 FIXED** (CamillaDSP drop-in), 2 deferred (Mixxx/Reaper launch) |
+| TK-046 | Reaper sample rate | DONE -- owner set to 48000 via GUI |
+| -- | UMIK-1 WirePlumber rule | Applied |
+| -- | PipeWire node rename | Applied (commit 8d9ec50) |
+| -- | USB hot-plug analysis | Documented (USBStreamer needs udev recovery rule) |
+| -- | wayvnc autostart + password | DONE -- labwc autostart + password in config (600 perms) |
+| -- | CamillaDSP systemctl enable | **Pending** -- service runs but won't auto-start on boot |
+| -- | RustDesk removal (D-018) | **Pending** -- still installed, security specialist providing commands |
