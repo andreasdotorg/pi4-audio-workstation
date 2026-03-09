@@ -108,6 +108,24 @@ This provides 16 meters total: 8 capture (pre-DSP) + 8 playback (post-DSP). Valu
 
 **Key advantage over JACK capture approach:** No JACK client needed for meters. No numpy RMS computation. No additional audio buffering. Stage 1 of the web UI delivers full 16-channel metering with zero JACK code.
 
+### Dual-Source Metering (Stage 2+)
+
+Once the spectrograph PCM stream is active (Stage 2), the browser has a second, independent source for level metering on the 3 spectrograph channels:
+
+**Source A (Pi-side, primary):** pycamilladsp `levels_since_last()`. Available from Stage 1. Covers all 16 channels (8 capture + 8 playback). Computed by CamillaDSP's C++ engine. Zero additional bandwidth.
+
+**Source B (browser-side, supplementary):** AudioWorklet computes peak and RMS from the raw PCM stream already being received for the spectrograph. Covers only the 3 spectrograph channels (L main, R main, sub sum). Computed in the browser's audio thread. Zero additional Pi CPU or bandwidth -- uses data already in flight.
+
+**Source selection logic:**
+- **Stage 1 (no JACK):** Source A only. All 16 meters from pycamilladsp.
+- **Stage 2+ (JACK active, WebSocket connected):** Source A for all 16 meters. Source B available as a cross-check for the 3 spectrograph channels. The engineer dashboard may optionally display a "source health" indicator comparing A vs B for the overlapping channels -- a divergence > 3 dB sustained for > 2 seconds indicates a data path problem.
+- **Source A unavailable (CamillaDSP disconnect):** For the 3 spectrograph channels, fall back to Source B if the PCM stream is still active. Remaining 13 channels show stale/disconnected. This provides partial metering during a CamillaDSP API outage as long as the JACK capture path is still running.
+- **Source B unavailable (WebSocket disconnect or JACK failure):** No impact -- Source A is primary and independent of the PCM stream.
+
+**Implementation note:** Source B peak/RMS computation is trivial in AudioWorklet -- iterate the float32 buffer per channel, track max absolute value (peak) and sum of squares (RMS). This runs in the audio thread at zero cost to the main JS thread. No additional WebAudio nodes needed beyond what the spectrograph already uses.
+
+**Why not replace Source A with Source B?** Source B only covers 3 of 16 channels. The remaining 13 channels (5 playback outputs + 8 capture inputs minus the 3 spectrograph channels) have no PCM stream to the browser. Source A is the only option for full-coverage metering.
+
 ## 5. Stream 3: Spectrograph (Raw PCM Streaming)
 
 **Source:** JACK client registered via PipeWire's JACK bridge. Captures from the Loopback sink monitor ports (same audio that CamillaDSP processes).
@@ -304,17 +322,17 @@ Server validates subscription against role. Singer requesting "spectrograph" get
 |  Audio Workstation -- Engineer                   [Connected] 62C  |
 +------------------------------------------------------------------+
 |                                                                    |
-|  OUTPUT LEVELS (post-DSP)              INPUT LEVELS (pre-DSP)     |
-|  L Main  R Main  Sub1  Sub2           In L   In R                |
-|  |====   |====   |==   |==           |====  |====               |
-|  |====   |====   |==   |==           |====  |====               |
-|  |====   |====   |==   |==           |====  |====               |
-|  |====   |====   |==   |==           |====  |====               |
-|  -18dB   -18dB   -24dB -24dB         -18dB  -18dB               |
+|  INPUTS (pre-DSP)                 OUTPUTS (post-DSP)              |
+|  In L   In R                      L Main  R Main  Sub1  Sub2     |
+|  |####  |####                     |====   |====   |==   |==      |
+|  |####  |####                     |====   |====   |==   |==      |
+|  |####  |####                     |====   |====   |==   |==      |
+|  |####  |####                     |====   |====   |==   |==      |
+|  -18dB  -18dB                     -18dB   -18dB   -24dB -24dB    |
 |                                                                    |
-|  Eng HP L  Eng HP R  IEM L  IEM R    (In 3-8: auto-show >-60dB) |
-|  |====     |====     |===   |===                                 |
-|  -21dB     -21dB     -22dB  -22dB                                |
+|  (In 3-8: auto-show >-60dB)      Eng HP L  Eng HP R  IEM L  IEM R|
+|                                   |====     |====     |===   |=== |
+|                                   -21dB     -21dB     -22dB  -22dB|
 |                                                                    |
 +------------------------------------------------------------------+
 |  SPECTROGRAPH (L+R+Sub, 30fps)                                   |
@@ -331,8 +349,10 @@ Server validates subscription against role. Singer requesting "spectrograph" get
 +------------------------------------------------------------------+
 ```
 
+(Note: `####` represents cyan-colored meter bars for inputs; `====` represents standard green/yellow/red meter bars for outputs.)
+
 **Layout principles:**
-- Output meters are primary -- leftmost, largest. Input meters secondary, right side.
+- Meters follow signal-flow order: inputs (pre-DSP) on the left, outputs (post-DSP) on the right. Input meters use cyan (#00BCD4) to visually distinguish from output meters (green/yellow/red). Input meters are read-only (no faders) -- CamillaDSP capture side has no gain control.
 - Spectrograph occupies full width, below meters. Scrolling waterfall (time on X, frequency on Y, magnitude as color).
 - Status bar at bottom -- scannable at a glance during performance.
 - Each meter shows peak hold indicator (thin line above current bar, decays over 2s).
@@ -396,6 +416,7 @@ Server validates subscription against role. Singer requesting "spectrograph" get
 | Meter green | #4CAF50 (signal present, < -12 dB) |
 | Meter yellow | #FFEB3B (signal hot, -12 to -3 dB) |
 | Meter red | #F44336 (clip, > -3 dB) |
+| Meter cyan (input) | #00BCD4 (pre-DSP input channels, distinguishes from output meters) |
 | Font | Bundled sans-serif (e.g., Inter or Roboto, self-hosted) |
 | Min touch target | 48px x 48px |
 

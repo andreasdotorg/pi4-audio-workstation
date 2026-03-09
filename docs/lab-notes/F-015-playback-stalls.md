@@ -862,20 +862,37 @@ service configuration or a startup script. [TBC -- how this will be persisted]
 | Temperature | 64.7C |
 | Throttle flags | 0x0 (none) |
 
-### 10b. Root Cause
+### 10b. Root Cause (architect analysis)
 
 The failure is an I/O stack timing failure, NOT a CPU budget issue. Processing load
 (36.4% mean, 50.8% peak) was well within budget. The 2.67ms deadline at quantum 128
-is too tight for the combination of:
+is too tight for the combined latency of three components:
 
-- Pi 4B's VL805 USB controller jitter (PCIe-to-USB bridge, not native)
-- PipeWire graph scheduling overhead
-- ALSA round-trip latency through the Loopback + USBStreamer chain
+1. **VL805 USB controller jitter:** 50-200us per isochronous USB transfer (per audio
+   engineer's microframe analysis). At quantum 128, this consumes 2-7.5% of the
+   deadline per transfer, and there are multiple transfers per cycle (capture +
+   playback on the USBStreamer).
+
+2. **PipeWire graph cycle overhead:** Graph scheduling, node wakeup, and buffer
+   management add fixed overhead per cycle that becomes proportionally larger at
+   shorter quantum. At quantum 256, these overheads fit within the 5.33ms timing
+   margin. At quantum 128, they exceed the 2.67ms margin.
+
+3. **ALSA buffer management:** Ring buffer operations and interrupt handling through
+   the Loopback + USBStreamer chain add latency that scales poorly with shorter
+   periods.
 
 The callback gaps (5.3-7.9ms vs 2.7ms expected) confirm the I/O stack cannot
 consistently deliver data within the quantum 128 deadline. CamillaDSP repeatedly
 entering STALLED state and the buffer draining to 6 (from a peak of 19) show the
 pipeline is starving for data, not for CPU.
+
+**Cross-references:**
+- F-015 Phase 3: USB bandwidth contention on VL805 (same controller, different
+  failure mode — bandwidth contention vs timing jitter)
+- D-011: Live mode chunksize 256 + quantum 256 (confirmed as production floor)
+- Audio engineer T6 review: VL805 USB microframe jitter analysis (50-200us range,
+  7-30% of a quantum 32 deadline)
 
 ### 10c. Conclusion
 
@@ -884,7 +901,10 @@ reduction is viable on the Pi 4B without hardware changes. The VL805 USB control
 inherent jitter sets a hard lower bound that cannot be overcome by kernel tuning or
 scheduling improvements.
 
+**T6 test steps 2-8 cancelled.** Quantum 64 and 32 are physically impossible if
+quantum 128 fails catastrophically. No D-021 (quantum reduction) decision needed.
+
 Potential paths to quantum 128 (all require hardware changes):
 - Pi 5 (native USB controller, no PCIe bridge)
-- External USB audio interface with lower jitter characteristics
+- Dedicated USB audio interface with tighter isochronous timing
 - Native I2S/ADAT interface bypassing USB entirely

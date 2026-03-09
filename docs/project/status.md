@@ -22,7 +22,7 @@ ahead.
 
 ## Overall Status
 
-**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T3d unblocked by F-015 fix, T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011: live mode chunksize 256 + quantum 256 (owner wants quantum reduction testing on RT -- may supersede D-011). IEM through CamillaDSP passthrough confirmed as net benefit. First end-to-end Reaper test exposed F-015 (USB bandwidth contention) -- fixed with workaround, production fix pending. D-020 (web UI architecture) committed. F-018 (config persistence) partially resolved -- CamillaDSP FIFO 80 persists, PipeWire force-quantum needs systemd user service.
+**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T6-128 FAIL (1750 xruns), T3d unblocked by F-015 fix, T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011 confirmed: live mode chunksize 256 + quantum 256 -- quantum 128 tested and failed catastrophically (1750 xruns), 256 is the Pi 4B hardware floor. IEM through CamillaDSP passthrough confirmed as net benefit. First end-to-end Reaper test exposed F-015 (USB bandwidth contention) -- fixed with workaround, production fix pending. D-020 (web UI architecture) committed. F-018 (config persistence) resolved -- all audio configs persist across reboot.
 
 ## Component Status
 
@@ -60,8 +60,8 @@ ahead.
 
 ## In Progress
 
-- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS. **This session:** F-015 diagnosed and fixed, capture-only adapter designed and verified (300s output-only PASS, 120s capture-active PASS on both kernels), RT vs non-RT comparison completed (peak load 35.6% RT vs 63-70% stock). T3d unblocked -- pending Reaper end-to-end. T3a blocked on US-005/US-006. T4 requires physical hardware.
-- **Quantum reduction testing** (new, owner-requested): Test quantum 128, 64, 32 (possibly 16) on PREEMPT_RT. RT kernel headroom (35.6% peak load) makes lower quantum feasible. Results could supersede D-011. Needs story or task entry.
+- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS, T6-128 FAIL (1750 xruns — quantum 256 is Pi 4B hardware floor). **This session:** F-015 diagnosed and fixed, capture-only adapter designed and verified (300s output-only PASS, 120s capture-active PASS on both kernels), RT vs non-RT comparison completed (peak load 35.6% RT vs 63-70% stock). T3d unblocked -- pending Reaper end-to-end. T3a blocked on US-005/US-006. T4 requires physical hardware.
+- **Quantum reduction testing** (COMPLETE): Quantum 128 CATASTROPHIC FAIL — 1750 xruns. D-011 confirmed: quantum 256 is the minimum viable on Pi 4B. No D-021 needed.
 - **F-012** (open, critical): Reaper hard lockup on PREEMPT_RT. Proceeding on stock PREEMPT per D-015. Fix before shipping.
 - **F-013** (partially resolved): wayvnc password auth added. TLS required before US-018.
 - **F-015** (resolved -- workaround): USB bandwidth contention. Capture-only adapter designed (Phase 9) and verified on both kernels. Lab note: `docs/lab-notes/F-015-playback-stalls.md`.
@@ -77,6 +77,7 @@ ahead.
 - **RT kernel strongly validates D-013:** Peak load nearly halved (35.6% vs 63-70%), buffer trends upward (vs draining on stock), 3C cooler, zero throttle events. RT is unambiguously better for DSP -- only F-012/F-017 block production use.
 - **Monitoring blind spots:** Researcher identified 14 blind spots in current monitoring. Report pending review.
 - **Mixxx ran ~10 min on RT before crash** (F-017). First-time combination. No diagnostic data due to volatile journald.
+- **Quantum 128 CATASTROPHIC FAIL:** 1750 xruns at quantum 128. D-011 confirmed -- quantum 256 is the minimum viable setting on Pi 4B. No need for D-021.
 
 ### Completed (previous sessions)
 - US-000, US-000b, US-001 (16k taps both modes), US-002 (D-011 confirmed), T3e Phases 1-3 (PREEMPT_RT installed + validated), TK-002 (active.yml symlink)
@@ -89,7 +90,8 @@ ahead.
 - Audio path test runner (`scripts/stability/run-audio-test.sh`)
 - PipeWire configs: 8ch loopback (hardened), capture-only USBStreamer adapter, USBStreamer ACP disable
 - WirePlumber configs: loopback ACP disable, UMIK-1 low priority
-- F-018 partial fix: CamillaDSP FIFO 80 persisted via systemd override, PipeWire quantum in config
+- F-018 resolved: all audio configs persist across reboot (CamillaDSP FIFO 80, PipeWire quantum 256, force-quantum, RT kernel)
+- Quantum reduction testing COMPLETE: T6-128 FAIL (1750 xruns), D-011 confirmed at quantum 256
 - D-020 web UI architecture (`docs/architecture/web-ui.md`)
 - US-035 story (Feedback Suppression for Live Vocal Performance)
 - F-015 lab note (9 phases), F-017 lab note
@@ -97,7 +99,7 @@ ahead.
 - 5 commits pushed: 10a5342, 4a2d711, 5682fbd, 0749693, 6042138
 
 ### Remaining TODOs
-- Quantum reduction testing on RT (owner-requested -- needs story/task)
+- ~~Quantum reduction testing on RT~~ COMPLETE: quantum 128 CATASTROPHIC FAIL (1750 xruns), D-011 confirmed
 - F-012 Reaper RT lockup (requires serial console test rig -- fix before shipping)
 - F-017 Unexplained Mixxx reboot on RT (configure persistent journald first, then reproduce)
 - F-016 PipeWire restart glitches (investigate graph clock settling)
