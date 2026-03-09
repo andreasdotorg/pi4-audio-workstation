@@ -33,7 +33,7 @@ ahead.
 | Team configuration | current | 10 core members, consultation matrix with 14 project-specific rules |
 | Orchestration protocol | current | Self-contained copy in `.claude/team/protocol/` |
 | Role prompts | current | All role files in `.claude/team/roles/` |
-| User stories | active | 38 stories (US-000 through US-033 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md` |
+| User stories | active | 39 stories (US-000 through US-034 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md` |
 | CamillaDSP configs | draft | In SETUP-MANUAL.md, not yet tested on hardware. D-011: all 8 channels must route through CamillaDSP (IEM as passthrough on ch 6-7). |
 | US-002 latency measurement | done | Pass 1 + Pass 2 complete. CamillaDSP = 2 chunks latency. PipeWire ~21ms/traversal @ quantum 1024. ALSA-direct T2b=30.3ms. D-011 approved. |
 | Room correction pipeline | not started | Stories US-008 through US-013 defined |
@@ -101,6 +101,6 @@ ahead.
 - D-014: Hardware limiter — deferred; required when system drives PAs capable of >110dB SPL (2026-03-08)
 - D-015: Stock PREEMPT for development — PREEMPT_RT deferred pending Reaper bug F-012 fix (2026-03-08)
 - D-016: Measurement pipeline uses both REW (exploratory) and Python (automation) (2026-03-09)
-- D-017: Offline venue operation — no Internet required at runtime; system self-sufficient on local network (2026-03-09)
+- D-017: ~~Offline venue operation~~ WITHDRAWN — conflated requirement with unvalidated network assumptions; replaced by US-034 (2026-03-09)
 - D-018: wayvnc replaces RustDesk as sole remote desktop — RustDesk removed due to unfixable Wayland mouse input limitation (2026-03-09)
 - D-019: Hercules USB-MIDI only — Bluetooth scrapped for production (2026-03-09)

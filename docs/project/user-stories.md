@@ -85,7 +85,7 @@ by default when installed.
 - [ ] **rpcbind disabled:** `systemctl disable --now rpcbind.service rpcbind.socket` (no NFS needed)
 - [ ] **CamillaDSP websocket** (port 1234) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
 - [ ] **CamillaDSP GUI** (port 5005) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
-- [ ] **wayvnc** configured with VNC authentication (password or certificate-based), bound to LAN only (D-018: replaces RustDesk; no Internet dependency per D-017)
+- [ ] **wayvnc** configured with VNC authentication (password or certificate-based), bound to LAN only (D-018: replaces RustDesk). Security model for network exposure TBD — guest musicians' phones may be on the same network (US-018)
 - [ ] Verification: `ss -tlnp` shows no unexpected services listening on 0.0.0.0
 - [ ] Security specialist review passed
 
@@ -965,7 +965,7 @@ IEM control goes through Reaper OSC (audio engineer blocking concern: singer
 controls must NOT touch CamillaDSP / PA path).
 
 **Acceptance criteria:**
-- [ ] Singer accesses a web page on her phone (local network — venue WiFi, portable router, or Pi as WiFi AP; no Internet required per D-017) showing IEM mix controls only
+- [ ] Singer accesses a web page on her phone (local network; no Internet required per US-034) showing IEM mix controls only
 - [ ] UI layout per UX specialist design: 4 sliders (voice level, backing track level, vocal cue level, master IEM volume) + mute toggle, portrait orientation, single screen, no scrolling
 - [ ] Controls are large, high-contrast, usable on a phone screen in dim stage lighting
 - [ ] Singer view is restricted: no access to PA mix, engineer mix, DSP settings, or system controls
@@ -1034,7 +1034,7 @@ architecture: the Pi is the data source, the browser is the rendering engine.
 
 **Acceptance criteria:**
 - [ ] FastAPI server running on Pi, minimal CPU overhead (< 5% idle, < 10% under active use). CPU budget must be validated alongside CamillaDSP + application (Mixxx or Reaper) — web server cannot push total system load past T3 stability thresholds (AD finding — web server adds to constrained CPU budget)
-- [ ] Serves static HTML/JS/CSS — all rendering logic runs in the browser. All assets bundled locally on the Pi — no CDN dependencies, no external resource loading (D-017: offline venue operation)
+- [ ] Serves static HTML/JS/CSS — all rendering logic runs in the browser. All assets bundled locally on the Pi — no CDN dependencies, no external resource loading (US-034: offline venue operation)
 - [ ] WebSocket connection for real-time data push (audio levels, DSP processing load, system stats)
 - [ ] Role-based access: two roles — "engineer" (full control) and "singer" (IEM only)
 - [ ] Authentication: pre-shared role passwords, exchanged for session tokens
@@ -1329,6 +1329,67 @@ prevention and automatic recovery.
 - [ ] Audio engineer review: recovery behavior is acceptable for live performance (brief gap vs. total failure)
 - [ ] Architect review: udev rule and script are robust, debounce logic is correct
 - [ ] Lab note documenting: udev rule, recovery script, test results, failure modes
+
+---
+
+## US-034: Offline Venue Operation
+
+**As** the live sound operator,
+**I want** the complete audio workstation to function at venues that have no
+Internet connection,
+**so that** I can set up and perform at any venue regardless of Internet
+availability — the system is never dependent on external connectivity.
+
+**Status:** draft
+**Priority:** high (venues frequently lack Internet; this is a hard operational requirement)
+**Depends on:** US-000 (core audio stack must be installed), US-000a (security hardening — network exposure model must account for offline operation)
+**Blocks:** none directly, but informs US-022 (web UI asset bundling), US-018 (singer phone access model), US-031 (full rehearsal must include offline test)
+**Cross-references:** A28 (system must function with zero venue network infrastructure), D-017 (WITHDRAWN — this story replaces D-017's functional requirement)
+
+**Note:** This story replaces the withdrawn D-017 decision. D-017 was withdrawn
+because it conflated the functional requirement ("system works offline") with
+unvalidated network topology assumptions. The network topology question —
+whether the Pi runs as a WiFi AP, uses a portable router, or joins venue WiFi,
+and how to handle untrusted devices (guest musicians' phones for US-018 IEM
+control) on the same network — is explicitly OPEN and not addressed by this
+story. That question requires separate architect and security specialist
+analysis.
+
+This story covers only the functional requirement: the core audio stack, room
+correction pipeline, and all operator/performer interactions work without
+Internet. It does NOT prescribe how the local network is configured or what
+trust model applies to devices on it.
+
+**Acceptance criteria:**
+
+*Core audio (no network dependency):*
+- [ ] PipeWire, CamillaDSP, Mixxx, and Reaper function identically with and without Internet — no degradation, no timeout delays, no DNS-dependent startup
+- [ ] Mode switching (US-021) works without Internet
+- [ ] Room correction pipeline (US-012, when available) runs entirely on-Pi — measurement, computation, and filter deployment are local
+
+*Networked features (local network only, no Internet):*
+- [ ] Web UI (US-022) serves all assets from the Pi — no CDN dependencies, no external resource loading, no Internet-hosted fonts/scripts/stylesheets
+- [ ] Singer IEM control (US-018) works on the local network without Internet
+- [ ] Remote desktop (wayvnc per D-018) works on the local network without Internet
+- [ ] SSH access works on the local network without Internet
+- [ ] No service on the Pi attempts Internet-bound connections at runtime (no telemetry, no update checks, no NTP sync required for operation)
+
+*Robustness:*
+- [ ] System boots and reaches audio-ready state without Internet — no boot delays caused by DHCP timeout, DNS resolution failure, or NTP sync
+- [ ] If the Pi is connected to a network without Internet (e.g., venue LAN with no uplink), no service hangs or times out in a way that affects audio performance
+- [ ] avahi/mDNS `.local` hostname resolution works on the local network without Internet
+
+*Testing:*
+- [ ] Tested with Pi on an isolated network (no Internet uplink): full DJ set and live vocal set performed
+- [ ] Tested with Pi as WiFi AP (if AP mode is configured — separate story/task): operator laptop connects, wayvnc works, web UI works
+- [ ] Boot time measured with and without Internet — no significant difference
+
+**DoD:**
+- [ ] Both modes tested on Pi 4B with no Internet connection
+- [ ] No Internet-dependent behavior discovered or all instances remediated
+- [ ] Lab note documenting: test setup (network topology used), any services that required remediation, boot time comparison
+- [ ] Security specialist review: offline operation does not weaken or bypass security hardening from US-000a
+- [ ] Architect review: no hidden Internet dependencies in the software stack
 
 ---
 
@@ -1644,7 +1705,7 @@ test filters.
 - [ ] Both modes validated in a single session without reboot (except mode switch if required)
 - [ ] Remote monitoring via wayvnc verified during performance
 - [ ] System stable throughout: zero xruns, no thermal throttling, no audio dropouts
-- [ ] Offline operation verified: full rehearsal performed with no Internet connection (Pi on local network only, or Pi as WiFi AP, per D-017)
+- [ ] Offline operation verified: full rehearsal performed with no Internet connection (per US-034)
 - [ ] Shutdown procedure: clean shutdown, no data loss
 - [ ] Total setup time documented: power-on to "ready to perform" (target: under 5 minutes without calibration, under 15 minutes with calibration)
 - [ ] Owner subjective assessment: "This system is gig-ready" — yes/no with detailed notes
@@ -1694,6 +1755,8 @@ US-014 (doc structure) ──> US-015 (theory doc)
 US-019 (reproducibility) ──> US-020 (redundancy)
 
 US-000 ──> US-033 (USBStreamer auto-recovery via udev)
+
+US-000 + US-000a ──> US-034 (offline venue operation)
 
 US-000b ──> US-032 (macOS VNC compatibility) — low priority, independent
 

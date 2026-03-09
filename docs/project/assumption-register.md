@@ -339,12 +339,16 @@ worst-case exceeds ~2ms, production use on stock PREEMPT is risky.
 
 ### A28 [LOW]: System must function with zero venue network infrastructure
 
-**Description:** D-017 requires all venue-time functionality to work without
-Internet. The stronger form: the system must work even if the venue provides
-no network at all. The Pi must be able to create its own WiFi network (AP
-mode) or the operator must bring a portable router. This is NOT an assumption
-that the venue provides a usable network — it is a design requirement that
-the system is self-sufficient.
+**Description:** US-034 requires all venue-time functionality to work without
+Internet (replaces withdrawn D-017). The stronger form: the system must work
+even if the venue provides no network at all. The Pi must be able to create
+its own WiFi network (AP mode) or the operator must bring a portable router.
+This is NOT an assumption that the venue provides a usable network — it is a
+design requirement that the system is self-sufficient.
+
+Note: the network topology question (Pi as AP vs. portable router, device
+trust model for guest musicians' phones) is explicitly OPEN and not addressed
+by A28 or US-034.
 
 **Confidence:** HIGH — Pi 4B has onboard WiFi capable of AP mode via hostapd.
 Portable travel routers are inexpensive and reliable. The core audio stack
@@ -354,7 +358,7 @@ network the Pi itself creates or joins.
 **Validation:** Test Pi as WiFi AP with hostapd: operator laptop and singer
 phone connect to Pi's AP, web UI and wayvnc work. Alternatively,
 test with a portable router and no Internet uplink.
-**Affects:** D-017 (offline venue operation), US-000a (wayvnc + SSH remote access), US-022 (bundled assets), US-018 (singer phone), US-031 (offline rehearsal)
+**Affects:** US-034 (offline venue operation), US-000a (wayvnc + SSH remote access), US-022 (bundled assets), US-018 (singer phone), US-031 (offline rehearsal)
 **Status:** open
 
 ---
@@ -393,7 +397,7 @@ identified 30 findings total; the additional 4 were meta-findings (C1, H1, M4, L
 that were resolved by decisions D-007 through D-010 and are tracked in the
 "Assumptions Resolved by Recent Decisions" table above rather than as numbered
 assumptions. A27 was added post-audit based on D-015/F-012 findings.
-A28 was added based on D-017 (offline venue operation).
+A28 was added based on D-017 (now WITHDRAWN, replaced by US-034).
 
 | Severity | Entries (A1-A28) | Open | Resolved/Validated |
 |----------|-----------------|------|--------------------|

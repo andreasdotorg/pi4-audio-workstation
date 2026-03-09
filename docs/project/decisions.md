@@ -181,15 +181,13 @@ decision. Add a new one that supersedes it (reference the old one).
 
 **Impact:** US-008 (measurement script) through US-013 (verification) will be implemented in Python. REW is a recommended but optional tool for ad-hoc verification and exploratory measurements. TK-011 (REW on Pi ARM) is still useful but no longer on the critical path.
 
-## D-017: Offline venue operation — no Internet required at runtime (2026-03-09)
+## D-017: ~~Offline venue operation — no Internet required at runtime~~ WITHDRAWN (2026-03-09)
 
-**Context:** Many venues have no Internet access, unreliable WiFi, or captive portals that prevent normal connectivity. The system must be fully operational at any venue regardless of Internet availability. The owner stated: "we need to set this up in a way that works in venues without Internet connection."
+**Original decision (2026-03-09):** All venue-time functionality must work without Internet. The Pi operates on a local network for operator/performer device access.
 
-**Decision:** All venue-time functionality must work without Internet. The Pi operates on a local network (Pi as WiFi AP, portable router, or venue LAN) for operator/performer device access. No Internet-reachable services are required at runtime. Setup-time operations (package installs, OS updates, software downloads) may use Internet when available but are never performed at a venue.
+**WITHDRAWN (2026-03-09):** Owner directive. D-017 conflated a valid requirement ("system works without Internet") with unvalidated network topology assumptions and an incorrect threat model. Specifically: (1) D-017 assumed only owner devices would be on the local network, but US-018 (singer IEM control) means guest musicians' phones are also present — this invalidates the security model that wayvnc/VNC exposure to "LAN only" is safe. (2) The network topology question (Pi as WiFi AP vs. portable router vs. venue WiFi, device isolation, guest device trust) is open and requires proper analysis, not a blanket decision. (3) The requirement "system works offline" is valid but belongs as a user story with testable AC (filed as US-034), not as a cross-cutting design decision that embeds network architecture assumptions.
 
-**Rationale:** (1) The core audio stack (PipeWire, CamillaDSP, Mixxx, Reaper) is entirely local — no Internet dependency. (2) The room correction pipeline (US-008-US-013) runs entirely on the Pi — all computation is local. (3) The web UI (US-022/US-023/US-018) serves from the Pi to devices on the local network — no external assets needed if properly bundled. (4) Remote desktop (wayvnc per D-018) is entirely local — no relay server dependency. (5) The system must work with zero venue infrastructure — worst case, the operator brings a portable WiFi router or the Pi runs as an access point. (6) DNS resolution failures on an Internet-less network can cause unexpected timeouts in local services if not handled.
-
-**Impact:** Cross-cutting constraint affecting multiple stories: US-000a (wayvnc + SSH for remote access, no Internet-dependent services), US-022 (all web UI assets must be bundled locally — no CDN dependencies), US-018 (singer phone connects via local network), US-031 (full rehearsal must be tested without Internet). A28 assumption added: system must function with zero venue network infrastructure (Pi creates its own network if needed).
+**Replacement:** US-034 (Offline Venue Operation) captures the functional requirement. Network topology and security implications to be addressed separately after architect and security specialist analysis.
 
 ---
 
