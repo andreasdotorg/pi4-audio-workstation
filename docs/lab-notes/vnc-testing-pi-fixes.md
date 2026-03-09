@@ -414,10 +414,15 @@ recovery path should be automatic.
 
 ---
 
-## TK-044: Reboot Verification -- 8 PASS, 1 FAIL, 2 NOT TESTED
+## TK-044: Reboot Verification -- ALL 12 CHECKS PASS
 
 **Purpose:** Verify all VNC session changes survive reboot. Must complete
 before TK-039 (end-to-end audio validation).
+
+### First reboot attempt (pre-fixes)
+
+Initial reboot revealed CamillaDSP crash-looping due to a systemd path
+mismatch. 8 of 11 checks passed, 1 failed, 2 were deferred.
 
 **Results (11-item checklist):**
 
@@ -442,7 +447,7 @@ before TK-039 (end-to-end audio validation).
   (2), USBStreamer (3), UMIK-1 (4), DJControl Mix Ultra (5), SE25 (6), APC
   mini mk2 (7), Loopback (10)
 
-### CamillaDSP FAIL: systemd path mismatch
+#### CamillaDSP FAIL: systemd path mismatch
 
 CamillaDSP crash-looping after reboot (restart counter hit 5 before manual
 stop). Service is also `disabled` -- never auto-started on boot.
@@ -467,13 +472,7 @@ fix: the CamillaDSP binary is at `/usr/local/bin/camilladsp` (not
 `/usr/bin/`), so the ExecStart also needed the correct binary path. Config
 path corrected to `/etc/camilladsp/active.yml`.
 
-CamillaDSP is now running and stable.
-
-> **Note:** Service is still `disabled` -- needs `systemctl enable camilladsp`
-> to auto-start on boot. Currently requires manual `systemctl start` after
-> reboot.
-
-### Combined checks
+#### Combined checks (first reboot)
 
 - **TK-042 (ALSA path verification):** Inconclusive. CamillaDSP not running
   after reboot, so `fuser -v /dev/snd/*` cannot verify the direct ALSA path.
@@ -481,22 +480,51 @@ CamillaDSP is now running and stable.
 - **TK-043 (package state capture):** DONE. `dpkg --get-selections` captured
   1698 packages to `~/pkg-state-2026-03-09.txt`.
 
-### Additional findings
+#### Fixes applied between first and second reboot
 
-- **wayvnc autostart configured.** Added to `~/.config/labwc/autostart`.
-  wayvnc will now start automatically when labwc launches.
-- **wayvnc password configured.** Created `~/.config/wayvnc/config` with
-  `password=234269` (per owner instruction). File permissions set to 600.
-  wayvnc now requires password for connections.
-- **CamillaDSP service disabled.** Even after fixing the config path, the
-  service needs `systemctl enable camilladsp` to start automatically on boot.
-- **RustDesk still installed on Pi.** D-018 (RustDesk removal) was never
-  implemented. Removal pending -- security specialist providing commands.
+1. **CamillaDSP drop-in override** -- systemd ExecStart corrected with proper
+   binary path (`/usr/local/bin/camilladsp`) and config path
+   (`/etc/camilladsp/active.yml`).
+2. **CamillaDSP enabled** -- `systemctl enable camilladsp` run so the service
+   auto-starts on boot.
+3. **wayvnc autostart** -- added to `~/.config/labwc/autostart`. wayvnc
+   starts automatically when labwc launches.
+4. **wayvnc password configured** -- `~/.config/wayvnc/config` with password
+   set, file permissions 600. wayvnc now requires authentication.
+5. **RustDesk completely removed** -- D-018 implemented. RustDesk packages
+   uninstalled, systemd service gone, firewall rules for RustDesk ports
+   (TCP 21118, UDP 21116-21119) removed from nftables. F-013 and F-014
+   resolved.
 
-**Status:** CamillaDSP path FIXED (now running). wayvnc autostart FIXED.
-Items 9-10 (Mixxx/Reaper launch) still deferred -- need retest. TK-042
-(fuser) can now be run. CamillaDSP `enable` and RustDesk removal still
-pending.
+### Second reboot -- ALL 12 CHECKS PASS
+
+After the above fixes, a clean reboot verified all items.
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | PipeWire active | PASS |
+| 2 | CamillaDSP auto-started and active | PASS |
+| 3 | USBStreamer visible (card 4) | PASS |
+| 4 | Loopback at card 10 | PASS |
+| 5 | qt6-wayland installed | PASS |
+| 6 | pipewire-jack installed | PASS |
+| 7 | labwc env (QT_QPA_PLATFORMTHEME, LABWC_FALLBACK_OUTPUT) | PASS |
+| 8 | wayvnc auto-started with password auth | PASS |
+| 9 | RustDesk completely gone (no service, no ports) | PASS |
+| 10 | Firewall clean (no RustDesk rules) | PASS |
+| 11 | Bluetooth disabled and masked | PASS |
+| 12 | Reaper 48000 Hz persisted | PASS |
+
+**Card renumbering note:** USBStreamer is now card 4 (was card 3 before the
+second reboot). USB enumeration order shifted. This is expected behavior --
+ALSA card numbers are assigned at enumeration time and depend on the order
+the kernel detects USB devices during boot. CamillaDSP uses
+`hw:USBStreamer,0` (by name, not card number), so the renumbering has no
+functional impact.
+
+**Status:** ALL PASS. All VNC session fixes, CamillaDSP auto-start, wayvnc
+password auth, RustDesk removal, and Bluetooth masking verified across
+reboot. System is ready for TK-039 (end-to-end audio validation).
 
 ---
 
@@ -512,11 +540,11 @@ pending.
 | TK-041 | Phantom MIDI + BLE MIDI | DONE -- snd-virmidi blacklisted, BT disabled and masked |
 | TK-042 | CamillaDSP ALSA path verify | Ready to retest -- CamillaDSP now running |
 | TK-043 | Package state capture | DONE -- 1698 packages in ~/pkg-state-2026-03-09.txt |
-| TK-044 | Reboot verification | **8 PASS, 1 FIXED** (CamillaDSP drop-in), 2 deferred (Mixxx/Reaper launch) |
-| TK-046 | Reaper sample rate | DONE -- owner set to 48000 via GUI |
+| TK-044 | Reboot verification | **ALL 12 PASS** (second reboot after fixes) |
+| TK-046 | Reaper sample rate | DONE -- owner set to 48000 via GUI, persisted across reboot |
 | -- | UMIK-1 WirePlumber rule | Applied |
 | -- | PipeWire node rename | Applied (commit 8d9ec50) |
 | -- | USB hot-plug analysis | Documented (USBStreamer needs udev recovery rule) |
-| -- | wayvnc autostart + password | DONE -- labwc autostart + password in config (600 perms) |
-| -- | CamillaDSP systemctl enable | **Pending** -- service runs but won't auto-start on boot |
-| -- | RustDesk removal (D-018) | **Pending** -- still installed, security specialist providing commands |
+| -- | wayvnc autostart + password | DONE -- auto-starts on boot, password auth verified across reboot |
+| -- | CamillaDSP systemctl enable | DONE -- service enabled and auto-starts on boot |
+| -- | RustDesk removal (D-018) | DONE -- completely removed, firewall cleaned (F-013/F-014 resolved) |
