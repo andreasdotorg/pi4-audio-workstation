@@ -98,3 +98,4 @@ ahead.
 - D-014: Hardware limiter — deferred; required when system drives PAs capable of >110dB SPL (2026-03-08)
 - D-015: Stock PREEMPT for development — PREEMPT_RT deferred pending Reaper bug F-012 fix (2026-03-08)
 - D-016: Measurement pipeline uses both REW (exploratory) and Python (automation) (2026-03-09)
+- D-017: Offline venue operation — no Internet required at runtime; system self-sufficient on local network (2026-03-09)

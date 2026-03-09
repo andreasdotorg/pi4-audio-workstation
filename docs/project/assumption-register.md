@@ -1,7 +1,7 @@
 # Assumption Register
 
 Comprehensive register of all assumptions the project relies on. Includes the
-original A1-A8 from CLAUDE.md plus expanded assumptions A9-A27 discovered
+original A1-A8 from CLAUDE.md plus expanded assumptions A9-A28 discovered
 through the Advocatus Diaboli audit (US-004).
 
 Each assumption has: ID, description, confidence level, validation method,
@@ -27,7 +27,7 @@ affected decisions/stories, and current status.
 
 ---
 
-## Expanded Assumptions (A9-A27) — from US-004 Audit
+## Expanded Assumptions (A9-A28) — from US-004 Audit
 
 ### A9 [HIGH]: Hardcoded ALSA device paths assume stable card numbering
 
@@ -338,6 +338,28 @@ worst-case exceeds ~2ms, production use on stock PREEMPT is risky.
 
 ---
 
+### A28 [LOW]: System must function with zero venue network infrastructure
+
+**Description:** D-017 requires all venue-time functionality to work without
+Internet. The stronger form: the system must work even if the venue provides
+no network at all. The Pi must be able to create its own WiFi network (AP
+mode) or the operator must bring a portable router. This is NOT an assumption
+that the venue provides a usable network — it is a design requirement that
+the system is self-sufficient.
+
+**Confidence:** HIGH — Pi 4B has onboard WiFi capable of AP mode via hostapd.
+Portable travel routers are inexpensive and reliable. The core audio stack
+has zero network dependency. The only networked features are remote access
+(RustDesk/VNC/SSH) and web UI (US-022/US-018), which operate on the local
+network the Pi itself creates or joins.
+**Validation:** Test Pi as WiFi AP with hostapd: operator laptop and singer
+phone connect to Pi's AP, web UI and RustDesk/VNC work. Alternatively,
+test with a portable router and no Internet uplink.
+**Affects:** D-017 (offline venue operation), US-000a (RustDesk LAN direct), US-022 (bundled assets), US-018 (singer phone), US-031 (offline rehearsal)
+**Status:** open
+
+---
+
 ## Cross-Reference: Blocking Findings by Story
 
 | Story | Blocking Assumptions | Notes |
@@ -367,19 +389,20 @@ worst-case exceeds ~2ms, production use on stock PREEMPT is risky.
 
 ## Summary
 
-This register contains 27 formal assumptions (A1-A27). The original AD audit
+This register contains 28 formal assumptions (A1-A28). The original AD audit
 identified 30 findings total; the additional 4 were meta-findings (C1, H1, M4, L2)
 that were resolved by decisions D-007 through D-010 and are tracked in the
 "Assumptions Resolved by Recent Decisions" table above rather than as numbered
 assumptions. A27 was added post-audit based on D-015/F-012 findings.
+A28 was added based on D-017 (offline venue operation).
 
-| Severity | Entries (A1-A27) | Open | Resolved/Validated |
+| Severity | Entries (A1-A28) | Open | Resolved/Validated |
 |----------|-----------------|------|--------------------|
 | HIGH (A1-A3, A9-A13) | 9 | 3 (A4-equivalent: A12, A13 partially; A9 partially) | 6 (A1, A2 validated; A3 invalidated/superseded; A9, A10 resolved; A11 partially-resolved) |
 | MEDIUM (A14-A22, A27) | 10 | 10 | 0 |
-| LOW (A23-A26) | 4 | 4 | 0 |
+| LOW (A23-A26, A28) | 5 | 5 | 0 |
 | UNKNOWN (A6, A8) | 2 | 2 | 0 |
-| **Total** | **27** | **19** | **8** |
+| **Total** | **28** | **20** | **8** |
 
 Note: A4 (LOW), A5 (MEDIUM), A6 (UNKNOWN), A7 (MEDIUM), A8 (UNKNOWN) from the
 original set remain open pending hardware validation.

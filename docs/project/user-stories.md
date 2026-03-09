@@ -86,7 +86,7 @@ by default when installed.
 - [ ] **rpcbind disabled:** `systemctl disable --now rpcbind.service rpcbind.socket` (no NFS needed)
 - [ ] **CamillaDSP websocket** (port 1234) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
 - [ ] **CamillaDSP GUI** (port 5005) bound to 127.0.0.1 only (access via SSH tunnel when needed remotely)
-- [ ] **RustDesk** configured as client-only (Option A per security specialist): LAN direct preferred, public relay as fallback, strong permanent password set
+- [ ] **RustDesk** configured as client-only (Option A per security specialist): LAN direct mode for venue operation (no Internet dependency per D-017), public relay optional for non-venue remote access only, strong permanent password set
 - [ ] Verification: `ss -tlnp` shows no unexpected services listening on 0.0.0.0
 - [ ] Security specialist review passed
 
@@ -968,7 +968,7 @@ IEM control goes through Reaper OSC (audio engineer blocking concern: singer
 controls must NOT touch CamillaDSP / PA path).
 
 **Acceptance criteria:**
-- [ ] Singer accesses a web page on her phone (same WiFi network) showing IEM mix controls only
+- [ ] Singer accesses a web page on her phone (local network — venue WiFi, portable router, or Pi as WiFi AP; no Internet required per D-017) showing IEM mix controls only
 - [ ] UI layout per UX specialist design: 4 sliders (voice level, backing track level, vocal cue level, master IEM volume) + mute toggle, portrait orientation, single screen, no scrolling
 - [ ] Controls are large, high-contrast, usable on a phone screen in dim stage lighting
 - [ ] Singer view is restricted: no access to PA mix, engineer mix, DSP settings, or system controls
@@ -1037,7 +1037,7 @@ architecture: the Pi is the data source, the browser is the rendering engine.
 
 **Acceptance criteria:**
 - [ ] FastAPI server running on Pi, minimal CPU overhead (< 5% idle, < 10% under active use). CPU budget must be validated alongside CamillaDSP + application (Mixxx or Reaper) — web server cannot push total system load past T3 stability thresholds (AD finding — web server adds to constrained CPU budget)
-- [ ] Serves static HTML/JS/CSS — all rendering logic runs in the browser
+- [ ] Serves static HTML/JS/CSS — all rendering logic runs in the browser. All assets bundled locally on the Pi — no CDN dependencies, no external resource loading (D-017: offline venue operation)
 - [ ] WebSocket connection for real-time data push (audio levels, DSP processing load, system stats)
 - [ ] Role-based access: two roles — "engineer" (full control) and "singer" (IEM only)
 - [ ] Authentication: pre-shared role passwords, exchanged for session tokens
@@ -1588,6 +1588,7 @@ test filters.
 - [ ] Both modes validated in a single session without reboot (except mode switch if required)
 - [ ] Remote monitoring via RustDesk verified during performance
 - [ ] System stable throughout: zero xruns, no thermal throttling, no audio dropouts
+- [ ] Offline operation verified: full rehearsal performed with no Internet connection (Pi on local network only, or Pi as WiFi AP, per D-017)
 - [ ] Shutdown procedure: clean shutdown, no data loss
 - [ ] Total setup time documented: power-on to "ready to perform" (target: under 5 minutes without calibration, under 15 minutes with calibration)
 - [ ] Owner subjective assessment: "This system is gig-ready" — yes/no with detailed notes
