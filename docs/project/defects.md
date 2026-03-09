@@ -95,8 +95,8 @@ app that generates frames triggers V3D activity through the compositor.
 
 **`LIBGL_ALWAYS_SOFTWARE=1`: INSUFFICIENT.** Only affects client app rendering.
 labwc compositor still uses V3D hardware for compositing. Event #9 locked up
-with FIFO audio. Test 3 was STABLE with audio at SCHED_OTHER (confirming
-priority inversion as the trigger), but the workaround is unreliable.
+with FIFO audio. Test 3 locked up with audio at SCHED_OTHER (eliminating
+priority inversion -- V3D deadlocks regardless of audio thread priority).
 
 **Active workaround:** D-015 -- all GUI apps on stock PREEMPT kernel only.
 This remains the only confirmed-stable configuration for GUI apps + audio stack.
@@ -144,10 +144,10 @@ labwc (V3D hardware GL compositing) -> DRM/KMS scanout. When the RT audio
 stack restarted (PipeWire FIFO 88, CamillaDSP FIFO 80), the V3D deadlock
 was triggered through labwc's compositor path.
 
-**Test 3 (PASS):** Audio stack at SCHED_OTHER (normal priority) with V3D
-intact. Stable for 5 minutes, 30/30 checkpoints PASS. **Confirms priority
-inversion as the trigger** -- V3D deadlock requires FIFO threads above
-`irq/41-v3d` (FIFO 50). Without userspace FIFO, system is stable.
+**Test 3 (LOCKUP):** Audio stack at SCHED_OTHER (normal priority) with V3D
+intact. Hard lockup during song selection. **Eliminates priority inversion**
+-- V3D deadlock occurs even without any userspace FIFO threads above
+`irq/41-v3d` (FIFO 50). The bug is driver-internal.
 
 **Impact on D-013:** `LIBGL_ALWAYS_SOFTWARE=1` alone cannot enable RT + GUI
 because labwc compositor still uses V3D. V3D must be eliminated from the

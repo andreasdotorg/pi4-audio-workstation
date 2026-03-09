@@ -110,7 +110,7 @@ ahead.
 - T3d attempted on RT kernel -- F-012 crash during setup, deferred to next session
 - Event #9: `LIBGL_ALWAYS_SOFTWARE=1` + audio stack = lockup. Workaround insufficient alone.
 - labwc V3D compositor confirmed (7 renderD128 mappings, v3d driver)
-- Test 3: SCHED_OTHER audio + V3D = STABLE 5 min. Confirms priority inversion as trigger.
+- Test 3: SCHED_OTHER audio + V3D = LOCKUP. Eliminates priority inversion -- V3D deadlocks regardless of audio thread priority.
 - **Test 4 / Option B VALIDATED:** `WLR_RENDERER=pixman` + `LIBGL_ALWAYS_SOFTWARE=1` -- 5 min stable on PREEMPT_RT with full audio stack. F-012/F-017 resolved.
 
 ### Remaining TODOs
