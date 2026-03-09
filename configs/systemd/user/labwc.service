@@ -1,0 +1,17 @@
+[Unit]
+Description=labwc Wayland compositor
+After=graphical-session-pre.target
+BindsTo=graphical-session.target
+Before=graphical-session.target
+
+[Service]
+Type=simple
+Environment=WLR_BACKENDS=drm,libinput
+Environment=XDG_SESSION_TYPE=wayland
+Environment=XDG_CURRENT_DESKTOP=wlroots
+ExecStart=/usr/bin/labwc
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
