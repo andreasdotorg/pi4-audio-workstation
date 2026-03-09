@@ -40,7 +40,7 @@ ahead.
 | Documentation suite | not started | Stories US-014 through US-016 defined |
 | Web UI platform | not started | Stories US-022, US-023, US-018 defined (deferred per owner: validation first) |
 | Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc, Python venv. 7.5G/117G disk. RustDesk removed per D-018. |
-| Platform security | partial | US-000a: firewall active, SSH hardened, services disabled. CamillaDSP systemd service with `-a 127.0.0.1` (F-002 resolved). nfs-blkmap masked (F-011). wayvnc password auth (F-013 resolved). RustDesk purged, firewall cleaned (F-014 resolved). |
+| Platform security | partial | US-000a: firewall active, SSH hardened, services disabled. CamillaDSP systemd service with `-a 127.0.0.1` (F-002 resolved). nfs-blkmap masked (F-011). wayvnc password auth (F-013 partially resolved — TLS needed before US-018 guest devices). RustDesk purged, firewall cleaned (F-014 resolved). |
 | Desktop trimming (US-000b) | done | lightdm disabled, labwc user service, RTKit installed, PipeWire FIFO rtprio 83-88. RAM: 397→302Mi. USBStreamer path fixed (hw:USBStreamer,0). |
 | CamillaDSP benchmarks (US-001) | done | 16k taps @ 2048: 5.23% CPU, 16k @ 512: 10.42% CPU. Zero xruns. A1/A2 validated. |
 
@@ -62,7 +62,7 @@ ahead.
 
 - **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS (PREEMPT_RT 30min stability). T3a (DJ stability with Mixxx) and T4 (thermal in flight case) remaining — T3a blocked on US-005 (Hercules MIDI) and US-006 (Mixxx feasibility). TK-015 done (Mixxx launches). T3b-real (TK-020) blocked on Reaper project setup.
 - **F-012** (open): Reaper hard kernel lockup on PREEMPT_RT. `chrt -o 0` workaround failed (TK-023 FAIL). Proceeding on stock PREEMPT per D-015. Fix before shipping.
-- **F-013** (resolved): wayvnc password auth added (TK-047 done). RustDesk removed (TK-048 done). F-014 also resolved.
+- **F-013** (partially resolved): wayvnc password auth added (TK-047 done), but VNC session is unencrypted. TLS required before US-018 (guest musicians' phones on network). RFB password auth (56-bit DES challenge-response) is sufficient for current testing phase (owner devices only). RustDesk removed (TK-048 done). F-014 also resolved.
 - **US-004** (in-review): Assumption register written (A1-A26), accuracy corrections committed (`0720f94`). Gap: A27 in AC not yet in register. Pending: DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD — F-002 and F-011 both resolved, verified across reboot
 - **Completed this session:** US-000, US-000b, US-001 (16k taps both modes), US-002 (D-011 confirmed), T3e Phases 1-3 (PREEMPT_RT installed + validated), TK-002 (active.yml symlink)
@@ -71,7 +71,7 @@ ahead.
 ## Blockers
 
 - **F-012: Reaper hard kernel lockup on PREEMPT_RT.** Reaper causes a reproducible hard kernel lockup on `6.12.47+rpt-rpi-v8-rt` within ~1 minute of launch (4 crashes total: 3 on RT incl. `chrt -o 0`, 1 PASS on stock PREEMPT). Not OOM, not GPU, not RT priority (`chrt -o 0` also crashes). D-015: continue on stock PREEMPT, fix before shipping. Needs test rig (serial console + scriptable PSU) for kernel oops capture. Blocks: D-013 full compliance, TK-020/TK-021 on RT kernel.
-- **F-013: RESOLVED.** wayvnc password auth added (TK-047), RustDesk purged (TK-048), firewall rules cleaned. No longer blocks TK-039.
+- **F-013: PARTIALLY RESOLVED.** wayvnc password auth added (TK-047), RustDesk purged (TK-048), firewall rules cleaned. Password auth sufficient for current testing (owner devices only). **TLS required before US-018** deployment (guest musicians' phones on network — unencrypted VNC session exposes screen content and input to any device on the local network). Does not block TK-039 (no guest devices during testing).
 - **F-014: RESOLVED.** RustDesk UDP 21116-21119 firewall rules removed as part of TK-048.
 
 ## External Dependencies

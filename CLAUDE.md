@@ -67,11 +67,11 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **Firewall:** NONE (nftables empty, iptables not installed)
 - **SSH:** Password auth likely enabled (default), key-based working
 - **Listening ports:** SSH (22), rpcbind (111), CUPS (631/localhost only)
-- **Not installed yet:** CamillaDSP, Mixxx, Reaper, RustDesk
+- **Installed:** CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc 0.9.1. RustDesk removed (D-018).
 
 ## Owner Preferences (from session 2026-03-08)
 
-- **Remote desktop:** RustDesk (not VNC)
+- **Remote desktop:** wayvnc (D-018 superseded RustDesk; RustDesk removed)
 - **Reproducibility:** NixOS with flake long-term. Trixie + lab notes for now.
 - **DJ mode:** Hercules-primary, APCmini optional enhancement
 - **Mode switching:** Whole-gig for starters, quick switch future nice-to-have
