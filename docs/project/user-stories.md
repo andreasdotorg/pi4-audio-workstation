@@ -62,7 +62,7 @@ any venue WiFi network,
 **so that** exposed services cannot be exploited by untrusted devices on the
 same network, protecting both system integrity and live performance availability.
 
-**Status:** in-progress (partial: firewall, SSH, rpcbind/ModemManager/CUPS done; CamillaDSP localhost binding deferred to US-000 completion)
+**Status:** in-review (4/4 DoD — F-002 resolved: CamillaDSP systemd service; F-011 resolved: nfs-blkmap masked; verified across reboot in US-000b T7)
 **Depends on:** US-000 (CamillaDSP must be installed before its config can be hardened)
 **Blocks:** none directly, but should be completed before any venue deployment
 **Decisions:** D-006 (security specialist scope: availability/integrity for live performance)
@@ -105,7 +105,7 @@ display manager replaced with a minimal alternative,
 **so that** RAM and CPU are freed for audio processing and the local attack
 surface is reduced.
 
-**Status:** draft
+**Status:** done (13/13 DoD — security specialist + architect signed off)
 **Depends on:** US-000 (core software installed — need to verify trimming doesn't break Mixxx or Reaper)
 **Blocks:** none directly, but improves Tier 1 benchmark results (US-001 through US-003 benefit from freed resources)
 **Decisions:** none yet
