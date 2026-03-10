@@ -97,15 +97,15 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **OS:** Debian 13 Trixie. **Currently booted: PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`)**. Upgraded from `6.12.47` via `apt upgrade`. `config.txt` has `kernel=kernel8_rt.img`.
 - **Desktop:** labwc (Wayland) with **hardware V3D GL compositor** (D-022). No pixman override. lightdm disabled, labwc runs as systemd user service.
 - **V3D:** Hardware V3D GL active on PREEMPT_RT. No blacklist needed (D-022). Upstream fix for ABBA deadlock (commit `09fb2c6f4093`) included in `6.12.62+rpt-rpi-v8-rt`. F-012/F-017 RESOLVED.
-- **Audio:** PipeWire 1.4.2, CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). PipeWire RT module FAILS to self-promote to FIFO on PREEMPT_RT (F-020) — needs manual `sudo chrt -f -p 88 $(pgrep -x pipewire)` after each start. F-020 still open.
+- **Audio:** PipeWire 1.4.2 at SCHED_FIFO 88 (systemd override, F-020 workaround deployed), CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). Both persist across reboot.
 - **Quantum:** Production config at `~/.config/pipewire/pipewire.conf.d/10-audio-settings.conf` sets quantum 256. DJ mode needs quantum 1024 (set at runtime via `pw-metadata -n settings 0 clock.force-quantum 1024`).
 - **99-no-rt.conf:** DELETED (was Test 3 artifact forcing PipeWire to SCHED_OTHER).
 - **Mixxx:** Runs with hardware V3D GL on PREEMPT_RT (D-022). `pw-jack mixxx` — no `LIBGL_ALWAYS_SOFTWARE=1` needed. CPU ~85% with hardware GL (vs 142-166% with llvmpipe).
 - **USB devices:** UMIK-1, USBStreamer, Hercules DJControl Mix Ultra, APCmini mk2, Nektar SE25
 - **UMIK-1 calibration:** `/home/ela/7161942.txt` (magnitude-only, serial 7161942, -1.378dB sensitivity)
-- **Firewall:** nftables active (US-000a). Port 8080 runtime-only rule for PoC.
-- **SSH:** Password auth likely enabled (default), key-based working
-- **Listening ports:** SSH (22), rpcbind (111), CUPS (631/localhost only)
+- **Firewall:** nftables active (US-000a). Default DROP inbound. Allowed: SSH (22/tcp), VNC (5900/tcp), mDNS (5353/udp), ICMP, loopback, established/related. Port 8080 rule removed.
+- **SSH:** Password auth disabled (TK-056 verified), key-based only
+- **Listening ports:** SSH (22/tcp, all interfaces), CamillaDSP websocket (1234/tcp, localhost only), avahi/mDNS (5353/udp, all interfaces), wayvnc (5900/tcp when active, password auth). rpcbind and CUPS disabled (TK-012).
 - **Installed:** CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc 0.9.1. RustDesk removed (D-018).
 
 ## Owner Preferences (from session 2026-03-08)
@@ -352,9 +352,9 @@ automatically. The script should:
 - [ ] Investigate CamillaDSP's websocket API for runtime filter hot-swapping
 - [ ] Flight case design: ventilation, cable routing, power distribution
 - [ ] Write the automated room correction pipeline document + scripts
-- [ ] **F-020:** Investigate PipeWire RT module self-promotion failure on PREEMPT_RT. Persist workaround (systemd override or ExecStartPost chrt).
+- [x] ~~**F-020:** Investigate PipeWire RT module self-promotion failure on PREEMPT_RT. Persist workaround (systemd override or ExecStartPost chrt).~~ RESOLVED (workaround): systemd user service drop-in deployed (commit `536f631`). PipeWire at FIFO/88 after reboot.
 - [ ] **Mixxx perf:** Hardware GL restored (D-022) — ~85% CPU vs 142-166% with llvmpipe. Investigate further reduction if needed (lighter skin, waveform settings).
-- [ ] **T3d:** 30-min stability test on PREEMPT_RT `6.12.62+rpt-rpi-v8-rt` with hardware GL. Prerequisite: F-020 workaround persisted.
+- [ ] **T3d:** 30-min stability test on PREEMPT_RT `6.12.62+rpt-rpi-v8-rt` with hardware GL. F-020 prerequisite met.
 - [ ] **Watchdog reliability:** BCM2835 watchdog failed on Test 3 and Test 5 (2/11 lockups). Investigate.
 - [x] ~~**Upstream V3D bug report**~~ Not needed — upstream fix already merged (commit `09fb2c6f4093`, `raspberrypi/linux#7035`). Included in `6.12.62+rpt-rpi-v8-rt`.
 

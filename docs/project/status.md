@@ -71,7 +71,7 @@ ahead.
 - **D-020** (PoC validated): Web UI architecture validated on Pi 4B. **8/8 PASS** (P8 marginal: 871us JACK callback, 0.6 errors/min over 35 min -- architect has Option 4 fix, deferred to Stage 2). Lab note: `docs/lab-notes/D-020-poc-validation.md`. 6 deployment bugs found and fixed (commit 4ad556b). Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **US-004** (in-review): Assumption register (A1-A26). Gap: A27 not in register. Pending DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD -- F-002 and F-011 both resolved, verified across reboot
-- **F-020** (open, high): PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured for rt.prio=88, only achieves nice=-11. Manual `chrt` works. Causes audible glitches until manually promoted. Workaround: `chrt -f -p 88 <pid>` post-start. Needs persistence via systemd override.
+- **F-020** (resolved, workaround): PipeWire RT module fails to self-promote to SCHED_FIFO on PREEMPT_RT. **Fix:** systemd user service drop-in (`~/.config/systemd/user/pipewire.service.d/override.conf`) with `CPUSchedulingPolicy=fifo` + `CPUSchedulingPriority=88`. PipeWire confirmed at FIFO/88 after reboot. Config in repo (commit `536f631`). T3d now unblocked.
 - **Persistent journald** (DONE): Configured during PoC deployment session. `mkdir -p /var/log/journal`, reboot required for systemd 257. Confirmed surviving power cycles. F-012/F-017 crash investigations now unblocked.
 
 ### Key Findings from Brain Dump (2026-03-09)
@@ -95,6 +95,7 @@ ahead.
 - TK-054 wont-do: Hardware GL on RT makes software rendering DJ-A stability test unnecessary.
 - Kernel upgraded from `6.12.47+rpt-rpi-v8-rt` to `6.12.62+rpt-rpi-v8-rt` (stock RPi package, `apt upgrade`).
 - DJ-A / DJ-B decision tree collapsed: PREEMPT_RT + hardware GL for everything. Single-kernel operation confirmed.
+- F-020 RESOLVED (workaround): PipeWire FIFO/88 persisted via systemd user service drop-in (`~/.config/systemd/user/pipewire.service.d/override.conf`). Config in repo (commit `536f631`). T3d and TK-039 unblocked.
 
 ### Completed (previous session, 2026-03-09)
 - F-015 diagnosis, workaround, and capture-only adapter design (Phases 1-9)
@@ -148,7 +149,7 @@ ahead.
 - 14-blind-spot monitoring map review (from researcher)
 - ~~Verify labwc process maps show V3D shared libraries loaded~~ CONFIRMED: 7 `/dev/dri/renderD128` mappings in labwc process, driver is v3d.
 - ~~D-021 (RT + GUI architecture)~~ SUPERSEDED by D-022: PREEMPT_RT + hardware V3D GL. No V3D blacklist, no pixman, no llvmpipe. D-021 clause 1 (RT mandatory) and clause 5 (stock for dev) remain.
-- **F-020** PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured rt.prio=88, only achieves nice=-11. Manual `chrt` works. Investigate root cause; persist workaround via systemd override or startup script.
+- ~~**F-020**~~ **RESOLVED (workaround).** PipeWire FIFO/88 persisted via systemd user service drop-in (commit `536f631`). Root cause uninvestigated but workaround reliable. T3d unblocked.
 - F-019 Headless labwc startup regression (WLR_LIBINPUT_NO_DEVICES removed -- labwc may fail without input devices)
 - cloud-init ~3.3s boot overhead (TK-007)
 - ~~**TK-055**~~ **DONE (PASS).** Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware GL on RT. D-022 filed. F-012/F-017 RESOLVED.
@@ -163,7 +164,7 @@ ahead.
 - **F-016: OPEN.** Audible glitches after PipeWire restart with capture adapter active. Root cause TBD.
 - **F-017: RESOLVED (D-022, same fix as F-012).** Mixxx hard lockup on PREEMPT_RT. Same V3D ABBA deadlock, fixed by same upstream commit in `6.12.62+rpt-rpi-v8-rt`. No workaround needed.
 - **F-018: RESOLVED.** All audio configs persist across reboot (CamillaDSP FIFO 80 via systemd override, PipeWire quantum 256 via static config + user service, RT kernel via config.txt). Verified.
-- **F-020: OPEN (high).** PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured rt.prio=88, only achieves nice=-11. Causes audible glitches. Manual `chrt -f -p 88` works. Needs persistence.
+- **F-020: RESOLVED (workaround).** PipeWire RT module fails to self-promote to SCHED_FIFO on PREEMPT_RT. **Fix:** systemd user service drop-in with `CPUSchedulingPolicy=fifo` + `CPUSchedulingPriority=88`. PipeWire at FIFO/88 after reboot. Config in repo (commit `536f631`). T3d unblocked.
 
 ## Defects Summary
 
@@ -176,7 +177,6 @@ See `docs/project/defects.md` for full details.
 | F-013 | Medium | Partially resolved | US-018 |
 | F-016 | Medium | Open | Operational reliability |
 | F-019 | Medium | Open | US-000b (headless operation) |
-| F-020 | High | Open | Audio quality on PREEMPT_RT, T3d |
 
 ### Resolved
 
@@ -189,6 +189,7 @@ See `docs/project/defects.md` for full details.
 | F-015 | High | Resolved (workaround) | ada8200-in disabled; production split pending |
 | F-017 | High | Resolved (D-022) | Same upstream fix as F-012 |
 | F-018 | High | Resolved | All audio configs persist across reboot |
+| F-020 | High | Resolved (workaround) | systemd drop-in: PipeWire FIFO/88 persisted |
 
 ## External Dependencies
 

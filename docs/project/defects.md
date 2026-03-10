@@ -463,10 +463,10 @@ peripherals.
 
 ---
 
-## F-020: PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT kernel (OPEN)
+## F-020: PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT kernel (RESOLVED -- workaround)
 
 **Severity:** High
-**Status:** Open
+**Status:** Resolved (workaround -- systemd drop-in deployed)
 **Found in:** Option B validation session (2026-03-09)
 **Affects:** US-003 (stability), audio quality (glitch-free operation on RT kernel)
 **Found by:** Team (during Test 4 / Option B validation)
@@ -501,3 +501,19 @@ F-018 CamillaDSP fix).
 2. Post-start `ExecStartPost=` script that promotes PipeWire via `chrt`
 3. Investigate and fix PipeWire RT module self-promotion failure
 4. Disable RTKit delegation, configure PipeWire for direct RT scheduling
+
+### Resolution (2026-03-10): systemd drop-in deployed
+
+**Fix applied:** systemd user service drop-in at
+`~/.config/systemd/user/pipewire.service.d/override.conf` with
+`CPUSchedulingPolicy=fifo` and `CPUSchedulingPriority=88` (fix candidate #1).
+Same pattern as F-018 CamillaDSP fix. Config version-controlled in repo
+(commit `536f631`).
+
+**Verification:** PipeWire confirmed running at SCHED_FIFO priority 88 after
+reboot. Root cause (why PipeWire RT module fails to self-promote on PREEMPT_RT)
+remains uninvestigated, but the systemd override provides a reliable workaround
+that persists across reboots.
+
+**Impact:** T3d (30-min production stability test) is now unblocked -- F-020 was
+its prerequisite. TK-039 end-to-end audio validation can proceed.
