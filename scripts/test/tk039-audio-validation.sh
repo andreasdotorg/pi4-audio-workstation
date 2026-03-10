@@ -544,10 +544,13 @@ for ch in [6, 7]:
     if ch_peaks.get(ch, -999) > silence_thr:
         failures.append(f"C4: Ch {ch} peak {ch_peaks.get(ch,-999):.1f} > {silence_thr}dBFS (expected muted)")
 
-# Criterion 7: Signal levels in range
+# Criterion 7: Signal levels in range (R-9: check both bounds)
 for ch, val in ch_peaks.items():
     if val > clip_thr:
         failures.append(f"C7: Ch {ch} peak {val:.1f} > {clip_thr}dBFS (CLIPPING)")
+max_peak = max(ch_peaks.values()) if ch_peaks else -999
+if max_peak <= signal_thr:
+    failures.append(f"C7: No channel above {signal_thr}dBFS (max peak {max_peak:.1f}dBFS -- silence or no signal)")
 
 verdict = {"criteria": {}, "failures": failures}
 verdict["criteria"]["C1"] = "PASS" if not any("C1:" in f for f in failures) else "FAIL"
@@ -727,10 +730,13 @@ for ch in [6, 7]:
         # IEM passthrough: signal depends on Reaper send. Log as info, not hard fail.
         print(f"INFO: Ch {ch} peak {peak:.1f} dBFS -- IEM passthrough confirmed by config (signal depends on Reaper routing)")
 
-# Criterion 7: Signal levels in range
+# Criterion 7: Signal levels in range (R-9: check both bounds)
 for ch, val in ch_peaks.items():
     if val > clip_thr:
         failures.append(f"C7: Ch {ch} peak {val:.1f} > {clip_thr}dBFS (CLIPPING)")
+max_peak = max(ch_peaks.values()) if ch_peaks else -999
+if max_peak <= signal_thr:
+    failures.append(f"C7: No channel above {signal_thr}dBFS (max peak {max_peak:.1f}dBFS -- silence or no signal)")
 
 verdict = {"criteria": {}, "failures": failures}
 verdict["criteria"]["C2"] = "PASS" if not any("C2:" in f for f in failures) else "FAIL"
