@@ -214,6 +214,10 @@ compositor, llvmpipe rendering). No V3D blacklist needed. Hardware GL restored
 on PREEMPT_RT. Mixxx CPU drops from 142-166% (llvmpipe) to ~85% (hardware GL).
 F-017 resolved by the same fix (same root cause).
 
+**Note:** Upstream fix verified with Mixxx (TK-055). Reaper-specific reverification
+pending -- will be covered by TK-039 end-to-end audio validation. Full 30-minute
+production stability test (T3d) also pending.
+
 ---
 
 ## F-013: wayvnc unencrypted session (PARTIALLY RESOLVED)
