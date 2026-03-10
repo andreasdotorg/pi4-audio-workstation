@@ -18,6 +18,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+> **Note:** The `camilladsp` (pycamilladsp) package is not published on PyPI.
+> `requirements.txt` installs it directly from GitHub
+> (`git+https://github.com/HEnquist/pycamilladsp.git`). You need `git`
+> installed on the system for this to work.
+
 ## Run
 
 ```bash

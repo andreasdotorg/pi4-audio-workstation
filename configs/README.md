@@ -73,6 +73,15 @@ Deployed to the Pi at `~/.config/pipewire/pipewire.conf.d/` (user-level).
 | `20-usbstreamer.conf` | PipeWire capture-only adapter for ADA8200 inputs via USBStreamer (`hw:USBStreamer,0`, 8ch S32LE capture). Node name: `ada8200-in`. Rewritten for F-015 split-access fix: `node.driver=false`, `priority.driver=0`, `priority.session=0` to prevent graph driver contention with CamillaDSP's exclusive playback. Requires `50-usbstreamer-disable-acp.conf` to suppress WirePlumber auto-detected duplex nodes. |
 | `25-loopback-8ch.conf` | PipeWire adapter for 8-channel ALSA Loopback sink (`hw:Loopback,0,0`). Node name: `loopback-8ch-sink`, description: "CamillaDSP 8ch Input". Hardened against suspension: `node.pause-on-idle=false`, `node.always-process=true`, `session.suspend-timeout-seconds=0`, `priority.driver=2000`. |
 
+### Workarounds (`pipewire/workarounds/`)
+
+Deployed as systemd user service drop-ins at `~/.config/systemd/user/pipewire.service.d/`.
+See `pipewire/workarounds/README.md` for full details.
+
+| File | Description |
+|------|-------------|
+| `f020-pipewire-fifo.conf` | F-020 workaround: systemd drop-in that forces PipeWire to SCHED_FIFO 88. Bypasses broken RT module self-promotion on PREEMPT_RT. Deploy as `~/.config/systemd/user/pipewire.service.d/override.conf`. |
+
 ---
 
 ## WirePlumber (`wireplumber/`)
@@ -89,11 +98,22 @@ Deployed to the Pi at `~/.config/wireplumber/wireplumber.conf.d/` (user-level).
 
 ## systemd (`systemd/`)
 
+### System services (`systemd/camilladsp.service.d/`)
+
 Deployed to the Pi at `/etc/systemd/system/`.
 
 | File | Description |
 |------|-------------|
-| `camilladsp.service.d/override.conf` | Drop-in override for CamillaDSP systemd service. Fixes ExecStart path to `/usr/local/bin/camilladsp` (manual install, not apt) and binds the websocket API to localhost only (`-a 127.0.0.1`). |
+| `camilladsp.service.d/override.conf` | Drop-in override for CamillaDSP systemd service. Fixes ExecStart path to `/usr/local/bin/camilladsp` (manual install, not apt) and binds the websocket API to localhost only (`-a 127.0.0.1`). Also sets SCHED_FIFO 80 (F-018). |
+
+### User services (`systemd/user/`)
+
+Deployed to the Pi at `~/.config/systemd/user/`.
+
+| File | Description |
+|------|-------------|
+| `labwc.service` | labwc Wayland compositor user service. |
+| `pipewire-force-quantum.service` | Oneshot service that forces PipeWire quantum to 256 via `pw-metadata` after PipeWire starts. |
 
 ---
 

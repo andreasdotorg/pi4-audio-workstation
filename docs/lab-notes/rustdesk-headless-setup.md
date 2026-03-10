@@ -1,5 +1,7 @@
 # RustDesk Headless Remote Desktop Setup
 
+> **Note (2026-03-09):** RustDesk has been removed from the Pi (D-018, TK-048). wayvnc is now the sole remote desktop solution. This lab note is retained as a historical record of the investigation. See `docs/lab-notes/F-019-labwc-input-fix.md` for the wayvnc setup.
+
 The Pi runs headless at gigs -- no HDMI display connected. Remote access for
 GUI operations (Mixxx, Reaper, CamillaDSP web UI) requires a working remote
 desktop solution. The owner chose RustDesk over VNC.
