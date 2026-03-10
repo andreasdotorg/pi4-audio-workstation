@@ -206,8 +206,8 @@ dtoverlay=disable-bt
 # Comment this out if you need WiFi for remote access
 # dtoverlay=disable-wifi
 
-# GPU memory — minimal, we're headless for audio work
-gpu_mem=16
+# GPU memory — 128MB for hardware V3D GL rendering (D-022)
+gpu_mem=128
 
 # USB max current (for powered devices, shouldn't be needed with hub)
 max_usb_current=1
@@ -248,6 +248,13 @@ The standard Raspberry Pi OS Trixie kernel (`6.12.47+rpt-rpi-v8`) is compiled wi
 (`PREEMPT_RT`) provides bounded worst-case scheduling latency. US-003 T3e measured a
 maximum of 209 us under sustained DSP load on the RT kernel — well within the 5.33 ms
 processing deadline at chunksize 256.
+
+**Minimum version: `6.12.62+rpt-rpi-v8-rt` (D-022).** Earlier PREEMPT_RT kernels
+(including `6.12.47+rpt-rpi-v8-rt`) have an ABBA deadlock in the V3D GPU driver
+(`v3d_job_update_stats` lock ordering under rt_mutex conversion) that causes hard kernel
+lockups within 1-2 minutes of launching any OpenGL application. The fix (commit
+`09fb2c6f4093` by Melissa Wen / Igalia) ships in `6.12.62+rpt-rpi-v8-rt` and later.
+See `docs/lab-notes/F-012-F-017-rt-gpu-lockups.md` for the full investigation.
 
 **Check if an RT kernel is available:**
 
@@ -1497,16 +1504,23 @@ we may need longer filters and should re-evaluate the CPU budget based on T1 res
 
 ### 7.1 Mixxx and the Pi 4 GPU
 
-**Important:** Mixxx requires OpenGL for waveform rendering. The Pi 4's VideoCore VI GPU
-supports OpenGL ES 3.1 via the V3D driver, which is sufficient for Mixxx but not fast.
-Mixxx cannot run truly headless (no display at all) — it needs at least a virtual
-framebuffer (Xvfb) or a lightweight X11 session. For best performance:
+Mixxx requires OpenGL for waveform rendering. The Pi 4's VideoCore VI GPU supports
+OpenGL ES 3.1 via the V3D driver. With the PREEMPT_RT kernel `6.12.62+rpt-rpi-v8-rt`
+or later (D-022), hardware V3D GL is stable and Mixxx runs at ~85% CPU with default
+waveform settings — no software rendering workarounds are needed.
 
-- Use the "Simple" waveform renderer in Mixxx preferences (not GL or GLSL)
-- Or disable waveform rendering entirely if running headless (you'll control via the
-  physical DJ controller anyway)
-- Keep `gpu_mem=128` in `/boot/firmware/config.txt` if running Mixxx (override the
-  `gpu_mem=16` from section 3.2)
+The system runs labwc (Wayland compositor) with hardware V3D GL compositing. Mixxx
+needs a running display server; the labwc session provides this. Launch Mixxx via the
+PipeWire JACK bridge:
+
+```bash
+pw-jack mixxx
+```
+
+**Note:** On older PREEMPT_RT kernels (before `6.12.62`), the V3D driver has an ABBA
+deadlock bug that causes hard kernel lockups within minutes of launching any OpenGL
+application. See section 3.4 and lab note `docs/lab-notes/F-012-F-017-rt-gpu-lockups.md`
+for details. Do not run Mixxx on PREEMPT_RT with an older kernel.
 
 ### 7.2 Install Mixxx
 
