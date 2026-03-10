@@ -348,3 +348,42 @@ DoD for any testing task or story is NOT reached until QE has approved both docu
 - TK-039 cannot complete without QE approval of both protocol and execution record.
 - All future test tasks inherit this requirement.
 - Complements D-023 (reproducible test protocol) -- D-023 establishes the infrastructure, D-024 establishes the approval process.
+
+---
+
+## D-025: Deployment sequencing — one change at a time (2026-03-10)
+
+**Context:** AD Challenge F during TK-039 session. Batching multiple Pi configuration changes into a single deployment makes it impossible to determine which change caused a regression or fixed a problem. This was demonstrated by F-021/F-022, where multiple untracked configuration changes accumulated silently across sessions.
+
+**Decision:** All Pi deployments must follow this strict sequence:
+
+1. Deploy ONE change to the Pi
+2. Reboot
+3. Gate check (verify the change took effect)
+4. Verify system is healthy (audio path, services, no regressions)
+5. Commit evidence (lab note or log with git commit hash)
+6. Then proceed to the next change
+
+No batching multiple changes into a single deploy-reboot cycle. Each change is its own commit, deploy, reboot, verify cycle. This is the permanent deployment process, not a temporary measure.
+
+**Rationale:** (1) Single-change deployment enables precise regression bisection -- if something breaks, you know exactly which change caused it. (2) F-021/F-022 demonstrated that accumulated untracked changes create an unreproducible system state. (3) The gate check after each change ensures the change actually took effect (catches silent failures like config files not being picked up). (4) Evidence capture per D-023/D-024 requires a known starting state.
+
+**Impact:**
+- Complements D-023 (reproducible test protocol) and D-024 (QE approval process).
+- All deployment tasks (TK-058, TK-059, TK-061, F-022 fix) must follow this sequence.
+- Planned deployment order after baseline is confirmed: (1) TK-061 libjack alternatives, (2) F-022 fix (versioned launch script with PipeWire readiness probe), (3) -24dB speaker trim as Gain filters (TK-062), (4) TK-059 full deploy script.
+
+---
+
+## D-026: Mixxx launch script must include PipeWire readiness probe (2026-03-10)
+
+**Context:** AD Challenge I during TK-039 session. F-021 root cause: Mixxx's PortAudio loads JACK2's libjack, fails to find a JACK server, silently falls back to ALSA. On cold boot, PipeWire's JACK bridge may not be ready when Mixxx auto-launches. Even with TK-061 (libjack alternatives pointing to PipeWire), if PipeWire's JACK bridge is not yet initialized when Mixxx starts, the same silent fallback can occur.
+
+**Decision:** The Mixxx launch script must include a PipeWire JACK bridge readiness probe before launching Mixxx. Implementation: `pw-jack jack_lsp` in a retry loop with timeout (e.g., 10 retries, 1s apart). If the bridge is not ready after timeout, the script must fail loudly (not silently fall back to ALSA).
+
+**Rationale:** (1) Prevents F-021 recurrence on cold boot where PipeWire may still be initializing. (2) TK-061 alone is insufficient -- the JACK library being PipeWire's implementation does not guarantee the JACK bridge is accepting connections at launch time. (3) Failing loudly is safer than silently falling back to ALSA (which bypasses CamillaDSP crossover protection per D-013 safety concerns).
+
+**Impact:**
+- F-022 fix (versioned launch script) must implement this probe.
+- The launch script is version-controlled per D-023.
+- Applies to any future application that depends on PipeWire JACK bridge (Reaper launch script should implement the same probe).

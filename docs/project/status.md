@@ -177,6 +177,8 @@ See `docs/project/defects.md` for full details.
 | F-013 | Medium | Partially resolved | US-018 |
 | F-016 | Medium | Open | Operational reliability |
 | F-019 | Medium | Open | US-000b (headless operation) |
+| F-021 | High | Open | TK-039, US-029 (DJ UAT), DJ mode audio routing |
+| F-022 | High | Open | F-021 (triggers ALSA fallback on every reboot) |
 
 ### Resolved
 

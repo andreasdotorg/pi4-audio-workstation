@@ -517,3 +517,88 @@ that persists across reboots.
 
 **Impact:** T3d (30-min production stability test) is now unblocked -- F-020 was
 its prerequisite. TK-039 end-to-end audio validation can proceed.
+
+---
+
+## F-021: Mixxx silently falls back from JACK to ALSA, persists incorrect backend (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** TK-039 Phase 1 (end-to-end audio validation, 2026-03-10)
+**Affects:** US-029 (DJ UAT), TK-039 (audio validation), DJ mode audio routing
+**Found by:** TK-039 worker + audio engineer assessment
+
+**Description:** Mixxx `soundconfig.xml` silently reverted to ALSA backend
+during TK-039 Phase 1. The `start-mixxx` script uses `exec mixxx` without
+the `pw-jack` wrapper, allowing Mixxx to fall back to ALSA instead of routing
+through the PipeWire JACK bridge. This bypasses the CamillaDSP signal path
+entirely -- audio goes direct to hardware without crossover/correction
+processing.
+
+**Root cause (confirmed):** The system `ldconfig` resolves `libjack.so.0` to
+JACK2's library (no `update-alternatives` configured). Without the `pw-jack`
+wrapper, Mixxx's PortAudio layer does `dlopen("libjack.so.0")`, loads JACK2's
+implementation, fails to find a JACK server (PipeWire's JACK bridge is only
+accessible via the `pw-jack` environment), falls back to ALSA, and persists
+that choice to `~/.mixxx/soundconfig.xml`. The fallback is silent -- no error
+visible to the user.
+
+**Impact:** Audio bypasses CamillaDSP crossover and room correction filters
+when ALSA is selected. DJ mode audio goes direct to the USBStreamer hardware
+without any DSP processing. This is a safety concern per D-013 -- unprocessed
+audio through PA amplifiers means no crossover protection for drivers.
+
+**Fix (two-layer):**
+1. **Immediate (TK-058):** Update `start-mixxx` script to use `exec pw-jack mixxx`.
+   Version-control `soundconfig.xml` with JACK backend configured. Known-good
+   backup at `~/.mixxx/soundconfig.xml.jack-known-good` on Pi.
+2. **Permanent (TK-061):** Configure `update-alternatives` to point `libjack.so.0`
+   at PipeWire's JACK implementation. Eliminates the entire class of "forgot
+   pw-jack wrapper" bugs -- any JACK app transparently uses PipeWire without
+   needing the wrapper.
+
+**Related:** D-023 (reproducible test protocol) was filed because this defect
+demonstrated that unversioned configs silently drift. The Mixxx ALSA fallback
+was undetectable without explicit verification of the audio backend before
+testing.
+
+---
+
+## F-022: Mixxx auto-launches on boot without pw-jack wrapper (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** TK-039 post-reboot observation (2026-03-10)
+**Affects:** US-029 (DJ UAT), TK-039 (audio validation), F-021 (triggers ALSA fallback on every reboot)
+**Found by:** TK-039 worker (Pi restore session)
+
+**Description:** After reboot, Mixxx appeared as PID 1429 with command line
+`mixxx -platform xcb` -- no `pw-jack` wrapper. This means there is an
+autostart entry (desktop file in labwc autostart, XDG autostart, or systemd
+user service) that launches Mixxx bare on every boot. Each bare launch
+triggers F-021: Mixxx loads JACK2's `libjack.so.0`, fails to connect to a
+JACK server, falls back to ALSA, and persists the incorrect backend to
+`soundconfig.xml`.
+
+**Root cause:** An unversioned autostart configuration launches Mixxx without
+the `pw-jack` wrapper. The autostart entry was likely added during a previous
+VNC session (TK-038 fullscreen launch configuration) and was never updated
+when the JACK requirement was understood.
+
+**Impact:** Every reboot silently corrupts the Mixxx audio backend
+configuration. Even if F-021 is fixed (correct `soundconfig.xml` deployed),
+the bare autostart will overwrite it on the next boot. This makes F-021
+unfixable without also fixing F-022.
+
+**Fix (two-layer, same as F-021):**
+1. **Immediate:** Find and fix the autostart entry to use `pw-jack mixxx`
+   instead of bare `mixxx`. Version-control the autostart configuration
+   (D-023 compliance). Likely location: `~/.config/labwc/autostart` or an
+   XDG desktop file.
+2. **Permanent (TK-061):** Configure `update-alternatives` for `libjack.so.0`
+   to prefer PipeWire. Eliminates the need for `pw-jack` wrapper entirely --
+   bare `mixxx` launch would transparently use PipeWire's JACK implementation.
+
+**Related:** F-021 (Mixxx ALSA fallback root cause). F-022 is the trigger
+mechanism that re-introduces F-021 on every reboot. Both must be fixed
+together.
