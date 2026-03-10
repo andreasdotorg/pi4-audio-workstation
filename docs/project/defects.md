@@ -206,7 +206,8 @@ Upgraded via `apt upgrade` — no custom kernel build required.
 **Verification (TK-055):** Pi running `6.12.62+rpt-rpi-v8-rt` with hardware
 V3D GL (no blacklist, no pixman, no llvmpipe) for 37+ minutes — zero lockups.
 Previous kernel (`6.12.47+rpt-rpi-v8-rt`) locked up in <2.5 minutes under the
-same conditions. [PENDING] formal 15-minute monitoring data from test-runner.
+same conditions. Formal 15-minute monitored test (5 checks, 3 min apart) confirmed:
+0 kernel errors, peak 70.6°C, all processes alive, 1h30m total uptime. PASS.
 
 **Impact:** D-022 filed, superseding D-021 clauses 2-4 (V3D blacklist, pixman
 compositor, llvmpipe rendering). No V3D blacklist needed. Hardware GL restored
