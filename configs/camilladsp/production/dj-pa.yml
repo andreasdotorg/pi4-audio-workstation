@@ -91,6 +91,10 @@ filters:
     parameters:
       type: Wav
       filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+  speaker_trim:
+    type: Gain
+    parameters:
+      gain: -24.0
 
 pipeline:
   - type: Mixer
@@ -111,3 +115,7 @@ pipeline:
     channels: [3]
     names:
       - sub2_lp
+  - type: Filter
+    channels: [0, 1, 2, 3]
+    names:
+      - speaker_trim
