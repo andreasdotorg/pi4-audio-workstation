@@ -100,25 +100,68 @@ runs a single kernel for both DJ and live modes with hardware GL.
 
 The RT audio stack uses a strict priority hierarchy enforced via
 SCHED_FIFO. Higher priority threads preempt lower priority threads
-deterministically.
+deterministically. Verified empirically on the Pi (S-011).
 
-| Priority | Scheduler | Process | Rationale |
-|----------|-----------|---------|-----------|
+```
+FIFO/88  PipeWire (graph clock)
+FIFO/83  Mixxx audio callback (data-loop.0), pipewire-pulse, WirePlumber
+FIFO/80  CamillaDSP (all threads including ALSA capture/playback)
+FIFO/50  Kernel IRQ threads
+OTHER    Mixxx GUI, PipeWire client threads, system services
+BATCH    Mixxx disk I/O
+```
+
+| Priority | Scheduler | Process / Thread | Rationale |
+|----------|-----------|------------------|-----------|
 | 88 | SCHED_FIFO | PipeWire (main) | Audio server drives the graph clock. Must preempt everything except kernel threads. |
-| 83 | SCHED_FIFO | PipeWire (data loop) | Inherits FIFO from main process. Handles actual audio data transfer. |
-| 80 | SCHED_FIFO | CamillaDSP | DSP engine. Processes audio buffers. Must complete before PipeWire's next deadline but must not preempt PipeWire itself. |
+| 83 | SCHED_FIFO | Mixxx audio callback (`data-loop.0`) | PipeWire data loop thread inside Mixxx process. Runs Mixxx's JACK process callback (decode, mix, effects). |
+| 83 | SCHED_FIFO | pipewire-pulse, WirePlumber | PipeWire ecosystem threads. Same priority tier as data loops. |
+| 80 | SCHED_FIFO | CamillaDSP (all threads) | DSP engine. Processes audio buffers. Must complete before PipeWire's next deadline but must not preempt PipeWire itself. |
 | 50 | SCHED_FIFO | IRQ threads | Kernel default on PREEMPT_RT. Hardware interrupt handlers. |
-| 0 | SCHED_OTHER | Mixxx (GUI) | DJ application. GUI thread must NOT be elevated to FIFO. |
+| 0 | SCHED_OTHER | Mixxx GUI, `pw-Mixxx` threads | GUI rendering and PipeWire client housekeeping. Not audio-critical. |
+| 0 | SCHED_BATCH | Mixxx disk I/O (`mixxx:disk$0`) | Track loading. Lowest priority (nice 19). |
 
-### Why Mixxx Must Not Be Elevated
+### Mixxx Thread Model
+
+Mixxx is a multi-threaded application. When launched via `pw-jack`, its
+threads span multiple scheduling classes:
+
+| TID | Class | Priority | Thread Name | Role |
+|-----|-------|----------|-------------|------|
+| main | SCHED_OTHER | nice 0 | `mixxx` | Main/GUI thread (Qt event loop, V3D GL rendering) |
+| -- | SCHED_BATCH | nice 19 | `mixxx:disk$0` | Disk I/O (track loading, lowest priority) |
+| -- | SCHED_OTHER | nice 0 | `pw-Mixxx` | PipeWire client housekeeping (2 threads) |
+| -- | **SCHED_FIFO** | **83** | **`data-loop.0`** | **Audio callback (PipeWire data loop)** |
+
+When Mixxx connects to PipeWire via `pw-jack`, PipeWire creates a
+`data-loop.0` thread inside the Mixxx process. PipeWire's RT module
+elevates this thread to SCHED_FIFO/83. Mixxx's JACK process callback --
+audio decode, mixing, and effects processing -- runs inside this FIFO/83
+thread. Mixxx does not need `chrt` or any external RT wrapper; PipeWire
+handles RT scheduling for the audio path automatically.
+
+The thread name is `data-loop.0`, not `mixxx`. This is why `ps | grep
+mixxx` alone does not reveal the RT audio thread -- use `ps -eLo` with
+thread-level output to see it.
+
+### Why the Mixxx GUI Must Not Be Elevated
 
 Mixxx's main thread is a Qt GUI loop that performs OpenGL rendering via
 the V3D GPU driver. Elevating it to SCHED_FIFO would allow the GUI thread
 to hold the CPU while waiting for GPU operations, potentially starving the
-audio threads. Mixxx's audio output goes through PipeWire's JACK bridge
-(`pw-jack`), so PipeWire handles the real-time audio delivery. The Mixxx
-GUI thread runs at normal SCHED_OTHER priority and is preempted by the
-audio stack as needed.
+audio threads. The GUI thread runs at SCHED_OTHER and is preempted by the
+audio stack as needed. This is the correct design: the audio-critical work
+runs in the `data-loop.0` thread at FIFO/83, while the GUI runs at normal
+priority.
+
+### Quantum 256 Is Not Viable for DJ Mode
+
+Even with FIFO/83 audio threads, quantum 256 is not viable for DJ mode.
+Testing showed Mixxx at 175% CPU with ~24 xruns/min at quantum 256. The
+bottleneck is CPU throughput at the 5.3ms callback period, not scheduling
+priority -- Mixxx's audio decode and effects processing simply cannot
+complete within 5.3ms on the Pi 4B. DJ mode stays at quantum 1024 /
+chunksize 2048 (D-011).
 
 ---
 
@@ -469,12 +512,31 @@ grep chunksize /etc/camilladsp/active.yml
 ps -eo pid,cls,rtprio,ni,comm | grep FF
 # Expected to see at minimum:
 #   pipewire       FF  88
-#   pipewire-pulse FF  88  (inherits from main)
+#   pipewire-pulse FF  83
 #   camilladsp     FF  80
 
-# Confirm Mixxx is NOT FIFO:
+# Confirm Mixxx GUI thread is NOT FIFO:
 ps -eo pid,cls,rtprio,ni,comm | grep -i mixxx
 # Expected: TS (timeshare/SCHED_OTHER), no RTPRIO value
+```
+
+### Mixxx Thread-Level Check
+
+The Mixxx audio thread is named `data-loop.0`, not `mixxx`. Use
+thread-level output to see it:
+
+```bash
+# Show all threads in the Mixxx process:
+ps -eLo pid,tid,cls,rtprio,ni,comm -p $(pgrep -x mixxx)
+# Expected:
+#   mixxx        TS   -   0   mixxx           (GUI, SCHED_OTHER)
+#   mixxx:disk$0 BT   -  19   mixxx           (disk I/O, SCHED_BATCH)
+#   pw-Mixxx     TS   -   0   mixxx           (PipeWire housekeeping x2)
+#   data-loop.0  FF  83   -   mixxx           (audio callback, SCHED_FIFO)
+
+# Or check just the FIFO thread:
+ps -eLo pid,tid,cls,rtprio,comm -p $(pgrep -x mixxx) | grep FF
+# Expected: data-loop.0 at FF/83
 ```
 
 ---
