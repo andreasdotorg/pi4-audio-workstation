@@ -165,10 +165,10 @@ monitor channels through untouched.
 
 | Software | Version | Role |
 |----------|---------|------|
-| [PipeWire](https://pipewire.org/) | 1.4.2 | Audio server and routing (replaces JACK/PulseAudio) |
+| [PipeWire](https://pipewire.org/) | 1.4.9 | Audio server and routing (replaces JACK/PulseAudio) |
 | [CamillaDSP](https://github.com/HEnquist/camilladsp) | 3.0.1 | Real-time DSP engine -- crossover, room correction, routing |
 | [Mixxx](https://mixxx.org/) | 2.5.0 | DJ software for psytrance sets |
-| [Reaper](https://www.reaper.fm/) | 7.31 | Digital audio workstation for live vocal performance |
+| [Reaper](https://www.reaper.fm/) | 7.64 | Digital audio workstation for live vocal performance |
 | Python 3.13 | with [scipy](https://scipy.org/), [numpy](https://numpy.org/), [soundfile](https://github.com/bastibe/python-soundfile) | Measurement pipeline and filter generation |
 
 ## Project Status

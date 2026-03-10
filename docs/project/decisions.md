@@ -387,3 +387,30 @@ No batching multiple changes into a single deploy-reboot cycle. Each change is i
 - F-022 fix (versioned launch script) must implement this probe.
 - The launch script is version-controlled per D-023.
 - Applies to any future application that depends on PipeWire JACK bridge (Reaper launch script should implement the same probe).
+
+---
+
+## D-027: TK-061 libjack alternatives is won't-fix — pw-jack is the permanent solution (2026-03-10)
+
+**Context:** Deploy Cycle 2 (sessions S-005, S-006, S-007) attempted to configure `update-alternatives` for `libjack.so.0` so that PipeWire's JACK implementation would be the system default, eliminating the need for the `pw-jack` wrapper. Three progressive attempts revealed fundamental incompatibilities:
+
+1. **S-005:** Hardcoded library paths didn't match Pi versions (fail-safe worked, zero mutations).
+2. **S-006:** `update-alternatives` registration succeeded but the master symlink at `/usr/lib/aarch64-linux-gnu/libjack.so.0` is package-owned by `libjack-jackd2-0` and bypasses the alternatives chain.
+3. **S-007:** `dpkg-divert` took ownership of the package symlink, but `ldconfig` automatically recreates the soname symlink (`libjack.so.0 -> libjack.so.0.1.0`) from the physical JACK2 library file. This overwrites whatever `update-alternatives` sets, making the entire approach ineffective.
+
+**Root cause:** `ldconfig`'s soname management operates below the `update-alternatives` layer. `update-alternatives` is designed for binaries in `$PATH`, not for shared libraries managed by `ldconfig`. As long as JACK2's `libjack.so.0.1.0` file exists in a directory scanned by `ldconfig`, the soname symlink will always point to JACK2.
+
+**Decision:** TK-061 (configure `update-alternatives` for libjack) is **won't-fix**. The `pw-jack` wrapper in `start-mixxx.sh` (which sets `LD_PRELOAD` to PipeWire's JACK library) is the **permanent solution**, not a temporary workaround. This is technically sound: `pw-jack` bypasses `ldconfig` entirely via `LD_PRELOAD`, which takes precedence over any library search path resolution.
+
+**Rationale:**
+- `update-alternatives` is fundamentally incompatible with `ldconfig` soname management for shared libraries.
+- `ld.so.conf.d` (search path override) was considered but rejected: fragile, order-dependent, and could break other JACK2-dependent software.
+- Removing the JACK2 package was considered but rejected: may have reverse dependencies and reduces system flexibility.
+- `pw-jack` via `LD_PRELOAD` is the most targeted, least disruptive, and most reliable mechanism. It is already implemented in `start-mixxx.sh` (D-023 version-controlled).
+
+**Impact:**
+- `start-mixxx.sh` must always use `pw-jack` (already the case).
+- F-021 is resolved by the versioned launch script, not by system-level library configuration.
+- D-026 (PipeWire readiness probe in launch script) remains valid and important.
+- `configure-libjack-alternatives.sh` can be removed or archived. The S-006/S-007 partial state (alternatives registered, dpkg-divert applied) should be cleaned up on the Pi.
+- Lab notes: `docs/lab-notes/TK-039-deploy-cycle2.md` documents the full investigation.

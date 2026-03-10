@@ -199,7 +199,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **OS:** Debian 13 Trixie. **Currently booted: PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`)**. Upgraded from `6.12.47` via `apt upgrade`. `config.txt` has `kernel=kernel8_rt.img`.
 - **Desktop:** labwc (Wayland) with **hardware V3D GL compositor** (D-022). No pixman override. lightdm disabled, labwc runs as systemd user service.
 - **V3D:** Hardware V3D GL active on PREEMPT_RT. No blacklist needed (D-022). Upstream fix for ABBA deadlock (commit `09fb2c6f4093`) included in `6.12.62+rpt-rpi-v8-rt`. F-012/F-017 RESOLVED.
-- **Audio:** PipeWire 1.4.2 at SCHED_FIFO 88 (systemd override, F-020 workaround deployed), CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). Both persist across reboot.
+- **Audio:** PipeWire 1.4.9 at SCHED_FIFO 88 (systemd override, F-020 workaround deployed), CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). Both persist across reboot.
 - **Quantum:** Production config at `~/.config/pipewire/pipewire.conf.d/10-audio-settings.conf` sets quantum 256. DJ mode needs quantum 1024 (set at runtime via `pw-metadata -n settings 0 clock.force-quantum 1024`).
 - **99-no-rt.conf:** DELETED (was Test 3 artifact forcing PipeWire to SCHED_OTHER).
 - **Mixxx:** Runs with hardware V3D GL on PREEMPT_RT (D-022). `pw-jack mixxx` — no `LIBGL_ALWAYS_SOFTWARE=1` needed. CPU ~85% with hardware GL (vs 142-166% with llvmpipe).
@@ -208,7 +208,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **Firewall:** nftables active (US-000a). Default DROP inbound. Allowed: SSH (22/tcp), VNC (5900/tcp), mDNS (5353/udp), ICMP, loopback, established/related. Port 8080 rule removed.
 - **SSH:** Password auth disabled (TK-056 verified), key-based only
 - **Listening ports:** SSH (22/tcp, all interfaces), CamillaDSP websocket (1234/tcp, localhost only), avahi/mDNS (5353/udp, all interfaces), wayvnc (5900/tcp when active, password auth). rpcbind and CUPS disabled (TK-012).
-- **Installed:** CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc 0.9.1. RustDesk removed (D-018).
+- **Installed:** CamillaDSP 3.0.1, Mixxx 2.5.0 (2.5.4 blocked — requires Qt 6.9, Trixie has 6.8.2), PipeWire 1.4.9 (trixie-backports), Reaper 7.64, wayvnc 0.9.1. RustDesk removed (D-018). 148 system packages upgraded (TK-066, 2026-03-10).
 
 ## Owner Preferences (from session 2026-03-08)
 
@@ -219,6 +219,14 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **Singer IEM:** Engineer controls for MVP, singer self-control future bonus
 - **Singer needs:** Extra track for vocal cues (Reaper provides)
 - **IEM signal path:** Reaper → CamillaDSP (passthrough on ch 7/8, no FIR processing) → USBStreamer. Per D-011: CamillaDSP holds exclusive ALSA access to all 8 channels, so IEM cannot bypass it.
+
+### Safety Rules (2026-03-10)
+
+- **WARN BEFORE REBOOTS.** Resetting the USBStreamer produces transients through
+  the amplifier chain that can damage speakers. The owner MUST be warned before any
+  reboot, `systemctl restart camilladsp`, or any action that causes the USBStreamer
+  to lose its audio stream. This applies to all team members — workers, CM, everyone.
+  The owner decides when it is safe to proceed (e.g., after turning off amps).
 
 ## Key Documents
 
