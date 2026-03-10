@@ -252,7 +252,7 @@ c.disconnect()
     if echo "$switch_output" | $PYTHON -c "
 import sys, json
 d = json.loads(sys.stdin.readline())
-ok = 'Running' in d['state'] and '$expected_mixer' in str(d['mixer']) and d['chunksize'] == $expected_chunksize
+ok = 'RUNNING' in d['state'] and '$expected_mixer' in str(d['mixer']) and d['chunksize'] == $expected_chunksize
 sys.exit(0 if ok else 1)
 " 2>/dev/null; then
         log "  Config switch to $label: OK"
@@ -374,7 +374,7 @@ while time.monotonic() - start < $duration:
     # Periodic CamillaDSP state check (AE change 5, every 10s)
     if len(readings) % 10 == 0:
         state = str(c.general.state())
-        if "Running" not in state:
+        if "RUNNING" not in state:
             msg = f"CamillaDSP state={state} at t={round(time.monotonic()-start,1)}s"
             print(f"WARNING: {msg}", file=sys.stderr)
             anomalies.append(msg)
