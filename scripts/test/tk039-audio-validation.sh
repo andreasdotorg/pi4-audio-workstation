@@ -80,6 +80,7 @@ RESULTS_FILE="$EVIDENCE_DIR/results.json"
 CRITERIA_PASS=()
 CRITERIA_FAIL=()
 CLEANUP_PIDS=()
+C8_RESULT="NOT RUN"
 
 log() {
     echo "[$(date -Iseconds)] $*" | tee -a "$EVIDENCE_DIR/test.log"
@@ -168,6 +169,16 @@ Reaper stability: ${REAPER_STABILITY}s
 Mixxx command: $MIXXX_CMD
 Reaper command: $REAPER_CMD
 PROV
+
+    # Ensure Wayland display is set (required when launched via SSH)
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        WAYLAND_DISPLAY="$(systemctl --user show-environment 2>/dev/null | grep ^WAYLAND_DISPLAY= | cut -d= -f2 || true)"
+        if [ -n "$WAYLAND_DISPLAY" ]; then
+            export WAYLAND_DISPLAY
+            log "Set WAYLAND_DISPLAY=$WAYLAND_DISPLAY (from systemd user environment)"
+        fi
+    fi
 
     # --- Criterion 10: F-020 reboot persistence ---
     log "--- Criterion 10: F-020 scheduling priorities ---"
@@ -448,7 +459,7 @@ phase1_dj() {
 
     # Start xrun monitor
     log "Starting xrun monitor ($(( DJ_DURATION + 20 ))s)..."
-    "$( dirname "$0" )/../stability/xrun-monitor.sh" "$(( DJ_DURATION + 20 ))" &
+    "$(dirname "$0")/xrun-monitor.sh" "$(( DJ_DURATION + 20 ))" &
     local xrun_pid=$!
     CLEANUP_PIDS+=("$xrun_pid")
 
@@ -466,17 +477,24 @@ phase1_dj() {
     local mixxx_pid=$!
     CLEANUP_PIDS+=("$mixxx_pid")
 
-    # --- Criterion 8: Owner VNC confirmation (DJ) ---
-    log ""
-    log "============================================================"
-    log "  OWNER ACTION REQUIRED (via VNC):"
-    log "  1. Load a track in Mixxx Deck A and press Play"
-    log "  2. Activate CUE on the deck (for ch 4-5 headphone test)"
-    log "  3. Confirm audio is audible through the PA"
-    log "  Press ENTER when audio is confirmed playing..."
-    log "============================================================"
-    read -r || true
-    log "Owner confirmed Mixxx audio (DJ mode)"
+    # --- Criterion 8: Owner confirmation (DJ) ---
+    if [ -t 0 ]; then
+        log ""
+        log "============================================================"
+        log "  OWNER ACTION REQUIRED:"
+        log "  1. Load a track in Mixxx Deck A and press Play"
+        log "  2. Activate CUE on the deck (for ch 4-5 headphone test)"
+        log "  3. Confirm audio is audible through the PA"
+        log "  Press ENTER when audio is confirmed playing..."
+        log "============================================================"
+        read -r
+        log "Owner confirmed Mixxx audio (DJ mode)"
+        C8_RESULT="PASS (owner confirmed interactively)"
+    else
+        log "WARNING: stdin is not a terminal -- skipping interactive C8 prompt"
+        log "  Re-run from a terminal for owner confirmation"
+        C8_RESULT="SKIPPED (non-interactive session)"
+    fi
 
     # --- Criteria 1, 4, 7: Signal levels ---
     local levels_output
@@ -617,7 +635,7 @@ phase2_live() {
 
     # Start xrun monitor
     log "Starting xrun monitor ($(( LIVE_DURATION + REAPER_STABILITY + 20 ))s)..."
-    "$(dirname "$0")/../stability/xrun-monitor.sh" "$(( LIVE_DURATION + REAPER_STABILITY + 20 ))" &
+    "$(dirname "$0")/xrun-monitor.sh" "$(( LIVE_DURATION + REAPER_STABILITY + 20 ))" &
     local xrun_pid=$!
     CLEANUP_PIDS+=("$xrun_pid")
 
@@ -636,20 +654,27 @@ phase2_live() {
     CLEANUP_PIDS+=("$reaper_pid")
     echo "Reaper started at $(date -Iseconds), PID=$reaper_pid" > "$EVIDENCE_DIR/reaper-start-time.txt"
 
-    # --- Criterion 8: Owner VNC confirmation (Live) ---
-    log ""
-    log "============================================================"
-    log "  OWNER ACTION REQUIRED (via VNC):"
-    log "  1. Open a project with backing tracks in Reaper"
-    log "  2. Press Play, ensure output routes to JACK outputs 1-8"
-    log "     - Outputs 1-2: PA mains (ch 0-1)"
-    log "     - Outputs 5-6: Engineer headphones (ch 4-5)"
-    log "     - Outputs 7-8: Singer IEM (ch 6-7)"
-    log "  3. Confirm audio is audible through the PA"
-    log "  Press ENTER when audio is confirmed playing..."
-    log "============================================================"
-    read -r || true
-    log "Owner confirmed Reaper audio (Live mode)"
+    # --- Criterion 8: Owner confirmation (Live) ---
+    if [ -t 0 ]; then
+        log ""
+        log "============================================================"
+        log "  OWNER ACTION REQUIRED:"
+        log "  1. Open a project with backing tracks in Reaper"
+        log "  2. Press Play, ensure output routes to JACK outputs 1-8"
+        log "     - Outputs 1-2: PA mains (ch 0-1)"
+        log "     - Outputs 5-6: Engineer headphones (ch 4-5)"
+        log "     - Outputs 7-8: Singer IEM (ch 6-7)"
+        log "  3. Confirm audio is audible through the PA"
+        log "  Press ENTER when audio is confirmed playing..."
+        log "============================================================"
+        read -r
+        log "Owner confirmed Reaper audio (Live mode)"
+        C8_RESULT="PASS (owner confirmed interactively)"
+    else
+        log "WARNING: stdin is not a terminal -- skipping interactive C8 prompt"
+        log "  Re-run from a terminal for owner confirmation"
+        C8_RESULT="SKIPPED (non-interactive session)"
+    fi
 
     # --- Criteria 2, 5, 7: Signal levels ---
     local levels_output
@@ -890,8 +915,8 @@ for label in ['dj', 'live']:
         else:
             results['criteria']['C3'] = 'FAIL'
 
-# C8: Owner confirmation (manual — assume PASS if we got past the prompts)
-results['criteria']['C8'] = 'PASS (owner confirmed at prompts)'
+# C8: Owner confirmation (from bash C8_RESULT variable)
+results['criteria']['C8'] = '$C8_RESULT'
 
 # C9, C10: Read from log
 stability_log = os.path.join(evidence, 'reaper-stability-log.txt')

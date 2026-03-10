@@ -16,6 +16,12 @@ RETRY_INTERVAL=1
 # Ensure XDG_RUNTIME_DIR is set (required when launched via SSH or early boot)
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
+# Ensure Wayland display is set (required when launched via SSH)
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    WAYLAND_DISPLAY="$(systemctl --user show-environment 2>/dev/null | grep ^WAYLAND_DISPLAY= | cut -d= -f2 || true)"
+    [ -n "$WAYLAND_DISPLAY" ] && export WAYLAND_DISPLAY
+fi
+
 # --- PipeWire JACK bridge readiness probe (D-026) ---
 
 attempt=0
