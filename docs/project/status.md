@@ -165,23 +165,30 @@ ahead.
 - **F-018: RESOLVED.** All audio configs persist across reboot (CamillaDSP FIFO 80 via systemd override, PipeWire quantum 256 via static config + user service, RT kernel via config.txt). Verified.
 - **F-020: OPEN (high).** PipeWire RT module fails to achieve SCHED_FIFO on PREEMPT_RT. Configured rt.prio=88, only achieves nice=-11. Causes audible glitches. Manual `chrt -f -p 88` works. Needs persistence.
 
-## Open Defects Summary
+## Defects Summary
 
 See `docs/project/defects.md` for full details.
 
+### Open / Partially Resolved
+
 | Defect | Severity | Status | Blocks |
 |--------|----------|--------|--------|
-| F-002 | Medium | Resolved | -- |
-| F-011 | Low | Resolved | -- |
-| F-012 | Critical | Resolved (D-022) | -- |
 | F-013 | Medium | Partially resolved | US-018 |
-| F-014 | Low | Resolved | -- |
-| F-015 | High | Resolved (workaround) | Production live mode (mic input) |
 | F-016 | Medium | Open | Operational reliability |
-| F-017 | High | Resolved (D-022, same as F-012) | -- |
-| F-018 | High | Resolved | -- |
 | F-019 | Medium | Open | US-000b (headless operation) |
 | F-020 | High | Open | Audio quality on PREEMPT_RT, T3d |
+
+### Resolved
+
+| Defect | Severity | Status | Resolution |
+|--------|----------|--------|------------|
+| F-002 | Medium | Resolved | CamillaDSP bound to 127.0.0.1 |
+| F-011 | Low | Resolved | nfs-blkmap masked |
+| F-012 | Critical | Resolved (D-022) | Upstream V3D fix in `6.12.62+rpt-rpi-v8-rt` |
+| F-014 | Low | Resolved | RustDesk firewall rules removed |
+| F-015 | High | Resolved (workaround) | ada8200-in disabled; production split pending |
+| F-017 | High | Resolved (D-022) | Same upstream fix as F-012 |
+| F-018 | High | Resolved | All audio configs persist across reboot |
 
 ## External Dependencies
 
