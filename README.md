@@ -148,7 +148,7 @@ distracting.
 |--------|------|
 | [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) | Main compute (Raspberry Pi OS Trixie, Debian 13) |
 | [minidsp USBStreamer B](https://www.minidsp.com/products/usb-audio-interface/usbstreamer) | 8-channel USB-to-ADAT audio interface |
-| [Behringer ADA8200](https://www.behringer.com/product.html?modelCode=0805-AAJ) | ADAT-to-analog converter, 8 channels |
+| [Behringer ADA8200](https://www.behringer.com/behringer/product?modelCode=0800-AAB) | ADAT-to-analog converter, 8 channels |
 | 4-channel Class D amp (4x450W) | Amplification for speakers |
 | [Hercules DJControl Mix Ultra](https://www.hercules.com/djcontrol-mix-ultra/) | DJ controller (USB-MIDI) |
 | [Akai APCmini mk2](https://www.akaipro.com/apc-mini-mk2) | Grid controller / mixer |
