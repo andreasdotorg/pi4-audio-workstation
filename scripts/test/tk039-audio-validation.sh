@@ -204,7 +204,7 @@ PROV
     # Verify CamillaDSP is running
     local state
     state="$(cdsp_state)"
-    if [[ "$state" != *"Running"* ]]; then
+    if [[ "$state" != *"RUNNING"* ]]; then
         log "ERROR: CamillaDSP not running (state=$state). Aborting."
         exit 1
     fi
@@ -765,7 +765,7 @@ EVALEOF
         local cdsp_state_check
         cdsp_state_check="$(cdsp_state)"
         echo "  CamillaDSP: $cdsp_state_check" | tee -a "$EVIDENCE_DIR/reaper-stability-log.txt"
-        if [[ "$cdsp_state_check" != *"Running"* ]]; then
+        if [[ "$cdsp_state_check" != *"RUNNING"* ]]; then
             echo "  WARNING: CamillaDSP not Running" | tee -a "$EVIDENCE_DIR/reaper-stability-log.txt"
         fi
     done
