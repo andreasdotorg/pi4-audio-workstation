@@ -1,4 +1,5 @@
 data/US-003/T3e/cyclictest_output.txt
 .venv/
 __pycache__/
+.DS_Store
 result
