@@ -1,0 +1,13 @@
+[Unit]
+Description=APCmini mk2 MIDI system controller daemon (US-036)
+After=pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=/home/ela/audio-workstation-venv/bin/python3 /home/ela/bin/midi-system-controller.py --config /etc/pi4-audio/midi/apcmini-mk2.yml
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

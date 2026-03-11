@@ -1,0 +1,39 @@
+# APCmini mk2 button mapping for the MIDI system controller daemon.
+#
+# The daemon opens the APCmini mk2 exclusively, creates a virtual MIDI port
+# for Reaper, and routes messages based on the current grid mode (Reaper or
+# System). Faders are always forwarded to Reaper regardless of grid mode.
+#
+# MIDI protocol (APCmini mk2):
+#   Grid buttons: note on/off, notes 0-63 (8x8 grid, bottom-left = 0)
+#   Shift button: note 122
+#   Faders: CC 48-56 (9 faders, left to right)
+#   LEDs: note on to set color, velocity = color index
+
+device_name: "APC mini mk2"
+virtual_port_name: "APCmini-Reaper"
+
+timeouts:
+  system_mode: 7.0
+  confirmation: 3.0
+
+fader_ccs: [48, 49, 50, 51, 52, 53, 54, 55, 56]
+
+grid_buttons:
+  system_mode_map:
+    0: { action: "dj_mode", confirm: true }
+    1: { action: "live_mode", confirm: true }
+    7: { action: "stats_toggle", confirm: false }
+    8: { action: "mixxx_toggle", confirm: false }
+    9: { action: "reaper_toggle", confirm: false }
+
+shift_note: 122
+
+led_colors:
+  reaper_mode_shift: 0       # shift LED off in Reaper mode
+  system_mode_shift: 5       # shift LED amber in System mode
+  system_active: 9           # red for active system buttons
+  system_destructive: 5      # amber for destructive (confirm-required) buttons
+  system_inactive: 1         # dim for inactive system buttons
+  confirm_blink: [5, 0]      # alternating amber/off during confirmation wait
+  confirm_success: 21        # green flash on successful action
