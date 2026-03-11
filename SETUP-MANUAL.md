@@ -1,5 +1,16 @@
 # Raspberry Pi 4B Portable Audio Workstation — Setup Manual
 
+> **⚠️ DEPRECATION NOTICE**
+>
+> This document is superseded by the structured documentation in `docs/`.
+> It is retained as a historical reference but is no longer actively maintained.
+> For current information, see:
+> - `docs/project/` — Project status, tasks, decisions, assumptions
+> - `docs/architecture/` — System architecture and design documents
+> - `docs/guides/` — Setup and operational guides
+>
+> Ground truth hierarchy (D-023): Hardware state → docs/ → SETUP-MANUAL.md
+
 ## Table of Contents
 
 1. [System Overview & Signal Flow](#1-system-overview--signal-flow)
