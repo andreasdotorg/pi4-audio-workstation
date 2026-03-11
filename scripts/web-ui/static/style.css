@@ -188,7 +188,7 @@ html, body {
 
 .meters-row {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
+    grid-template-columns: 24px repeat(8, 1fr);
     gap: 6px;
     flex: 1;
     min-height: 0;
@@ -231,6 +231,59 @@ html, body {
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
     height: 12px;
+}
+
+/* dB scale labels column — mirrors meter-channel flex layout */
+.meter-db-scale {
+    display: flex;
+    flex-direction: column;
+    width: 24px;
+    min-height: 0;
+    gap: 2px;
+}
+
+.meter-db-scale-spacer-top {
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.meter-db-scale-track {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+}
+
+.meter-db-scale-spacer-bottom {
+    height: 25px; /* matches meter-label + meter-db-value + gaps */
+    flex-shrink: 0;
+}
+
+.db-scale-label {
+    position: absolute;
+    right: 2px;
+    font-size: 8px;
+    color: var(--text-dim);
+    line-height: 1;
+    transform: translateY(-50%);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+/* Clip indicator */
+.meter-clip-indicator {
+    font-size: 8px;
+    font-weight: 700;
+    text-align: center;
+    color: transparent;
+    height: 14px;
+    line-height: 14px;
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+    transition: color 0.1s;
+}
+
+.meter-clip-indicator.active {
+    color: var(--red);
 }
 
 /* ── System view ────────────────────────────────────────────── */

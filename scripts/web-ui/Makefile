@@ -21,5 +21,5 @@ update-snapshots:
 test-all: test-unit test-e2e
 
 install-test-deps:
-	pip install playwright pytest pytest-playwright
+	pip install playwright pytest pytest-playwright numpy
 	playwright install chromium
