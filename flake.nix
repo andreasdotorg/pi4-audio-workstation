@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-utils.url = "github:numtide/flake-utils/11707dc2f618dd54ca8739b309ec4fc024de578b";
   };
 
   outputs = { self, nixpkgs, flake-utils }:
@@ -28,7 +28,12 @@
               ps.numpy
               ps.soundfile
               ps.websockets
+              # Testing
+              ps.pytest
+              ps.playwright
+              ps.pytest-playwright
             ]))
+            pkgs.playwright-driver
           ];
 
           buildInputs = [
@@ -39,11 +44,15 @@
           ];
 
           shellHook = ''
+            export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
+            export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
             echo "Pi 4B audio workstation dev shell"
             echo "Python: $(python3 --version)"
             echo ""
             echo "Packages from nixpkgs: mido, python-rtmidi, fastapi,"
-            echo "  uvicorn, scipy, numpy, soundfile, websockets"
+            echo "  uvicorn, scipy, numpy, soundfile, websockets,"
+            echo "  pytest, playwright, pytest-playwright"
             echo ""
 
             # pycamilladsp is not in nixpkgs — install via pip in a venv.
