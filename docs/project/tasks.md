@@ -13,6 +13,52 @@ Status: `open` | `in-progress` | `blocked` | `done` | `wont-do`
 
 ---
 
+## Task Definition of Done (owner-approved 2026-03-11)
+
+A task may be marked `done` only when **all applicable** criteria below are met.
+This formalizes the implicit practices used since project start and applies to all
+current and future tasks.
+
+### Required for all tasks
+
+1. **Code written, all tests pass.** Existing tests must still pass (no regressions).
+   The worker runs the full relevant test suite before reporting completion.
+2. **Committed with hash recorded.** The Change Manager commits the deliverable and
+   the commit hash is recorded in the task's Notes column in this file.
+3. **No blocking defects.** CRITICAL severity blocks commit. HIGH severity blocks
+   task closure. MEDIUM and LOW are tracked for follow-up (filed as separate tasks
+   or noted in the parent task).
+
+### Required when applicable
+
+4. **New tests for new functionality.** Any new code path must have corresponding
+   tests. Test-only tasks (e.g., TK-098) satisfy this inherently. Documentation-only
+   tasks are exempt.
+5. **Advisory review.** The following review matrix applies based on the task's
+   domain. Reviews are requested by the PM and recorded in the task Notes.
+
+   | Domain | Required reviewer | Examples |
+   |--------|-------------------|----------|
+   | DSP / audio processing | Audio Engineer | TK-082, TK-083, TK-084 |
+   | Architecture / API / system design | Architect | TK-069, TK-070, TK-071 |
+   | Web UI / visual design | UX Specialist | TK-093, TK-095 |
+   | Signal-flow correctness in UI | Audio Engineer | TK-097 (meter labels/grouping) |
+   | Test suites / QE methodology | Quality Engineer | TK-073-076, TK-098 |
+   | Documentation | Technical Writer | TK-057, US-014 |
+   | Security-affecting changes | Security Specialist | TK-056 |
+   | Trivial fixes (typos, comments) | None | TK-087 |
+
+### Additional rules (existing, cross-referenced)
+
+- **Owner-visible verification (2026-03-09 process rule):** Tasks requiring
+  owner-visible verification (GUI rendering, audio output, MIDI response) must NOT
+  be closed until the owner confirms via VNC or direct observation.
+- **Testing DoD (D-024):** Significant testing tasks require two-phase QE approval
+  (protocol before execution, execution record after). See `user-stories.md` lines
+  5-42.
+
+---
+
 ## Active Tasks
 
 | ID | Description | Owner | Status | Parent | Source | Notes |
