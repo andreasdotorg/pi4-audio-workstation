@@ -1,0 +1,21 @@
+# Custom 15" subwoofer — PA system
+# 15-inch driver in sealed enclosure.
+
+name: "Custom 15-inch Subwoofer"
+manufacturer: "Custom"
+model: "15-inch Sub"
+type: sealed
+
+impedance_ohm: 8
+sensitivity_db_spl: null
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: null
+
+# Power handling
+max_power_watts: null
+power_limit_note: "No specific power limit defined; use amplifier limiting."
+
+# Compensation EQ (none required)
+compensation_eq: []

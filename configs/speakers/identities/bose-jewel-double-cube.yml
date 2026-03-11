@@ -1,0 +1,22 @@
+# Bose Jewel Double Cube — satellite speaker
+# Small full-range satellite from Bose Acoustimass / Lifestyle systems.
+# Needs baffle step compensation (+4dB) and highpass protection.
+
+name: "Bose Jewel Double Cube"
+manufacturer: "Bose"
+model: "Jewel Double Cube"
+type: sealed
+
+impedance_ohm: 8
+sensitivity_db_spl: null
+
+# D-029 gain staging
+max_boost_db: 4
+mandatory_hpf_hz: 155
+
+# Power handling
+max_power_watts: 20
+power_limit_note: "Small drivers; keep power under 20W to avoid thermal damage."
+
+# Compensation EQ (baffle step compensation applied in FIR, not here)
+compensation_eq: []

@@ -1,0 +1,21 @@
+# Self-built wideband mains — PA system
+# Full-range drivers in custom cabinets.
+
+name: "Wideband Self-Built v1"
+manufacturer: "Self-built"
+model: "Wideband v1"
+type: sealed
+
+impedance_ohm: 8
+sensitivity_db_spl: null
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: null
+
+# Power handling
+max_power_watts: null
+power_limit_note: "No specific power limit defined; use amplifier limiting."
+
+# Compensation EQ (none required for these drivers)
+compensation_eq: []

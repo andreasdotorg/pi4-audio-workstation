@@ -28,6 +28,7 @@
               ps.numpy
               ps.soundfile
               ps.websockets
+              ps.pyyaml
               # Testing
               ps.pytest
               ps.playwright

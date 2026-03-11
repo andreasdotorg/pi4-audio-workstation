@@ -1,0 +1,61 @@
+# Bose PS28 III home/office system
+# Jewel Double Cube satellites + PS28 III isobaric subwoofer.
+# Sub driver 2 is phase-inverted for isobaric clamshell configuration.
+#
+# Channel assignment matches configs/camilladsp/production/bose-home.yml:
+#   0: Satellite L    1: Satellite R
+#   2: Sub driver 1   3: Sub driver 2 (INVERTED)
+#   4: HP L           5: HP R
+#   6: HP2 L          7: HP2 R
+
+name: "Bose Home System"
+description: "Bose Jewel Double Cube satellites with PS28 III isobaric subwoofer. Sub2 inverted for clamshell."
+topology: 2way
+
+crossover:
+  frequency_hz: 155
+  slope_db_per_oct: 48
+  type: linkwitz-riley
+
+speakers:
+  sat_left:
+    identity: bose-jewel-double-cube
+    role: satellite
+    channel: 0
+    filter_type: highpass
+    polarity: normal
+  sat_right:
+    identity: bose-jewel-double-cube
+    role: satellite
+    channel: 1
+    filter_type: highpass
+    polarity: normal
+  sub1:
+    identity: bose-ps28-iii-sub
+    role: subwoofer
+    channel: 2
+    filter_type: lowpass
+    polarity: normal
+  sub2:
+    identity: bose-ps28-iii-sub
+    role: subwoofer
+    channel: 3
+    filter_type: lowpass
+    polarity: inverted
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -13.5
+  subwoofer:
+    headroom_db: -13.0
+    power_limit_db: -8.6
+
+target_curve: flat
+filter_taps: 16384
