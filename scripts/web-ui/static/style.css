@@ -875,3 +875,512 @@ html, body {
 .event-cat-system {
     color: var(--yellow);
 }
+
+/* -- Measure view -------------------------------------------------------- */
+
+.msr-tab-bar {
+    display: flex;
+    gap: 2px;
+    padding: 0 12px;
+    height: 24px;
+    align-items: center;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.msr-tab {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.msr-tab:hover {
+    color: var(--text);
+}
+
+.msr-tab.active {
+    color: var(--text);
+    border-bottom-color: var(--cyan);
+}
+
+.msr-panel {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    gap: 8px;
+    flex-direction: column;
+}
+
+.msr-panel.active {
+    display: flex;
+}
+
+.msr-section {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 12px;
+}
+
+.msr-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+}
+
+/* Speaker table */
+
+.msr-table {
+    font-size: 11px;
+}
+
+.msr-table-header {
+    display: flex;
+    gap: 4px;
+    padding: 2px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px;
+}
+
+.msr-th {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-micro);
+}
+
+.msr-table-row {
+    display: flex;
+    gap: 4px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.msr-table-row:last-child {
+    border-bottom: none;
+}
+
+.msr-td {
+    font-variant-numeric: tabular-nums;
+}
+
+.msr-th-ch, .msr-td-ch { width: 28px; flex-shrink: 0; }
+.msr-th-name, .msr-td-name { width: 140px; flex-shrink: 0; }
+.msr-th-type, .msr-td-type { width: 48px; flex-shrink: 0; color: var(--text-dim); }
+.msr-th-xover, .msr-td-xover { width: 80px; flex-shrink: 0; }
+.msr-th-filter, .msr-td-filter { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msr-th-delay, .msr-td-delay { width: 72px; flex-shrink: 0; text-align: right; }
+.msr-th-gain, .msr-td-gain { width: 64px; flex-shrink: 0; text-align: right; }
+
+/* Mic check bar */
+
+.msr-mic-check {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.msr-mic-level-bar {
+    flex: 1;
+    max-width: 300px;
+    height: 14px;
+    background: var(--bg-bar);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+}
+
+.msr-mic-level-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    transition: width 0.3s;
+}
+
+.msr-mic-level-text {
+    position: absolute;
+    right: 4px;
+    top: 0;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 14px;
+    text-shadow: 0 0 2px rgba(0,0,0,0.8);
+    font-variant-numeric: tabular-nums;
+}
+
+.msr-mic-status {
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Measurement positions */
+
+.msr-positions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.msr-pos-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 8px;
+    font-size: 11px;
+    border-radius: 2px;
+}
+
+.msr-pos-item.msr-pos-active {
+    background: rgba(255, 193, 7, 0.08);
+}
+
+.msr-pos-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-micro);
+    flex-shrink: 0;
+}
+
+.msr-pos-dot.c-green { background: var(--green); }
+.msr-pos-dot.c-yellow { background: var(--yellow); }
+
+.msr-pos-label {
+    flex: 1;
+}
+
+.msr-pos-status {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-micro);
+}
+
+/* Sweep channel chips */
+
+.msr-sweep-channels {
+    display: flex;
+    gap: 6px;
+}
+
+.msr-sweep-ch {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 2px;
+    background: var(--bg-bar);
+    color: var(--text-dim);
+}
+
+.msr-sweep-ch.msr-sweep-done {
+    color: var(--green);
+    border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.msr-sweep-ch.msr-sweep-active {
+    color: var(--yellow);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    background: rgba(255, 193, 7, 0.08);
+}
+
+/* Measure controls */
+
+.msr-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    flex-shrink: 0;
+}
+
+.msr-sweep-progress {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-left: 8px;
+}
+
+/* Buttons */
+
+.msr-btn {
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 5px 14px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    background: var(--bg-bar);
+    color: var(--text);
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.msr-btn:hover {
+    border-color: var(--text-dim);
+}
+
+.msr-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.msr-btn-primary {
+    background: rgba(66, 165, 245, 0.15);
+    border-color: rgba(66, 165, 245, 0.4);
+    color: var(--blue);
+}
+
+.msr-btn-primary:hover {
+    background: rgba(66, 165, 245, 0.25);
+}
+
+.msr-btn-danger {
+    background: rgba(244, 67, 54, 0.15);
+    border-color: rgba(244, 67, 54, 0.4);
+    color: var(--red);
+}
+
+.msr-btn-danger:hover {
+    background: rgba(244, 67, 54, 0.25);
+}
+
+.msr-btn-secondary {
+    background: var(--bg-bar);
+    color: var(--text);
+}
+
+.msr-btn-sm {
+    font-size: 9px;
+    padding: 2px 8px;
+}
+
+.msr-btn-sm.active {
+    background: rgba(0, 172, 193, 0.15);
+    border-color: rgba(0, 172, 193, 0.4);
+    color: var(--cyan);
+}
+
+/* Results plot placeholder */
+
+.msr-results-plot-section {
+    min-height: 200px;
+}
+
+.msr-plot-placeholder {
+    min-height: 160px;
+    margin-bottom: 8px;
+}
+
+.msr-plot-axes {
+    display: flex;
+    flex-direction: column;
+    height: 160px;
+}
+
+.msr-plot-y-label {
+    font-size: 8px;
+    color: var(--text-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.msr-plot-area {
+    flex: 1;
+    background: var(--bg-meter);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+}
+
+.msr-plot-grid {
+    position: absolute;
+    inset: 0;
+    background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0px, transparent 1px, transparent 10%, rgba(255,255,255,0.03) calc(10% + 1px)),
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0px, transparent 1px, transparent 25%, rgba(255,255,255,0.03) calc(25% + 1px));
+}
+
+.msr-plot-line {
+    position: absolute;
+    bottom: 30%;
+    left: 5%;
+    right: 5%;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.msr-plot-measured {
+    background: var(--yellow);
+    bottom: 45%;
+    clip-path: polygon(0% 60%, 5% 20%, 10% 80%, 15% 40%, 20% 55%, 25% 30%, 30% 70%, 35% 45%, 40% 50%, 45% 35%, 50% 55%, 55% 40%, 60% 50%, 65% 60%, 70% 45%, 75% 55%, 80% 65%, 85% 70%, 90% 60%, 95% 75%, 100% 80%);
+    height: 40%;
+    opacity: 0.7;
+}
+
+.msr-plot-corrected {
+    background: var(--green);
+    bottom: 40%;
+    height: 2px;
+    opacity: 0.9;
+}
+
+.msr-plot-target {
+    background: var(--blue);
+    bottom: 42%;
+    height: 1px;
+    opacity: 0.5;
+    border-style: dashed;
+}
+
+.msr-plot-legend {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    display: flex;
+    gap: 10px;
+    font-size: 8px;
+    color: var(--text-dim);
+}
+
+.msr-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.msr-legend-swatch {
+    width: 10px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+.msr-legend-measured { background: var(--yellow); }
+.msr-legend-corrected { background: var(--green); }
+.msr-legend-target { background: var(--blue); }
+
+.msr-plot-x-label {
+    font-size: 8px;
+    color: var(--text-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-align: center;
+    margin-top: 2px;
+}
+
+.msr-result-channel-select {
+    display: flex;
+    gap: 4px;
+}
+
+/* Deploy file list */
+
+.msr-deploy-files {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.msr-deploy-file {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 8px;
+    font-size: 11px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+.msr-deploy-file:last-child {
+    border-bottom: none;
+}
+
+.msr-deploy-file-name {
+    flex: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.msr-deploy-file-size {
+    color: var(--text-dim);
+    width: 64px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.msr-deploy-file-status {
+    width: 100px;
+    text-align: right;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.msr-deploy-actions {
+    padding: 8px 12px;
+    flex-shrink: 0;
+}
+
+/* Deploy confirmation dialog */
+
+.msr-dialog-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.msr-dialog {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    max-width: 420px;
+    width: 90%;
+}
+
+.msr-dialog-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.msr-dialog-body {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text);
+    margin-bottom: 14px;
+}
+
+.msr-dialog-body code {
+    font-size: 10px;
+    background: var(--bg-bar);
+    padding: 1px 4px;
+    border-radius: 2px;
+}
+
+.msr-dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
