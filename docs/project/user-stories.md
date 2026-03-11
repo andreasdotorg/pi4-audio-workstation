@@ -1228,6 +1228,68 @@ needing SSH or VNC.
 
 ---
 
+## US-038: Signal Flow Diagram View
+
+**As** the live sound engineer,
+**I want** a web UI view that displays the actual audio signal chain as a visual
+diagram with mini level meters inline on each signal path, per-component stats
+(CPU%, state, latency), and per-component configuration (quantum, chunksize,
+FIR filter length),
+**so that** I can see the entire signal flow at a glance, identify where in the
+chain a problem is occurring, and verify correct routing without memorizing the
+signal path from documentation.
+
+**Status:** future (owner request 2026-03-11, not yet scheduled)
+**Depends on:** US-022 (web UI platform), US-023 (engineer dashboard — shared
+infrastructure), US-027a (health monitoring backend — per-component stats),
+US-035 (ADA8200 input meters — PHYS IN data for diagram)
+**Blocks:** none
+**Decisions:** none yet
+
+**Owner concept (2026-03-11):**
+An additional screen/tab showing the data flow as a visual diagram:
+
+```
+Mixxx/Reaper --> PipeWire --> Loopback --> CamillaDSP --> USBStreamer --> ADA8200 --> Speakers
+                                              |                           |
+                                         (FIR filters)              (ADC inputs)
+                                                                         |
+                                                                    PipeWire --> Reaper
+```
+
+With mini level meters at each connection point and stats/config overlaid on
+each component block. Could replace or augment the System tab as a more
+intuitive diagnostic view.
+
+**Acceptance criteria:**
+- [ ] Signal flow diagram rendered as an interactive view/tab in the web UI
+- [ ] Component blocks for: Mixxx, Reaper, PipeWire, Loopback, CamillaDSP, USBStreamer, ADA8200, Speakers, Headphones, IEM
+- [ ] Mini level meters inline on each signal path showing real-time audio levels at that point in the chain
+- [ ] Per-component stats overlay: CPU%, process state (running/stopped), measured latency contribution
+- [ ] Per-component config display: quantum, chunksize, FIR filter length, sample rate where applicable
+- [ ] Visual indication of signal presence/absence on each path (e.g., dim path when no signal)
+- [ ] Color-coded component health: green (healthy), yellow (warning), red (error/stopped)
+- [ ] Diagram accurately reflects current mode (DJ vs Live signal paths differ)
+- [ ] Responsive: readable on kiosk display (1920x1080) and tablet
+- [ ] Dark theme consistent with existing dashboard
+
+**DoD:**
+- [ ] Signal flow view implemented on US-022 platform
+- [ ] All component stats are live (not mock) when connected to real Pi
+- [ ] Mock data mode for development and testing
+- [ ] Architect review: diagram accurately represents the actual signal chain
+- [ ] Audio engineer review: component stats and levels are correct and useful
+- [ ] UX specialist review: diagram is scannable at stage distance, not cluttered
+
+**Future considerations:**
+- Interactive: click a component to expand detailed stats (similar to health bar overlay concept)
+- Signal path highlighting: trace a specific signal from source to output
+- Latency budget visualization: show cumulative latency along each path
+- RMS vs peak dual display on mini meters
+- USB device status (connected/disconnected) for USBStreamer, UMIK-1, MIDI controllers
+
+---
+
 ## Tier 6 — Resilience and Operational Maturity
 
 Future stories for production hardening.
@@ -2132,4 +2194,6 @@ US-017 + US-028 ──> US-030 (Live Vocal UAT) ───────┤
                                                     └──> US-031 (Full Rehearsal)
 
 US-022/TK-063 ──> US-037 (Playwright test scaffolding) — enables test coverage for all web UI stories
+
+US-022 + US-023 + US-027a + US-035 ──> US-038 (signal flow diagram view)
 ```
