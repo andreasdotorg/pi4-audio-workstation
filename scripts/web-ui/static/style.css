@@ -205,9 +205,23 @@ html, body {
 .meters-area {
     flex: 1;
     display: flex;
+    flex-direction: column;
     min-height: 0;
     padding: 4px;
+    gap: 4px;
+}
+
+.meters-zone {
+    display: flex;
+    flex: 3;
+    min-height: 0;
     gap: 0;
+}
+
+.spectrum-zone {
+    flex: 1;
+    min-height: 140px;
+    display: flex;
 }
 
 .meter-group-section {
@@ -457,7 +471,7 @@ html, body {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    overflow-y: auto;
+    overflow-y: hidden;
     height: 100%;
 }
 
@@ -726,10 +740,11 @@ html, body {
 /* -- 1/3-octave spectrum analyzer ---------------------------------------- */
 
 .spectrum-container {
+    flex: 1;
     position: relative;
     min-height: 140px;
-    background: var(--bg-meter, #0f0f0f);
-    border: 1px solid var(--border, #222);
+    background: var(--bg-meter);
+    border: 1px solid var(--border);
     border-radius: 2px;
 }
 
@@ -750,4 +765,113 @@ html, body {
     width: 100%;
     height: 100%;
     display: block;
+}
+
+/* -- Event log (System view) --------------------------------------------- */
+
+.event-log-section {
+    flex: 1;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+}
+
+.event-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.event-log-header .sys-section-title {
+    margin-bottom: 0;
+}
+
+.event-log-controls {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.event-filter-btn,
+.event-clear-btn {
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    background: var(--bg-bar);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 1px 6px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.event-filter-btn.active {
+    color: var(--text);
+}
+
+.event-filter-btn:hover,
+.event-clear-btn:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+}
+
+.event-log-list {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.event-row {
+    display: flex;
+    gap: 8px;
+    padding: 2px 4px;
+    border-left: 2px solid transparent;
+}
+
+.event-row:nth-child(even) {
+    background: rgba(255,255,255,0.02);
+}
+
+.event-severity-warning {
+    border-left-color: var(--yellow);
+}
+
+.event-severity-error {
+    border-left-color: var(--red);
+}
+
+.event-time {
+    color: var(--text-micro);
+    flex-shrink: 0;
+    width: 60px;
+}
+
+.event-message {
+    color: var(--text);
+}
+
+.event-cat-xrun,
+.event-cat-clip,
+.event-cat-disconnect {
+    color: var(--red);
+}
+
+.event-cat-dsp_load,
+.event-cat-temp {
+    color: var(--yellow);
+}
+
+.event-cat-mode {
+    color: var(--blue);
+}
+
+.event-cat-connect {
+    color: var(--green);
+}
+
+.event-cat-system {
+    color: var(--yellow);
 }

@@ -64,6 +64,10 @@
     var animating = false;
     var startTime = performance.now();
 
+    // Track previous monitoring CamillaDSP for event detection
+    var prevMonXruns = null;
+    var prevMonClipped = null;
+
     // Per-channel last-signal-time tracking for dim logic
     // Indexed by group key + local index
     var lastSignalTime = {};
@@ -413,6 +417,26 @@
         PiAudio.setText("hb-dsp-xruns", String(cdsp.xruns),
             cdsp.xruns > 0 ? "c-red" : "c-green");
 
+        // Push events for xrun/clip increments (monitoring data has higher update rate)
+        if (window._piAudioPushEvent) {
+            if (prevMonXruns !== null && cdsp.xruns > prevMonXruns) {
+                window._piAudioPushEvent("xrun", "error",
+                    "Xruns: +" + (cdsp.xruns - prevMonXruns) + " (total: " + cdsp.xruns + ")");
+            }
+            if (prevMonClipped !== null && cdsp.clipped_samples > prevMonClipped) {
+                window._piAudioPushEvent("clip", "error",
+                    "Clipped: +" + (cdsp.clipped_samples - prevMonClipped) +
+                    " (total: " + cdsp.clipped_samples + ")");
+            }
+            prevMonXruns = cdsp.xruns;
+            prevMonClipped = cdsp.clipped_samples;
+        }
+
+        // Spectrum analyzer
+        if (data.spectrum && data.spectrum.bands) {
+            PiAudioSpectrum.updateData(data.spectrum.bands);
+        }
+
         // SPL (optional field)
         if (data.spl != null) {
             var heroVal = document.getElementById("spl-value");
@@ -494,6 +518,9 @@
             resizeAll();
             updateDbScaleLabels();
         });
+
+        // Initialize spectrum analyzer
+        PiAudioSpectrum.init("spectrum-canvas");
 
         // Connect both WebSocket endpoints
         PiAudio.connectWebSocket("/ws/monitoring", onMonitoringData, function () {});

@@ -4,11 +4,222 @@
  * Displays full system health: mode, audio config, CPU per core,
  * temperature, memory, CamillaDSP state, scheduling policy, and
  * per-process CPU breakdown. Data arrives via /ws/system at ~1 Hz.
+ *
+ * Event log: records state transitions and threshold crossings by
+ * comparing consecutive WebSocket messages. All client-side logic,
+ * no backend changes.
  */
 
 "use strict";
 
 (function () {
+
+    // ── Event log state ──────────────────────────────────────
+
+    var prevSystemData = null;
+    var eventBuffer = [];
+    var EVENT_BUFFER_MAX = 500;
+    var eventFilterState = { warning: true, error: true };
+    var userScrolledUp = false;
+
+    // Debounce: one event per category per 30 seconds for continuous conditions
+    var lastEventTime = {};
+    var DEBOUNCE_MS = 30000;
+
+    function formatTime() {
+        var d = new Date();
+        var hh = d.getHours();
+        var mm = d.getMinutes();
+        var ss = d.getSeconds();
+        return (hh < 10 ? "0" : "") + hh + ":" +
+               (mm < 10 ? "0" : "") + mm + ":" +
+               (ss < 10 ? "0" : "") + ss;
+    }
+
+    function pushEvent(category, severity, message) {
+        var now = Date.now();
+
+        // Debounce continuous conditions
+        var debounceCategories = ["dsp_load", "temp", "system"];
+        if (debounceCategories.indexOf(category) !== -1) {
+            var lastTime = lastEventTime[category] || 0;
+            if (now - lastTime < DEBOUNCE_MS) return;
+        }
+        lastEventTime[category] = now;
+
+        var evt = {
+            time: formatTime(),
+            category: category,
+            severity: severity,
+            message: message
+        };
+
+        eventBuffer.push(evt);
+        if (eventBuffer.length > EVENT_BUFFER_MAX) {
+            eventBuffer.shift();
+        }
+
+        renderEventRow(evt);
+    }
+
+    function renderEventRow(evt) {
+        var list = document.getElementById("event-log-list");
+        if (!list) return;
+
+        var row = document.createElement("div");
+        row.className = "event-row";
+        if (evt.severity) {
+            row.className += " event-severity-" + evt.severity;
+        }
+        row.setAttribute("data-severity", evt.severity || "info");
+        row.setAttribute("data-category", evt.category);
+
+        var timeSpan = document.createElement("span");
+        timeSpan.className = "event-time";
+        timeSpan.textContent = evt.time;
+
+        var msgSpan = document.createElement("span");
+        msgSpan.className = "event-message event-cat-" + evt.category;
+        msgSpan.textContent = evt.message;
+
+        row.appendChild(timeSpan);
+        row.appendChild(msgSpan);
+
+        // Apply filter visibility
+        if (evt.severity && !eventFilterState[evt.severity]) {
+            row.style.display = "none";
+        }
+
+        list.appendChild(row);
+
+        // Trim DOM to match buffer max
+        while (list.children.length > EVENT_BUFFER_MAX) {
+            list.removeChild(list.firstChild);
+        }
+
+        // Auto-scroll unless user scrolled up
+        if (!userScrolledUp) {
+            list.scrollTop = list.scrollHeight;
+        }
+    }
+
+    function rebuildEventLog() {
+        var list = document.getElementById("event-log-list");
+        if (!list) return;
+        list.innerHTML = "";
+        for (var i = 0; i < eventBuffer.length; i++) {
+            renderEventRow(eventBuffer[i]);
+        }
+    }
+
+    function clearEventLog() {
+        eventBuffer = [];
+        lastEventTime = {};
+        var list = document.getElementById("event-log-list");
+        if (list) list.innerHTML = "";
+    }
+
+    function initEventLogControls() {
+        var list = document.getElementById("event-log-list");
+        if (list) {
+            list.addEventListener("scroll", function () {
+                userScrolledUp = (list.scrollTop + list.clientHeight) < (list.scrollHeight - 20);
+            });
+        }
+
+        var filterBtns = document.querySelectorAll(".event-filter-btn");
+        for (var i = 0; i < filterBtns.length; i++) {
+            filterBtns[i].addEventListener("click", function () {
+                var sev = this.getAttribute("data-severity");
+                eventFilterState[sev] = !eventFilterState[sev];
+                this.classList.toggle("active", eventFilterState[sev]);
+
+                // Toggle visibility of matching rows
+                var rows = document.querySelectorAll('.event-row[data-severity="' + sev + '"]');
+                for (var j = 0; j < rows.length; j++) {
+                    rows[j].style.display = eventFilterState[sev] ? "" : "none";
+                }
+            });
+        }
+
+        var clearBtn = document.querySelector(".event-clear-btn");
+        if (clearBtn) {
+            clearBtn.addEventListener("click", clearEventLog);
+        }
+    }
+
+    // ── Event detection from system data ─────────────────────
+
+    function detectSystemEvents(data) {
+        if (!prevSystemData) {
+            // First tick — record session start
+            pushEvent("session", null, "Session started (" + data.mode.toUpperCase() + " mode)");
+            prevSystemData = data;
+            return;
+        }
+
+        var prev = prevSystemData;
+
+        // CamillaDSP state change
+        if (data.camilladsp.state !== prev.camilladsp.state) {
+            var sev = data.camilladsp.state === "Running" ? null : "error";
+            pushEvent("system", sev,
+                "CamillaDSP: " + prev.camilladsp.state + " \u2192 " + data.camilladsp.state);
+        }
+
+        // Mode change
+        if (data.mode !== prev.mode) {
+            pushEvent("mode", null,
+                "Mode: " + prev.mode.toUpperCase() + " \u2192 " + data.mode.toUpperCase());
+        }
+
+        // CPU total threshold (normalized: total / num_cores)
+        var numCores = data.cpu.per_core.length || 4;
+        var cpuNorm = data.cpu.total_percent / numCores;
+        var prevCpuNorm = prev.cpu.total_percent / (prev.cpu.per_core.length || 4);
+        if (cpuNorm >= 80 && prevCpuNorm < 80) {
+            pushEvent("dsp_load", "warning", "CPU crossed 80% (" + cpuNorm.toFixed(0) + "%)");
+        } else if (cpuNorm < 60 && prevCpuNorm >= 60) {
+            pushEvent("dsp_load", null, "CPU dropped below 60% (" + cpuNorm.toFixed(0) + "%)");
+        }
+
+        // Temperature threshold
+        if (data.cpu.temperature >= 75 && prev.cpu.temperature < 75) {
+            pushEvent("temp", "warning",
+                "Temperature crossed 75\u00b0C (" + data.cpu.temperature.toFixed(1) + "\u00b0C)");
+        } else if (data.cpu.temperature < 65 && prev.cpu.temperature >= 65) {
+            pushEvent("temp", null,
+                "Temperature dropped below 65\u00b0C (" + data.cpu.temperature.toFixed(1) + "\u00b0C)");
+        }
+
+        // Memory threshold
+        var memPct = (data.memory.used_mb / data.memory.total_mb) * 100;
+        var prevMemPct = (prev.memory.used_mb / prev.memory.total_mb) * 100;
+        if (memPct >= 85 && prevMemPct < 85) {
+            pushEvent("system", "warning", "Memory crossed 85% (" + memPct.toFixed(0) + "%)");
+        } else if (memPct < 70 && prevMemPct >= 70) {
+            pushEvent("system", null, "Memory dropped below 70% (" + memPct.toFixed(0) + "%)");
+        }
+
+        // Xrun count increment
+        if (data.camilladsp.xruns > prev.camilladsp.xruns) {
+            var delta = data.camilladsp.xruns - prev.camilladsp.xruns;
+            pushEvent("xrun", "error",
+                "Xruns: +" + delta + " (total: " + data.camilladsp.xruns + ")");
+        }
+
+        // Clipped samples increment
+        if (data.camilladsp.clipped_samples > prev.camilladsp.clipped_samples) {
+            var clipDelta = data.camilladsp.clipped_samples - prev.camilladsp.clipped_samples;
+            pushEvent("clip", "error",
+                "Clipped: +" + clipDelta + " (total: " + data.camilladsp.clipped_samples + ")");
+        }
+
+        prevSystemData = data;
+    }
+
+    // Expose pushEvent globally so dashboard.js can use it for monitoring-derived events
+    window._piAudioPushEvent = pushEvent;
 
     // ── CPU bar builder ──────────────────────────────────────
 
@@ -77,6 +288,9 @@
     // ── Data handler ─────────────────────────────────────────
 
     function onSystemData(data) {
+        // Event detection (compare with previous tick)
+        detectSystemEvents(data);
+
         // Header strip
         PiAudio.setText("sys-mode", data.mode.toUpperCase());
         PiAudio.setText("sys-quantum", String(data.pipewire.quantum));
@@ -140,7 +354,15 @@
 
     function init() {
         buildCpuBars();
-        PiAudio.connectWebSocket("/ws/system", onSystemData, function () {});
+        initEventLogControls();
+
+        PiAudio.connectWebSocket("/ws/system", onSystemData, function (connected) {
+            if (connected) {
+                pushEvent("connect", null, "System WebSocket connected");
+            } else {
+                pushEvent("disconnect", "error", "System WebSocket disconnected");
+            }
+        });
     }
 
     // ── Register ─────────────────────────────────────────────

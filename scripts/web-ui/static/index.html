@@ -71,37 +71,45 @@
 
     <!-- Main meter area + right panel -->
     <div class="dashboard-main">
-        <!-- Left: Level meters -->
+        <!-- Left: Level meters + spectrum -->
         <div class="meters-area">
-            <!-- dB scale -->
-            <div class="meter-db-scale" id="meter-db-scale">
-                <div class="meter-db-scale-spacer-top"></div>
-                <div class="meter-db-scale-track"></div>
-                <div class="meter-db-scale-spacer-bottom"></div>
-            </div>
+            <div class="meters-zone">
+                <!-- dB scale -->
+                <div class="meter-db-scale" id="meter-db-scale">
+                    <div class="meter-db-scale-spacer-top"></div>
+                    <div class="meter-db-scale-track"></div>
+                    <div class="meter-db-scale-spacer-bottom"></div>
+                </div>
 
-            <!-- MAIN group (capture ch 0-1, program bus) -->
-            <div class="meter-group-section" id="group-main">
-                <div class="meter-group-label meter-group-label-main">MAIN</div>
-                <div class="meters-row meters-row-main" id="meters-main"></div>
-            </div>
+                <!-- MAIN group (capture ch 0-1, program bus) -->
+                <div class="meter-group-section" id="group-main">
+                    <div class="meter-group-label meter-group-label-main">MAIN</div>
+                    <div class="meters-row meters-row-main" id="meters-main"></div>
+                </div>
 
-            <!-- APP→DSP group (capture ch 2-7, application routing) -->
-            <div class="meter-group-section" id="group-app">
-                <div class="meter-group-label meter-group-label-app">APP→DSP</div>
-                <div class="meters-row" id="meters-app"></div>
-            </div>
+                <!-- APP→DSP group (capture ch 2-7, application routing) -->
+                <div class="meter-group-section" id="group-app">
+                    <div class="meter-group-label meter-group-label-app">APP→DSP</div>
+                    <div class="meters-row" id="meters-app"></div>
+                </div>
 
-            <!-- DSP→OUT group (playback ch 0-7, post-DSP to speakers/headphones/IEM) -->
-            <div class="meter-group-section" id="group-dspout">
-                <div class="meter-group-label">DSP→OUT</div>
-                <div class="meters-row" id="meters-dspout"></div>
-            </div>
+                <!-- DSP→OUT group (playback ch 0-7, post-DSP to speakers/headphones/IEM) -->
+                <div class="meter-group-section" id="group-dspout">
+                    <div class="meter-group-label">DSP→OUT</div>
+                    <div class="meters-row" id="meters-dspout"></div>
+                </div>
 
-            <!-- PHYS IN group (ADA8200 analog inputs, placeholder) -->
-            <div class="meter-group-section" id="group-physin">
-                <div class="meter-group-label meter-group-label-physin">PHYS IN</div>
-                <div class="meters-row" id="meters-physin"></div>
+                <!-- PHYS IN group (ADA8200 analog inputs, placeholder) -->
+                <div class="meter-group-section" id="group-physin">
+                    <div class="meter-group-label meter-group-label-physin">PHYS IN</div>
+                    <div class="meters-row" id="meters-physin"></div>
+                </div>
+            </div>
+            <div class="spectrum-zone" id="spectrum-zone">
+                <div class="spectrum-container">
+                    <span class="spectrum-title">1/3 OCTAVE</span>
+                    <canvas class="spectrum-canvas" id="spectrum-canvas"></canvas>
+                </div>
             </div>
         </div>
 
@@ -213,6 +221,19 @@
             </div>
         </div>
 
+        <!-- Event Log -->
+        <div class="sys-section event-log-section">
+            <div class="event-log-header">
+                <span class="sys-section-title">EVENTS</span>
+                <span class="event-log-controls">
+                    <button class="event-filter-btn active" data-severity="warning" title="Toggle warnings">W</button>
+                    <button class="event-filter-btn active" data-severity="error" title="Toggle errors">E</button>
+                    <button class="event-clear-btn" title="Clear log">CLEAR</button>
+                </span>
+            </div>
+            <div class="event-log-list" id="event-log-list"></div>
+        </div>
+
     </div>
 </div>
 
@@ -239,6 +260,7 @@
 </div>
 
 <script src="/static/js/app.js"></script>
+<script src="/static/js/spectrum.js"></script>
 <script src="/static/js/dashboard.js"></script>
 <script src="/static/js/system.js"></script>
 <script src="/static/js/measure.js"></script>
