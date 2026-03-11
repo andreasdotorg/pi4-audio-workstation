@@ -8,88 +8,103 @@
 </head>
 <body>
 
-<!-- Navigation bar -->
+<!-- Navigation bar (28px) -->
 <nav class="nav-bar">
     <div class="nav-left">
-        <span class="nav-title">Pi Audio Workstation</span>
+        <span class="nav-title">Pi Audio</span>
     </div>
     <div class="nav-tabs">
-        <button class="nav-tab active" data-view="monitor">Monitor</button>
-        <button class="nav-tab" data-view="measure">Measure</button>
+        <button class="nav-tab active" data-view="dashboard">Dashboard</button>
         <button class="nav-tab" data-view="system">System</button>
+        <button class="nav-tab" data-view="measure">Measure</button>
         <button class="nav-tab" data-view="midi">MIDI</button>
     </div>
     <div class="nav-right">
+        <span class="mode-badge" id="mode-badge">--</span>
+        <span class="nav-temp" id="nav-temp">--</span>
         <span class="connection-dot" id="conn-dot"></span>
     </div>
 </nav>
 
-<!-- ════════════════════════════════════════════════════════════
-     VIEW: Monitor — Level meters + CamillaDSP health
-     ════════════════════════════════════════════════════════════ -->
-<div class="view active" id="view-monitor">
+<!-- VIEW: Dashboard — Dense single-screen engineer view -->
+<div class="view active" id="view-dashboard">
 
-    <!-- Compact status strip -->
-    <div class="monitor-status-strip">
-        <div class="strip-item">
-            <span class="strip-label">CamillaDSP</span>
-            <span class="strip-value" id="mon-cdsp-state">--</span>
+    <!-- Health bar (20px) -->
+    <div class="health-bar" id="health-bar">
+        <span class="hb-group">
+            <span class="hb-label">DSP:</span><span class="hb-value" id="hb-dsp-state">--</span>
+            <span class="hb-label">Load:</span><span class="hb-value" id="hb-dsp-load">--</span>
+            <span class="hb-label">Buf:</span><span class="hb-value" id="hb-dsp-buffer">--</span>
+            <span class="hb-label">Clip:</span><span class="hb-value" id="hb-dsp-clip">--</span>
+            <span class="hb-label">Xruns:</span><span class="hb-value" id="hb-dsp-xruns">--</span>
+        </span>
+        <span class="hb-sep">|</span>
+        <span class="hb-group">
+            <span class="hb-label">CPU:</span><span class="hb-value" id="hb-cpu">--</span>
+            <span class="hb-value" id="hb-temp">--</span>
+            <span class="hb-label">Mem:</span><span class="hb-value" id="hb-mem">--</span>
+            <span class="hb-label">PW:</span><span class="hb-value" id="hb-pw-quantum">--</span>
+            <span class="hb-label">FIFO</span><span class="hb-value" id="hb-fifo">--</span>
+            <span class="hb-label">Up:</span><span class="hb-value" id="hb-uptime">--</span>
+        </span>
+    </div>
+
+    <!-- Main meter area + right panel -->
+    <div class="dashboard-main">
+        <!-- Left: Level meters -->
+        <div class="meters-area">
+            <!-- dB scale -->
+            <div class="meter-db-scale" id="meter-db-scale">
+                <div class="meter-db-scale-spacer-top"></div>
+                <div class="meter-db-scale-track"></div>
+                <div class="meter-db-scale-spacer-bottom"></div>
+            </div>
+
+            <!-- CAPTURE group -->
+            <div class="meter-group-section" id="group-capture">
+                <div class="meter-group-label meter-group-label-capture">CAPTURE</div>
+                <div class="meters-row" id="meters-capture"></div>
+            </div>
+
+            <!-- PA SENDS group -->
+            <div class="meter-group-section" id="group-pa">
+                <div class="meter-group-label">PA SENDS</div>
+                <div class="meters-row" id="meters-pa"></div>
+            </div>
+
+            <!-- MONITOR SENDS group -->
+            <div class="meter-group-section" id="group-monitor">
+                <div class="meter-group-label">MONITOR SENDS</div>
+                <div class="meters-row" id="meters-monitor"></div>
+            </div>
         </div>
-        <div class="strip-item">
-            <span class="strip-label">Load</span>
-            <span class="strip-value" id="mon-cdsp-load">--</span>
-        </div>
-        <div class="strip-item">
-            <span class="strip-label">Buffer</span>
-            <span class="strip-value" id="mon-cdsp-buffer">--</span>
-        </div>
-        <div class="strip-item">
-            <span class="strip-label">Xruns</span>
-            <span class="strip-value" id="mon-cdsp-xruns">--</span>
-        </div>
-        <div class="strip-item">
-            <span class="strip-label">Clipped</span>
-            <span class="strip-value" id="mon-cdsp-clipped">--</span>
-        </div>
-        <div class="strip-item">
-            <span class="strip-label">Rate Adj</span>
-            <span class="strip-value" id="mon-cdsp-rate-adj">--</span>
-        </div>
-        <div class="strip-item">
-            <span class="strip-label">Chunk</span>
-            <span class="strip-value" id="mon-cdsp-chunksize">--</span>
+
+        <!-- Right panel: LUFS placeholder -->
+        <div class="right-panel">
+            <div class="lufs-panel">
+                <div class="lufs-section">
+                    <div class="lufs-label">SHORT-TERM</div>
+                    <div class="lufs-value" id="lufs-short">--</div>
+                    <div class="lufs-unit">LUFS</div>
+                </div>
+                <div class="lufs-section">
+                    <div class="lufs-label">INTEGRATED</div>
+                    <div class="lufs-value" id="lufs-integrated">--</div>
+                    <div class="lufs-unit">LUFS</div>
+                </div>
+                <div class="lufs-section">
+                    <div class="lufs-label">MOMENTARY</div>
+                    <div class="lufs-value" id="lufs-momentary">--</div>
+                    <div class="lufs-unit">LUFS</div>
+                </div>
+                <div class="lufs-stage-note">Stage 2</div>
+            </div>
         </div>
     </div>
 
-    <!-- Level meters -->
-    <div class="meters-area">
-        <!-- Capture meters -->
-        <div class="meter-group">
-            <div class="meter-group-title">Capture</div>
-            <div class="meters-row" id="meters-capture"></div>
-        </div>
-        <!-- Playback meters -->
-        <div class="meter-group">
-            <div class="meter-group-title">Playback</div>
-            <div class="meters-row" id="meters-playback"></div>
-        </div>
-    </div>
 </div>
 
-<!-- ════════════════════════════════════════════════════════════
-     VIEW: Measure — Stub
-     ════════════════════════════════════════════════════════════ -->
-<div class="view" id="view-measure">
-    <div class="stub-container">
-        <div class="stub-icon">&#x1f50a;</div>
-        <div class="stub-title">Measurement</div>
-        <div class="stub-text">Room correction measurement pipeline. Coming in Stage 2.</div>
-    </div>
-</div>
-
-<!-- ════════════════════════════════════════════════════════════
-     VIEW: System — Full system health
-     ════════════════════════════════════════════════════════════ -->
+<!-- VIEW: System — Full system health (fallback diagnostic view) -->
 <div class="view" id="view-system">
     <div class="system-grid">
 
@@ -170,12 +185,17 @@
     </div>
 </div>
 
-<!-- ════════════════════════════════════════════════════════════
-     VIEW: MIDI — Stub
-     ════════════════════════════════════════════════════════════ -->
+<!-- VIEW: Measure -->
+<div class="view" id="view-measure">
+    <div class="stub-container">
+        <div class="stub-title">Measurement</div>
+        <div class="stub-text">Room correction measurement pipeline. Coming in Stage 2.</div>
+    </div>
+</div>
+
+<!-- VIEW: MIDI -->
 <div class="view" id="view-midi">
     <div class="stub-container">
-        <div class="stub-icon">&#x1f3b9;</div>
         <div class="stub-title">MIDI</div>
         <div class="stub-text">MIDI controller mapping and monitoring. Coming in Stage 2.</div>
     </div>
@@ -188,7 +208,7 @@
 </div>
 
 <script src="/static/js/app.js"></script>
-<script src="/static/js/monitor.js"></script>
+<script src="/static/js/dashboard.js"></script>
 <script src="/static/js/system.js"></script>
 <script src="/static/js/measure.js"></script>
 <script src="/static/js/midi.js"></script>

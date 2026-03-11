@@ -147,9 +147,9 @@ def frozen_page(browser, mock_server):
     )
     pg.goto(f"{mock_server}?scenario=A&freeze_time=true")
     # Wait for WebSocket data to arrive and populate the UI
-    pg.locator("#mon-cdsp-state").wait_for(state="visible")
+    pg.locator("#hb-dsp-state").wait_for(state="visible")
     pg.wait_for_function(
-        "document.getElementById('mon-cdsp-state').textContent !== '--'",
+        "document.getElementById('hb-dsp-state').textContent !== '--'",
         timeout=5000,
     )
     yield pg

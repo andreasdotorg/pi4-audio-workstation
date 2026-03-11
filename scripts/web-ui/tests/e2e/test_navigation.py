@@ -1,6 +1,7 @@
 """Navigation tests for the D-020 Web UI.
 
 Verifies that all four tabs are visible, clickable, and switch views correctly.
+Tabs: Dashboard (default), System, Measure, MIDI.
 """
 
 import re
@@ -15,20 +16,33 @@ _NOT_ACTIVE_RE = re.compile(r"^(?!.*\bactive\b).*$")
 
 
 def test_all_tabs_visible(page):
-    """All four navigation tabs (Monitor, Measure, System, MIDI) are visible."""
-    for label in ("Monitor", "Measure", "System", "MIDI"):
-        tab = page.locator(f'.nav-tab[data-view="{label.lower()}"]')
+    """All four navigation tabs (Dashboard, System, Measure, MIDI) are visible."""
+    for label, view in (("Dashboard", "dashboard"), ("System", "system"),
+                        ("Measure", "measure"), ("MIDI", "midi")):
+        tab = page.locator(f'.nav-tab[data-view="{view}"]')
         expect(tab).to_be_visible()
         expect(tab).to_have_text(label)
 
 
-def test_default_view_is_monitor(page):
-    """The Monitor view is active by default on initial page load."""
-    monitor_tab = page.locator('.nav-tab[data-view="monitor"]')
-    expect(monitor_tab).to_have_class(_ACTIVE_RE)
+def test_default_view_is_dashboard(page):
+    """The Dashboard view is active by default on initial page load."""
+    dashboard_tab = page.locator('.nav-tab[data-view="dashboard"]')
+    expect(dashboard_tab).to_have_class(_ACTIVE_RE)
 
-    monitor_view = page.locator("#view-monitor")
-    expect(monitor_view).to_have_class(_ACTIVE_RE)
+    dashboard_view = page.locator("#view-dashboard")
+    expect(dashboard_view).to_have_class(_ACTIVE_RE)
+
+
+def test_click_system_tab(page):
+    """Clicking the System tab shows the System view."""
+    page.locator('.nav-tab[data-view="system"]').click()
+
+    system_view = page.locator("#view-system")
+    expect(system_view).to_have_class(_ACTIVE_RE)
+
+    # Dashboard view should no longer be active
+    dashboard_view = page.locator("#view-dashboard")
+    expect(dashboard_view).to_have_class(_NOT_ACTIVE_RE)
 
 
 def test_click_measure_tab(page):
@@ -38,17 +52,9 @@ def test_click_measure_tab(page):
     measure_view = page.locator("#view-measure")
     expect(measure_view).to_have_class(_ACTIVE_RE)
 
-    # Monitor view should no longer be active
-    monitor_view = page.locator("#view-monitor")
-    expect(monitor_view).to_have_class(_NOT_ACTIVE_RE)
-
-
-def test_click_system_tab(page):
-    """Clicking the System tab shows the System view."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    system_view = page.locator("#view-system")
-    expect(system_view).to_have_class(_ACTIVE_RE)
+    # Dashboard view should no longer be active
+    dashboard_view = page.locator("#view-dashboard")
+    expect(dashboard_view).to_have_class(_NOT_ACTIVE_RE)
 
 
 def test_click_midi_tab(page):
@@ -59,13 +65,13 @@ def test_click_midi_tab(page):
     expect(midi_view).to_have_class(_ACTIVE_RE)
 
 
-def test_switch_back_to_monitor(page):
-    """Switching away from Monitor and back restores it."""
-    page.locator('.nav-tab[data-view="system"]').click()
-    page.locator('.nav-tab[data-view="monitor"]').click()
+def test_switch_back_to_dashboard(page):
+    """Switching away from Dashboard and back restores it."""
+    page.locator('.nav-tab[data-view="midi"]').click()
+    page.locator('.nav-tab[data-view="dashboard"]').click()
 
-    monitor_view = page.locator("#view-monitor")
-    expect(monitor_view).to_have_class(_ACTIVE_RE)
+    dashboard_view = page.locator("#view-dashboard")
+    expect(dashboard_view).to_have_class(_ACTIVE_RE)
 
-    monitor_tab = page.locator('.nav-tab[data-view="monitor"]')
-    expect(monitor_tab).to_have_class(_ACTIVE_RE)
+    dashboard_tab = page.locator('.nav-tab[data-view="dashboard"]')
+    expect(dashboard_tab).to_have_class(_ACTIVE_RE)

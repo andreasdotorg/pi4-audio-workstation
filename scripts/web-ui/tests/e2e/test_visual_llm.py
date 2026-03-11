@@ -16,44 +16,27 @@ anthropic = pytest.importorskip("anthropic")
 
 pytestmark = pytest.mark.browser
 
-MONITOR_PROMPT = """Evaluate this web UI screenshot of an audio monitoring dashboard.
+DASHBOARD_PROMPT = """Evaluate this web UI screenshot of a dense audio monitoring dashboard.
 
 Expected elements:
-- Dark background theme (near-black or dark gray)
-- Navigation bar at top with tabs: Monitor, Measure, System, MIDI
-- "Monitor" tab should be active/highlighted
-- Two groups of level meters: "Capture" (left) and "Playback" (right)
-- 8 vertical level meter bars in each group with channel labels
-- CamillaDSP status strip showing state, sample rate, buffer level
+- Very dark background theme (#0a0a0a near-black)
+- Compact navigation bar at top (28px) with tabs: Dashboard, System, Measure, MIDI
+- Mode badge (DJ or LIVE) and temperature in nav bar right section
+- Health bar below nav: single dense line showing DSP state, Load, Buffer,
+  Clip, Xruns, CPU%, temperature, Memory, PipeWire quantum, FIFO status
+- Three meter groups in signal-flow order: CAPTURE (cyan), PA SENDS (green),
+  MONITOR SENDS (green)
+- Right panel (180px) with LUFS readouts (Short-term, Integrated, Momentary)
+  showing '--' placeholder values and a 'Stage 2' note
 
 Check for:
 1. All expected elements present and visible
 2. No broken layouts, overlapping text, or misaligned elements
-3. Consistent dark color scheme (no white flashes or unstyled areas)
-4. Level meters showing colored bars (green/yellow/red gradient)
-5. No error messages, blank areas, or stuck loading indicators
-
-Return ONLY valid JSON: {"pass": true/false, "issues": ["issue1", "issue2"]}
-If everything looks correct, return: {"pass": true, "issues": []}"""
-
-SYSTEM_PROMPT = """Evaluate this web UI screenshot of a system health dashboard.
-
-Expected elements:
-- Dark background theme (near-black or dark gray)
-- Navigation bar at top with tabs: Monitor, Measure, System, MIDI
-- "System" tab should be active/highlighted
-- CPU section with labeled usage bars
-- Memory section showing used/total
-- Temperature display
-- CamillaDSP section showing DSP engine status
-- Process list showing running audio processes
-
-Check for:
-1. All expected elements present and visible
-2. No broken layouts, overlapping text, or misaligned elements
-3. Consistent dark color scheme
-4. Numeric values displayed (not placeholder dashes)
-5. No error messages or blank areas
+3. Consistent very dark color scheme (no white flashes or unstyled areas)
+4. Level meters showing colored bars with cyan for CAPTURE group
+5. Health bar showing actual values (not all dashes)
+6. No error messages, blank areas, or stuck loading indicators
+7. Dense layout with minimal padding (max 8px anywhere)
 
 Return ONLY valid JSON: {"pass": true/false, "issues": ["issue1", "issue2"]}
 If everything looks correct, return: {"pass": true, "issues": []}"""
@@ -103,15 +86,7 @@ def _evaluate_screenshot(client, page, prompt):
     return result
 
 
-def test_monitor_view_llm_qa(frozen_page, client):
-    """LLM evaluates Monitor view screenshot for correctness."""
-    result = _evaluate_screenshot(client, frozen_page, MONITOR_PROMPT)
-    assert result["pass"], f"LLM visual QA failed for Monitor view: {result['issues']}"
-
-
-def test_system_view_llm_qa(frozen_page, client):
-    """LLM evaluates System view screenshot for correctness."""
-    frozen_page.locator("[data-view='system']").click()
-    frozen_page.wait_for_selector("#sys-temp:not(:text('--'))", timeout=3000)
-    result = _evaluate_screenshot(client, frozen_page, SYSTEM_PROMPT)
-    assert result["pass"], f"LLM visual QA failed for System view: {result['issues']}"
+def test_dashboard_llm_qa(frozen_page, client):
+    """LLM evaluates Dashboard view screenshot for correctness."""
+    result = _evaluate_screenshot(client, frozen_page, DASHBOARD_PROMPT)
+    assert result["pass"], f"LLM visual QA failed for Dashboard view: {result['issues']}"

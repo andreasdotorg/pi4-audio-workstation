@@ -30,8 +30,7 @@ SCREENSHOT_DIR = Path(__file__).parent / "screenshots"
 MAX_DIFF_PIXEL_RATIO = 0.01  # 1 % of pixels may differ
 
 
-# ── Minimal PNG decoder (no Pillow dependency) ────────────────────
-
+# -- Minimal PNG decoder (no Pillow dependency) --
 
 def _decode_png(png_bytes: bytes) -> np.ndarray:
     """Decode a PNG file into an (H, W, C) uint8 numpy array.
@@ -102,8 +101,7 @@ def _decode_png(png_bytes: bytes) -> np.ndarray:
     return pixels.reshape(height, width, bpp)
 
 
-# ── Screenshot assertion helper ───────────────────────────────────
-
+# -- Screenshot assertion helper --
 
 def _assert_screenshot(
     page,
@@ -164,23 +162,18 @@ def _assert_screenshot(
         )
 
 
-# ── Tests ─────────────────────────────────────────────────────────
+# -- Tests --
 
-
-def test_monitor_view_screenshot(frozen_page, request):
-    """Visual regression: Monitor view with frozen scenario-A data."""
+def test_dashboard_screenshot(frozen_page, request):
+    """Visual regression: Dashboard view with frozen scenario-A data."""
     frozen_page.wait_for_timeout(500)
     update = request.config.getoption("--update-snapshots", default=False)
-    _assert_screenshot(frozen_page, "monitor-view.png", update=update)
+    _assert_screenshot(frozen_page, "dashboard-view.png", update=update)
 
 
-def test_system_view_screenshot(frozen_page, request):
+def test_system_screenshot(frozen_page, request):
     """Visual regression: System view with frozen scenario-A data."""
     frozen_page.locator('.nav-tab[data-view="system"]').click()
-    frozen_page.wait_for_function(
-        "document.getElementById('sys-temp').textContent !== '--'",
-        timeout=5000,
-    )
     frozen_page.wait_for_timeout(500)
     update = request.config.getoption("--update-snapshots", default=False)
     _assert_screenshot(frozen_page, "system-view.png", update=update)

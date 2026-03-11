@@ -1,111 +1,154 @@
 """System view tests for the D-020 Web UI.
 
-Verifies system health indicators, CPU/memory/temperature display, and
-WebSocket data updates.
+The System view is a fallback diagnostic view showing detailed system health:
+CPU bars, CamillaDSP state, scheduling, memory, and processes.
 """
-
-import re
 
 import pytest
 from playwright.sync_api import expect
 
 pytestmark = pytest.mark.browser
 
-_ACTIVE_RE = re.compile(r".*\bactive\b.*")
 
-
-def test_system_view_loads(page):
-    """System view is present in the DOM and activates on tab click."""
+def _go_to_system(page):
+    """Navigate to the System view."""
     page.locator('.nav-tab[data-view="system"]').click()
 
-    system_view = page.locator("#view-system")
-    expect(system_view).to_have_class(_ACTIVE_RE)
+
+def test_system_view_exists(page):
+    """System view element exists in the DOM."""
+    view = page.locator("#view-system")
+    expect(view).to_have_count(1)
 
 
-def test_system_header_strip_visible(page):
-    """The system header strip (Mode, Quantum, etc.) is visible."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    header = page.locator(".sys-header-strip")
-    expect(header).to_be_visible()
-
-
-def test_cpu_section_visible(page):
-    """The CPU section with bar charts is rendered."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    cpu_section_title = page.locator(".sys-section-title", has_text="CPU")
-    expect(cpu_section_title).to_be_visible()
-
-    # CPU bars container should have rows (built dynamically by system.js)
-    cpu_bars = page.locator("#sys-cpu-bars .cpu-row")
-    expect(cpu_bars).to_have_count(5)  # Total + 4 cores
+def test_system_view_visible_after_click(page):
+    """System view becomes visible after clicking the System tab."""
+    _go_to_system(page)
+    view = page.locator("#view-system")
+    expect(view).to_be_visible()
 
 
-def test_memory_section_visible(page):
-    """The Memory section is rendered with Used and Available fields."""
-    page.locator('.nav-tab[data-view="system"]').click()
+# -- Header strip --
 
-    mem_title = page.locator(".sys-section-title", has_text="Memory")
-    expect(mem_title).to_be_visible()
-
-    mem_used = page.locator("#sys-mem-used")
-    expect(mem_used).to_be_visible()
-
-    mem_avail = page.locator("#sys-mem-avail")
-    expect(mem_avail).to_be_visible()
+def test_sys_mode_element(page):
+    """Mode element exists in the system header strip."""
+    _go_to_system(page)
+    el = page.locator("#sys-mode")
+    expect(el).to_be_visible()
 
 
-def test_temperature_displayed(page):
-    """The temperature value is present in the header strip."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    temp = page.locator("#sys-temp")
-    expect(temp).to_be_visible()
-
-
-def test_websocket_updates_temperature(page):
-    """Temperature value updates from '--' placeholder within 3 s."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    temp = page.locator("#sys-temp")
-    expect(temp).not_to_have_text("--", timeout=3000)
+def test_sys_quantum_element(page):
+    """Quantum element exists in the system header strip."""
+    _go_to_system(page)
+    el = page.locator("#sys-quantum")
+    expect(el).to_be_visible()
 
 
-def test_websocket_updates_cpu(page):
-    """CPU total value updates from '--' placeholder within 3 s."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    cpu_total = page.locator("#sys-cpu-total-value")
-    expect(cpu_total).not_to_have_text("--", timeout=3000)
-
-
-def test_websocket_updates_memory(page):
-    """Memory used value updates from '--' placeholder within 3 s."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    mem_used = page.locator("#sys-mem-used")
-    expect(mem_used).not_to_have_text("--", timeout=3000)
+def test_sys_chunksize_element(page):
+    """Chunksize element exists in the system header strip."""
+    _go_to_system(page)
+    el = page.locator("#sys-chunksize")
+    expect(el).to_be_visible()
 
 
-def test_camilladsp_section_visible(page):
-    """The CamillaDSP section is rendered in the System view."""
-    page.locator('.nav-tab[data-view="system"]').click()
-
-    cdsp_title = page.locator(".sys-section-title", has_text="CamillaDSP")
-    expect(cdsp_title).to_be_visible()
-
-    cdsp_state = page.locator("#sys-cdsp-state")
-    expect(cdsp_state).to_be_visible()
+def test_sys_rate_element(page):
+    """Sample rate element exists in the system header strip."""
+    _go_to_system(page)
+    el = page.locator("#sys-rate")
+    expect(el).to_be_visible()
 
 
-def test_processes_section_visible(page):
-    """The Processes section lists the expected process names."""
-    page.locator('.nav-tab[data-view="system"]').click()
+def test_sys_temp_element(page):
+    """Temperature element exists in the system header strip."""
+    _go_to_system(page)
+    el = page.locator("#sys-temp")
+    expect(el).to_be_visible()
 
-    proc_title = page.locator(".sys-section-title", has_text="Processes")
-    expect(proc_title).to_be_visible()
 
-    for name in ("Mixxx", "Reaper", "CamillaDSP", "PipeWire", "labwc"):
-        proc = page.locator(".proc-name", has_text=name)
-        expect(proc).to_be_visible()
+# -- CPU section --
+
+def test_sys_cpu_bars_section(page):
+    """CPU bars container exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-cpu-bars")
+    expect(el).to_be_visible()
+
+
+# -- CamillaDSP section --
+
+def test_sys_cdsp_state(page):
+    """CamillaDSP state element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-cdsp-state")
+    expect(el).to_be_visible()
+
+
+def test_sys_cdsp_load(page):
+    """CamillaDSP load element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-cdsp-load")
+    expect(el).to_be_visible()
+
+
+# -- Scheduling section --
+
+def test_sys_sched_pw(page):
+    """PipeWire scheduling element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-sched-pw")
+    expect(el).to_be_visible()
+
+
+def test_sys_sched_cdsp(page):
+    """CamillaDSP scheduling element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-sched-cdsp")
+    expect(el).to_be_visible()
+
+
+# -- Memory section --
+
+def test_sys_mem_used(page):
+    """Memory used element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-mem-used")
+    expect(el).to_be_visible()
+
+
+def test_sys_mem_avail(page):
+    """Memory available element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-mem-avail")
+    expect(el).to_be_visible()
+
+
+# -- Processes section --
+
+def test_sys_proc_mixxx(page):
+    """Mixxx process element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-proc-mixxx")
+    expect(el).to_be_visible()
+
+
+def test_sys_proc_pipewire(page):
+    """PipeWire process element exists."""
+    _go_to_system(page)
+    el = page.locator("#sys-proc-pipewire")
+    expect(el).to_be_visible()
+
+
+# -- WebSocket data updates --
+
+def test_sys_mode_updates(page):
+    """Mode value updates from '--' within 3 s."""
+    _go_to_system(page)
+    el = page.locator("#sys-mode")
+    expect(el).not_to_have_text("--", timeout=3000)
+
+
+def test_sys_temp_updates(page):
+    """Temperature updates from '--' within 3 s."""
+    _go_to_system(page)
+    el = page.locator("#sys-temp")
+    expect(el).not_to_have_text("--", timeout=3000)

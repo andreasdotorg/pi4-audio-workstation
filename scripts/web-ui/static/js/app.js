@@ -2,7 +2,7 @@
  * D-020 Web UI — Core application module.
  *
  * Handles SPA view switching, WebSocket lifecycle management, and
- * shared utilities. Each view module (monitor.js, system.js, etc.)
+ * shared utilities. Each view module (dashboard.js, measure.js, etc.)
  * registers itself via PiAudio.registerView().
  */
 
@@ -10,7 +10,7 @@
 
 var PiAudio = (function () {
 
-    // ── Constants ────────────────────────────────────────────
+    // -- Constants --
 
     var RECONNECT_BASE_MS = 500;
     var RECONNECT_MAX_MS = 10000;
@@ -19,20 +19,15 @@ var PiAudio = (function () {
     var scenario = params.get("scenario") || "A";
     var freezeTime = params.get("freeze_time") || "";
 
-    // ── State ────────────────────────────────────────────────
+    // -- State --
 
-    var activeView = "monitor";
+    var activeView = "dashboard";
     var views = {};          // { name: { init(), onShow(), onHide() } }
     var sockets = {};        // { path: { ws, connected, attempt, onMessage, onConn } }
     var initialized = false;
 
-    // ── View management ──────────────────────────────────────
+    // -- View management --
 
-    /**
-     * Register a view module.
-     * @param {string} name - View name (matches data-view attribute)
-     * @param {object} module - { init(), onShow(), onHide() }
-     */
     function registerView(name, module) {
         views[name] = module;
     }
@@ -55,7 +50,6 @@ var PiAudio = (function () {
         var tab = document.querySelector('.nav-tab[data-view="' + name + '"]');
         if (tab) tab.classList.add("active");
 
-        // Notify old and new view
         if (views[activeView] && views[activeView].onHide) {
             views[activeView].onHide();
         }
@@ -65,16 +59,8 @@ var PiAudio = (function () {
         }
     }
 
-    // ── WebSocket management ─────────────────────────────────
+    // -- WebSocket management --
 
-    /**
-     * Connect a WebSocket and register message/connection handlers.
-     * Reconnects automatically with exponential backoff.
-     *
-     * @param {string} path - Endpoint path (e.g. "/ws/monitoring")
-     * @param {function} onMessage - Called with parsed JSON on each message
-     * @param {function} onConn - Called with (boolean) on connect/disconnect
-     */
     function connectWebSocket(path, onMessage, onConn) {
         var state = { ws: null, connected: false, attempt: 0 };
         sockets[path] = state;
@@ -141,14 +127,13 @@ var PiAudio = (function () {
         if (overlay) overlay.classList.toggle("visible", !allConnected);
     }
 
-    // ── Shared DOM helpers ───────────────────────────────────
+    // -- Shared DOM helpers --
 
     function setText(id, text, colorClass) {
         var el = document.getElementById(id);
         if (!el) return;
         el.textContent = text;
-        // Strip old color classes
-        el.className = el.className.replace(/\bc-(green|yellow|red|blue)\b/g, "").trim();
+        el.className = el.className.replace(/\bc-(green|yellow|red|blue|cyan)\b/g, "").trim();
         if (colorClass) el.classList.add(colorClass);
     }
 
@@ -170,13 +155,12 @@ var PiAudio = (function () {
         return "c-green";
     }
 
-    // ── Initialization ───────────────────────────────────────
+    // -- Initialization --
 
     function init() {
         if (initialized) return;
         initialized = true;
 
-        // Set up nav tab clicks
         var tabs = document.querySelectorAll(".nav-tab");
         for (var i = 0; i < tabs.length; i++) {
             tabs[i].addEventListener("click", function () {
@@ -184,12 +168,10 @@ var PiAudio = (function () {
             });
         }
 
-        // Initialize all registered view modules
         for (var name in views) {
             if (views[name].init) views[name].init();
         }
 
-        // Show initial view
         if (views[activeView] && views[activeView].onShow) {
             views[activeView].onShow();
         }
@@ -197,7 +179,7 @@ var PiAudio = (function () {
 
     document.addEventListener("DOMContentLoaded", init);
 
-    // ── Public API ───────────────────────────────────────────
+    // -- Public API --
 
     return {
         registerView: registerView,

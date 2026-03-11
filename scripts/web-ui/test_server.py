@@ -244,7 +244,7 @@ class TestFastAPIApp:
         assert len(resp.text) > 100
 
     def test_static_js_files(self, client):
-        for name in ("app.js", "monitor.js", "system.js", "measure.js", "midi.js"):
+        for name in ("app.js", "dashboard.js", "system.js", "measure.js", "midi.js"):
             resp = client.get(f"/static/js/{name}")
             assert resp.status_code == 200, f"{name} not served"
 

@@ -1,6 +1,9 @@
-"""Monitor view tests for the D-020 Web UI.
+"""Dashboard view tests for the D-020 Web UI.
 
-Verifies level-meter canvas elements, WebSocket data flow, and value updates.
+Verifies the dense single-screen dashboard: health bar, level meter groups
+(Capture, PA Sends, Monitor Sends), LUFS placeholder, and WebSocket data flow.
+
+Stage 1 scope: meters + health bar + LUFS placeholder panel only.
 """
 
 import pytest
@@ -9,64 +12,133 @@ from playwright.sync_api import expect
 pytestmark = pytest.mark.browser
 
 
-def test_monitor_view_has_meter_groups(page):
-    """Monitor view contains Capture and Playback meter groups."""
-    capture_group = page.locator("#meters-capture")
-    expect(capture_group).to_be_visible()
+# -- Health bar --
 
-    playback_group = page.locator("#meters-playback")
-    expect(playback_group).to_be_visible()
+def test_health_bar_visible(page):
+    """The health bar is visible in the dashboard."""
+    health_bar = page.locator(".health-bar")
+    expect(health_bar).to_be_visible()
 
 
-def test_capture_meters_have_canvas_elements(page):
-    """Capture meter group renders 8 canvas elements (one per channel)."""
+def test_health_bar_dsp_state_updates(page):
+    """DSP state in health bar updates from '--' within 3 s."""
+    dsp_state = page.locator("#hb-dsp-state")
+    expect(dsp_state).not_to_have_text("--", timeout=3000)
+
+
+def test_health_bar_cpu_updates(page):
+    """CPU percentage in health bar updates from '--' within 3 s."""
+    cpu = page.locator("#hb-cpu")
+    expect(cpu).not_to_have_text("--", timeout=3000)
+
+
+def test_health_bar_mem_updates(page):
+    """Memory in health bar updates from '--' within 3 s."""
+    mem = page.locator("#hb-mem")
+    expect(mem).not_to_have_text("--", timeout=3000)
+
+
+# -- Nav bar indicators --
+
+def test_mode_badge_visible(page):
+    """The mode badge is visible in the nav bar."""
+    badge = page.locator("#mode-badge")
+    expect(badge).to_be_visible()
+
+
+def test_mode_badge_updates(page):
+    """Mode badge updates from '--' within 3 s."""
+    badge = page.locator("#mode-badge")
+    expect(badge).not_to_have_text("--", timeout=3000)
+
+
+def test_nav_temp_updates(page):
+    """Nav bar temperature updates from '--' within 3 s."""
+    temp = page.locator("#nav-temp")
+    expect(temp).not_to_have_text("--", timeout=3000)
+
+
+# -- Meter groups --
+
+def test_capture_meters_present(page):
+    """Capture meter group has canvas elements."""
     canvases = page.locator("#meters-capture canvas")
+    # 8 capture channels
     expect(canvases).to_have_count(8)
 
 
-def test_playback_meters_have_canvas_elements(page):
-    """Playback meter group renders 8 canvas elements (one per channel)."""
-    canvases = page.locator("#meters-playback canvas")
-    expect(canvases).to_have_count(8)
+def test_pa_meters_present(page):
+    """PA Sends meter group has 4 canvas elements."""
+    canvases = page.locator("#meters-pa canvas")
+    expect(canvases).to_have_count(4)
 
 
-def test_channel_labels_present(page):
-    """All 8 channel labels are rendered for both Capture and Playback."""
-    labels = ["Main L", "Main R", "Sub 1", "Sub 2", "HP L", "HP R", "IEM L", "IEM R"]
-    for label_text in labels:
-        capture_labels = page.locator("#meters-capture .meter-label", has_text=label_text)
-        expect(capture_labels.first).to_be_visible()
-
-        playback_labels = page.locator("#meters-playback .meter-label", has_text=label_text)
-        expect(playback_labels.first).to_be_visible()
+def test_monitor_meters_present(page):
+    """Monitor Sends meter group has 4 canvas elements."""
+    canvases = page.locator("#meters-monitor canvas")
+    expect(canvases).to_have_count(4)
 
 
-def test_camilladsp_status_strip_visible(page):
-    """The CamillaDSP status strip is visible in the Monitor view."""
-    strip = page.locator(".monitor-status-strip")
-    expect(strip).to_be_visible()
+def test_capture_group_label(page):
+    """Capture group has the 'CAPTURE' label."""
+    label = page.locator(".meter-group-label-capture")
+    expect(label).to_be_visible()
+    expect(label).to_have_text("CAPTURE")
 
 
-def test_websocket_updates_cdsp_state(page):
-    """WebSocket data updates the CamillaDSP state indicator within 3 s.
-
-    The mock server sends monitoring data at 10 Hz. The initial placeholder
-    value '--' should be replaced by a real state string (e.g. 'Running').
-    """
-    cdsp_state = page.locator("#mon-cdsp-state")
-    # Wait for the text to change from the placeholder '--'
-    expect(cdsp_state).not_to_have_text("--", timeout=3000)
+def test_pa_group_label(page):
+    """PA Sends group has the 'PA SENDS' label."""
+    label = page.locator("#group-pa .meter-group-label")
+    expect(label).to_have_text("PA SENDS")
 
 
-def test_websocket_updates_meter_db_values(page):
-    """Level meter dB readouts update from their '-inf' initial value within 3 s."""
-    # Check the first capture channel dB readout
+def test_monitor_group_label(page):
+    """Monitor Sends group has the 'MONITOR SENDS' label."""
+    label = page.locator("#group-monitor .meter-group-label")
+    expect(label).to_have_text("MONITOR SENDS")
+
+
+def test_channel_labels_capture(page):
+    """Capture group has abbreviated channel labels."""
+    labels = page.locator("#meters-capture .meter-label")
+    expect(labels.first).to_have_text("InL")
+
+
+def test_channel_labels_pa(page):
+    """PA Sends group has abbreviated channel labels."""
+    labels = page.locator("#meters-pa .meter-label")
+    expect(labels.first).to_have_text("ML")
+
+
+def test_channel_labels_monitor(page):
+    """Monitor Sends group has abbreviated channel labels."""
+    labels = page.locator("#meters-monitor .meter-label")
+    expect(labels.first).to_have_text("EL")
+
+
+# -- LUFS placeholder --
+
+def test_lufs_panel_visible(page):
+    """The LUFS panel placeholder is visible."""
+    lufs = page.locator(".lufs-panel")
+    expect(lufs).to_be_visible()
+
+
+def test_lufs_shows_placeholder(page):
+    """LUFS values show '--' placeholder."""
+    short_term = page.locator("#lufs-short")
+    expect(short_term).to_have_text("--")
+
+
+# -- Meter dB readout updates --
+
+def test_capture_db_readout_updates(page):
+    """Capture meter dB readout updates from '-inf' within 3 s."""
     db_readout = page.locator("#meters-capture-db-0")
-    # The initial text is '-inf'; once WS data arrives it will show a numeric value
     expect(db_readout).not_to_have_text("-inf", timeout=3000)
 
 
-def test_cdsp_load_updates(page):
-    """CamillaDSP processing load value updates from placeholder within 3 s."""
-    cdsp_load = page.locator("#mon-cdsp-load")
-    expect(cdsp_load).not_to_have_text("--", timeout=3000)
+def test_pa_db_readout_updates(page):
+    """PA meter dB readout updates from '-inf' within 3 s."""
+    db_readout = page.locator("#meters-pa-db-0")
+    expect(db_readout).not_to_have_text("-inf", timeout=3000)

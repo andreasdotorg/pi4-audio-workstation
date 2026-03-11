@@ -1,27 +1,32 @@
-/* D-020 Monitoring Web UI — Dark theme for kiosk display.
+/* D-020 Monitoring Web UI — Dense dashboard theme.
  *
  * Designed for fullscreen Chromium on 1920x1080 HDMI (Pi 4).
  * Stage-friendly: dark background, high-contrast indicators.
+ * Dense single-screen layout — no scrolling, no wasted pixels.
  */
 
 :root {
-    --bg: #0d0d0d;
-    --bg-panel: #1a1a1a;
+    --bg: #0a0a0a;
+    --bg-panel: #141414;
+    --bg-meter: #0f0f0f;
     --bg-bar: #262626;
-    --border: #333;
-    --text: #e0e0e0;
-    --text-dim: #888;
+    --border: #222;
+    --text: #d0d0d0;
+    --text-dim: #666;
+    --text-micro: #555;
     --text-label: #aaa;
 
     --green: #4caf50;
     --yellow: #ffc107;
     --red: #f44336;
     --blue: #42a5f5;
+    --cyan: #00acc1;
 
     --meter-bg: #1a1a1a;
     --meter-peak: #ffffff;
 
-    --nav-height: 40px;
+    --nav-height: 28px;
+    --health-bar-height: 20px;
 }
 
 * {
@@ -41,16 +46,16 @@ html, body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* ── Navigation bar ─────────────────────────────────────────── */
+/* -- Navigation bar (28px) ------------------------------------------------ */
 
 .nav-bar {
     display: flex;
     align-items: center;
     height: var(--nav-height);
-    padding: 0 16px;
+    padding: 0 8px;
     background: var(--bg-panel);
     border-bottom: 1px solid var(--border);
-    gap: 16px;
+    gap: 8px;
 }
 
 .nav-left {
@@ -58,7 +63,7 @@ html, body {
 }
 
 .nav-title {
-    font-size: 13px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-dim);
     letter-spacing: 0.05em;
@@ -76,13 +81,13 @@ html, body {
     border: none;
     color: var(--text-dim);
     font-family: inherit;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 10px;
+    font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    padding: 8px 20px;
+    padding: 4px 12px;
     cursor: pointer;
-    border-radius: 3px 3px 0 0;
+    border-radius: 2px 2px 0 0;
     border-bottom: 2px solid transparent;
     transition: color 0.15s, border-color 0.15s;
 }
@@ -100,6 +105,26 @@ html, body {
     flex-shrink: 0;
     display: flex;
     align-items: center;
+    gap: 8px;
+}
+
+.mode-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--blue);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 8px;
+    line-height: 1.4;
+}
+
+.nav-temp {
+    font-size: 9px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
 }
 
 .connection-dot {
@@ -108,13 +133,14 @@ html, body {
     border-radius: 50%;
     background: var(--red);
     transition: background 0.3s;
+    flex-shrink: 0;
 }
 
 .connection-dot.connected {
     background: var(--green);
 }
 
-/* ── View containers ────────────────────────────────────────── */
+/* -- View containers ------------------------------------------------------ */
 
 .view {
     display: none;
@@ -127,85 +153,122 @@ html, body {
     flex-direction: column;
 }
 
-/* ── Monitor view ───────────────────────────────────────────── */
+/* -- Health bar (20px) ---------------------------------------------------- */
 
-.monitor-status-strip {
+.health-bar {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 24px;
-    height: 36px;
-    padding: 0 16px;
+    height: var(--health-bar-height);
+    padding: 0 8px;
     background: var(--bg-panel);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-}
-
-.strip-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.strip-label {
-    font-size: 10px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-
-.strip-value {
-    font-size: 12px;
+    gap: 4px;
+    font-size: 9px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
 }
 
+.hb-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.hb-label {
+    color: var(--text-dim);
+}
+
+.hb-value {
+    color: var(--text);
+}
+
+.hb-sep {
+    color: var(--text-micro);
+    margin: 0 4px;
+}
+
+/* -- Dashboard main area -------------------------------------------------- */
+
+.dashboard-main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: 0;
+}
+
+/* -- Meters area (left) --------------------------------------------------- */
+
 .meters-area {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 0;
     min-height: 0;
-    padding: 12px 16px 8px;
+    padding: 4px;
+    gap: 0;
 }
 
-.meter-group {
-    flex: 1;
+.meter-group-section {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
 }
 
-.meter-group-title {
-    font-size: 10px;
-    font-weight: 600;
+#group-capture {
+    flex: 0 0 auto;
+}
+
+#group-pa .meters-row,
+#group-monitor .meters-row {
+    margin-left: 4px;
+}
+
+.meter-group-label {
+    font-size: 8px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.08em;
     color: var(--text-dim);
-    margin-bottom: 4px;
+    text-align: center;
+    height: 12px;
+    line-height: 12px;
     flex-shrink: 0;
+    padding: 0 2px;
+}
+
+.meter-group-label-capture {
+    color: var(--cyan);
 }
 
 .meters-row {
-    display: grid;
-    grid-template-columns: 24px repeat(8, 1fr);
-    gap: 6px;
+    display: flex;
+    gap: 3px;
     flex: 1;
     min-height: 0;
 }
+
+.meter-group-section + .meter-group-section {
+    margin-left: 12px;
+}
+
+/* -- Individual meter channel --------------------------------------------- */
 
 .meter-channel {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 1px;
     min-height: 0;
+    width: 36px;
+    min-width: 28px;
+    flex-shrink: 1;
 }
 
 .meter-canvas-wrapper {
     flex: 1;
     width: 100%;
-    min-height: 0;
+    min-height: 150px;
     position: relative;
 }
 
@@ -216,34 +279,58 @@ html, body {
 }
 
 .meter-label {
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 600;
-    color: var(--text-label);
+    color: var(--text-dim);
     text-align: center;
     letter-spacing: 0.03em;
     white-space: nowrap;
     flex-shrink: 0;
+    height: 10px;
+    line-height: 10px;
 }
 
 .meter-db-value {
     font-size: 9px;
+    font-weight: 600;
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
     height: 12px;
+    line-height: 12px;
+    text-align: center;
 }
 
-/* dB scale labels column — mirrors meter-channel flex layout */
+/* Clip indicator */
+.meter-clip-indicator {
+    font-size: 7px;
+    font-weight: 700;
+    text-align: center;
+    color: transparent;
+    height: 10px;
+    line-height: 10px;
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+    transition: color 0.1s;
+}
+
+.meter-clip-indicator.active {
+    color: var(--red);
+}
+
+/* -- dB scale (left edge) ------------------------------------------------- */
+
 .meter-db-scale {
     display: flex;
     flex-direction: column;
-    width: 24px;
+    width: 20px;
     min-height: 0;
-    gap: 2px;
+    gap: 1px;
+    flex-shrink: 0;
 }
 
 .meter-db-scale-spacer-top {
-    height: 14px;
+    height: 22px;
     flex-shrink: 0;
 }
 
@@ -254,14 +341,14 @@ html, body {
 }
 
 .meter-db-scale-spacer-bottom {
-    height: 25px; /* matches meter-label + meter-db-value + gaps */
+    height: 23px;
     flex-shrink: 0;
 }
 
 .db-scale-label {
     position: absolute;
     right: 2px;
-    font-size: 8px;
+    font-size: 7px;
     color: var(--text-dim);
     line-height: 1;
     transform: translateY(-50%);
@@ -269,30 +356,68 @@ html, body {
     pointer-events: none;
 }
 
-/* Clip indicator */
-.meter-clip-indicator {
-    font-size: 8px;
-    font-weight: 700;
-    text-align: center;
-    color: transparent;
-    height: 14px;
-    line-height: 14px;
+/* -- Right panel: LUFS placeholder (180px) -------------------------------- */
+
+.right-panel {
+    width: 180px;
     flex-shrink: 0;
-    letter-spacing: 0.05em;
-    transition: color 0.1s;
-}
-
-.meter-clip-indicator.active {
-    color: var(--red);
-}
-
-/* ── System view ────────────────────────────────────────────── */
-
-.system-grid {
-    padding: 16px 24px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    padding: 4px;
+    gap: 4px;
+    border-left: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+
+.lufs-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    position: relative;
+}
+
+.lufs-section {
+    text-align: center;
+}
+
+.lufs-label {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+}
+
+.lufs-value {
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    line-height: 1.2;
+}
+
+.lufs-unit {
+    font-size: 9px;
+    color: var(--text-dim);
+}
+
+.lufs-stage-note {
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 7px;
+    color: var(--text-micro);
+    font-style: italic;
+}
+
+/* -- System view ---------------------------------------------------------- */
+
+.system-grid {
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     overflow-y: auto;
     height: 100%;
 }
@@ -301,15 +426,15 @@ html, body {
     background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 12px 16px;
+    padding: 8px 12px;
 }
 
 .sys-header-strip {
     display: flex;
     align-items: center;
     justify-content: space-around;
-    gap: 16px;
-    padding: 10px 24px;
+    gap: 12px;
+    padding: 8px 16px;
 }
 
 .sys-header-item {
@@ -338,15 +463,15 @@ html, body {
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--text-dim);
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 /* CPU bars */
 .cpu-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 5px;
+    gap: 8px;
+    margin-bottom: 4px;
 }
 
 .cpu-row:last-child {
@@ -386,7 +511,7 @@ html, body {
 .kv-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px 24px;
+    gap: 4px 16px;
 }
 
 .kv-item {
@@ -411,7 +536,7 @@ html, body {
 .proc-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 4px 24px;
+    gap: 4px 16px;
 }
 
 .proc-item {
@@ -429,7 +554,7 @@ html, body {
     font-variant-numeric: tabular-nums;
 }
 
-/* ── Stub views ─────────────────────────────────────────────── */
+/* -- Stub views ----------------------------------------------------------- */
 
 .stub-container {
     display: flex;
@@ -437,36 +562,32 @@ html, body {
     align-items: center;
     justify-content: center;
     height: 100%;
-    gap: 16px;
+    gap: 8px;
     color: var(--text-dim);
 }
 
-.stub-icon {
-    font-size: 48px;
-    opacity: 0.4;
-}
-
 .stub-title {
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 600;
     letter-spacing: 0.05em;
 }
 
 .stub-text {
-    font-size: 13px;
+    font-size: 11px;
     max-width: 400px;
     text-align: center;
     line-height: 1.5;
 }
 
-/* ── Color utilities ────────────────────────────────────────── */
+/* -- Color utilities ------------------------------------------------------ */
 
 .c-green { color: var(--green) !important; }
 .c-yellow { color: var(--yellow) !important; }
 .c-red { color: var(--red) !important; }
 .c-blue { color: var(--blue) !important; }
+.c-cyan { color: var(--cyan) !important; }
 
-/* ── Reconnect overlay ──────────────────────────────────────── */
+/* -- Reconnect overlay ---------------------------------------------------- */
 
 .reconnect-overlay {
     display: none;
@@ -480,7 +601,7 @@ html, body {
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    gap: 16px;
+    gap: 8px;
 }
 
 .reconnect-overlay.visible {
@@ -488,11 +609,11 @@ html, body {
 }
 
 .reconnect-message {
-    font-size: 18px;
+    font-size: 16px;
     color: var(--text);
 }
 
 .reconnect-detail {
-    font-size: 13px;
+    font-size: 11px;
     color: var(--text-dim);
 }
