@@ -16,6 +16,14 @@ import math
 import random
 import time
 
+# 31 ISO 1/3-octave center frequencies (IEC 61260)
+SPECTRUM_BANDS = [
+    20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160,
+    200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+    2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000,
+    20000,
+]
+
 CHANNEL_LABELS = [
     "Main L", "Main R", "Sub 1", "Sub 2",
     "HP L", "HP R", "IEM L", "IEM R",
@@ -311,6 +319,9 @@ class MockDataGenerator:
             "capture_peak": capture_peak,
             "playback_rms": playback_rms,
             "playback_peak": playback_peak,
+            "spectrum": {
+                "bands": self._spectrum(t, active),
+            },
             "camilladsp": {
                 "state": s["cdsp_state"],
                 "processing_load": round(processing_load, 4),
@@ -323,6 +334,40 @@ class MockDataGenerator:
                 "chunksize": s["chunksize"],
             },
         }
+
+    def _spectrum(self, t: float, active: set) -> list:
+        """Generate plausible 1/3-octave spectrum mock data (31 bands).
+
+        Pink noise slope: ~-3 dB/octave (each band ~1 dB lower).
+        Random variation: +/- 4 dB per band per update.
+        Occasional bass peak in 50-80 Hz range.
+        Returns list of 31 floats in dB, clamped to [-60, 0].
+        """
+        if not active:
+            return [-60.0] * 31
+
+        base_level = self.s["level_base_rms"]
+        bands = []
+        for i, freq in enumerate(SPECTRUM_BANDS):
+            # Pink noise slope: -3 dB per octave relative to 20 Hz
+            octaves_from_base = math.log2(freq / 20.0) if freq > 0 else 0
+            slope = -1.0 * octaves_from_base  # approx -1 dB per band
+
+            # Slow envelope per band for natural movement
+            env = 2.0 * math.sin(2 * math.pi * 0.15 * t + i * 0.4)
+
+            # Random variation
+            noise = random.uniform(-4.0, 4.0)
+
+            # Bass peak simulation (50-80 Hz range, bands 4-6)
+            bass_boost = 0.0
+            if 4 <= i <= 6:
+                bass_boost = 3.0 + 2.0 * math.sin(2 * math.pi * 0.3 * t)
+
+            val = base_level + 10.0 + slope + env + noise + bass_boost
+            bands.append(round(max(-60.0, min(0.0, val)), 1))
+
+        return bands
 
     def system(self) -> dict:
         """Full system health snapshot (designed for ~1 Hz push)."""
