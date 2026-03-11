@@ -21,6 +21,7 @@
     --red: #f44336;
     --blue: #42a5f5;
     --cyan: #00acc1;
+    --orange: #ff6f00;
 
     --meter-bg: #1a1a1a;
     --meter-peak: #ffffff;
@@ -215,10 +216,6 @@ html, body {
     min-width: 0;
 }
 
-#group-capture {
-    flex: 0 0 auto;
-}
-
 #group-pa .meters-row,
 #group-monitor .meters-row {
     margin-left: 4px;
@@ -237,8 +234,22 @@ html, body {
     padding: 0 2px;
 }
 
-.meter-group-label-capture {
+.meter-group-label-main {
+    color: var(--text);
+    font-size: 9px;
+}
+
+.meter-group-label-source {
     color: var(--cyan);
+}
+
+.meters-row-main {
+    gap: 4px;
+}
+
+.meters-row-main .meter-channel {
+    width: 48px;
+    min-width: 40px;
 }
 
 .meters-row {
@@ -263,6 +274,30 @@ html, body {
     width: 36px;
     min-width: 28px;
     flex-shrink: 1;
+    transition: opacity 0s; /* instant reactivation */
+}
+
+.meter-channel.silent {
+    opacity: 0.35;
+    transition: opacity 0.8s ease; /* gentle fade to dim */
+}
+
+.meter-channel.silent .meter-no-signal {
+    display: block;
+}
+
+.meter-no-signal {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-90deg);
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-micro);
+    pointer-events: none;
+    white-space: nowrap;
 }
 
 .meter-canvas-wrapper {
@@ -579,10 +614,75 @@ html, body {
     line-height: 1.5;
 }
 
+/* -- Health bar gauges ---------------------------------------------------- */
+
+.hb-gauge {
+    display: inline-flex;
+    align-items: center;
+    width: 48px;
+    height: 10px;
+    background: var(--bg-bar, #262626);
+    border-radius: 2px;
+    overflow: hidden;
+    position: relative;
+    vertical-align: middle;
+}
+
+.hb-gauge-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease, background-color 0.5s ease;
+}
+
+.hb-gauge-text {
+    position: absolute;
+    right: 3px;
+    font-size: 8px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 0 0 2px rgba(0,0,0,0.8);
+    font-variant-numeric: tabular-nums;
+    line-height: 10px;
+}
+
+/* -- SPL hero display ---------------------------------------------------- */
+
+.spl-hero {
+    text-align: center;
+    padding: 8px 4px 6px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.spl-hero-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.spl-hero-value {
+    font-size: 42px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    color: var(--text-dim);
+    transition: color 0.3s ease;
+}
+
+.spl-hero-unit {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-top: -2px;
+}
+
 /* -- Color utilities ------------------------------------------------------ */
 
 .c-green { color: var(--green) !important; }
 .c-yellow { color: var(--yellow) !important; }
+.c-orange { color: #ff6f00 !important; }
 .c-red { color: var(--red) !important; }
 .c-blue { color: var(--blue) !important; }
 .c-cyan { color: var(--cyan) !important; }

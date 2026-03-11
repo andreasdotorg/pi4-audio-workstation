@@ -33,16 +33,36 @@
     <div class="health-bar" id="health-bar">
         <span class="hb-group">
             <span class="hb-label">DSP:</span><span class="hb-value" id="hb-dsp-state">--</span>
-            <span class="hb-label">Load:</span><span class="hb-value" id="hb-dsp-load">--</span>
+            <span class="hb-label">Load:</span>
+            <span class="hb-gauge" id="hb-dsp-load-gauge">
+                <span class="hb-gauge-fill" id="hb-dsp-load-gauge-fill"></span>
+                <span class="hb-gauge-text" id="hb-dsp-load-gauge-text">--</span>
+            </span>
             <span class="hb-label">Buf:</span><span class="hb-value" id="hb-dsp-buffer">--</span>
             <span class="hb-label">Clip:</span><span class="hb-value" id="hb-dsp-clip">--</span>
             <span class="hb-label">Xruns:</span><span class="hb-value" id="hb-dsp-xruns">--</span>
         </span>
         <span class="hb-sep">|</span>
         <span class="hb-group">
-            <span class="hb-label">CPU:</span><span class="hb-value" id="hb-cpu">--</span>
-            <span class="hb-value" id="hb-temp">--</span>
-            <span class="hb-label">Mem:</span><span class="hb-value" id="hb-mem">--</span>
+            <span class="hb-label">SPL:</span><span class="hb-value" id="hb-spl">--</span>
+        </span>
+        <span class="hb-sep">|</span>
+        <span class="hb-group">
+            <span class="hb-label">CPU:</span>
+            <span class="hb-gauge" id="hb-cpu-gauge">
+                <span class="hb-gauge-fill" id="hb-cpu-gauge-fill"></span>
+                <span class="hb-gauge-text" id="hb-cpu-gauge-text">--</span>
+            </span>
+            <span class="hb-label">Temp:</span>
+            <span class="hb-gauge" id="hb-temp-gauge">
+                <span class="hb-gauge-fill" id="hb-temp-gauge-fill"></span>
+                <span class="hb-gauge-text" id="hb-temp-gauge-text">--</span>
+            </span>
+            <span class="hb-label">Mem:</span>
+            <span class="hb-gauge" id="hb-mem-gauge">
+                <span class="hb-gauge-fill" id="hb-mem-gauge-fill"></span>
+                <span class="hb-gauge-text" id="hb-mem-gauge-text">--</span>
+            </span>
             <span class="hb-label">PW:</span><span class="hb-value" id="hb-pw-quantum">--</span>
             <span class="hb-label">FIFO</span><span class="hb-value" id="hb-fifo">--</span>
             <span class="hb-label">Up:</span><span class="hb-value" id="hb-uptime">--</span>
@@ -60,10 +80,10 @@
                 <div class="meter-db-scale-spacer-bottom"></div>
             </div>
 
-            <!-- CAPTURE group -->
-            <div class="meter-group-section" id="group-capture">
-                <div class="meter-group-label meter-group-label-capture">CAPTURE</div>
-                <div class="meters-row" id="meters-capture"></div>
+            <!-- MAIN group (capture ch 0-1) -->
+            <div class="meter-group-section" id="group-main">
+                <div class="meter-group-label meter-group-label-main">MAIN</div>
+                <div class="meters-row meters-row-main" id="meters-main"></div>
             </div>
 
             <!-- PA SENDS group -->
@@ -77,10 +97,21 @@
                 <div class="meter-group-label">MONITOR SENDS</div>
                 <div class="meters-row" id="meters-monitor"></div>
             </div>
+
+            <!-- SOURCE group (capture ch 2-7, all auto-hide) -->
+            <div class="meter-group-section" id="group-source">
+                <div class="meter-group-label meter-group-label-source">SOURCE</div>
+                <div class="meters-row" id="meters-source"></div>
+            </div>
         </div>
 
-        <!-- Right panel: LUFS placeholder -->
+        <!-- Right panel: SPL hero + LUFS -->
         <div class="right-panel">
+            <div class="spl-hero" id="spl-hero">
+                <div class="spl-hero-label">SPL</div>
+                <div class="spl-hero-value" id="spl-value">--</div>
+                <div class="spl-hero-unit">dB SPL</div>
+            </div>
             <div class="lufs-panel">
                 <div class="lufs-section">
                     <div class="lufs-label">SHORT-TERM</div>

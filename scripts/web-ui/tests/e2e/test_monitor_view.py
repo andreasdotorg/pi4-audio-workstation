@@ -1,9 +1,10 @@
 """Dashboard view tests for the D-020 Web UI.
 
 Verifies the dense single-screen dashboard: health bar, level meter groups
-(Capture, PA Sends, Monitor Sends), LUFS placeholder, and WebSocket data flow.
+(Main, PA Sends, Monitor Sends, Source), LUFS placeholder, SPL hero,
+silent channel dimming, and WebSocket data flow.
 
-Stage 1 scope: meters + health bar + LUFS placeholder panel only.
+Stage 1 scope: meters + health bar + LUFS placeholder panel + SPL hero.
 """
 
 import pytest
@@ -26,16 +27,28 @@ def test_health_bar_dsp_state_updates(page):
     expect(dsp_state).not_to_have_text("--", timeout=3000)
 
 
-def test_health_bar_cpu_updates(page):
-    """CPU percentage in health bar updates from '--' within 3 s."""
-    cpu = page.locator("#hb-cpu")
-    expect(cpu).not_to_have_text("--", timeout=3000)
+def test_health_bar_cpu_gauge_updates(page):
+    """CPU gauge in health bar updates from '--' within 3 s."""
+    cpu_text = page.locator("#hb-cpu-gauge-text")
+    expect(cpu_text).not_to_have_text("--", timeout=3000)
 
 
-def test_health_bar_mem_updates(page):
-    """Memory in health bar updates from '--' within 3 s."""
-    mem = page.locator("#hb-mem")
-    expect(mem).not_to_have_text("--", timeout=3000)
+def test_health_bar_mem_gauge_updates(page):
+    """Memory gauge in health bar updates from '--' within 3 s."""
+    mem_text = page.locator("#hb-mem-gauge-text")
+    expect(mem_text).not_to_have_text("--", timeout=3000)
+
+
+def test_health_bar_temp_gauge_updates(page):
+    """Temperature gauge in health bar updates from '--' within 3 s."""
+    temp_text = page.locator("#hb-temp-gauge-text")
+    expect(temp_text).not_to_have_text("--", timeout=3000)
+
+
+def test_health_bar_dsp_load_gauge_updates(page):
+    """DSP Load gauge in health bar updates from '--' within 3 s."""
+    load_text = page.locator("#hb-dsp-load-gauge-text")
+    expect(load_text).not_to_have_text("--", timeout=3000)
 
 
 # -- Nav bar indicators --
@@ -60,11 +73,22 @@ def test_nav_temp_updates(page):
 
 # -- Meter groups --
 
-def test_capture_meters_present(page):
-    """Capture meter group has canvas elements."""
-    canvases = page.locator("#meters-capture canvas")
-    # 8 capture channels
-    expect(canvases).to_have_count(8)
+def test_main_meters_present(page):
+    """MAIN meter group has 2 canvas elements (ML, MR)."""
+    canvases = page.locator("#meters-main canvas")
+    expect(canvases).to_have_count(2)
+
+
+def test_source_meters_present(page):
+    """SOURCE meter group has 6 canvas elements (Src3-Src8)."""
+    canvases = page.locator("#meters-source canvas")
+    expect(canvases).to_have_count(6)
+
+
+def test_source_group_always_visible(page):
+    """SOURCE group is always visible (no auto-hide)."""
+    group = page.locator("#group-source")
+    expect(group).to_be_visible()
 
 
 def test_pa_meters_present(page):
@@ -79,11 +103,18 @@ def test_monitor_meters_present(page):
     expect(canvases).to_have_count(4)
 
 
-def test_capture_group_label(page):
-    """Capture group has the 'CAPTURE' label."""
-    label = page.locator(".meter-group-label-capture")
+def test_main_group_label(page):
+    """MAIN group has the 'MAIN' label."""
+    label = page.locator(".meter-group-label-main")
     expect(label).to_be_visible()
-    expect(label).to_have_text("CAPTURE")
+    expect(label).to_have_text("MAIN")
+
+
+def test_source_group_label(page):
+    """SOURCE group has the 'SOURCE' label."""
+    label = page.locator(".meter-group-label-source")
+    expect(label).to_have_count(1)
+    expect(label).to_have_text("SOURCE")
 
 
 def test_pa_group_label(page):
@@ -98,22 +129,71 @@ def test_monitor_group_label(page):
     expect(label).to_have_text("MONITOR SENDS")
 
 
-def test_channel_labels_capture(page):
-    """Capture group has abbreviated channel labels."""
-    labels = page.locator("#meters-capture .meter-label")
-    expect(labels.first).to_have_text("InL")
+def test_channel_labels_main(page):
+    """MAIN group has ML and MR labels."""
+    labels = page.locator("#meters-main .meter-label")
+    expect(labels.first).to_have_text("ML")
 
 
 def test_channel_labels_pa(page):
-    """PA Sends group has abbreviated channel labels."""
+    """PA Sends group has SatL as first label (satellite speakers)."""
     labels = page.locator("#meters-pa .meter-label")
-    expect(labels.first).to_have_text("ML")
+    expect(labels.first).to_have_text("SatL")
 
 
 def test_channel_labels_monitor(page):
     """Monitor Sends group has abbreviated channel labels."""
     labels = page.locator("#meters-monitor .meter-label")
     expect(labels.first).to_have_text("EL")
+
+
+# -- Silent channel dimming --
+
+def test_no_signal_overlay_exists(page):
+    """Each meter channel has a 'NO SIG' overlay element."""
+    # Check MAIN group (2 channels) + SOURCE (6) + PA (4) + MONITOR (4) = 16
+    overlays = page.locator(".meter-no-signal")
+    expect(overlays).to_have_count(16)
+
+
+def test_no_signal_overlay_hidden_by_default(page):
+    """NO SIG overlays are hidden by default (not visible until .silent class)."""
+    # The .meter-no-signal has display:none by default
+    overlay = page.locator("#meters-main .meter-no-signal").first
+    expect(overlay).not_to_be_visible()
+
+
+def test_meters_not_silent_initially(page):
+    """Meter channels should not have .silent class on initial load."""
+    page.wait_for_timeout(1000)  # Wait 1s, well under 5s threshold
+    silent = page.locator(".meter-channel.silent")
+    expect(silent).to_have_count(0)
+
+
+# -- SPL hero --
+
+def test_spl_hero_visible(page):
+    """The SPL hero display is visible in the right panel."""
+    spl = page.locator(".spl-hero")
+    expect(spl).to_be_visible()
+
+
+def test_spl_hero_label(page):
+    """SPL hero has the 'SPL' label."""
+    label = page.locator(".spl-hero-label")
+    expect(label).to_have_text("SPL")
+
+
+def test_spl_hero_placeholder(page):
+    """SPL hero shows '--' placeholder when no data."""
+    value = page.locator("#spl-value")
+    expect(value).to_have_text("--")
+
+
+def test_spl_health_bar_element(page):
+    """SPL element exists in the health bar."""
+    spl = page.locator("#hb-spl")
+    expect(spl).to_have_count(1)
 
 
 # -- LUFS placeholder --
@@ -132,9 +212,9 @@ def test_lufs_shows_placeholder(page):
 
 # -- Meter dB readout updates --
 
-def test_capture_db_readout_updates(page):
-    """Capture meter dB readout updates from '-inf' within 3 s."""
-    db_readout = page.locator("#meters-capture-db-0")
+def test_main_db_readout_updates(page):
+    """MAIN meter dB readout updates from '-inf' within 3 s."""
+    db_readout = page.locator("#meters-main-db-0")
     expect(db_readout).not_to_have_text("-inf", timeout=3000)
 
 

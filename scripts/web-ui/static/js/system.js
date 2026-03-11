@@ -87,10 +87,11 @@
         PiAudio.setText("sys-temp", temp.toFixed(1) + "\u00b0C",
             PiAudio.tempColor(temp));
 
-        // CPU bars: total is sum of 4 cores (max ~400%), bar shows % of 400
+        // F-8 FIX: CPU total — show normalized value (sum / num_cores)
         var cpuTotal = data.cpu.total_percent;
-        var totalBarPct = Math.min(100, cpuTotal / 4);
-        setCpuBar("sys-cpu-total", totalBarPct, cpuTotal.toFixed(0) + "%");
+        var numCores = data.cpu.per_core.length || 4;
+        var normalizedPct = Math.min(100, cpuTotal / numCores);
+        setCpuBar("sys-cpu-total", normalizedPct, normalizedPct.toFixed(0) + "%");
 
         for (var core = 0; core < data.cpu.per_core.length; core++) {
             var pct = data.cpu.per_core[core];
@@ -118,8 +119,9 @@
         PiAudio.setText("sys-sched-cdsp",
             sched.camilladsp_policy + "/" + sched.camilladsp_priority,
             sched.camilladsp_policy === "SCHED_FIFO" ? "c-green" : "c-red");
+        // F-9 FIX: Graph state color-coding — green for running, red for anything else
         PiAudio.setText("sys-sched-graph", data.pipewire.graph_state,
-            data.pipewire.graph_state === "running" ? "c-green" : "c-yellow");
+            data.pipewire.graph_state === "running" ? "c-green" : "c-red");
 
         // Memory
         PiAudio.setText("sys-mem-used",

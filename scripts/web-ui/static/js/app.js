@@ -155,6 +155,60 @@ var PiAudio = (function () {
         return "c-green";
     }
 
+    function tempColorRaw(temp) {
+        if (temp >= 75) return "var(--red)";
+        if (temp >= 65) return "var(--yellow)";
+        return "var(--green)";
+    }
+
+    function memColor(pct) {
+        if (pct >= 85) return "c-red";
+        if (pct >= 70) return "c-yellow";
+        return "c-green";
+    }
+
+    function memColorRaw(pct) {
+        if (pct >= 85) return "var(--red)";
+        if (pct >= 70) return "var(--yellow)";
+        return "var(--green)";
+    }
+
+    function dspLoadColor(pct) {
+        if (pct >= 75) return "c-red";
+        if (pct >= 50) return "c-yellow";
+        return "c-green";
+    }
+
+    function dspLoadColorRaw(pct) {
+        if (pct >= 75) return "var(--red)";
+        if (pct >= 50) return "var(--yellow)";
+        return "var(--green)";
+    }
+
+    function setGauge(id, pct, text, color) {
+        var fill = document.getElementById(id + '-fill');
+        var txt = document.getElementById(id + '-text');
+        if (fill) {
+            fill.style.width = Math.min(100, Math.max(0, pct)) + '%';
+            fill.style.backgroundColor = color;
+        }
+        if (txt) txt.textContent = text;
+    }
+
+    function splColor(db) {
+        if (db >= 100) return "c-red";
+        if (db >= 95) return "c-orange";
+        if (db >= 85) return "c-yellow";
+        return "c-green";
+    }
+
+    function splColorRaw(db) {
+        if (db >= 100) return "var(--red)";
+        if (db >= 95) return "#ff6f00";
+        if (db >= 85) return "var(--yellow)";
+        return "var(--green)";
+    }
+
     // -- Initialization --
 
     function init() {
@@ -188,6 +242,14 @@ var PiAudio = (function () {
         cpuColor: cpuColor,
         cpuColorRaw: cpuColorRaw,
         tempColor: tempColor,
+        tempColorRaw: tempColorRaw,
+        memColor: memColor,
+        memColorRaw: memColorRaw,
+        dspLoadColor: dspLoadColor,
+        dspLoadColorRaw: dspLoadColorRaw,
+        setGauge: setGauge,
+        splColor: splColor,
+        splColorRaw: splColorRaw,
         scenario: scenario,
     };
 

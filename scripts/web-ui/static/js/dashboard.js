@@ -6,8 +6,8 @@
  *
  * Stage 1 layout:
  *   - Health bar (20px) — condensed system health from /ws/system
- *   - Level meters in signal-flow groups (CAPTURE, PA SENDS, MONITOR SENDS)
- *   - LUFS placeholder panel (180px right)
+ *   - Level meters in signal-flow groups (MAIN, PA SENDS, MONITOR SENDS, SOURCE)
+ *   - SPL hero + LUFS panel (180px right)
  */
 
 "use strict";
@@ -16,13 +16,16 @@
 
     // -- Channel configuration (signal-flow order) --
 
-    // CAPTURE group: channels 0-7 from capture_rms/capture_peak
-    // Displayed as: InL, InR (always visible), then channels 2-7 (auto-hide)
-    var CAPTURE_LABELS = ["InL", "InR", "In3", "In4", "In5", "In6", "In7", "In8"];
-    var CAPTURE_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7]; // indices into capture arrays
+    // MAIN group: capture channels 0-1
+    var MAIN_LABELS = ["ML", "MR"];
+    var MAIN_CHANNELS = [0, 1]; // indices into capture arrays
+
+    // SOURCE group: capture channels 2-7
+    var SOURCE_LABELS = ["Src3", "Src4", "Src5", "Src6", "Src7", "Src8"];
+    var SOURCE_CHANNELS = [2, 3, 4, 5, 6, 7]; // indices into capture arrays
 
     // PA SENDS group: playback channels 0-3
-    var PA_LABELS = ["ML", "MR", "S1", "S2"];
+    var PA_LABELS = ["SatL", "SatR", "S1", "S2"];
     var PA_CHANNELS = [0, 1, 2, 3]; // indices into playback arrays
 
     // MONITOR SENDS group: playback channels 4-7
@@ -37,7 +40,7 @@
     var CLIP_LATCH_MS = 3000;
     var CLIP_THRESHOLD_DB = -0.5;
     var SILENT_THRESHOLD_DB = -60;
-    var SILENT_HIDE_MS = 2000;
+    var SILENT_DIM_MS = 5000;
 
     var FRAC_12 = (-12 - DB_MIN) / (DB_MAX - DB_MIN);
     var FRAC_6 = (-6 - DB_MIN) / (DB_MAX - DB_MIN);
@@ -48,20 +51,26 @@
 
     var captureState = [];
     var playbackState = [];
-    var captureCanvases = [];
+    var mainCanvases = [];
+    var sourceCanvases = [];
     var paCanvases = [];
     var monitorCanvases = [];
-    var captureColumns = [];
+    // Column references for all groups (for dim toggling)
+    var mainColumns = [];
+    var sourceColumns = [];
+    var paColumns = [];
+    var monitorColumns = [];
     var animating = false;
     var startTime = performance.now();
 
-    var captureVisibility = [];
+    // Per-channel last-signal-time tracking for dim logic
+    // Indexed by group key + local index
+    var lastSignalTime = {};
 
     var i;
     for (i = 0; i < 8; i++) {
         captureState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
         playbackState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
-        captureVisibility.push({ lastAboveTime: 0, visible: true });
     }
 
     // -- Helpers --
@@ -72,8 +81,8 @@
         return (db - DB_MIN) / (DB_MAX - DB_MIN);
     }
 
-    function meterColorForDb(db) {
-        if (db >= -6) return "#e53935";
+    function dbReadoutColor(db) {
+        if (db >= -3) return "#e53935";
         if (db >= -12) return "#f9a825";
         return "#43a047";
     }
@@ -110,6 +119,12 @@
             canvas.dataset.source = source;
             wrapper.appendChild(canvas);
 
+            // "NO SIG" overlay inside the canvas wrapper
+            var noSig = document.createElement("div");
+            noSig.className = "meter-no-signal";
+            noSig.textContent = "NO SIG";
+            wrapper.appendChild(noSig);
+
             var lbl = document.createElement("div");
             lbl.className = "meter-label";
             lbl.textContent = labels[idx];
@@ -126,7 +141,10 @@
             container.appendChild(col);
 
             canvasArray.push({ canvas: canvas, ctx: null, w: 0, h: 0 });
-            if (columnArray) columnArray.push(col);
+            columnArray.push(col);
+
+            // Initialize last-signal-time to startTime so channels start active
+            lastSignalTime[containerId + "-" + idx] = startTime;
         }
     }
 
@@ -145,7 +163,8 @@
     }
 
     function resizeAll() {
-        resizeCanvasArray(captureCanvases);
+        resizeCanvasArray(mainCanvases);
+        resizeCanvasArray(sourceCanvases);
         resizeCanvasArray(paCanvases);
         resizeCanvasArray(monitorCanvases);
     }
@@ -154,7 +173,7 @@
 
     function updateDbScaleLabels() {
         var scaleTrack = document.querySelector("#meter-db-scale .meter-db-scale-track");
-        var refCanvas = captureCanvases[0] || paCanvases[0];
+        var refCanvas = mainCanvases[0] || paCanvases[0];
         if (!scaleTrack || !refCanvas || !refCanvas.h) return;
         scaleTrack.innerHTML = "";
         var h = refCanvas.h;
@@ -188,7 +207,13 @@
         var rmsH = rmsFrac * h;
         if (rmsH > 0.5) {
             var grad = ctx.createLinearGradient(0, h, 0, 0);
-            if (group === "capture") {
+            if (group === "main") {
+                // White/silver theme for MAIN meters
+                grad.addColorStop(0, "#888");
+                grad.addColorStop(Math.min(FRAC_12, 1), "#ccc");
+                grad.addColorStop(Math.min(FRAC_6, 1), "#f9a825");
+                grad.addColorStop(1, "#e53935");
+            } else if (group === "capture") {
                 grad.addColorStop(0, "#00838f");
                 grad.addColorStop(Math.min(FRAC_12, 1), "#00838f");
                 grad.addColorStop(Math.min(FRAC_12 + 0.01, 1), "#00acc1");
@@ -235,23 +260,34 @@
     function updateClipIndicator(containerId, idx, state, now) {
         var clipEl = document.getElementById(containerId + "-clip-" + idx);
         if (!clipEl) return;
-        var clipping = (now - state.clipTime) < CLIP_LATCH_MS;
+        // F-1 FIX: Only show CLIP when peak actually exceeded threshold
+        // and latch for CLIP_LATCH_MS. clipTime is only set when peak >= CLIP_THRESHOLD_DB.
+        // If clipTime is 0 (never clipped), never show active.
+        var clipping = state.clipTime > 0 && (now - state.clipTime) < CLIP_LATCH_MS;
         clipEl.classList.toggle("active", clipping);
     }
 
-    function updateCaptureVisibility(localIdx, ch, state, now) {
-        // Channels 0 and 1 always visible
-        if (ch <= 1) return;
-        var vis = captureVisibility[ch];
-        if (state.rms > SILENT_THRESHOLD_DB || state.peak > SILENT_THRESHOLD_DB) {
-            vis.lastAboveTime = now;
-            if (!vis.visible) {
-                vis.visible = true;
-                if (captureColumns[localIdx]) captureColumns[localIdx].style.display = "";
+    // -- Silent channel dimming (applies to ALL groups) --
+
+    function updateChannelDim(containerId, localIdx, columns, state, now) {
+        var key = containerId + "-" + localIdx;
+        var col = columns[localIdx];
+        if (!col) return;
+
+        if (state.peak > SILENT_THRESHOLD_DB) {
+            // Signal present — record time and instantly remove silent
+            lastSignalTime[key] = now;
+            if (col.classList.contains("silent")) {
+                col.classList.remove("silent");
             }
-        } else if (vis.visible && (now - vis.lastAboveTime) > SILENT_HIDE_MS) {
-            vis.visible = false;
-            if (captureColumns[localIdx]) captureColumns[localIdx].style.display = "none";
+        } else {
+            // No signal — check if dim threshold exceeded
+            var lastSig = lastSignalTime[key] || startTime;
+            if ((now - lastSig) > SILENT_DIM_MS) {
+                if (!col.classList.contains("silent")) {
+                    col.classList.add("silent");
+                }
+            }
         }
     }
 
@@ -263,7 +299,8 @@
             el.style.color = "";
         } else {
             el.textContent = peak.toFixed(1);
-            el.style.color = meterColorForDb(peak);
+            // F-6 FIX: Use correct thresholds: green < -12, yellow -12 to -3, red > -3
+            el.style.color = dbReadoutColor(peak);
         }
     }
 
@@ -273,20 +310,31 @@
 
         var ch, idx, state;
 
-        // Capture meters
-        for (idx = 0; idx < CAPTURE_CHANNELS.length; idx++) {
-            ch = CAPTURE_CHANNELS[idx];
+        // MAIN meters (capture ch 0-1)
+        for (idx = 0; idx < MAIN_CHANNELS.length; idx++) {
+            ch = MAIN_CHANNELS[idx];
             state = captureState[ch];
-            updateCaptureVisibility(idx, ch, state, now);
-            drawMeter(captureCanvases[idx], state, now, "capture");
-            updateClipIndicator("meters-capture", idx, state, now);
-            updateDbReadout("meters-capture-db-" + idx, state.peak);
+            updateChannelDim("meters-main", idx, mainColumns, state, now);
+            drawMeter(mainCanvases[idx], state, now, "main");
+            updateClipIndicator("meters-main", idx, state, now);
+            updateDbReadout("meters-main-db-" + idx, state.peak);
+        }
+
+        // SOURCE meters (capture ch 2-7)
+        for (idx = 0; idx < SOURCE_CHANNELS.length; idx++) {
+            ch = SOURCE_CHANNELS[idx];
+            state = captureState[ch];
+            updateChannelDim("meters-source", idx, sourceColumns, state, now);
+            drawMeter(sourceCanvases[idx], state, now, "capture");
+            updateClipIndicator("meters-source", idx, state, now);
+            updateDbReadout("meters-source-db-" + idx, state.peak);
         }
 
         // PA meters
         for (idx = 0; idx < PA_CHANNELS.length; idx++) {
             ch = PA_CHANNELS[idx];
             state = playbackState[ch];
+            updateChannelDim("meters-pa", idx, paColumns, state, now);
             drawMeter(paCanvases[idx], state, now, "playback");
             updateClipIndicator("meters-pa", idx, state, now);
             updateDbReadout("meters-pa-db-" + idx, state.peak);
@@ -296,6 +344,7 @@
         for (idx = 0; idx < MONITOR_CHANNELS.length; idx++) {
             ch = MONITOR_CHANNELS[idx];
             state = playbackState[ch];
+            updateChannelDim("meters-monitor", idx, monitorColumns, state, now);
             drawMeter(monitorCanvases[idx], state, now, "playback");
             updateClipIndicator("meters-monitor", idx, state, now);
             updateDbReadout("meters-monitor-db-" + idx, state.peak);
@@ -330,13 +379,29 @@
         var cdsp = data.camilladsp;
         PiAudio.setText("hb-dsp-state", cdsp.state,
             cdsp.state === "Running" ? "c-green" : "c-red");
-        PiAudio.setText("hb-dsp-load",
-            (cdsp.processing_load * 100).toFixed(1) + "%");
+
+        // DSP Load gauge
+        var dspLoadPct = cdsp.processing_load * 100;
+        PiAudio.setGauge("hb-dsp-load-gauge",
+            dspLoadPct,
+            dspLoadPct.toFixed(1) + "%",
+            PiAudio.dspLoadColorRaw(dspLoadPct));
+
         PiAudio.setText("hb-dsp-buffer", String(cdsp.buffer_level));
         PiAudio.setText("hb-dsp-clip", String(cdsp.clipped_samples),
             cdsp.clipped_samples > 0 ? "c-red" : "c-green");
         PiAudio.setText("hb-dsp-xruns", String(cdsp.xruns),
             cdsp.xruns > 0 ? "c-red" : "c-green");
+
+        // SPL (optional field)
+        if (data.spl != null) {
+            var heroVal = document.getElementById("spl-value");
+            if (heroVal) {
+                heroVal.textContent = Math.round(data.spl);
+                heroVal.style.color = PiAudio.splColorRaw(data.spl);
+            }
+            PiAudio.setText("hb-spl", Math.round(data.spl), PiAudio.splColor(data.spl));
+        }
     }
 
     function onSystemData(data) {
@@ -350,18 +415,28 @@
         PiAudio.setText("nav-temp", temp.toFixed(1) + "\u00b0C",
             PiAudio.tempColor(temp));
 
-        // Health bar: system section
+        // Health bar: CPU gauge
         var cpuTotal = data.cpu.total_percent;
         var cpuPct = Math.min(100, cpuTotal / 4);
-        PiAudio.setText("hb-cpu", cpuPct.toFixed(0) + "%",
-            PiAudio.cpuColor(cpuPct));
+        PiAudio.setGauge("hb-cpu-gauge",
+            cpuPct,
+            cpuPct.toFixed(0) + "%",
+            PiAudio.cpuColorRaw(cpuPct));
 
-        PiAudio.setText("hb-temp", temp.toFixed(1) + "\u00b0C",
-            PiAudio.tempColor(temp));
+        // Health bar: Temperature gauge (map 30-85C to 0-100%)
+        var tempPct = Math.min(100, Math.max(0, (temp - 30) / (85 - 30) * 100));
+        PiAudio.setGauge("hb-temp-gauge",
+            tempPct,
+            temp.toFixed(0) + "\u00b0",
+            PiAudio.tempColorRaw(temp));
 
+        // Health bar: Memory gauge
         var mem = data.memory;
-        PiAudio.setText("hb-mem",
-            (mem.used_mb / 1024).toFixed(1) + "/" + (mem.total_mb / 1024).toFixed(1) + "G");
+        var memPct = (mem.used_mb / mem.total_mb) * 100;
+        PiAudio.setGauge("hb-mem-gauge",
+            memPct,
+            memPct.toFixed(0) + "%",
+            PiAudio.memColorRaw(memPct));
 
         PiAudio.setText("hb-pw-quantum", "Q" + data.pipewire.quantum);
 
@@ -381,12 +456,14 @@
     // -- View lifecycle --
 
     function init() {
-        buildMeterGroup("meters-capture", CAPTURE_LABELS, CAPTURE_CHANNELS,
-            captureCanvases, captureColumns, "capture");
+        buildMeterGroup("meters-main", MAIN_LABELS, MAIN_CHANNELS,
+            mainCanvases, mainColumns, "capture");
+        buildMeterGroup("meters-source", SOURCE_LABELS, SOURCE_CHANNELS,
+            sourceCanvases, sourceColumns, "capture");
         buildMeterGroup("meters-pa", PA_LABELS, PA_CHANNELS,
-            paCanvases, null, "playback");
+            paCanvases, paColumns, "playback");
         buildMeterGroup("meters-monitor", MONITOR_LABELS, MONITOR_CHANNELS,
-            monitorCanvases, null, "playback");
+            monitorCanvases, monitorColumns, "playback");
 
         window.addEventListener("resize", function () {
             resizeAll();
