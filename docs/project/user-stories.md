@@ -744,6 +744,7 @@ Decisions: D-028 (preset recall), D-029 (D-009 boost exception framework).
   - `target_spl`: reference SPL for target curve selection
 - [ ] Channel budget validation: total channels (speakers + monitoring) must be <= 8 (USBStreamer limit). Validator rejects profiles that exceed budget
 - [ ] Crossover consistency validation: crossover points must be monotonically increasing, bandpass ranges must not overlap, every speaker must have a matching crossover filter type
+- [ ] Subsonic driver protection validation (D-031): every speaker identity MUST declare `mandatory_hpf_hz`. The config generator MUST include an IIR safety-net HPF on every speaker channel (applied before FIR convolution) using the speaker identity's `mandatory_hpf_hz` value. Config validation MUST reject any configuration where a speaker channel lacks subsonic protection. This protects drivers even when dirac placeholder FIR filters are in use
 - [ ] 3-way mode constraint: when topology is "3way", validator warns that live mode is unsupported (no IEM channels available) and requires DJ-mode-only flag
 - [ ] CamillaDSP config YAML generator: takes a speaker profile + venue measurement results (delay values, filter WAV paths) and produces a complete, deployable CamillaDSP config
 - [ ] Generated config includes: device settings (chunksize per mode), filters (referencing combined WAV files), pipeline with per-channel delay and gain, mixer routing
