@@ -16,11 +16,15 @@ from .mock.mock_data import MockDataGenerator
 log = logging.getLogger(__name__)
 
 
-async def ws_monitoring(ws: WebSocket, scenario: str = Query("A")):
+async def ws_monitoring(
+    ws: WebSocket,
+    scenario: str = Query("A"),
+    freeze_time: str = Query("false"),
+):
     """Push monitoring data (levels + CamillaDSP health) at ~10 Hz."""
     await ws.accept()
-    gen = MockDataGenerator(scenario=scenario)
-    log.info("Monitoring WS connected (scenario=%s)", scenario)
+    gen = MockDataGenerator(scenario=scenario, freeze_time=freeze_time.lower() == "true")
+    log.info("Monitoring WS connected (scenario=%s, freeze_time=%s)", scenario, freeze_time)
     try:
         while True:
             data = gen.monitoring()

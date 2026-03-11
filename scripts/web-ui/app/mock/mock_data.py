@@ -198,20 +198,34 @@ class MockDataGenerator:
         system()     — full system health (for /ws/system)
     """
 
-    def __init__(self, scenario: str = "A"):
+    def __init__(self, scenario: str = "A", freeze_time: bool = False):
         if scenario not in SCENARIOS:
             raise ValueError(f"Unknown scenario '{scenario}'. "
                              f"Valid: {', '.join(sorted(SCENARIOS))}")
         self.scenario = scenario
         self.s = SCENARIOS[scenario]
-        self.start_time = time.monotonic()
-        self._phase_offsets = [random.uniform(0, 2 * math.pi) for _ in range(8)]
-        self._freq_offsets = [random.uniform(0.3, 1.7) for _ in range(8)]
+        self.freeze_time = freeze_time
+
+        if freeze_time:
+            # Deterministic: fixed start, seeded RNG for identical output across runs
+            self.start_time = 0.0
+            self._frozen_timestamp = 1700000000.0  # fixed epoch for JSON output
+            rng = random.Random(42)
+            self._phase_offsets = [rng.uniform(0, 2 * math.pi) for _ in range(8)]
+            self._freq_offsets = [rng.uniform(0.3, 1.7) for _ in range(8)]
+        else:
+            self.start_time = time.monotonic()
+            self._phase_offsets = [random.uniform(0, 2 * math.pi) for _ in range(8)]
+            self._freq_offsets = [random.uniform(0.3, 1.7) for _ in range(8)]
 
     def _elapsed(self) -> float:
+        if self.freeze_time:
+            return 1.0  # fixed point in time for deterministic output
         return time.monotonic() - self.start_time
 
     def _jitter(self, base: float, amplitude: float) -> float:
+        if self.freeze_time:
+            return base
         return base + random.uniform(-amplitude, amplitude)
 
     def _proc_jitter(self, base: float, t: float) -> float:
@@ -228,6 +242,8 @@ class MockDataGenerator:
         monitor view can render meters and show DSP health without needing
         a second WebSocket.
         """
+        if self.freeze_time:
+            random.seed(42)
         t = self._elapsed()
         s = self.s
 
@@ -290,7 +306,7 @@ class MockDataGenerator:
         rate_adjust = s["rate_adjust"] + 0.00002 * math.sin(t * 0.1)
 
         return {
-            "timestamp": time.time(),
+            "timestamp": self._frozen_timestamp if self.freeze_time else time.time(),
             "capture_rms": capture_rms,
             "capture_peak": capture_peak,
             "playback_rms": playback_rms,
@@ -310,6 +326,8 @@ class MockDataGenerator:
 
     def system(self) -> dict:
         """Full system health snapshot (designed for ~1 Hz push)."""
+        if self.freeze_time:
+            random.seed(43)
         t = self._elapsed()
         s = self.s
 
@@ -340,7 +358,7 @@ class MockDataGenerator:
         )))
 
         return {
-            "timestamp": time.time(),
+            "timestamp": self._frozen_timestamp if self.freeze_time else time.time(),
             "cpu": {
                 "total_percent": round(cpu_total, 1),
                 "per_core": [round(c, 1) for c in cpu_cores],

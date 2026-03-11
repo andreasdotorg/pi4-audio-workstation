@@ -15,7 +15,9 @@ var PiAudio = (function () {
     var RECONNECT_BASE_MS = 500;
     var RECONNECT_MAX_MS = 10000;
 
-    var scenario = new URLSearchParams(window.location.search).get("scenario") || "A";
+    var params = new URLSearchParams(window.location.search);
+    var scenario = params.get("scenario") || "A";
+    var freezeTime = params.get("freeze_time") || "";
 
     // ── State ────────────────────────────────────────────────
 
@@ -80,6 +82,7 @@ var PiAudio = (function () {
         function connect() {
             var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
             var url = proto + "//" + window.location.host + path + "?scenario=" + scenario;
+            if (freezeTime) url += "&freeze_time=" + freezeTime;
             var ws = new WebSocket(url);
             state.ws = ws;
 
