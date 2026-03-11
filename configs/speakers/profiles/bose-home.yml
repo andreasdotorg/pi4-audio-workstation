@@ -13,7 +13,7 @@ description: "Bose Jewel Double Cube satellites with PS28 III isobaric subwoofer
 topology: 2way
 
 crossover:
-  frequency_hz: 155
+  frequency_hz: 200
   slope_db_per_oct: 48
   type: linkwitz-riley
 

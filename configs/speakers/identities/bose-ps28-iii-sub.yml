@@ -8,8 +8,8 @@
 # Combined port bandwidth approximately 45-100Hz. Measured via near-field
 # UMIK-1 at 1-2cm per vent, 2026-03-11.
 #
-# The enclosure has a strong resonance peak around 65Hz that needs
-# compensation EQ baked into the FIR filter.
+# Dual-port resonance structure (58Hz + 88Hz) will be addressed by
+# room correction FIR after listening-position measurement.
 #
 # Subsonic HPF at 42Hz is MANDATORY — cone excursion rises sharply
 # below port tuning and will exceed Xmax without protection.
@@ -27,7 +27,7 @@ port_tuning_note: >
   Staggered dual-port design: upper port ~58Hz, lower port ~88Hz.
   Combined port bandwidth approximately 45-100Hz.
 
-impedance_ohm: 2.33
+impedance_ohm: 2.33  # Per driver. Each driver on separate amp channel (intended config).
 sensitivity_db_spl: null
 
 # D-029 gain staging
@@ -40,10 +40,8 @@ power_limit_note: >
   62W thermal limit for isobaric pair. Amp delivers up to 450W into 4 ohm
   (more into 2.33 ohm). Power limiting is CRITICAL.
 
-# Compensation EQ — port/enclosure resonance peak
-compensation_eq:
-  - type: peak
-    frequency_hz: 65
-    gain_db: 10.0
-    q: 1.0
-    description: "Port/enclosure resonance peak (+10dB at 65Hz)"
+# Compensation EQ — deferred until listening-position measurement.
+# Near-field vent measurements (2026-03-11) show dual-port peaks at
+# 58Hz and 88Hz, not a single resonance. Actual correction needs will
+# be determined from in-room response measurement.
+compensation_eq: []

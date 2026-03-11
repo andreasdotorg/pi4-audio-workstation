@@ -1,6 +1,18 @@
 # Bose Jewel Double Cube — satellite speaker
 # Small full-range satellite from Bose Acoustimass / Lifestyle systems.
-# Needs baffle step compensation (+4dB) and highpass protection.
+# Sealed enclosure, single small driver (~2-2.5 inch).
+#
+# Measured near-field response (2026-03-11, UMIK-1 at 1-2cm):
+# - Passband peak: ~340-400Hz
+# - Usable bandwidth: ~200Hz to 6kHz (-15dB vs peak)
+# - Sweet spot: 300-600Hz (3dB variation)
+# - HF rolloff: ~3dB/oct 400Hz-2kHz, ~8dB/oct above 4kHz
+# - Effectively dead above 12kHz
+# - Natural acoustic rolloff below 200Hz limits crossover integration
+#
+# This is a midrange-focused driver, not a full-range speaker.
+# Treble correction beyond ~1kHz is not feasible under D-009 cut-only.
+# Path A (accepted): defer corrections until listening-position measurement.
 
 name: "Bose Jewel Double Cube"
 manufacturer: "Bose"
@@ -12,11 +24,14 @@ sensitivity_db_spl: null
 
 # D-029 gain staging
 max_boost_db: 4
-mandatory_hpf_hz: 155
+mandatory_hpf_hz: 200  # Changed from 155Hz based on measured driver response (2026-03-11)
 
 # Power handling
 max_power_watts: 20
 power_limit_note: "Small drivers; keep power under 20W to avoid thermal damage."
 
-# Compensation EQ (baffle step compensation applied in FIR, not here)
+# Measured acoustic bandwidth (near-field, 2026-03-11)
+acoustic_bandwidth_hz: [200, 6000]
+
+# Compensation EQ — deferred until listening-position measurement (Path A)
 compensation_eq: []

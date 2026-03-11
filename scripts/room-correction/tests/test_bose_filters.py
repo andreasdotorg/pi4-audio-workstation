@@ -46,7 +46,7 @@ EXPECTED_FILES = [
 
 N_TAPS = 16384
 SAMPLE_RATE = 48000
-CROSSOVER_HZ = 155
+CROSSOVER_HZ = 200
 
 
 @pytest.fixture(scope="module")

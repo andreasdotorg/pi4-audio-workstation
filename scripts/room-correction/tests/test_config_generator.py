@@ -34,7 +34,7 @@ class TestLoadIdentity(unittest.TestCase):
         self.assertEqual(identity["name"], "Bose Jewel Double Cube")
         self.assertEqual(identity["impedance_ohm"], 8)
         self.assertEqual(identity["max_boost_db"], 4)
-        self.assertEqual(identity["mandatory_hpf_hz"], 155)
+        self.assertEqual(identity["mandatory_hpf_hz"], 200)
         self.assertEqual(identity["max_power_watts"], 20)
 
     def test_load_bose_ps28(self):
@@ -44,13 +44,8 @@ class TestLoadIdentity(unittest.TestCase):
         self.assertEqual(identity["max_boost_db"], 10)
         self.assertEqual(identity["mandatory_hpf_hz"], 42)
         self.assertEqual(identity["max_power_watts"], 62)
-        # Check compensation EQ
-        self.assertEqual(len(identity["compensation_eq"]), 1)
-        eq = identity["compensation_eq"][0]
-        self.assertEqual(eq["type"], "peak")
-        self.assertEqual(eq["frequency_hz"], 65)
-        self.assertAlmostEqual(eq["gain_db"], 10.0)
-        self.assertAlmostEqual(eq["q"], 1.0)
+        # Compensation EQ deferred until listening-position measurement
+        self.assertEqual(identity["compensation_eq"], [])
 
     def test_load_wideband(self):
         identity = load_identity("wideband-selfbuilt-v1")
@@ -78,7 +73,7 @@ class TestLoadProfile(unittest.TestCase):
         profile = load_profile("bose-home")
         self.assertEqual(profile["name"], "Bose Home System")
         self.assertEqual(profile["topology"], "2way")
-        self.assertEqual(profile["crossover"]["frequency_hz"], 155)
+        self.assertEqual(profile["crossover"]["frequency_hz"], 200)
         self.assertEqual(profile["crossover"]["slope_db_per_oct"], 48)
 
         # Check speaker configuration
@@ -706,14 +701,14 @@ class TestMandatoryHPF(unittest.TestCase):
         self.assertEqual(sub2_hpf["parameters"]["freq"], 42)
 
     def test_hpf_filter_generated_for_satellite_with_hpf(self):
-        """Bose Jewel satellites also have mandatory_hpf_hz: 155."""
+        """Bose Jewel satellites also have mandatory_hpf_hz: 200."""
         config = generate_config("bose-home")
         filters = config["filters"]
 
         self.assertIn("sat_left_hpf", filters)
-        self.assertEqual(filters["sat_left_hpf"]["parameters"]["freq"], 155)
+        self.assertEqual(filters["sat_left_hpf"]["parameters"]["freq"], 200)
         self.assertIn("sat_right_hpf", filters)
-        self.assertEqual(filters["sat_right_hpf"]["parameters"]["freq"], 155)
+        self.assertEqual(filters["sat_right_hpf"]["parameters"]["freq"], 200)
 
     def test_no_hpf_for_null_mandatory_hpf(self):
         """Speaker with mandatory_hpf_hz: null does NOT produce an HPF filter."""
@@ -763,7 +758,7 @@ class TestMandatoryHPF(unittest.TestCase):
     def test_bose_home_subs_have_hpf_sats_have_hpf(self):
         """
         For bose-home: both subs and satellites have mandatory HPFs.
-        Subs at 42Hz, satellites at 155Hz.
+        Subs at 42Hz, satellites at 200Hz.
         """
         config = generate_config("bose-home")
         filters = config["filters"]
@@ -771,9 +766,9 @@ class TestMandatoryHPF(unittest.TestCase):
         # Subs: 42Hz
         self.assertEqual(filters["sub1_hpf"]["parameters"]["freq"], 42)
         self.assertEqual(filters["sub2_hpf"]["parameters"]["freq"], 42)
-        # Satellites: 155Hz
-        self.assertEqual(filters["sat_left_hpf"]["parameters"]["freq"], 155)
-        self.assertEqual(filters["sat_right_hpf"]["parameters"]["freq"], 155)
+        # Satellites: 200Hz
+        self.assertEqual(filters["sat_left_hpf"]["parameters"]["freq"], 200)
+        self.assertEqual(filters["sat_right_hpf"]["parameters"]["freq"], 200)
 
     def test_hpf_pipeline_order_before_fir(self):
         """HPF steps must come after headroom and before FIR in the pipeline."""
@@ -846,11 +841,11 @@ class TestMandatoryHPF(unittest.TestCase):
                 },
                 "sat_left_hpf": {
                     "type": "BiquadCombo",
-                    "parameters": {"type": "ButterworthHighpass", "order": 4, "freq": 155},
+                    "parameters": {"type": "ButterworthHighpass", "order": 4, "freq": 200},
                 },
                 "sat_right_hpf": {
                     "type": "BiquadCombo",
-                    "parameters": {"type": "ButterworthHighpass", "order": 4, "freq": 155},
+                    "parameters": {"type": "ButterworthHighpass", "order": 4, "freq": 200},
                 },
             },
             "pipeline": [

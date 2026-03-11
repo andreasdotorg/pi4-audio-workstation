@@ -123,8 +123,8 @@ filters:
 
   # --- FIR convolution (crossover-only, no room correction yet) ---
   # Combined minimum-phase FIR filters:
-  #   Satellite: HP crossover at 155Hz, 48dB/oct
-  #   Sub: LP crossover at 155Hz, 48dB/oct + subsonic HPF at 42Hz, 48dB/oct
+  #   Satellite: HP crossover at 200Hz, 48dB/oct
+  #   Sub: LP crossover at 200Hz, 48dB/oct + subsonic HPF at 42Hz, 48dB/oct
   # After REW measurement, regenerate with room correction + speaker EQ baked in.
   sat_left_fir:
     type: Conv
