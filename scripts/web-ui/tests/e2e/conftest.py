@@ -2,13 +2,15 @@
 
 Provides:
     - mock_server: session-scoped FastAPI server on a free port
-    - browser: session-scoped Playwright Chromium instance
-    - page: function-scoped page navigated to the mock server
+    - page: overrides pytest-playwright's page with console error capture
+            and auto-navigation to mock_server
+    - frozen_page: deterministic page for visual regression tests
     - pi_url: reads PI_AUDIO_URL env var (skips if unset)
 
 Custom CLI flags:
-    --headed: run browser in headed mode
     --destructive: allow tests marked @pytest.mark.destructive
+
+Note: --headed is provided by pytest-playwright (do not re-declare).
 """
 
 import os
@@ -36,16 +38,16 @@ def pytest_configure(config):
 
 def pytest_addoption(parser):
     parser.addoption(
-        "--headed",
-        action="store_true",
-        default=False,
-        help="Run Playwright browser in headed mode",
-    )
-    parser.addoption(
         "--destructive",
         action="store_true",
         default=False,
         help="Allow tests marked @pytest.mark.destructive",
+    )
+    parser.addoption(
+        "--update-snapshots",
+        action="store_true",
+        default=False,
+        help="Update visual-regression reference screenshots instead of comparing",
     )
 
 
@@ -108,24 +110,12 @@ def mock_server():
         proc.wait(timeout=5)
 
 
-@pytest.fixture(scope="session")
-def browser(request):
-    """Launch a Playwright Chromium instance (headless by default)."""
-    from playwright.sync_api import sync_playwright
-
-    headed = request.config.getoption("--headed")
-    pw = sync_playwright().start()
-    brw = pw.chromium.launch(headless=not headed)
-    yield brw
-    brw.close()
-    pw.stop()
-
-
 @pytest.fixture()
 def page(browser, mock_server):
     """Create a fresh browser context and page, navigated to the mock server.
 
-    Captures JS console errors during the test and asserts none were logged.
+    Overrides pytest-playwright's page fixture to add console error capture
+    and auto-navigate to the mock server.
     """
     context = browser.new_context()
     pg = context.new_page()

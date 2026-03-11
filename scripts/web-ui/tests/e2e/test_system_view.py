@@ -4,10 +4,14 @@ Verifies system health indicators, CPU/memory/temperature display, and
 WebSocket data updates.
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
 pytestmark = pytest.mark.browser
+
+_ACTIVE_RE = re.compile(r".*\bactive\b.*")
 
 
 def test_system_view_loads(page):
@@ -15,7 +19,7 @@ def test_system_view_loads(page):
     page.locator('.nav-tab[data-view="system"]').click()
 
     system_view = page.locator("#view-system")
-    expect(system_view).to_have_class(r".*\bactive\b.*")
+    expect(system_view).to_have_class(_ACTIVE_RE)
 
 
 def test_system_header_strip_visible(page):
