@@ -1,219 +1,541 @@
 /**
- * D-020 Web UI — 1/3-octave spectrum analyzer module.
+ * D-020 Web UI — FFT spectrum analyzer module (mountain range display).
  *
- * Self-contained spectrum display rendering 31 ISO bands (IEC 61260)
- * on a canvas element. Designed to be loaded via <script> tag and
- * integrated with the dashboard layout.
+ * High-resolution FFT display driven by raw PCM data from a binary WebSocket
+ * (/ws/pcm). Uses Web Audio API AnalyserNode for 2048-point FFT with
+ * Blackman-Harris window, rendered as a filled "mountain range" area with
+ * per-frequency heat palette on a log-frequency x-axis.
+ *
+ * Data flow:
+ *   Pi audio -> binary WebSocket /ws/pcm (raw PCM, 3ch float32)
+ *     -> AudioContext + AudioWorklet
+ *     -> AnalyserNode (2048-point FFT, smoothingTimeConstant 0.5)
+ *     -> getFloatFrequencyData() -> Float32Array(1024) in dB
+ *     -> Canvas 2D renderer at requestAnimationFrame rate
+ *
+ * The log-frequency axis, dB scale, and color palette are designed to be
+ * reusable by future spectrogram (waterfall) and measurement views
+ * (TK-109, TK-110).
  *
  * Usage:
  *   PiAudioSpectrum.init("spectrum-canvas");
- *   PiAudioSpectrum.updateData([-25.3, -22.1, ...]);  // 31 floats
+ *   // Legacy updateData() still accepted for backward compat with
+ *   // /ws/monitoring 1/3-octave fallback, but FFT display takes priority.
+ *
+ * Fallback: when /ws/pcm is unavailable, displays "No live audio" on a
+ * dark background. If /ws/monitoring sends 1/3-octave bands, falls back
+ * to the old bar display.
  */
 
 "use strict";
 
 (function () {
 
-    // -- 31 ISO 1/3-octave center frequencies (IEC 61260) --
+    // =====================================================================
+    // Constants — reusable across future spectrogram / measurement views
+    // =====================================================================
 
-    var BANDS = [
-        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160,
-        200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
-        2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000,
-        20000
-    ];
+    var SAMPLE_RATE = 48000;
+    var FFT_SIZE = 2048;
+    var NUM_CHANNELS = 3;
 
-    // 10 labeled frequencies and their indices into BANDS
-    var LABELS = ["31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
-    var LABEL_INDICES = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29];
+    // Frequency range for log x-axis
+    var FREQ_LO = 30;
+    var FREQ_HI = 20000;
+    var LOG_LO = Math.log10(FREQ_LO);
+    var LOG_HI = Math.log10(FREQ_HI);
 
-    // -- Scale --
-
+    // dB range for y-axis
     var DB_MIN = -60;
     var DB_MAX = 0;
-    var DB_MARKS = [0, -6, -12, -18, -24, -36, -48, -60];
+    var DB_GRID_LINES = [-12, -24, -36, -48];
 
-    // -- Thresholds --
+    // Frequency labels along the bottom
+    var FREQ_LABELS = [
+        { freq: 50,    text: "50" },
+        { freq: 100,   text: "100" },
+        { freq: 200,   text: "200" },
+        { freq: 500,   text: "500" },
+        { freq: 1000,  text: "1k" },
+        { freq: 2000,  text: "2k" },
+        { freq: 5000,  text: "5k" },
+        { freq: 10000, text: "10k" },
+        { freq: 20000, text: "20k" }
+    ];
 
-    var GREEN_MAX = -12;   // below -12 dB: green
-    var YELLOW_MAX = -3;   // -12 to -3 dB: yellow
+    // Heat palette color stops (per-frequency)
+    var COLOR_STOPS = [
+        { freq: 30,    color: "rgba(155, 89, 182, 0.7)" },
+        { freq: 100,   color: "rgba(192, 64, 200, 0.7)" },
+        { freq: 300,   color: "rgba(230, 74, 25, 0.7)" },
+        { freq: 1000,  color: "rgba(226, 166, 57, 0.7)" },
+        { freq: 3000,  color: "rgba(226, 192, 57, 0.7)" },
+        { freq: 10000, color: "rgba(200, 205, 214, 0.7)" },
+        { freq: 20000, color: "rgba(138, 148, 164, 0.7)" }
+    ];
 
-    // -- Timing --
+    var OUTLINE_STYLE = "rgba(200, 205, 214, 0.6)";
+    var OUTLINE_WIDTH = 1.5;
+    var BG_COLOR = "#0c0e12";
+    var GRID_COLOR = "rgba(200, 205, 214, 0.04)";
+    var LABEL_COLOR = "#454c58";
 
-    var SMOOTHING = 0.8;
-    var PEAK_HOLD_MS = 2000;
+    // Smoothing
+    var ANALYSER_SMOOTHING = 0.5;
 
-    // -- Colors --
+    // Peak hold (toggle-able)
+    var PEAK_HOLD_ENABLED = true;
+    var PEAK_DECAY_MS = 2000;
 
-    var COLOR_GREEN = "#4CAF50";
-    var COLOR_YELLOW = "#FFEB3B";
-    var COLOR_RED = "#F44336";
-    var COLOR_PEAK = "#fff";
-    var COLOR_BG = "#0f0f0f";
-    var COLOR_GRID = "#222";
-    var COLOR_LABEL = "#555";
+    // =====================================================================
+    // State
+    // =====================================================================
 
-    // -- State --
-
-    var currentLevels = new Array(31);
-    var smoothedLevels = new Array(31);
-    var peakLevels = new Array(31);
-    var peakTimes = new Array(31);
     var canvas = null;
     var ctx = null;
     var animFrame = null;
 
-    var i;
-    for (i = 0; i < 31; i++) {
-        currentLevels[i] = DB_MIN;
-        smoothedLevels[i] = DB_MIN;
-        peakLevels[i] = DB_MIN;
-        peakTimes[i] = 0;
+    // Audio pipeline
+    var audioCtx = null;
+    var workletNode = null;
+    var analyser = null;
+    var freqData = null;       // Float32Array(1024) for dB data
+
+    // WebSocket
+    var pcmWs = null;
+    var pcmConnected = false;
+
+    // Log-frequency lookup table: pixel x -> FFT bin index
+    var freqLUT = null;        // Float32Array mapping x -> fractional bin
+    var cachedGradient = null;
+    var cachedW = 0;
+    var cachedH = 0;
+
+    // Layout (computed on resize)
+    var plotX = 0;
+    var plotY = 0;
+    var plotW = 0;
+    var plotH = 0;
+    var labelBottomH = 14;
+
+    // Peak hold state
+    var peakEnvelope = null;   // Float32Array(plotW) — peak dB per x pixel
+    var peakTimes = null;      // Float64Array(plotW) — last peak time per x pixel
+
+    // Legacy 1/3-octave fallback
+    var legacyBands = null;
+
+    // =====================================================================
+    // Log-frequency utilities (reusable for TK-109, TK-110)
+    // =====================================================================
+
+    /**
+     * Convert a frequency to a normalized position [0, 1] on the log axis.
+     */
+    function freqToNorm(freq) {
+        return (Math.log10(freq) - LOG_LO) / (LOG_HI - LOG_LO);
     }
 
-    // -- Helpers --
-
-    function dbToY(db, plotY, plotH) {
-        return plotY + plotH * (1 - (db - DB_MIN) / (DB_MAX - DB_MIN));
+    /**
+     * Convert a normalized log-axis position [0, 1] to frequency in Hz.
+     */
+    function normToFreq(norm) {
+        return Math.pow(10, LOG_LO + norm * (LOG_HI - LOG_LO));
     }
 
-    // -- Public API --
+    /**
+     * Convert a frequency to the corresponding FFT bin index (fractional).
+     */
+    function freqToBin(freq) {
+        return freq * FFT_SIZE / SAMPLE_RATE;
+    }
+
+    /**
+     * Build the log-frequency LUT mapping each pixel x-position (within
+     * the plot area) to a fractional FFT bin index. Called on init and resize.
+     */
+    function buildFreqLUT(width) {
+        freqLUT = new Float32Array(width);
+        var binCount = FFT_SIZE / 2;
+        for (var x = 0; x < width; x++) {
+            var norm = x / (width - 1);
+            var freq = normToFreq(norm);
+            var bin = freqToBin(freq);
+            freqLUT[x] = Math.min(Math.max(bin, 0), binCount - 1);
+        }
+    }
+
+    /**
+     * Interpolate the dB value at a fractional FFT bin index from the
+     * frequency data array.
+     */
+    function interpolateDB(data, fracBin) {
+        var lo = Math.floor(fracBin);
+        var hi = Math.min(lo + 1, data.length - 1);
+        var t = fracBin - lo;
+        return data[lo] * (1 - t) + data[hi] * t;
+    }
+
+    /**
+     * Convert a dB value to a y-pixel position within the plot area.
+     */
+    function dbToY(db) {
+        var clamped = Math.max(DB_MIN, Math.min(DB_MAX, db));
+        var frac = (clamped - DB_MIN) / (DB_MAX - DB_MIN);
+        return plotY + plotH - frac * plotH;
+    }
+
+    // =====================================================================
+    // Gradient cache
+    // =====================================================================
+
+    function buildGradient(width) {
+        if (!ctx || width <= 0) return null;
+        var grad = ctx.createLinearGradient(plotX, 0, plotX + width, 0);
+        for (var i = 0; i < COLOR_STOPS.length; i++) {
+            var stop = freqToNorm(COLOR_STOPS[i].freq);
+            stop = Math.max(0, Math.min(1, stop));
+            grad.addColorStop(stop, COLOR_STOPS[i].color);
+        }
+        return grad;
+    }
+
+    // =====================================================================
+    // Audio pipeline setup
+    // =====================================================================
+
+    function initAudioPipeline() {
+        if (audioCtx) return;
+
+        audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+
+        // We use an inline Blob URL for the worklet processor to avoid
+        // cross-origin issues. Alternatively, the separate pcm-worklet.js
+        // file can be served from the same origin.
+        var workletUrl = "/static/js/pcm-worklet.js";
+
+        audioCtx.audioWorklet.addModule(workletUrl).then(function () {
+            workletNode = new AudioWorkletNode(audioCtx, "pcm-feeder", {
+                numberOfInputs: 0,
+                numberOfOutputs: 1,
+                outputChannelCount: [NUM_CHANNELS]
+            });
+
+            // Channel splitter -> single AnalyserNode on channel 0 (L Main)
+            // For the spectrum display we only need one channel.
+            var splitter = audioCtx.createChannelSplitter(NUM_CHANNELS);
+            workletNode.connect(splitter);
+
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = FFT_SIZE;
+            analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
+            splitter.connect(analyser, 0);
+
+            freqData = new Float32Array(analyser.frequencyBinCount);
+
+            // Keep the audio graph alive by connecting to a muted destination
+            var gain = audioCtx.createGain();
+            gain.gain.value = 0;
+            workletNode.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            // Now connect the PCM WebSocket
+            connectPcmWebSocket();
+        }).catch(function (err) {
+            // AudioWorklet not supported or module load failed — fall back
+            connectPcmWebSocket();
+        });
+    }
+
+    // =====================================================================
+    // Binary WebSocket: /ws/pcm
+    // =====================================================================
+
+    var pcmReconnectTimer = null;
+
+    function connectPcmWebSocket() {
+        if (pcmWs) return;
+
+        var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+        var url = proto + "//" + window.location.host + "/ws/pcm";
+
+        try {
+            pcmWs = new WebSocket(url);
+        } catch (e) {
+            schedulePcmReconnect();
+            return;
+        }
+        pcmWs.binaryType = "arraybuffer";
+
+        pcmWs.onopen = function () {
+            pcmConnected = true;
+            // Resume AudioContext if suspended (requires user gesture first)
+            if (audioCtx && audioCtx.state === "suspended") {
+                audioCtx.resume();
+            }
+        };
+
+        pcmWs.onmessage = function (ev) {
+            var data = ev.data;
+            if (data.byteLength < 4) return;
+            // Skip 4-byte header (frame count LE uint32)
+            var pcm = new Float32Array(data, 4);
+            if (workletNode) {
+                workletNode.port.postMessage(pcm, [pcm.buffer]);
+            }
+        };
+
+        pcmWs.onclose = function () {
+            pcmConnected = false;
+            pcmWs = null;
+            schedulePcmReconnect();
+        };
+
+        pcmWs.onerror = function () {
+            pcmConnected = false;
+        };
+    }
+
+    function schedulePcmReconnect() {
+        if (pcmReconnectTimer) return;
+        pcmReconnectTimer = setTimeout(function () {
+            pcmReconnectTimer = null;
+            connectPcmWebSocket();
+        }, 3000);
+    }
+
+    // =====================================================================
+    // Rendering
+    // =====================================================================
+
+    function resizeCanvas() {
+        if (!canvas) return;
+        var rect = canvas.getBoundingClientRect();
+        var dpr = window.devicePixelRatio || 1;
+        var w = Math.floor(rect.width * dpr);
+        var h = Math.floor(rect.height * dpr);
+
+        if (w === cachedW && h === cachedH) return;
+
+        canvas.width = w;
+        canvas.height = h;
+        ctx = canvas.getContext("2d");
+        ctx.scale(dpr, dpr);
+
+        cachedW = w;
+        cachedH = h;
+
+        // Compute layout in CSS pixels
+        var cssW = rect.width;
+        var cssH = rect.height;
+        plotX = 0;
+        plotY = 0;
+        plotW = cssW;
+        plotH = cssH - labelBottomH;
+
+        if (plotW > 0) {
+            buildFreqLUT(Math.floor(plotW));
+            cachedGradient = buildGradient(Math.floor(plotW));
+
+            // Reset peak hold state on resize
+            peakEnvelope = new Float32Array(Math.floor(plotW));
+            peakTimes = new Float64Array(Math.floor(plotW));
+            for (var i = 0; i < peakEnvelope.length; i++) {
+                peakEnvelope[i] = DB_MIN;
+                peakTimes[i] = 0;
+            }
+        }
+    }
+
+    function drawBackground() {
+        var cssW = cachedW / (window.devicePixelRatio || 1);
+        var cssH = cachedH / (window.devicePixelRatio || 1);
+
+        // Background
+        ctx.fillStyle = BG_COLOR;
+        ctx.fillRect(0, 0, cssW, cssH);
+
+        // dB grid lines
+        ctx.strokeStyle = GRID_COLOR;
+        ctx.lineWidth = 1;
+        for (var i = 0; i < DB_GRID_LINES.length; i++) {
+            var y = dbToY(DB_GRID_LINES[i]);
+            ctx.beginPath();
+            ctx.moveTo(plotX, y);
+            ctx.lineTo(plotX + plotW, y);
+            ctx.stroke();
+        }
+
+        // Frequency labels along the bottom
+        ctx.fillStyle = LABEL_COLOR;
+        ctx.font = "8px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+
+        for (var j = 0; j < FREQ_LABELS.length; j++) {
+            var lbl = FREQ_LABELS[j];
+            var norm = freqToNorm(lbl.freq);
+            if (norm < 0 || norm > 1) continue;
+            var x = plotX + norm * plotW;
+            ctx.fillText(lbl.text, x, plotY + plotH + 2);
+        }
+    }
+
+    function drawMountainRange(now) {
+        if (!freqData || !analyser || !freqLUT) return;
+
+        analyser.getFloatFrequencyData(freqData);
+
+        var lutLen = freqLUT.length;
+        if (lutLen <= 0) return;
+
+        // Build path
+        ctx.beginPath();
+        ctx.moveTo(plotX, plotY + plotH); // baseline left
+
+        for (var x = 0; x < lutLen; x++) {
+            var db = interpolateDB(freqData, freqLUT[x]);
+            var y = dbToY(db);
+            ctx.lineTo(plotX + x, y);
+
+            // Peak hold update
+            if (PEAK_HOLD_ENABLED && peakEnvelope) {
+                if (db > peakEnvelope[x] || (now - peakTimes[x]) > PEAK_DECAY_MS) {
+                    peakEnvelope[x] = db;
+                    peakTimes[x] = now;
+                }
+            }
+        }
+
+        ctx.lineTo(plotX + lutLen - 1, plotY + plotH); // baseline right
+        ctx.closePath();
+
+        // Fill with cached gradient
+        if (cachedGradient) {
+            ctx.fillStyle = cachedGradient;
+        } else {
+            ctx.fillStyle = "rgba(155, 89, 182, 0.5)";
+        }
+        ctx.fill();
+
+        // Outline stroke
+        ctx.beginPath();
+        for (var x2 = 0; x2 < lutLen; x2++) {
+            var db2 = interpolateDB(freqData, freqLUT[x2]);
+            var y2 = dbToY(db2);
+            if (x2 === 0) {
+                ctx.moveTo(plotX + x2, y2);
+            } else {
+                ctx.lineTo(plotX + x2, y2);
+            }
+        }
+        ctx.strokeStyle = OUTLINE_STYLE;
+        ctx.lineWidth = OUTLINE_WIDTH;
+        ctx.stroke();
+
+        // Peak hold line
+        if (PEAK_HOLD_ENABLED && peakEnvelope) {
+            ctx.beginPath();
+            for (var x3 = 0; x3 < lutLen; x3++) {
+                var peakY = dbToY(peakEnvelope[x3]);
+                if (x3 === 0) {
+                    ctx.moveTo(plotX + x3, peakY);
+                } else {
+                    ctx.lineTo(plotX + x3, peakY);
+                }
+            }
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    }
+
+    function drawNoSignalMessage() {
+        var cssW = cachedW / (window.devicePixelRatio || 1);
+        var cssH = cachedH / (window.devicePixelRatio || 1);
+
+        ctx.fillStyle = LABEL_COLOR;
+        ctx.font = "10px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("No live audio", cssW / 2, cssH / 2);
+    }
+
+    function render() {
+        if (!ctx || !canvas) {
+            animFrame = requestAnimationFrame(render);
+            return;
+        }
+
+        var now = performance.now();
+
+        resizeCanvas();
+
+        if (cachedW === 0 || cachedH === 0) {
+            animFrame = requestAnimationFrame(render);
+            return;
+        }
+
+        drawBackground();
+
+        if (analyser && pcmConnected) {
+            drawMountainRange(now);
+        } else {
+            drawNoSignalMessage();
+        }
+
+        animFrame = requestAnimationFrame(render);
+    }
+
+    // =====================================================================
+    // User gesture handling for AudioContext
+    // =====================================================================
+
+    var gestureHandled = false;
+
+    function handleUserGesture() {
+        if (gestureHandled) return;
+        gestureHandled = true;
+
+        initAudioPipeline();
+
+        document.removeEventListener("click", handleUserGesture);
+        document.removeEventListener("touchstart", handleUserGesture);
+        document.removeEventListener("keydown", handleUserGesture);
+    }
+
+    // =====================================================================
+    // Public API
+    // =====================================================================
 
     function init(canvasId) {
         canvas = document.getElementById(canvasId);
         if (!canvas) return;
         ctx = canvas.getContext("2d");
+
+        resizeCanvas();
+
+        window.addEventListener("resize", function () {
+            // Invalidate cache so next frame recalculates
+            cachedW = 0;
+            cachedH = 0;
+        });
+
+        // Listen for user gesture to start AudioContext
+        document.addEventListener("click", handleUserGesture);
+        document.addEventListener("touchstart", handleUserGesture);
+        document.addEventListener("keydown", handleUserGesture);
+
         render();
     }
 
+    /**
+     * Legacy updateData() for backward compatibility with /ws/monitoring
+     * 1/3-octave band data. When FFT display is active, this is ignored.
+     */
     function updateData(bands) {
         if (!bands || bands.length !== 31) return;
-        for (var i = 0; i < 31; i++) {
-            currentLevels[i] = bands[i];
-        }
-    }
-
-    function render() {
-        if (!ctx || !canvas) return;
-
-        var now = performance.now();
-        var w = canvas.width = canvas.clientWidth;
-        var h = canvas.height = canvas.clientHeight;
-
-        if (w === 0 || h === 0) {
-            animFrame = requestAnimationFrame(render);
-            return;
-        }
-
-        // Reserve space for labels
-        var labelBottomH = 16;
-        var labelLeftW = 28;
-        var plotW = w - labelLeftW;
-        var plotH = h - labelBottomH;
-        var plotX = labelLeftW;
-        var plotY = 0;
-
-        // Clear
-        ctx.fillStyle = COLOR_BG;
-        ctx.fillRect(0, 0, w, h);
-
-        // Bar dimensions
-        var gap = 2;
-        var barW = Math.max(10, Math.floor(plotW / 31) - gap);
-        var totalBarW = (barW + gap) * 31 - gap;
-        var offsetX = plotX + Math.floor((plotW - totalBarW) / 2);
-
-        // Draw dB gridlines and labels
-        ctx.strokeStyle = COLOR_GRID;
-        ctx.lineWidth = 1;
-        ctx.fillStyle = COLOR_LABEL;
-        ctx.font = "8px monospace";
-        ctx.textAlign = "right";
-        ctx.textBaseline = "middle";
-
-        var m, db, y;
-        for (m = 0; m < DB_MARKS.length; m++) {
-            db = DB_MARKS[m];
-            y = dbToY(db, plotY, plotH);
-            ctx.beginPath();
-            ctx.moveTo(plotX, y);
-            ctx.lineTo(w, y);
-            ctx.stroke();
-            ctx.fillText(db.toString(), plotX - 3, y);
-        }
-
-        // Draw bars
-        var level, x, barH, barY;
-        var greenTopDb, greenH;
-        var yellowBottom, yellowTop, yellowBottomY, yellowTopY;
-        var redBottom, redBottomY;
-        var peakY;
-
-        for (i = 0; i < 31; i++) {
-            // Exponential smoothing
-            smoothedLevels[i] = smoothedLevels[i] * SMOOTHING + currentLevels[i] * (1 - SMOOTHING);
-            level = Math.max(DB_MIN, Math.min(DB_MAX, smoothedLevels[i]));
-
-            // Peak hold: update if new peak or hold expired
-            if (level > peakLevels[i] || now - peakTimes[i] > PEAK_HOLD_MS) {
-                peakLevels[i] = level;
-                peakTimes[i] = now;
-            }
-
-            x = offsetX + i * (barW + gap);
-            barH = plotH * (level - DB_MIN) / (DB_MAX - DB_MIN);
-            barY = plotY + plotH - barH;
-
-            if (barH > 0) {
-                // Green segment (below -12 dB)
-                greenTopDb = Math.min(level, GREEN_MAX);
-                greenH = plotH * (greenTopDb - DB_MIN) / (DB_MAX - DB_MIN);
-                if (greenH > 0) {
-                    ctx.fillStyle = COLOR_GREEN;
-                    ctx.fillRect(x, plotY + plotH - greenH, barW, greenH);
-                }
-
-                // Yellow segment (-12 to -3 dB)
-                if (level > GREEN_MAX) {
-                    yellowBottom = GREEN_MAX;
-                    yellowTop = Math.min(level, YELLOW_MAX);
-                    yellowBottomY = dbToY(yellowBottom, plotY, plotH);
-                    yellowTopY = dbToY(yellowTop, plotY, plotH);
-                    ctx.fillStyle = COLOR_YELLOW;
-                    ctx.fillRect(x, yellowTopY, barW, yellowBottomY - yellowTopY);
-                }
-
-                // Red segment (above -3 dB)
-                if (level > YELLOW_MAX) {
-                    redBottom = YELLOW_MAX;
-                    redBottomY = dbToY(redBottom, plotY, plotH);
-                    ctx.fillStyle = COLOR_RED;
-                    ctx.fillRect(x, barY, barW, redBottomY - barY);
-                }
-            }
-
-            // Peak hold line (1px white)
-            if (peakLevels[i] > DB_MIN) {
-                peakY = dbToY(peakLevels[i], plotY, plotH);
-                ctx.fillStyle = COLOR_PEAK;
-                ctx.fillRect(x, peakY, barW, 1);
-            }
-        }
-
-        // Frequency labels (bottom)
-        ctx.fillStyle = COLOR_LABEL;
-        ctx.font = "8px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-
-        var li, idx, lx;
-        for (li = 0; li < LABEL_INDICES.length; li++) {
-            idx = LABEL_INDICES[li];
-            lx = offsetX + idx * (barW + gap) + barW / 2;
-            ctx.fillText(LABELS[li], lx, plotY + plotH + 3);
-        }
-
-        animFrame = requestAnimationFrame(render);
+        legacyBands = bands;
     }
 
     function destroy() {
@@ -221,9 +543,36 @@
             cancelAnimationFrame(animFrame);
             animFrame = null;
         }
+        if (pcmWs) {
+            pcmWs.close();
+            pcmWs = null;
+        }
+        if (pcmReconnectTimer) {
+            clearTimeout(pcmReconnectTimer);
+            pcmReconnectTimer = null;
+        }
+        if (audioCtx) {
+            audioCtx.close();
+            audioCtx = null;
+        }
+        analyser = null;
+        workletNode = null;
+        freqData = null;
     }
 
-    // -- Expose module --
+    // =====================================================================
+    // Expose module — same interface as the old spectrum module
+    // =====================================================================
+
+    // 31 ISO 1/3-octave center frequencies (retained for backward compat)
+    var BANDS = [
+        20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160,
+        200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+        2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000,
+        20000
+    ];
+    var LABELS = ["31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
+    var LABEL_INDICES = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29];
 
     window.PiAudioSpectrum = {
         init: init,
@@ -234,9 +583,19 @@
         LABEL_INDICES: LABEL_INDICES,
         DB_MIN: DB_MIN,
         DB_MAX: DB_MAX,
-        DB_MARKS: DB_MARKS,
-        SMOOTHING: SMOOTHING,
-        PEAK_HOLD_MS: PEAK_HOLD_MS
+        DB_MARKS: DB_GRID_LINES,
+        SMOOTHING: ANALYSER_SMOOTHING,
+        PEAK_HOLD_MS: PEAK_DECAY_MS,
+
+        // New exports for reuse by spectrogram/measurement views
+        FREQ_LO: FREQ_LO,
+        FREQ_HI: FREQ_HI,
+        SAMPLE_RATE: SAMPLE_RATE,
+        FFT_SIZE: FFT_SIZE,
+        COLOR_STOPS: COLOR_STOPS,
+        freqToNorm: freqToNorm,
+        normToFreq: normToFreq,
+        freqToBin: freqToBin
     };
 
 })();

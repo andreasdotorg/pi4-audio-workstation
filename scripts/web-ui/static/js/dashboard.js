@@ -44,6 +44,15 @@
 
     var FRAC_12 = (-12 - DB_MIN) / (DB_MAX - DB_MIN);
     var FRAC_6 = (-6 - DB_MIN) / (DB_MAX - DB_MIN);
+    var FRAC_3 = (-3 - DB_MIN) / (DB_MAX - DB_MIN);
+
+    // Group base colors (minimeters palette)
+    var GROUP_COLORS = {
+        main:   { base: "#8a94a4", bright: "#b0b8c8" },  // blue-silver
+        app:    { base: "#00838f", bright: "#00acc1" },   // dark cyan
+        dspout: { base: "#2e7d32", bright: "#43a047" },   // forest green
+        physin: { base: "#c17900", bright: "#e2a639" }    // dark amber
+    };
 
     var DB_SCALE_MARKS = [0, -6, -12, -24, -48];
 
@@ -88,9 +97,19 @@
     }
 
     function dbReadoutColor(db) {
-        if (db >= -3) return "#e53935";
-        if (db >= -12) return "#f9a825";
-        return "#43a047";
+        if (db >= -3) return "#e5453a";
+        if (db >= -12) return "#e2c039";
+        return "#79e25b";
+    }
+
+    function setHealthGauge(id, pct, text, color) {
+        var fill = document.getElementById(id + "-fill");
+        var txt = document.getElementById(id + "-text");
+        if (fill) {
+            fill.style.width = Math.min(100, Math.max(0, pct)) + "%";
+            fill.style.backgroundColor = color;
+        }
+        if (txt) txt.textContent = text;
     }
 
     function formatUptime(seconds) {
@@ -206,45 +225,21 @@
 
         ctx.clearRect(0, 0, w, h);
 
-        ctx.fillStyle = "#0f0f0f";
+        ctx.fillStyle = "#101216";
         ctx.fillRect(0, 0, w, h);
 
-        // RMS fill
+        // RMS fill — unified gradient for all groups:
+        // base color → brighter base at -12dB → yellow at -6dB → red at -3dB
         var rmsFrac = dbToFraction(state.rms);
         var rmsH = rmsFrac * h;
         if (rmsH > 0.5) {
+            var gc = GROUP_COLORS[group] || GROUP_COLORS.main;
             var grad = ctx.createLinearGradient(0, h, 0, 0);
-            if (group === "main") {
-                // White/silver theme for MAIN meters
-                grad.addColorStop(0, "#888");
-                grad.addColorStop(Math.min(FRAC_12, 1), "#ccc");
-                grad.addColorStop(Math.min(FRAC_6, 1), "#f9a825");
-                grad.addColorStop(1, "#e53935");
-            } else if (group === "app") {
-                // Cyan theme for APP→DSP meters
-                grad.addColorStop(0, "#00838f");
-                grad.addColorStop(Math.min(FRAC_12, 1), "#00838f");
-                grad.addColorStop(Math.min(FRAC_12 + 0.01, 1), "#00acc1");
-                grad.addColorStop(Math.min(FRAC_6, 1), "#00acc1");
-                grad.addColorStop(Math.min(FRAC_6 + 0.01, 1), "#e53935");
-                grad.addColorStop(1, "#e53935");
-            } else if (group === "physin") {
-                // Amber theme for PHYS IN meters
-                grad.addColorStop(0, "#e65100");
-                grad.addColorStop(Math.min(FRAC_12, 1), "#e65100");
-                grad.addColorStop(Math.min(FRAC_12 + 0.01, 1), "#ff8f00");
-                grad.addColorStop(Math.min(FRAC_6, 1), "#ff8f00");
-                grad.addColorStop(Math.min(FRAC_6 + 0.01, 1), "#e53935");
-                grad.addColorStop(1, "#e53935");
-            } else {
-                // Green/yellow/red theme for DSP→OUT (playback) meters
-                grad.addColorStop(0, "#43a047");
-                grad.addColorStop(Math.min(FRAC_12, 1), "#43a047");
-                grad.addColorStop(Math.min(FRAC_12 + 0.01, 1), "#f9a825");
-                grad.addColorStop(Math.min(FRAC_6, 1), "#f9a825");
-                grad.addColorStop(Math.min(FRAC_6 + 0.01, 1), "#e53935");
-                grad.addColorStop(1, "#e53935");
-            }
+            grad.addColorStop(0, gc.base);
+            grad.addColorStop(Math.min(FRAC_12, 1), gc.bright);
+            grad.addColorStop(Math.min(FRAC_6, 1), "#e2c039");
+            grad.addColorStop(Math.min(FRAC_3, 1), "#e5453a");
+            grad.addColorStop(1, "#e5453a");
             ctx.fillStyle = grad;
             ctx.fillRect(0, h - rmsH, w, rmsH);
         }
@@ -417,6 +412,42 @@
         PiAudio.setText("hb-dsp-xruns", String(cdsp.xruns),
             cdsp.xruns > 0 ? "c-red" : "c-green");
 
+        // System health panel — DSP state
+        var shDspDot = document.getElementById("sh-dsp-dot");
+        if (shDspDot) {
+            shDspDot.style.backgroundColor = cdsp.state === "Running" ? "#79e25b" : "#e5453a";
+        }
+        PiAudio.setText("sh-dsp-state", cdsp.state,
+            cdsp.state === "Running" ? "c-green" : "c-red");
+
+        // System health panel — DSP load gauge
+        setHealthGauge("sh-dsp-load", dspLoadPct,
+            dspLoadPct.toFixed(1) + "%",
+            dspLoadPct < 50 ? "#79e25b" : dspLoadPct < 80 ? "#e2c039" : "#e5453a");
+
+        // System health panel — Buffer level gauge
+        var bufLevel = cdsp.buffer_level;
+        var bufPct = Math.min(100, Math.max(0, bufLevel));
+        setHealthGauge("sh-buffer", bufPct,
+            bufLevel + "%",
+            bufPct > 50 ? "#79e25b" : bufPct > 20 ? "#e2c039" : "#e5453a");
+
+        // System health panel — Xruns
+        var shXruns = document.getElementById("sh-xruns");
+        if (shXruns) {
+            shXruns.textContent = String(cdsp.xruns);
+            shXruns.style.color = cdsp.xruns > 0 ? "#e5453a" : "#79e25b";
+            shXruns.classList.toggle("sys-health-pulse", cdsp.xruns > 0);
+        }
+
+        // System health panel — Clipped
+        var shClipped = document.getElementById("sh-clipped");
+        if (shClipped) {
+            shClipped.textContent = String(cdsp.clipped_samples);
+            shClipped.style.color = cdsp.clipped_samples > 0 ? "#e5453a" : "#79e25b";
+            shClipped.classList.toggle("sys-health-pulse", cdsp.clipped_samples > 0);
+        }
+
         // Push events for xrun/clip increments (monitoring data has higher update rate)
         if (window._piAudioPushEvent) {
             if (prevMonXruns !== null && cdsp.xruns > prevMonXruns) {
@@ -473,6 +504,11 @@
             tempPct,
             temp.toFixed(0) + "\u00b0",
             PiAudio.tempColorRaw(temp));
+
+        // System health panel — CPU temperature gauge
+        setHealthGauge("sh-cpu-temp", tempPct,
+            temp.toFixed(0) + "\u00b0C",
+            temp < 65 ? "#79e25b" : temp < 75 ? "#e2c039" : "#e5453a");
 
         // Health bar: Memory gauge
         var mem = data.memory;

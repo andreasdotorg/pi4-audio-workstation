@@ -69,9 +69,9 @@
         </span>
     </div>
 
-    <!-- Main meter area + right panel -->
+    <!-- Top row: meters (left) + right column (system health + SPL/LUFS) -->
     <div class="dashboard-main">
-        <!-- Left: Level meters + spectrum -->
+        <!-- Left: Level meters -->
         <div class="meters-area">
             <div class="meters-zone">
                 <!-- dB scale -->
@@ -95,7 +95,7 @@
 
                 <!-- DSP→OUT group (playback ch 0-7, post-DSP to speakers/headphones/IEM) -->
                 <div class="meter-group-section" id="group-dspout">
-                    <div class="meter-group-label">DSP→OUT</div>
+                    <div class="meter-group-label meter-group-label-dspout">DSP→OUT</div>
                     <div class="meters-row" id="meters-dspout"></div>
                 </div>
 
@@ -105,39 +105,78 @@
                     <div class="meters-row" id="meters-physin"></div>
                 </div>
             </div>
-            <div class="spectrum-zone" id="spectrum-zone">
-                <div class="spectrum-container">
-                    <span class="spectrum-title">1/3 OCTAVE</span>
-                    <canvas class="spectrum-canvas" id="spectrum-canvas"></canvas>
-                </div>
-            </div>
         </div>
 
-        <!-- Right panel: SPL hero + LUFS -->
+        <!-- Right column: system health + SPL + LUFS -->
         <div class="right-panel">
+            <!-- System health panel -->
+            <div class="sys-health-panel" id="sys-health-panel">
+                <div class="sys-health-row">
+                    <span class="sys-health-label">DSP</span>
+                    <span class="sys-health-dot" id="sh-dsp-dot"></span>
+                    <span class="sys-health-value" id="sh-dsp-state">--</span>
+                </div>
+                <div class="sys-health-row">
+                    <span class="sys-health-label">DSP Load</span>
+                    <span class="sys-health-gauge" id="sh-dsp-load">
+                        <span class="sys-health-gauge-fill" id="sh-dsp-load-fill"></span>
+                        <span class="sys-health-gauge-text" id="sh-dsp-load-text">--</span>
+                    </span>
+                </div>
+                <div class="sys-health-row">
+                    <span class="sys-health-label">CPU Temp</span>
+                    <span class="sys-health-gauge" id="sh-cpu-temp">
+                        <span class="sys-health-gauge-fill" id="sh-cpu-temp-fill"></span>
+                        <span class="sys-health-gauge-text" id="sh-cpu-temp-text">--</span>
+                    </span>
+                </div>
+                <div class="sys-health-row">
+                    <span class="sys-health-label">Buffer</span>
+                    <span class="sys-health-gauge" id="sh-buffer">
+                        <span class="sys-health-gauge-fill" id="sh-buffer-fill"></span>
+                        <span class="sys-health-gauge-text" id="sh-buffer-text">--</span>
+                    </span>
+                </div>
+                <div class="sys-health-row">
+                    <span class="sys-health-label">Xruns</span>
+                    <span class="sys-health-value" id="sh-xruns">0</span>
+                </div>
+                <div class="sys-health-row">
+                    <span class="sys-health-label">Clipped</span>
+                    <span class="sys-health-value" id="sh-clipped">0</span>
+                </div>
+            </div>
+
+            <!-- SPL hero -->
             <div class="spl-hero" id="spl-hero">
                 <div class="spl-hero-label">SPL</div>
                 <div class="spl-hero-value" id="spl-value">--</div>
                 <div class="spl-hero-unit">dB SPL</div>
             </div>
+
+            <!-- LUFS (horizontal row: ST / INT / MOM) -->
             <div class="lufs-panel">
                 <div class="lufs-section">
-                    <div class="lufs-label">SHORT-TERM</div>
+                    <div class="lufs-label">ST</div>
                     <div class="lufs-value" id="lufs-short">--</div>
-                    <div class="lufs-unit">LUFS</div>
                 </div>
                 <div class="lufs-section">
-                    <div class="lufs-label">INTEGRATED</div>
+                    <div class="lufs-label">INT</div>
                     <div class="lufs-value" id="lufs-integrated">--</div>
-                    <div class="lufs-unit">LUFS</div>
                 </div>
                 <div class="lufs-section">
-                    <div class="lufs-label">MOMENTARY</div>
+                    <div class="lufs-label">MOM</div>
                     <div class="lufs-value" id="lufs-momentary">--</div>
-                    <div class="lufs-unit">LUFS</div>
                 </div>
-                <div class="lufs-stage-note">Stage 2</div>
             </div>
+        </div>
+    </div>
+
+    <!-- Bottom row: spectrum (full width) -->
+    <div class="spectrum-zone" id="spectrum-zone">
+        <div class="spectrum-container">
+            <span class="spectrum-title">SPECTRUM</span>
+            <canvas class="spectrum-canvas" id="spectrum-canvas"></canvas>
         </div>
     </div>
 
