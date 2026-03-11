@@ -26,8 +26,8 @@
 # CAUTION: Sub driver 2 (ch 3) is phase-inverted for isobaric clamshell.
 # Do NOT use this config with other speaker systems.
 #
-# Filter coefficients are dirac placeholders until REW measurement.
-# After measurement, replace with combined FIR (crossover + room correction + speaker EQ).
+# Filter coefficients contain crossover + subsonic protection (no room correction yet).
+# After REW measurement, regenerate with room correction + speaker EQ baked in.
 
 devices:
   samplerate: 48000
@@ -121,31 +121,31 @@ filters:
     parameters:
       gain: -13.0
 
-  # --- FIR convolution (placeholder dirac until measured) ---
-  # After REW measurement, replace with combined minimum-phase FIR containing:
-  #   Satellite: HP at 150-160Hz LR-48, baffle step comp (+4dB), room correction
-  #   Sub: LP at 150-160Hz LR-48, HP at 42-45Hz >=48dB/oct (Xmax protection),
-  #        enclosure comp (+10dB @ 50-80Hz), room correction
+  # --- FIR convolution (crossover-only, no room correction yet) ---
+  # Combined minimum-phase FIR filters:
+  #   Satellite: HP crossover at 155Hz, 48dB/oct
+  #   Sub: LP crossover at 155Hz, 48dB/oct + subsonic HPF at 42Hz, 48dB/oct
+  # After REW measurement, regenerate with room correction + speaker EQ baked in.
   sat_left_fir:
     type: Conv
     parameters:
       type: Wav
-      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+      filename: "/etc/camilladsp/coeffs/combined_left_hp.wav"
   sat_right_fir:
     type: Conv
     parameters:
       type: Wav
-      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+      filename: "/etc/camilladsp/coeffs/combined_right_hp.wav"
   sub1_fir:
     type: Conv
     parameters:
       type: Wav
-      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+      filename: "/etc/camilladsp/coeffs/combined_sub1_lp.wav"
   sub2_fir:
     type: Conv
     parameters:
       type: Wav
-      filename: "/etc/camilladsp/coeffs/dirac_16384.wav"
+      filename: "/etc/camilladsp/coeffs/combined_sub2_lp.wav"
 
   # --- Power limiting (post-FIR) ---
   # Protects drivers from exceeding thermal limits.
