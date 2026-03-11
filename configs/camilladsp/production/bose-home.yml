@@ -78,15 +78,21 @@ mixers:
           - channel: 1
             gain: -6
             inverted: true
-      # HP L (input ch 4) -> dest 4
+      # HP L: Mixxx cue L (ch 2) + Reaper HP L (ch 4)
       - dest: 4
         sources:
+          - channel: 2
+            gain: 0
+            inverted: false
           - channel: 4
             gain: 0
             inverted: false
-      # HP R (input ch 5) -> dest 5
+      # HP R: Mixxx cue R (ch 3) + Reaper HP R (ch 5)
       - dest: 5
         sources:
+          - channel: 3
+            gain: 0
+            inverted: false
           - channel: 5
             gain: 0
             inverted: false
@@ -155,6 +161,14 @@ filters:
     parameters:
       gain: -8.6
 
+  # --- Subsonic protection (temporary until real FIR replaces dirac) ---
+  sub_subsonic_hp:
+    type: BiquadCombo
+    parameters:
+      type: ButterworthHighpass
+      order: 4
+      freq: 45
+
 pipeline:
   # 1. Route stereo input to 8 output channels
   - type: Mixer
@@ -168,6 +182,11 @@ pipeline:
     channels: [2, 3]
     names:
       - sub_headroom
+  # 2b. Subsonic protection (temporary until real FIR replaces dirac)
+  - type: Filter
+    channels: [2, 3]
+    names:
+      - sub_subsonic_hp
   # 3. FIR convolution (crossover + room correction + speaker EQ)
   - type: Filter
     channels: [0]
