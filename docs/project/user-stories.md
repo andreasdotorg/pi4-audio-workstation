@@ -1860,7 +1860,7 @@ The scaffolding supports two modes:
 - Reconciliation: Adopted architect's directory structure (test_server.py
   stays in place, Playwright tests in `tests/e2e/`). Different test suites
   with different dependencies and execution speeds should be separate.
-  Visual regression included as optional AC pending owner confirmation.
+  Visual regression mandatory (owner confirmed 2026-03-11).
 
 **Acceptance criteria:**
 
@@ -1883,7 +1883,7 @@ The scaffolding supports two modes:
 - [ ] `test_stub_views.py`: Measure and MIDI stub views render their placeholder content ("Coming in Stage 2" or equivalent)
 - [ ] All functional tests assert no JS console errors during execution (capture via `page.on('console')` — catches broken imports, undefined references, and API errors that don't visibly break the UI)
 
-*Visual regression (optional — pending owner confirmation):*
+*Visual regression (mandatory — owner confirmed 2026-03-11):*
 - [ ] Reference screenshots captured for Monitor and System views using at least one mock scenario (e.g., scenario A)
 - [ ] `MockDataGenerator` extended with a `freeze_time` parameter that pins `start_time` to a fixed value and seeds random offsets deterministically, producing identical mock data across runs (required for stable screenshot comparison)
 - [ ] Tests use Playwright's `expect(page).to_have_screenshot("name.png")` with a small pixel tolerance (`max_diff_pixel_ratio=0.01`) for anti-aliasing differences
@@ -1918,7 +1918,7 @@ The scaffolding supports two modes:
         test_system_view.py       # System view metrics display
         test_stub_views.py        # Measure + MIDI stub rendering
         test_monitor_e2e.py       # E2e example (observation-only)
-        screenshots/              # reference screenshots (if visual regression included)
+        screenshots/              # reference screenshots for visual regression
   ```
 
 *Local test runner:*
@@ -1937,7 +1937,8 @@ The scaffolding supports two modes:
 - [ ] At least 4 Playwright functional tests pass against the mock backend (one per SPA view)
 - [ ] At least 1 e2e example test passes against a real Pi (verified by worker with CM OBSERVE session — observation-only smoke test, no state changes)
 - [ ] `conftest.py` reviewed by QE: fixture design, marker registration, mock data injection pattern
-- [ ] Architect review: test infrastructure does not affect production code paths (exception: `freeze_time` addition to MockDataGenerator if visual regression included)
+- [ ] Architect review: test infrastructure does not affect production code paths (exception: `freeze_time` addition to MockDataGenerator — defaults to `False`, no runtime behavior change)
+- [ ] At least 1 visual regression screenshot test passes (Monitor view, Scenario A)
 - [ ] README or docstring in `conftest.py` documents how to run tests in both modes
 - [ ] Makefile or equivalent provides simple test invocation targets
 
