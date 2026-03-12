@@ -10,6 +10,7 @@ ExecStart=/home/ela/audio-workstation-venv/bin/uvicorn app.main:app --host 0.0.0
 Environment=PI_AUDIO_MOCK=0
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=JACK_NO_START_SERVER=1
+Environment=LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/pipewire-0.3/jack
 Restart=on-failure
 RestartSec=5
 # Web UI must not compete with RT audio
