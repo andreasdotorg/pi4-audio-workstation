@@ -2,7 +2,7 @@
        update-snapshots install-test-deps
 
 test-unit:
-	python -m pytest test_server.py -v
+	python -m pytest tests/ -v -k "not e2e"
 
 test-e2e:
 	python -m pytest tests/e2e/ -v
