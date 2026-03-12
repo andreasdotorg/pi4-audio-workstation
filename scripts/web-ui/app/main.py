@@ -103,13 +103,14 @@ app.websocket("/ws/system")(ws_system)
 
 
 @app.websocket("/ws/pcm")
-async def ws_pcm(ws: WebSocket):
+async def ws_pcm(ws: WebSocket, scenario: str = "A"):
     """Binary PCM stream: 4-byte LE uint32 header + interleaved float32."""
     await ws.accept()
 
     if MOCK_MODE:
-        # In mock mode, PCM streaming is not available
-        await ws.close(code=1008, reason="PCM streaming unavailable in mock mode")
+        from .mock.mock_pcm import mock_pcm_stream
+        log.info("PCM client connected (mock, scenario=%s)", scenario)
+        await mock_pcm_stream(ws, scenario)
         return
 
     pcm_collector = getattr(app.state, "pcm", None)

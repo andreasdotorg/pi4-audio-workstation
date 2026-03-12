@@ -44,7 +44,7 @@ SCENARIOS = {
         "cdsp_policy": "SCHED_FIFO",
         "cdsp_priority": 80,
         "cdsp_state": "Running",
-        "processing_load": 0.05,
+        "processing_load": 5.0,
         "capture_rate": 48000,
         "playback_rate": 48000,
         "rate_adjust": 1.0001,
@@ -77,7 +77,7 @@ SCENARIOS = {
         "cdsp_policy": "SCHED_FIFO",
         "cdsp_priority": 80,
         "cdsp_state": "Running",
-        "processing_load": 0.19,
+        "processing_load": 19.0,
         "capture_rate": 48000,
         "playback_rate": 48000,
         "rate_adjust": 1.0000,
@@ -110,7 +110,7 @@ SCENARIOS = {
         "cdsp_policy": "SCHED_FIFO",
         "cdsp_priority": 80,
         "cdsp_state": "Running",
-        "processing_load": 0.35,
+        "processing_load": 35.0,
         "capture_rate": 48000,
         "playback_rate": 48000,
         "rate_adjust": 1.0003,
@@ -143,7 +143,7 @@ SCENARIOS = {
         "cdsp_policy": "SCHED_OTHER",
         "cdsp_priority": 0,
         "cdsp_state": "Paused",
-        "processing_load": 0.42,
+        "processing_load": 42.0,
         "capture_rate": 48000,
         "playback_rate": 48000,
         "rate_adjust": 0.9998,
@@ -176,7 +176,7 @@ SCENARIOS = {
         "cdsp_policy": "SCHED_FIFO",
         "cdsp_priority": 80,
         "cdsp_state": "Running",
-        "processing_load": 0.01,
+        "processing_load": 1.0,
         "capture_rate": 48000,
         "playback_rate": 48000,
         "rate_adjust": 1.0000,
@@ -303,7 +303,7 @@ class MockDataGenerator:
 
         # -- CamillaDSP status (included at every tick for low-latency display) --
         processing_load = max(0, self._jitter(
-            s["processing_load"] + 0.01 * math.sin(t * 0.3), 0.005
+            s["processing_load"] + 1.0 * math.sin(t * 0.3), 0.5
         ))
         xruns = s["xruns"]
         if self.scenario == "D":
@@ -324,7 +324,7 @@ class MockDataGenerator:
             },
             "camilladsp": {
                 "state": s["cdsp_state"],
-                "processing_load": round(processing_load, 4),
+                "processing_load": round(processing_load, 2),
                 "buffer_level": buffer_level,
                 "clipped_samples": s["clipped_samples"],
                 "xruns": xruns,
@@ -389,7 +389,7 @@ class MockDataGenerator:
             s["temperature"] + 1.5 * math.sin(t * 0.05), 0.5
         )
         processing_load = max(0, self._jitter(
-            s["processing_load"] + 0.01 * math.sin(t * 0.3), 0.005
+            s["processing_load"] + 1.0 * math.sin(t * 0.3), 0.5
         ))
         xruns = s["xruns"]
         if self.scenario == "D":
@@ -422,7 +422,7 @@ class MockDataGenerator:
             },
             "camilladsp": {
                 "state": s["cdsp_state"],
-                "processing_load": round(processing_load, 4),
+                "processing_load": round(processing_load, 2),
                 "capture_rate": s["capture_rate"],
                 "playback_rate": s["playback_rate"],
                 "rate_adjust": round(rate_adjust, 6),
