@@ -96,7 +96,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - F-027 RESOLVED: DSP load display showed 2185% (double `* 100` in dashboard.js). Fix: `244dd65`.
 - F-028 RESOLVED: Loopback glitches from ALSA period-size mismatch (1024 vs quantum 256, 4:1 rebuffering). Fix: period-size=256, period-num=8 in `25-loopback-8ch.conf`. Commit `f9ba574`. Validated 0 errors after 30+ seconds continuous tone (previously 917+).
 - F-029 RESOLVED: Level bar 3dB below readout — RMS vs Peak crest factor mismatch. Fix: aligned to same metric. Commit `244dd65`.
-- TK-112 DONE: Per-bin uniform amplitude coloring in spectrum display (`d149620`). 256-entry color LUT, per-column fillRect.
+- TK-112 code committed (`d149620`): Per-bin uniform amplitude coloring in spectrum display. 256-entry color LUT, per-column fillRect. **NOT confirmed by owner** — needs visual validation with audio signal flowing. Deployment to Pi and owner confirmation pending next session.
 - TK-124 DONE: system.js `* 100` double multiplication fix (`13e8c02`).
 - TK-125 DONE: Dead "click to start audio" overlay removed from HTML/JS/CSS (`13e8c02`). Cleanup after AudioContext elimination (TK-115).
 - TK-126 DONE: Tone generator (`jack-tone-generator.py`) enhanced with `--continuous`, `--waveform {sine,white,pink,sweep}`, `--channels` (`6a66254`). Backward-compatible.
