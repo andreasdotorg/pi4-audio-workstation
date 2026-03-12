@@ -374,6 +374,23 @@ echo "=== Section 7: Deploy web UI ==="
 
 ssh_cmd "mkdir -p ~/web-ui"
 
+# Generate self-signed TLS cert if not present (one-time setup).
+# AudioWorklet API requires a secure context (HTTPS), so uvicorn must serve
+# over TLS. The cert is self-signed with CN=mugge, valid 10 years.
+echo "  Checking TLS cert..."
+if $DRY_RUN; then
+    echo "  [dry-run] ssh $PI test -f ~/web-ui/cert.pem"
+    echo "  [dry-run] Would generate self-signed cert if not present"
+else
+    if ssh "$PI" "test -f ~/web-ui/cert.pem && test -f ~/web-ui/key.pem"; then
+        echo "  SKIP: TLS cert already exists on Pi."
+    else
+        echo "  Generating self-signed TLS cert (CN=mugge, 10 years)..."
+        ssh "$PI" 'openssl req -x509 -newkey rsa:2048 -keyout ~/web-ui/key.pem -out ~/web-ui/cert.pem -days 3650 -nodes -subj "/CN=mugge" 2>/dev/null'
+        echo "  TLS cert generated."
+    fi
+fi
+
 echo "  scripts/web-ui/{app,static} -> ~/web-ui/"
 if $DRY_RUN; then
     echo "  [dry-run] rsync -a --delete --exclude __pycache__ --exclude .pytest_cache --exclude .venv --exclude tests --exclude test_server.py --exclude Makefile --exclude README.md --exclude screenshots $REPO_ROOT/scripts/web-ui/app $REPO_ROOT/scripts/web-ui/static $PI:~/web-ui/"

@@ -6,7 +6,7 @@ Wants=pipewire.service
 [Service]
 Type=simple
 WorkingDirectory=/home/ela/web-ui
-ExecStart=/home/ela/audio-workstation-venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1
+ExecStart=/home/ela/audio-workstation-venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080 --workers 1 --ssl-keyfile /home/ela/web-ui/key.pem --ssl-certfile /home/ela/web-ui/cert.pem
 Environment=PI_AUDIO_MOCK=0
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=JACK_NO_START_SERVER=1
