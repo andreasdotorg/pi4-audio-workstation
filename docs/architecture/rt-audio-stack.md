@@ -291,9 +291,9 @@ quantum, CamillaDSP chunksize, and the ALSA Loopback buffer.
 |-----------|-----------|-----------|
 | PipeWire quantum | 1024 (21.3ms) | 256 (5.3ms) |
 | CamillaDSP chunksize | 2048 (42.7ms) | 256 (5.3ms) |
-| ALSA Loopback period-size | 1024 | 1024 |
-| ALSA Loopback period-num | 3 | 3 |
-| ALSA Loopback total buffer | 3072 samples | 3072 samples |
+| ALSA Loopback period-size | 256 | 256 |
+| ALSA Loopback period-num | 8 | 8 |
+| ALSA Loopback total buffer | 2048 samples | 2048 samples |
 
 All values assume a 48kHz sample rate.
 
@@ -353,11 +353,11 @@ write cycle.
 **Config file:** `configs/pipewire/25-loopback-8ch.conf`
 
 ```
-api.alsa.period-size   = 1024
-api.alsa.period-num    = 3
+api.alsa.period-size   = 256
+api.alsa.period-num    = 8
 ```
 
-Total buffer: 1024 x 3 = 3072 samples.
+Total buffer: 256 x 8 = 2048 samples.
 
 ### The Loopback Buffer Discovery (TK-064)
 
@@ -376,15 +376,23 @@ stalls and Mixxx crashes.
 - Audio pipeline stall
 - Mixxx crash
 
-**Fix** (commit `f6e941b`): Increased Loopback buffer to
-`period-size=1024, period-num=3` (3072 samples). This accommodates
-PipeWire's 1024-frame writes and provides headroom for CamillaDSP's
+**First fix** (commit `f6e941b`, TK-064): Increased Loopback buffer to
+`period-size=1024, period-num=3` (3072 samples). This accommodated
+PipeWire's 1024-frame writes and provided headroom for CamillaDSP's
 2048-frame reads.
 
-**Design rule:** The ALSA Loopback buffer total size must be >= the
-PipeWire quantum. Since the maximum quantum is 1024 (DJ mode), and the
-buffer must also provide headroom for CamillaDSP reads, `period-size=1024,
-period-num=3` provides adequate margin for both modes.
+**Second fix** (commit `f9ba574`, F-028): Changed to
+`period-size=256, period-num=8` (2048 samples). The 1024-sample period
+size caused a 4:1 period mismatch with PipeWire's quantum 256 in live
+mode, producing rebuffering glitches (917+ errors in 30 seconds of
+continuous tone). Matching the period size to the PipeWire quantum (256)
+eliminated the mismatch. The larger period count (8) maintains the total
+buffer above the DJ mode quantum requirement (1024).
+
+**Design rule:** The ALSA Loopback period-size should match the PipeWire
+quantum to avoid rebuffering. The total buffer (period-size x period-num)
+must be >= the maximum PipeWire quantum (1024 in DJ mode). Current config:
+`period-size=256, period-num=8` (2048 samples) satisfies both constraints.
 
 ---
 

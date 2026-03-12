@@ -132,7 +132,7 @@ Once the spectrograph PCM stream is active (Stage 2), the browser has a second, 
 
 **Source A (Pi-side, primary):** pycamilladsp `levels_since_last()`. Available from Stage 1. Covers all 16 channels (8 capture + 8 playback). Computed by CamillaDSP's C++ engine. Zero additional bandwidth.
 
-**Source B (browser-side, supplementary):** AudioWorklet computes peak and RMS from the raw PCM stream already being received for the spectrograph. Covers only the 3 spectrograph channels (L main, R main, sub sum). Computed in the browser's audio thread. Zero additional Pi CPU or bandwidth -- uses data already in flight.
+**Source B (browser-side, supplementary):** JavaScript computes peak and RMS from the raw PCM stream already being received for the spectrum display. Covers only the 3 spectrograph channels (L main, R main, sub sum). Computed in the main JS thread alongside the FFT. Zero additional Pi CPU or bandwidth -- uses data already in flight.
 
 **Source selection logic:**
 - **Stage 1 (no JACK):** Source A only. All 16 meters from pycamilladsp.
@@ -140,11 +140,11 @@ Once the spectrograph PCM stream is active (Stage 2), the browser has a second, 
 - **Source A unavailable (CamillaDSP disconnect):** For the 3 spectrograph channels, fall back to Source B if the PCM stream is still active. Remaining 13 channels show stale/disconnected. This provides partial metering during a CamillaDSP API outage as long as the JACK capture path is still running.
 - **Source B unavailable (WebSocket disconnect or JACK failure):** No impact -- Source A is primary and independent of the PCM stream.
 
-**Implementation note:** Source B peak/RMS computation is trivial in AudioWorklet -- iterate the float32 buffer per channel, track max absolute value (peak) and sum of squares (RMS). This runs in the audio thread at zero cost to the main JS thread. No additional WebAudio nodes needed beyond what the spectrograph already uses.
+**Implementation note:** Source B peak/RMS computation is trivial in the PCM accumulation loop -- iterate the float32 buffer per channel, track max absolute value (peak) and sum of squares (RMS). This runs in the same code path that feeds the FFT accumulator.
 
 **Why not replace Source A with Source B?** Source B only covers 3 of 16 channels. The remaining 13 channels (5 playback outputs + 8 capture inputs minus the 3 spectrograph channels) have no PCM stream to the browser. Source A is the only option for full-coverage metering.
 
-## 5. Stream 3: Spectrograph (Raw PCM Streaming)
+## 5. Stream 3: Spectrum Display (Raw PCM Streaming + JS FFT)
 
 **Source:** JACK client registered via PipeWire's JACK bridge. Captures from CamillaDSP's PipeWire monitor taps (`CamillaDSP 8ch Input:monitor_AUX0`, `monitor_AUX1`, `monitor_AUX2`). These are pre-DSP signals -- the same audio entering CamillaDSP from the Loopback.
 
@@ -183,35 +183,61 @@ Each frame is a binary message containing:
 Typical frame: 256 samples x 3 channels x 4 bytes = 3072 bytes + 4 byte header = 3076 bytes.
 At 48 kHz / 256 samples per frame = 187.5 frames/sec = ~576 KB/s.
 
-**Browser-side processing:**
+**Browser-side processing (JS FFT pipeline, TK-115):**
 
 ```
-Binary WebSocket frame
+Binary WebSocket frame (/ws/pcm)
     |
     v
-AudioWorklet (MessagePort receives Float32Arrays)
+Float32Array decode (3-channel interleaved, skip 4-byte header)
     |
     v
-AnalyserNode (2048-point FFT, Blackman window, smoothingTimeConstant=0.8)
+Mono accumulator (L+R sum at -6dB each, 2048-sample buffer)
     |
     v
-getByteFrequencyData() at 30 fps (requestAnimationFrame)
+Blackman-Harris window (4-term, pre-computed coefficients)
     |
     v
-Canvas 2D or WebGL spectrograph renderer (GPU-accelerated)
+Radix-2 Cooley-Tukey FFT (2048-point, in-place, 50% overlap)
+    |
+    v
+Magnitude -> dB conversion + exponential smoothing (alpha=0.3)
+    |
+    v
+Canvas 2D renderer at requestAnimationFrame rate
+    (per-bin amplitude coloring via 256-entry color LUT)
 ```
 
-The browser's `AnalyserNode` is a native C++ FFT implementation in the browser's audio engine. It runs on the audio thread, not the main JS thread. `smoothingTimeConstant=0.8` provides exponential smoothing with ~150ms time constant -- matching the audio engineer's recommendation of 2048-point FFT with smoothing factor 0.8.
+The FFT runs entirely in JavaScript on the main thread. This eliminates
+the clock domain crossing that existed in the previous
+AudioWorklet/AnalyserNode architecture, where the browser's AudioContext
+clock drifted against the Pi's USB audio clock (F-026). With the JS FFT,
+all data arrives on the Pi's clock via the WebSocket and is processed
+synchronously -- no second clock, no drift, no ring buffer
+discontinuities.
 
 **FFT parameters:**
-- FFT size: 2048 points (gives 23.4 Hz bin width at 48 kHz -- adequate for spectrograph display)
-- Window: Blackman (AnalyserNode default when smoothing is enabled)
-- Output: 1024 magnitude bins (0 to Nyquist), log-frequency mapped for display
-- Update rate: 30 fps (requestAnimationFrame)
+- FFT size: 2048 points (gives 23.4 Hz bin width at 48 kHz)
+- Window: Blackman-Harris 4-term (coefficients: 0.35875, 0.48829, 0.14128, 0.01168)
+- Overlap: 50% (accumulator keeps last 1024 samples after each FFT)
+- Smoothing: exponential, alpha=0.3 (faster response than the previous 0.8)
+- Output: 1025 magnitude bins (0 to Nyquist), log-frequency mapped for display
+- Update rate: requestAnimationFrame (typically 60 fps, throttled by data arrival)
+- Display range: 30 Hz -- 20 kHz (log x-axis), -60 dB -- 0 dB (linear y-axis)
 
-**CPU cost (Pi side):** ~0.07% -- memcpy in JACK callback + asyncio send. No FFT, no numpy, no analysis.
+**Rendering:**
+- Filled "mountain range" area with per-bin amplitude-based coloring (TK-112)
+- 256-entry color LUT: deep indigo (-60 dB) through purple, magenta, red-orange, amber, yellow, to near-white (0 dB)
+- Outline stroke for edge definition
+- Peak hold envelope with 2-second decay
+- Three-tier frequency grid (major: decade boundaries, medium: half-decades, minor: intermediate)
+- dB axis labels at 12 dB intervals with minor grid at 6 dB
+
+**CPU cost (Pi side):** ~0.07% -- memcpy in JACK callback + asyncio send. No FFT, no numpy, no analysis on the Pi. All FFT computation happens in the browser.
 
 **Subscription model:** Only engineer clients receive PCM data. Singer clients never subscribe to this path.
+
+**No AudioContext required.** The JS FFT pipeline does not use the Web Audio API. No `AudioContext`, `AudioWorklet`, or `AnalyserNode` is created. This means no autoplay policy restrictions and no "click to start audio" overlay (removed in TK-125, commit `13e8c02`). The HTTPS requirement (D-032) remains for general security best practice (S6), but is no longer technically required by the spectrum display.
 
 ## 6. Stream 4: DSP Health
 
@@ -519,12 +545,15 @@ Key behavior: on disconnect, the singer sees a clear "your mix is unchanged" mes
 
 ## 12. HTTPS Requirement (D-032)
 
-The Web Audio API's `AudioWorklet` interface requires a **secure context**
-(HTTPS or `localhost`) per the W3C specification. In a non-secure context
-(plain HTTP to a non-localhost host), the `audioContext.audioWorklet` property
-is `undefined` and the spectrum analyzer cannot function. This was discovered
-during the D-020 PoC validation (see `docs/lab-notes/D-020-poc-validation.md`,
-Step 5).
+HTTPS is required for security best practice on a LAN-accessible service
+(S6 security requirement). The original driver was the Web Audio API's
+`AudioWorklet` interface, which requires a secure context per the W3C
+specification. TK-115 (commit `1dc737f`) replaced AudioWorklet with a
+direct JS FFT pipeline, eliminating the technical HTTPS dependency for
+the spectrum display. However, HTTPS remains the correct choice: it
+protects WebSocket traffic from eavesdropping on untrusted venue
+networks and satisfies the S6 security requirement established during
+the D-020 architecture review.
 
 **Decision (D-032):** The web UI runs over HTTPS using a self-signed
 certificate. This is sufficient for a LAN-only deployment where the operator
@@ -554,13 +583,12 @@ single-user system).
 
 **Browser access:** The first connection to `https://mugge:8080` will show a
 self-signed certificate warning. The operator accepts the certificate once per
-browser. After acceptance, the AudioWorklet loads normally and the spectrum
-analyzer functions.
+browser. After acceptance, the dashboard and spectrum display function normally.
 
 **Development (macOS):** `PI_AUDIO_MOCK=1` mode runs without HTTPS. The
-AudioWorklet is not used in mock mode (no PCM streaming), so the secure
-context requirement does not apply. For development with real PCM, use
-`localhost` (which is a secure context per W3C spec).
+spectrum display is inactive in mock mode (no PCM streaming via `/ws/pcm`;
+see TK-132 for planned mock PCM generation). For development with real
+PCM, use `localhost` or generate a self-signed certificate.
 
 ### Environment Variables
 
@@ -686,7 +714,7 @@ the second pass has real values.
 ### Stage 2: Spectrograph (adds JACK)
 - JACK client with ring buffer for PCM capture
 - Binary WebSocket streaming (Stream 3)
-- Browser AudioWorklet + AnalyserNode + spectrograph renderer
+- Browser JS FFT spectrum renderer (Blackman-Harris window + radix-2 FFT)
 - **Pre-gate:** JACK callback benchmark confirms < 500 us (constraint 9)
 - **Gate:** 30-minute test with spectrograph active -- 0 xruns, < 0.3% total web UI CPU.
 
