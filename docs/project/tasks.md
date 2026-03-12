@@ -190,6 +190,7 @@ current and future tasks.
 | TK-129 | Add amplitude validation to tone generator | unassigned | open | TK-126 | Team review finding, 2026-03-12 | **Filed (LOW).** `--amplitude > 1.0` would clip. Add validation: reject > 1.0, warn > 0.5. One-line fix. No Pi needed. |
 | TK-130 | Vectorize pink noise generator for RT safety | unassigned | open | TK-126 | Team review finding, 2026-03-12 | **Filed (LOW).** Current Voss-McCartney uses per-sample Python loop in JACK RT callback — may cause xruns on Pi. Needs vectorization or pre-generation. Needs Pi to validate. |
 | TK-131 | Update web-ui.md Sections 5 and 12 for JS FFT architecture | unassigned | open | TK-115, F-026 | Team review finding, 2026-03-12 | **Filed (LOW).** Sections still describe AudioContext/AudioWorklet/AnalyserNode pipeline which was replaced by JS FFT (`1dc737f`, TK-115). Section 12 HTTPS rationale also stale (D-032 still valid but AudioContext no longer the driver). No Pi needed. |
+| TK-132 | Add mock PCM stream for spectrum display in dev mode | unassigned | open | D-020 Stage 2 | PO priority session, 2026-03-12 | **Filed (MEDIUM).** `/ws/pcm` closes immediately in mock mode (`main.py:112`), leaving spectrum display dead during development. Add synthetic PCM generation (sine + noise, matching the 3-channel float32 format expected by `spectrum.js`) so the FFT spectrum works in mock mode. No Pi needed. |
 
 ---
 
