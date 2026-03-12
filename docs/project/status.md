@@ -14,15 +14,16 @@ limits that would have forced compromises on filter quality. The bone-to-electro
 21 milliseconds at D-011 parameters -- within the threshold where a singer can
 perform comfortably.
 
-The next phase is the automated room correction pipeline: the software that
-measures each venue, computes correction filters, and deploys them. Everything
-validated so far -- the filter design, the CPU budget, the latency model --
-feeds into that pipeline. The foundation is solid; the interesting work is
-ahead.
+The automated room correction pipeline (TK-071) is written: 13 DSP modules
+covering sweep generation, deconvolution, correction filter computation,
+crossover integration, spatial averaging, and D-009-compliant verification.
+Bose speaker profiles are measured and crossover filters generated. The next
+phase is on-site measurement with real speakers and UMIK-1, plus the remaining
+stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 ## Overall Status
 
-**Tier 1 validation in progress.** US-001 (CPU) and US-002 (latency) both done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T6-128 FAIL (1750 xruns), TK-055 PASS (RT + hardware GL 37+ min stable), T3a blocked on external deps, T4 requires physical hardware. US-004 (assumption register) selected. D-011 confirmed: live mode chunksize 256 + quantum 256 -- quantum 128 tested and failed catastrophically (1750 xruns), 256 is the Pi 4B hardware floor. IEM through CamillaDSP passthrough confirmed as net benefit. **F-012 RESOLVED (upstream fix in `6.12.62+rpt-rpi-v8-rt`).** **F-017 RESOLVED (same fix).** D-022 filed: PREEMPT_RT with hardware V3D GL -- software rendering no longer required. Supersedes D-021 clauses 2-4. **TK-054: wont-do** (hardware GL makes software rendering test unnecessary). DJ-A / DJ-B decision tree collapsed: RT + hardware GL for everything. D-020 (web UI architecture) committed. F-018 (config persistence) resolved -- all audio configs persist across reboot.
+**Tier 1 validation mostly complete.** US-001 (CPU) and US-002 (latency) done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T3d unblocked (pending Reaper end-to-end), T3a blocked on US-005/US-006, T4 requires physical hardware. D-011 confirmed: live mode chunksize 256 + quantum 256. F-012/F-017 RESOLVED (D-022: upstream V3D fix in `6.12.62+rpt-rpi-v8-rt`). PREEMPT_RT + hardware V3D GL for all modes. Room correction pipeline done (TK-071). Web UI dashboard deployed with real data, HTTPS, spectrum analyzer (D-020 Stage 1+2, D-032). Bose speaker profiles measured (PS28 III sub, Jewel Double Cube satellite). Reaper upgraded to 7.64.
 
 ## Component Status
 
@@ -36,12 +37,11 @@ ahead.
 | User stories | active | 42 stories (US-000 through US-038 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md` |
 | CamillaDSP configs | draft | In SETUP-MANUAL.md, not yet tested on hardware. D-011: all 8 channels must route through CamillaDSP (IEM as passthrough on ch 6-7). |
 | US-002 latency measurement | done | Pass 1 + Pass 2 complete. CamillaDSP = 2 chunks latency. PipeWire ~21ms/traversal @ quantum 1024. ALSA-direct T2b=30.3ms. D-011 approved. |
-| Room correction pipeline | scripts written | See row above — crossover + spatial averaging modules complete, FIR generator for Bose config, tests passing |
+| Room correction pipeline | done (TK-071) | `scripts/room-correction/` — 13 modules (sweep, deconvolution, correction, crossover, combine, export, verify), mock room simulator, CLI runner, spatial averaging. Bose FIR generator (`generate_bose_filters.py`). All verification tests pass (D-009 compliant). |
 | Documentation suite | not started | Stories US-014 through US-016 defined |
 | Web UI platform | Stage 1+2 deployed | D-020 production dashboard deployed with 4 real backend collectors (CamillaDSP, PCM, System, PipeWire). HTTPS via self-signed cert (D-032). Spectrum analyzer via browser FFT. 24-channel meter layout. Lab notes: `D-020-poc-validation.md`, `webui-real-data-deployment.md`. |
-| Room correction pipeline | scripts written | `scripts/room-correction/` — crossover, spatial averaging, combine, export, verify modules. FIR filter generator for Bose config (`generate_bose_filters.py`). Tests pass. |
 | Speaker profiles (Bose) | measured | PS28 III sub: port tuning measured (58/88 Hz dual-port), type changed to ported. Jewel Double Cube satellite: near-field measured (peak 339.8 Hz, usable 200Hz-6kHz), crossover moved 155->200 Hz. Lab notes written. |
-| Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc, Python venv. 7.5G/117G disk. RustDesk removed per D-018. |
+| Core software (CamillaDSP, Mixxx, Reaper) | installed | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.64, wayvnc, Python venv. 7.5G/117G disk. RustDesk removed per D-018. |
 | Platform security | partial | US-000a: firewall active, SSH hardened, services disabled. CamillaDSP systemd service with `-a 127.0.0.1` (F-002 resolved). nfs-blkmap masked (F-011). wayvnc password auth (F-013 partially resolved — TLS needed before US-018 guest devices). RustDesk purged, firewall cleaned (F-014 resolved). |
 | Desktop trimming (US-000b) | done | lightdm disabled, labwc user service, RTKit installed, PipeWire FIFO rtprio 83-88. RAM: 397→302Mi. USBStreamer path fixed (hw:USBStreamer,0). |
 | CamillaDSP benchmarks (US-001) | done | 16k taps @ 2048: 5.23% CPU, 16k @ 512: 10.42% CPU. Zero xruns. A1/A2 validated. |
@@ -62,23 +62,16 @@ ahead.
 
 ## In Progress
 
-- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS, T6-128 FAIL (1750 xruns -- quantum 256 is Pi 4B hardware floor), **TK-055 PASS** (37+ min RT + hardware GL, zero lockups on `6.12.62+rpt-rpi-v8-rt`). **F-012/F-017 RESOLVED** (upstream fix, D-022). Software rendering no longer required. DJ-A confirmed: PREEMPT_RT + hardware GL for both modes. T3d now unblocked with hardware GL on RT (no pixman/llvmpipe overhead). T3a blocked on US-005/US-006. T4 requires physical hardware.
-- **Quantum reduction testing** (COMPLETE): Quantum 128 CATASTROPHIC FAIL — 1750 xruns. D-011 confirmed: quantum 256 is the minimum viable on Pi 4B. No D-021 needed.
-- **F-012** (**RESOLVED -- upstream fix in `6.12.62+rpt-rpi-v8-rt`**): V3D GPU driver ABBA deadlock on PREEMPT_RT. 11 lockup events on `6.12.47+rpt-rpi-v8-rt`, 0 on stock. **Root cause fixed upstream:** commit `09fb2c6f4093` (Melissa Wen / Igalia) creates dedicated DMA fence lock. Kernel upgraded to `6.12.62+rpt-rpi-v8-rt`. TK-055: 37+ min stable with hardware V3D GL on RT (previous kernel: lockup in <2.5 min). **D-022 filed:** software rendering no longer required. D-021 clauses 2-4 superseded. No V3D blacklist, no pixman, no llvmpipe. Lab note: `docs/lab-notes/F-012-F-017-rt-gpu-lockups.md`.
+- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS, T6-128 FAIL (1750 xruns -- quantum 256 is Pi 4B hardware floor), **TK-055 PASS** (37+ min RT + hardware GL, zero lockups on `6.12.62+rpt-rpi-v8-rt`). F-012/F-017 RESOLVED (upstream fix, D-022). DJ-A confirmed: PREEMPT_RT + hardware GL for both modes. T3d now unblocked. T3a blocked on US-005/US-006. T4 requires physical hardware.
+- **D-020** (Stage 1+2 deployed): Production dashboard with 4 real backend collectors, spectrum analyzer, HTTPS (D-032). PoC: 8/8 PASS (P8 marginal, optimization deferred to Stage 2). Lab notes: `D-020-poc-validation.md`, `webui-real-data-deployment.md`. Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **F-013** (partially resolved): wayvnc password auth added. TLS required before US-018.
-- **F-015** (resolved -- workaround): USB bandwidth contention. Capture-only adapter designed (Phase 9) and verified on both kernels. Lab note: `docs/lab-notes/F-015-playback-stalls.md`.
 - **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
-- **F-017** (**RESOLVED -- same upstream fix as F-012**): Mixxx hard lockup on PREEMPT_RT. Same V3D ABBA deadlock as F-012, fixed by same upstream commit in `6.12.62+rpt-rpi-v8-rt`. No workaround needed. Lab notes: `docs/lab-notes/F-017-unexplained-reboot.md`, `docs/lab-notes/F-012-F-017-rt-gpu-lockups.md`.
-- **F-018** (resolved): All audio configs now persist across reboot. CamillaDSP SCHED_FIFO 80 via systemd override, PipeWire quantum 256 via static config + systemd user service for force-quantum, RT kernel via config.txt. Verified by capture-verify-worker.
-- **D-020** (PoC validated): Web UI architecture validated on Pi 4B. **8/8 PASS** (P8 marginal: 871us JACK callback, 0.6 errors/min over 35 min -- architect has Option 4 fix, deferred to Stage 2). Lab note: `docs/lab-notes/D-020-poc-validation.md`. 6 deployment bugs found and fixed (commit 4ad556b). Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **US-004** (in-review): Assumption register (A1-A26). Gap: A27 not in register. Pending DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD -- F-002 and F-011 both resolved, verified across reboot
-- **F-020** (resolved, workaround): PipeWire RT module fails to self-promote to SCHED_FIFO on PREEMPT_RT. **Fix:** systemd user service drop-in (`~/.config/systemd/user/pipewire.service.d/override.conf`) with `CPUSchedulingPolicy=fifo` + `CPUSchedulingPriority=88`. PipeWire confirmed at FIFO/88 after reboot. Config in repo (commit `536f631`). T3d now unblocked.
-- **Persistent journald** (DONE): Configured during PoC deployment session. `mkdir -p /var/log/journal`, reboot required for systemd 257. Confirmed surviving power cycles. F-012/F-017 crash investigations now unblocked.
 
 ### Key Findings from Brain Dump (2026-03-09)
 - **CamillaDSP levels API correction:** pycamilladsp `client.levels.levels_since_last()` provides per-channel peak+RMS for both capture and playback (8+8 channels). This informs D-020 metering design.
-- **RT kernel strongly validates D-013:** Peak load nearly halved (35.6% vs 63-70%), buffer trends upward (vs draining on stock), 3C cooler, zero throttle events. RT is unambiguously better for DSP -- only F-012/F-017 block production use.
+- **RT kernel strongly validates D-013:** Peak load nearly halved (35.6% vs 63-70%), buffer trends upward (vs draining on stock), 3C cooler, zero throttle events. RT is unambiguously better for DSP. F-012/F-017 RESOLVED (D-022) -- no longer blocking.
 - **Monitoring blind spots:** Researcher identified 14 blind spots in current monitoring. Report pending review.
 - **Mixxx ran ~10 min on RT before crash** (F-017). First-time combination. No diagnostic data due to volatile journald.
 - **Quantum 128 CATASTROPHIC FAIL:** 1750 xruns at quantum 128. D-011 confirmed -- quantum 256 is the minimum viable setting on Pi 4B. No need for D-021.
@@ -212,7 +205,7 @@ See `docs/project/defects.md` for full details.
 | Dependency | Status | Notes |
 |------------|--------|-------|
 | Pi 4B hardware available for testing | available | SSH access verified, PipeWire running, all USB devices connected |
-| Core software installation | complete | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.31, wayvnc installed and smoke-tested. RustDesk removed per D-018. |
+| Core software installation | complete | CamillaDSP 3.0.1, Mixxx 2.5.0, Reaper 7.64, wayvnc installed and smoke-tested. RustDesk removed per D-018. |
 | Hercules DJControl Mix Ultra USB-MIDI verification | waiting | USB enumeration confirmed, functional MIDI test pending (US-005) |
 | APCmini mk2 Mixxx mapping | waiting | Needs research / community check (US-007) |
 

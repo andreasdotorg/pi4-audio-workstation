@@ -13,16 +13,26 @@ to JACK2 instead of PipeWire), the AudioWorklet secure context requirement
 
 ### Reproducibility
 
-| Role | Path |
-|------|------|
-| Architecture decision | `docs/architecture/web-ui.md` (D-020) |
-| HTTPS requirement | `docs/architecture/web-ui.md` Section 12 (D-032) |
-| Collector architecture | `docs/architecture/web-ui.md` Section 13 |
-| Backend collectors | `scripts/web-ui/app/collectors/` (4 modules) |
-| Spectrum analyzer | `scripts/web-ui/static/js/spectrum.js` |
-| PCM AudioWorklet | `scripts/web-ui/static/js/pcm-worklet.js` |
-| systemd service | `configs/systemd/user/pi4-audio-webui.service` |
-| D-020 PoC lab note | `docs/lab-notes/D-020-poc-validation.md` |
+| Role | Path | Commit |
+|------|------|--------|
+| Architecture decision | `docs/architecture/web-ui.md` (D-020) | |
+| HTTPS requirement | `docs/architecture/web-ui.md` Section 12 (D-032) | `107d6bf` |
+| Collector architecture | `docs/architecture/web-ui.md` Section 13 | |
+| Backend collectors | `scripts/web-ui/app/collectors/` (4 modules) | `efd6934` |
+| Spectrum analyzer | `scripts/web-ui/static/js/spectrum.js` | `efd6934` |
+| PCM AudioWorklet | `scripts/web-ui/static/js/pcm-worklet.js` | `efd6934` |
+| systemd service | `configs/systemd/user/pi4-audio-webui.service` | `d976af2`, `3b2a669`, `42a87a5` |
+| D-020 PoC lab note | `docs/lab-notes/D-020-poc-validation.md` | |
+
+### Commit Trail
+
+| Commit | Summary |
+|--------|---------|
+| `d976af2` | JACK environment (XDG_RUNTIME_DIR, JACK_NO_START_SERVER, PI_AUDIO_MOCK=0) |
+| `3b2a669` | LD_LIBRARY_PATH for PipeWire libjack-pw |
+| `6497f83` | pycamilladsp 3.0.0 API compatibility (rate.playback removed, state enum UPPERCASE) |
+| `42a87a5` | HTTPS self-signed cert for AudioWorklet secure context |
+| `f2a5cdd` | DSP state case-insensitive, buffer display, pw-top `-n 2` fix |
 
 ---
 
@@ -62,7 +72,7 @@ PipeWire JACK), `PI_AUDIO_MOCK=0`, `Nice=10`.
 
 ---
 
-## Issue 1: JACK libjack-pw Library Resolution
+## Issue 1: JACK libjack-pw Library Resolution (`d976af2`, `3b2a669`)
 
 **Symptom:** PcmStreamCollector started but found 0 CamillaDSP monitor ports.
 `pw-jack jack_lsp` showed the correct ports, but the Python `jack` module
@@ -103,7 +113,7 @@ ports.
 
 ---
 
-## Issue 2: AudioWorklet Secure Context (D-032)
+## Issue 2: AudioWorklet Secure Context (D-032, `42a87a5`)
 
 **Symptom:** Spectrum analyzer non-functional when accessed via plain HTTP.
 `audioContext.audioWorklet` was `undefined` in the browser.
@@ -136,9 +146,12 @@ in `docs/architecture/web-ui.md` Section 12.
 streaming correctly. Level meters from `/ws/monitoring` worked fine.
 
 **Root cause:** Browsers suspend `AudioContext` until a user gesture (click,
-tap, keypress) per the autoplay policy. While suspended, the `AnalyserNode`
-does not process incoming audio data. `getByteFrequencyData()` returns all
-zeros. No error or warning is emitted.
+tap, keypress) per the autoplay policy. The `resume()` call must be in the
+synchronous call stack of the gesture handler -- calling it from a deferred
+callback (setTimeout, Promise chain disconnected from the gesture) will fail
+silently. While suspended, the `AnalyserNode` does not process incoming audio
+data. `getByteFrequencyData()` returns all zeros. No error or warning is
+emitted.
 
 This was also discovered during the PoC validation (Bug 5) and the same
 fix pattern was applied: a click-to-start overlay that defers audio
@@ -154,10 +167,12 @@ initialization until after a user gesture.
 
 ---
 
-## Issue 4: pycamilladsp 3.0.0 API Differences
+## Issue 4: pycamilladsp 3.0.0 API Differences (`6497f83`, `f2a5cdd`)
 
 **Symptom:** CamillaDSPCollector status polling failed with
-`AttributeError` on `rate.playback()`.
+`AttributeError` on `rate.playback()`. Additionally, DSP state comparison
+failed because the state enum `.name` returns UPPERCASE (e.g., `"RUNNING"`)
+while the dashboard compared against lowercase strings.
 
 **Root cause:** pycamilladsp 3.0.0 API changes from the v2 interface:
 
@@ -165,17 +180,19 @@ initialization until after a user gesture.
 |--------|--------|-------|
 | `rate.playback()` | Not available | No separate playback rate in v3 |
 | `rate.capture()` | `rate.capture()` | Still available |
-| `status.rate_adjust()` | `status.rate_adjust()` | Returns rate ratio |
+| `rate.adjust()` | `status.rate_adjust()` | Moved to status namespace |
 | `levels.capture_rms()` | `levels["capture_rms"]` | Dict access, not method |
+| State enum `.name` | Returns UPPERCASE | e.g., `"RUNNING"` not `"Running"` |
 
 **Fix:** The CamillaDSPCollector uses `client.rate.capture()` for the sample
 rate and copies it to both `capture_rate` and `playback_rate` fields in the
 snapshot (they are the same on a synchronized system). The
 `levels_since_last()` API returns a plain dict, not an object with methods --
-all access uses dict indexing.
+all access uses dict indexing. DSP state comparison uses case-insensitive
+matching (`f2a5cdd`).
 
 ```python
-# Line 212-221 of camilladsp_collector.py
+# camilladsp_collector.py
 capture_rate = client.rate.capture()
 rate_adjust = client.status.rate_adjust()
 # ...
@@ -186,7 +203,7 @@ rate_adjust = client.status.rate_adjust()
 
 ---
 
-## Issue 5: pw-top First-Pass Zero Output
+## Issue 5: pw-top First-Pass Zero Output (`f2a5cdd`)
 
 **Symptom:** PipeWireCollector reported quantum=0, sample_rate=0, xruns=0
 on initial polls.
@@ -233,6 +250,11 @@ The spectrum is intentionally tapped pre-DSP because:
 - Post-DSP signals are split across 4+ channels (mains HP, sub LP, etc.) --
   no single post-DSP channel shows the full spectrum
 - Pre-DSP metering is standard practice for live sound consoles
+
+**Future:** Post-DSP per-channel spectrum is available via USBStreamer monitor
+ports (JACK output ports for each physical output channel). TK-113 filed for
+adding channel selection to the spectrum analyzer, allowing operators to view
+individual post-crossover outputs.
 
 ---
 
@@ -331,5 +353,6 @@ the web UI waits for PipeWire before attempting JACK connections.
 - **D-020 PoC validation:** `docs/lab-notes/D-020-poc-validation.md`
   (predecessor session, 8/8 PASS)
 - **TK-112:** Spectrum amplitude-based coloring (pending)
+- **TK-113:** Spectrum channel selection for post-DSP per-channel view (pending)
 - **Architecture:** `docs/architecture/web-ui.md` Sections 12-13
   (HTTPS requirement, backend collector architecture)
