@@ -435,7 +435,7 @@ compatibility. They can partially run in parallel with Tier 1.
 functional USB-MIDI controller on the Pi 4B (beyond just USB enumeration),
 **so that** I can use it to control Mixxx during DJ/PA sets.
 
-**Status:** ready
+**Status:** done (owner confirms basic DJ functionality works 2026-03-12. Residual work — cue points, loops, filters — deferred.)
 **Depends on:** none (USB enumeration already confirmed by owner)
 **Blocks:** US-006 (Mixxx feasibility includes controller integration)
 **Decisions:** none yet
@@ -447,6 +447,12 @@ covers functional MIDI verification: does it send/receive MIDI messages?
 used via USB-MIDI only. If USB-MIDI does not work, the Hercules is not viable
 and must be replaced — there is no Bluetooth fallback. A14 (sequencing
 concern) is superseded.
+
+**Note (2026-03-12):** Owner confirms Hercules is functional for basic DJ use
+(song selection, playback, mixing). Has been actively DJing with it on the Pi.
+Residual mapping work (cue points, loops, filters) deferred to future
+refinement. Marked done for critical path purposes — unblocks US-006 and
+US-029.
 
 **Acceptance criteria:**
 - [ ] Controller connected via USB, confirmed visible in `aconnect -l` as a MIDI device
@@ -471,13 +477,18 @@ concern) is superseded.
 UI responsiveness and audio performance,
 **so that** I can use it as my DJ software for PA/DJ sets.
 
-**Status:** draft
+**Status:** done (implicitly validated 2026-03-12 — owner actively DJing on Mixxx with Hercules on Pi)
 **Depends on:** US-000 (Mixxx must be installed), US-005 (need working MIDI controller to test DJ workflow), US-028 (8-channel Loopback — DJ pre-listen/cue requires ch 4-5)
 **Blocks:** US-003/T3a (stability test with Mixxx requires Mixxx to be working)
 **Decisions:** none yet
 
 **Note:** The Pi runs labwc (Wayland compositor) with lightdm. Mixxx may need
 X11/XWayland — verify. Remote access is via wayvnc (D-018).
+
+**Note (2026-03-12):** Implicitly validated by owner's real-world DJ use.
+Mixxx runs on Pi 4B with hardware V3D GL on PREEMPT_RT, controlled via
+Hercules USB-MIDI and wayvnc remote desktop. Two-deck playback, audio routing
+through PipeWire JACK bridge to CamillaDSP confirmed working.
 
 **Known issues from AD review:**
 - **A15:** The Xvfb systemd service in SETUP-MANUAL.md has a bug: trailing `&`

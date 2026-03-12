@@ -23,7 +23,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 ## Overall Status
 
-**Tier 1 validation mostly complete.** US-001 (CPU) and US-002 (latency) done. US-003 (stability tests) in progress -- T3b/T3c/T3e done, T3d unblocked (pending Reaper end-to-end), T3a blocked on US-005/US-006, T4 requires physical hardware. D-011 confirmed: live mode chunksize 256 + quantum 256. F-012/F-017 RESOLVED (D-022: upstream V3D fix in `6.12.62+rpt-rpi-v8-rt`). PREEMPT_RT + hardware V3D GL for all modes. Room correction pipeline done (TK-071). Web UI dashboard deployed with real data, HTTPS, spectrum analyzer (D-020 Stage 1+2, D-032). Bose speaker profiles measured (PS28 III sub, Jewel Double Cube satellite). Reaper upgraded to 7.64.
+**Tier 1 validation nearly complete. DJ mode gig-ready.** US-001 (CPU), US-002 (latency), US-005 (Hercules MIDI), US-006 (Mixxx feasibility) all done. US-003 (stability): T3a PASS (owner approved 2026-03-12), T3b/T3c/T3e done, T3d unblocked (pending Reaper end-to-end), T4 requires physical hardware. US-029 (DJ UAT) now unblocked. D-011 confirmed: live mode chunksize 256 + quantum 256. F-012/F-017 RESOLVED (D-022: upstream V3D fix in `6.12.62+rpt-rpi-v8-rt`). PREEMPT_RT + hardware V3D GL for all modes. Room correction pipeline done (TK-071). Web UI dashboard deployed with real data, HTTPS, spectrum analyzer (D-020 Stage 1+2, D-032). F-030: web UI monitor causes xruns under DJ load (workaround: stop service). Bose speaker profiles measured (PS28 III sub, Jewel Double Cube satellite). Reaper upgraded to 7.64. Speaker driver database (Tier 5, US-039-043) in progress.
 
 ## Component Status
 
@@ -55,14 +55,14 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-000b | 13/13 | done (security specialist + architect signed off) |
 | US-001 | 4/4 | **done** (all 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 19.25%, T1d 6.35%, T1e 6.61%. 16k taps both modes. A1/A2 validated.) |
 | US-002 | 4/4 | **done** (Pass 1 + Pass 2 complete, lab notes written, A3 updated. D-011 confirmed. IEM passthrough = net benefit.) |
-| US-003 | 3/4 | in-progress (T3b PASS, T3c informational, T3e PASS: PREEMPT_RT 30min 0 xruns, 75.0C peak, cyclictest max 209us. T3d unblocked by F-015 fix -- pending Reaper end-to-end verification. T3a blocked on US-005/US-006. T4 requires physical hardware.) |
+| US-003 | 3/4 | in-progress (T3a PASS — owner approved based on real-world DJ use 2026-03-12. T3b PASS, T3c informational, T3e PASS. T3d unblocked -- pending Reaper end-to-end. T4 requires physical hardware.) |
 | US-004 | 3/4 | in-review (assumption register written with A1-A26, cross-references documented, CLAUDE.md updated. Accuracy corrections committed `0720f94`. **Gap:** AC mentions A27 but register only has A1-A26.) |
-| US-005 | 0/3 | ready (after Tier 1; Hercules already visible as USB-MIDI — positive signal) |
-| US-006 | 0/3 | ready (unblocked by US-000 + US-005) |
+| US-005 | 3/3 | **done** (owner confirms basic DJ functionality works 2026-03-12. Residual mapping work deferred.) |
+| US-006 | 3/3 | **done** (implicitly validated — owner actively DJing on Mixxx with Hercules on Pi 2026-03-12.) |
 
 ## In Progress
 
-- **US-003** (in-progress): T3b PASS, T3c informational, T3e PASS, T6-128 FAIL (1750 xruns -- quantum 256 is Pi 4B hardware floor), **TK-055 PASS** (37+ min RT + hardware GL, zero lockups on `6.12.62+rpt-rpi-v8-rt`). F-012/F-017 RESOLVED (upstream fix, D-022). DJ-A confirmed: PREEMPT_RT + hardware GL for both modes. T3d now unblocked. T3a blocked on US-005/US-006. T4 requires physical hardware.
+- **US-003** (in-progress): **T3a PASS** (owner approved 2026-03-12 based on real-world DJ use). T3b PASS, T3c informational, T3e PASS, T6-128 FAIL (quantum 256 floor). TK-055 PASS (V3D RT fix). T3d unblocked -- pending Reaper end-to-end. T4 requires physical hardware. **US-005 and US-006 now DONE** -- T3a no longer blocked.
 - **D-020** (Stage 1+2 deployed): Production dashboard with 4 real backend collectors, spectrum analyzer, HTTPS (D-032). PoC: 8/8 PASS (P8 marginal, optimization deferred to Stage 2). Lab notes: `D-020-poc-validation.md`, `webui-real-data-deployment.md`. Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **F-013** (partially resolved): wayvnc password auth added. TLS required before US-018.
 - **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
@@ -106,6 +106,10 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - D-031 HPF filters deployed to both dj-pa.yml and live.yml on Pi, validated.
 - TK-140 closed: nftables port 8080 rule was already persistent. CLAUDE.md firewall section corrected.
 - Tier 5 stories filed: US-039 through US-043 (speaker driver database) committed (`ed9a3e5`).
+- F-030 filed: Web UI monitor JACK client causes xruns under DJ load (HIGH). Workaround: stop web UI service.
+- US-005 DONE: Owner confirms Hercules USB-MIDI basic DJ functionality works. Residual mapping deferred.
+- US-006 DONE: Implicitly validated — owner actively DJing on Mixxx with Hercules on Pi.
+- US-003 T3a PASS: Owner approved based on real-world DJ use. US-029 (DJ UAT) now unblocked.
 
 ### Completed (previous session, 2026-03-10)
 - TK-055 PASS: Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware V3D GL on PREEMPT_RT (previous kernel: lockup in <2.5 min). Zero lockups.
