@@ -4,8 +4,7 @@
 Mocks the mido module so tests run on any machine without MIDI hardware
 or the mido/python-rtmidi packages installed.
 
-Run:  python3 test_midi_daemon.py
-  or: pytest test_midi_daemon.py -v
+Run:  cd scripts/midi && python -m pytest tests/test_midi_daemon.py -v
 """
 
 import importlib
@@ -44,7 +43,7 @@ _fake_mido.open_output = lambda *a, **kw: None
 sys.modules["mido"] = _fake_mido
 
 # Now import the daemon module
-_daemon_path = os.path.join(os.path.dirname(__file__), "midi-system-controller.py")
+_daemon_path = os.path.join(os.path.dirname(__file__), "..", "midi-system-controller.py")
 _spec = importlib.util.spec_from_file_location("midi_daemon", _daemon_path)
 daemon = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(daemon)
@@ -55,7 +54,7 @@ _spec.loader.exec_module(daemon)
 # ---------------------------------------------------------------------------
 
 CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "configs", "midi", "apcmini-mk2.yml"
+    os.path.dirname(__file__), "..", "..", "..", "configs", "midi", "apcmini-mk2.yml"
 )
 
 

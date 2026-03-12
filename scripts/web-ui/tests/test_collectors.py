@@ -13,7 +13,7 @@ System calls are mocked via unittest.mock.
 
 Run:
     cd scripts/web-ui
-    python -m pytest test_collectors.py -v
+    python -m pytest tests/test_collectors.py -v
 """
 
 from unittest.mock import patch, mock_open, MagicMock

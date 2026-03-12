@@ -9,7 +9,7 @@ Covers:
 Run:
     cd scripts/web-ui
     pip install fastapi uvicorn httpx
-    python -m pytest test_server.py -v
+    python -m pytest tests/test_server.py -v
 """
 
 import json
