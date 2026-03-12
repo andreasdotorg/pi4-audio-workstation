@@ -97,6 +97,15 @@ def main():
                         help="Sweep end frequency in Hz (default: 20000)")
     args = parser.parse_args()
 
+    # Amplitude validation
+    if args.amplitude > 1.0:
+        print(f"ERROR: --amplitude {args.amplitude} exceeds 1.0 (full scale). "
+              f"Values above 1.0 will produce clipped/distorted output.", file=sys.stderr)
+        sys.exit(1)
+    if args.amplitude > 0.5:
+        print(f"WARNING: amplitude > 0.5 may cause clipping with multiple channels",
+              file=sys.stderr)
+
     # Parse channel list
     try:
         active_channels = [int(ch.strip()) for ch in args.channels.split(",")]

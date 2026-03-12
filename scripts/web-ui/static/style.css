@@ -21,10 +21,9 @@
     --red: #e5453a;
     --blue: #42a5f5;
     --cyan: #00acc1;
-    --orange: #e2a639;
-    --amber: #e2a639;
+    --orange: #ff6f00;
+    --amber: var(--orange);
 
-    --meter-bg: #101216;
     --meter-peak: #ffffff;
 
     --nav-height: 28px;
@@ -752,7 +751,7 @@ html, body {
 
 .sys-health-gauge {
     flex: 1;
-    height: 10px;
+    height: 14px;
     background: var(--bg-bar);
     border-radius: 2px;
     overflow: hidden;
@@ -774,7 +773,7 @@ html, body {
     font-family: var(--font-numeric);
     color: #fff;
     text-shadow: 0 0 2px rgba(0,0,0,0.8);
-    line-height: 10px;
+    line-height: 14px;
 }
 
 @keyframes pulse-alert {
@@ -790,7 +789,7 @@ html, body {
 
 .c-green { color: var(--green) !important; }
 .c-yellow { color: var(--yellow) !important; }
-.c-orange { color: #ff6f00 !important; }
+.c-orange { color: var(--orange) !important; }
 .c-red { color: var(--red) !important; }
 .c-blue { color: var(--blue) !important; }
 .c-cyan { color: var(--cyan) !important; }
@@ -827,7 +826,7 @@ html, body {
     color: var(--text-dim);
 }
 
-/* -- 1/3-octave spectrum analyzer ---------------------------------------- */
+/* -- FFT spectrum analyzer ---------------------------------------- */
 
 .spectrum-container {
     flex: 1;

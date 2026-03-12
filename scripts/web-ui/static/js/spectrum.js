@@ -624,11 +624,11 @@
         var cssW = cachedW / (window.devicePixelRatio || 1);
         var cssH = cachedH / (window.devicePixelRatio || 1);
 
-        ctx.fillStyle = LABEL_COLOR;
-        ctx.font = "10px monospace";
+        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        ctx.font = "16px monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText("", cssW / 2, cssH / 2);
+        ctx.fillText("No live audio", cssW / 2, cssH / 2);
     }
 
     function render() {
