@@ -228,11 +228,11 @@
         ctx.fillStyle = "#101216";
         ctx.fillRect(0, 0, w, h);
 
-        // RMS fill — unified gradient for all groups:
+        // Peak fill — unified gradient for all groups:
         // base color → brighter base at -12dB → yellow at -6dB → red at -3dB
-        var rmsFrac = dbToFraction(state.rms);
-        var rmsH = rmsFrac * h;
-        if (rmsH > 0.5) {
+        var peakFillFrac = dbToFraction(state.peak);
+        var peakFillH = peakFillFrac * h;
+        if (peakFillH > 0.5) {
             var gc = GROUP_COLORS[group] || GROUP_COLORS.main;
             var grad = ctx.createLinearGradient(0, h, 0, 0);
             grad.addColorStop(0, gc.base);
@@ -241,7 +241,7 @@
             grad.addColorStop(Math.min(FRAC_3, 1), "#e5453a");
             grad.addColorStop(1, "#e5453a");
             ctx.fillStyle = grad;
-            ctx.fillRect(0, h - rmsH, w, rmsH);
+            ctx.fillRect(0, h - peakFillH, w, peakFillH);
         }
 
         // Peak indicator
@@ -401,7 +401,7 @@
             dspRunning ? "c-green" : "c-red");
 
         // DSP Load gauge
-        var dspLoadPct = cdsp.processing_load * 100;
+        var dspLoadPct = cdsp.processing_load;
         PiAudio.setGauge("hb-dsp-load-gauge",
             dspLoadPct,
             dspLoadPct.toFixed(1) + "%",
