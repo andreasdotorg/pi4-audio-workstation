@@ -194,6 +194,7 @@ class CamillaDSPCollector:
             except Exception as exc:
                 log.warning("CamillaDSP levels read failed (%s) — reconnecting", exc)
                 self._disconnect()
+                await asyncio.sleep(1.0)
 
     async def _poll_status(self) -> None:
         """Poll CamillaDSP status at ~2 Hz."""
@@ -207,8 +208,7 @@ class CamillaDSPCollector:
                 state_str = state.name if hasattr(state, "name") else str(state)
                 processing_load = client.status.processing_load()
                 capture_rate = client.rate.capture()
-                playback_rate = client.rate.playback()
-                rate_adjust = client.rate.adjust()
+                rate_adjust = client.status.rate_adjust()
                 buffer_level = client.status.buffer_level()
                 clipped = client.status.clipped_samples()
 
@@ -216,12 +216,12 @@ class CamillaDSPCollector:
                     "state": state_str,
                     "processing_load": processing_load,
                     "capture_rate": capture_rate,
-                    "playback_rate": playback_rate,
+                    "playback_rate": capture_rate,  # pycamilladsp 3.0.0: no separate playback rate
                     "rate_adjust": rate_adjust,
                     "buffer_level": buffer_level,
                     "clipped_samples": clipped,
                     "xruns": 0,  # CamillaDSP doesn't expose xruns directly
-                    "chunksize": client.general.chunksize() if hasattr(client.general, "chunksize") else 0,
+                    "chunksize": 0,  # pycamilladsp 3.0.0: not exposed via API
                 }
                 await asyncio.sleep(0.5)
             except asyncio.CancelledError:
@@ -229,3 +229,4 @@ class CamillaDSPCollector:
             except Exception as exc:
                 log.warning("CamillaDSP status read failed (%s) — reconnecting", exc)
                 self._disconnect()
+                await asyncio.sleep(1.0)
