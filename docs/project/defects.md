@@ -780,10 +780,10 @@ Browser-side only change. No server/backend modifications needed.
 by this defect), TK-115 (fix task). Files: `scripts/web-ui/static/js/pcm-worklet.js`,
 `scripts/web-ui/static/js/spectrum.js`.
 
-## F-027: DSP load bar on dashboard health bar broken (OPEN)
+## F-027: DSP load bar on dashboard health bar broken (RESOLVED)
 
 **Severity:** Medium (visual-only, does not affect audio)
-**Status:** Open
+**Status:** Resolved (`244dd65`, TK-122)
 **Found in:** Dashboard health bar on Pi, 2026-03-12
 **Affects:** TK-095 (health bar inline gauges), TK-063 (dashboard)
 **Found by:** Owner during dashboard review
@@ -793,22 +793,16 @@ The health bar was specified in TK-095 to include inline 48x10px gauge bars for 
 temperature, memory, and DSP load. The DSP load bar is not rendering correctly on the
 deployed dashboard.
 
-**Likely root cause:** TBD. Possible causes: (1) CamillaDSP collector not providing
-DSP load data in the expected format. (2) pycamilladsp 3.0.0 API change affecting
-the load metric retrieval (similar to the `.get_signal_levels()` enum change fixed
-in `6497f83`). (3) Health bar rendering code not handling the DSP load value correctly.
-(4) WebSocket message format mismatch between collector and frontend.
+**Root cause confirmed (architect, 2026-03-12):** Double multiplication. pycamilladsp
+returns processing load as a percentage (0-100), not a fraction (0-1). The dashboard
+code at `dashboard.js:404` multiplies by 100 again, producing values like 2185.1%
+instead of 21.85%.
 
-**Impact:** Dashboard does not show DSP load — an important operational metric for
-monitoring CamillaDSP CPU usage during live performance. Operator cannot see if DSP
-processing is approaching its CPU budget limit.
+**Fix:** Remove `* 100` at `dashboard.js:404`. Combined with F-029 fix in TK-122.
 
-**Fix required:**
-1. Diagnose whether the issue is backend (collector not sending data) or frontend
-   (renderer not displaying it)
-2. Check pycamilladsp `.get_processing_load()` or equivalent API
-3. Fix the broken rendering or data path
-4. Verify on Pi with CamillaDSP running
+**Impact:** Dashboard shows absurd DSP load value (2185.1%) — an important operational
+metric for monitoring CamillaDSP CPU usage during live performance. Operator cannot
+see if DSP processing is approaching its CPU budget limit.
 
 **Related:** TK-095 (health bar spec), TK-116 (health bar clustering — may have
 affected load bar position), TK-063 (dashboard). Files:
@@ -818,7 +812,7 @@ affected load bar position), TK-063 (dashboard). Files:
 ## F-028: Test tone signal generation glitches via pw-play (OPEN)
 
 **Severity:** High (blocks room correction measurement pipeline)
-**Status:** Open
+**Status:** Resolved (`f9ba574`, TK-120. Validated: 0 errors after 30+ seconds continuous tone)
 **Found in:** Pi test tone playback via pw-play, 2026-03-12
 **Affects:** Room correction measurement pipeline, TK-114 (spectrum validation)
 **Found by:** Owner, 2026-03-12
@@ -830,13 +824,23 @@ contains glitches, the measured impulse response will be corrupted. Owner: "Stil
 glitching. This is critical to get right for our room correction, you need to be able
 to generate a clean test signal!"
 
-**Investigation needed:**
-1. Does `pw-play` need RT scheduling (`chrt -f 50`)? CM was instructed to try this
-   but status unknown.
-2. Is `pw-play` the right tool for test signal generation, or should we use a JACK
-   client or PipeWire native source node instead?
-3. Can we use the ch 7/8 output-to-input loopback to record and programmatically
-   verify signal cleanliness (glitch detection via discontinuity analysis)?
+**Root cause confirmed (architect + AE, 2026-03-12):** ALSA period-size mismatch.
+`25-loopback-8ch.conf` has `period-size = 1024` but PipeWire graph quantum is 256.
+The 4:1 mismatch causes internal rebuffering in PipeWire's ALSA adapter, leading to
+xrun errors on loopback-8ch-sink. The webui-monitor errors are a downstream symptom
+(1:1 correlation with loopback errors). CamillaDSP is outside the PipeWire graph
+(ALSA kernel module boundary) and is not contributing to backpressure.
+
+**Previous investigation (superseded):** pw-play was initially suspected but
+exonerated — CM confirmed 0 errors at SCHED_FIFO 50, quantum 1024. The loopback
+node was then identified as the error source (917 xrun errors, climbing). F-015
+hardening (node.always-process, suspend-timeout=0, priority.driver=2000) addressed
+scheduling but not the period-size mismatch.
+
+**Fix committed and validated** (`f9ba574`): `api.alsa.period-size = 256`,
+`api.alsa.period-num = 8` in `25-loopback-8ch.conf`. Deployed to Pi, PipeWire
+restarted (owner approved). **Validation: 0 errors** after 30+ seconds continuous
+tone playback (previously 917+ errors and climbing). RESOLVED.
 
 **Loopback self-test capability:** Owner confirmed output-to-input loopback on
 channels 7 and 8. This allows programmatic self-validation: play a known signal,
@@ -845,18 +849,23 @@ correction measurement quality assurance.
 
 **Impact:**
 - Blocks room correction measurement pipeline — cannot trust sweep measurements if
-  the source signal contains glitches
+  the loopback node introduces glitches into the signal path
 - Blocks TK-114 (spectrum validation requires clean test signals)
-- Undermines confidence in any measurement taken with glitchy playback
+- Undermines confidence in any measurement taken with glitchy pipeline
 
-**Related:** F-016 (PipeWire restart glitches — may share root cause), TK-114
-(spectrum validation), TK-119 (loopback self-test capability). Room correction
-pipeline (`scripts/room-correction/`).
+**Advisory (architect + AE):** For test signal generation, architect recommends
+`jack-tone-generator.py` instead of pw-play. AE recommends direct ALSA write for
+the measurement pipeline (bypass PipeWire entirely for sweep playback).
 
-## F-029: Level bar fill height 3dB below numeric readout (OPEN)
+**Related:** F-015 (loopback hardening — addressed scheduling, not period-size),
+F-016 (PipeWire restart glitches), TK-114 (spectrum validation), TK-119 (loopback
+self-test capability), TK-120 (fix task). Room correction pipeline
+(`scripts/room-correction/`). File: `25-loopback-8ch.conf`.
+
+## F-029: Level bar fill height 3dB below numeric readout (RESOLVED)
 
 **Severity:** Medium (visual accuracy, does not affect audio)
-**Status:** Open
+**Status:** Resolved (`244dd65`, TK-122)
 **Found in:** Dashboard ML/MR level meters on Pi, 2026-03-12
 **Affects:** TK-095 (meter rendering accuracy), dashboard
 **Found by:** Owner, 2026-03-12 (screenshot captured via Playwright)
@@ -868,20 +877,18 @@ Either the bar rendering has a scaling error (e.g., using a different dB-to-pixe
 mapping than the labels) or the bar fill and the numeric label use different data
 sources (e.g., bar uses instantaneous sample, label uses peak-hold).
 
-**Likely root cause:** Scaling mismatch in the meter rendering code. The bar height
-and the numeric readout should both derive from the same value. Possible causes:
-(1) Bar height computed from RMS while label shows peak. (2) Bar height uses a
-different dB reference or scaling formula. (3) Off-by-one in the pixel mapping
-(e.g., bar drawn from wrong baseline).
+**Root cause confirmed (architect, 2026-03-12):** RMS vs Peak crest factor. The bar
+fill shows **RMS** level while the numeric readout shows **Peak** level. For a sine
+wave, the RMS-to-peak difference is exactly 3.01dB — which matches the observed
+discrepancy perfectly. This is mathematically correct behavior if intentional, but
+the dashboard should use the **same metric** for both displays.
+
+**Fix:** Use the same metric (either both RMS or both peak) for bar fill and numeric
+readout. Specific locations: `dashboard.js:233` (bar fill) and `dashboard.js:332`
+(numeric readout). Combined with F-027 fix in TK-122.
 
 **Impact:** Meters display inconsistent information — operator sees two different
 readings for the same signal. Undermines trust in metering accuracy.
-
-**Fix required:**
-1. Identify whether bar fill and numeric label use the same data source
-2. Verify dB-to-pixel scaling matches between bar height and label position
-3. Ensure peak-hold line, bar fill, and numeric readout all agree
-4. Validate with known-level test signal
 
 **Related:** TK-095 (meter spec). Files: `scripts/web-ui/static/js/dashboard.js`,
 `scripts/web-ui/templates/index.html`.
