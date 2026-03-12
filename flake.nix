@@ -48,6 +48,7 @@
               ps.pyyaml
               # Testing
               ps.pytest
+              ps.httpx
               ps.playwright
               ps.pytest-playwright
               pycamilladsp
