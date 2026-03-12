@@ -93,6 +93,15 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - D-029 per-speaker-identity boost budget + mandatory HPF framework filed and implemented.
 - Dashboard review findings (TK-095) persisted into architecture docs: auto-hide rejection, MAIN meters, signal path clarification, SPL metering design.
 - Spectrum visual polish: grid lines, frequency labels, overlay, smoothing adjustments (TK-112 color approach pending).
+- F-027 RESOLVED: DSP load display showed 2185% (double `* 100` in dashboard.js). Fix: `244dd65`.
+- F-028 RESOLVED: Loopback glitches from ALSA period-size mismatch (1024 vs quantum 256, 4:1 rebuffering). Fix: period-size=256, period-num=8 in `25-loopback-8ch.conf`. Commit `f9ba574`. Validated 0 errors after 30+ seconds continuous tone (previously 917+).
+- F-029 RESOLVED: Level bar 3dB below readout — RMS vs Peak crest factor mismatch. Fix: aligned to same metric. Commit `244dd65`.
+- TK-112 DONE: Per-bin uniform amplitude coloring in spectrum display (`d149620`). 256-entry color LUT, per-column fillRect.
+- TK-124 DONE: system.js `* 100` double multiplication fix (`13e8c02`).
+- TK-125 DONE: Dead "click to start audio" overlay removed from HTML/JS/CSS (`13e8c02`). Cleanup after AudioContext elimination (TK-115).
+- TK-126 DONE: Tone generator (`jack-tone-generator.py`) enhanced with `--continuous`, `--waveform {sine,white,pink,sweep}`, `--channels` (`6a66254`). Backward-compatible.
+- Spectrum Playwright investigation: No bug — spectrum works correctly, was empty due to no audio signal playing.
+- TK-124/TK-125 web UI fixes committed but NOT YET DEPLOYED to Pi (Pi offline until tonight). Deploy next session.
 
 ### Completed (previous session, 2026-03-10)
 - TK-055 PASS: Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware V3D GL on PREEMPT_RT (previous kernel: lockup in <2.5 min). Zero lockups.
@@ -186,6 +195,8 @@ See `docs/project/defects.md` for full details.
 | F-019 | Medium | Open | US-000b (headless operation) |
 | F-021 | High | Open | TK-039, US-029 (DJ UAT), DJ mode audio routing |
 | F-022 | High | Open | F-021 (triggers ALSA fallback on every reboot) |
+| F-025 | Critical | Open | Speaker protection (config generator missing mandatory HPF) |
+| F-026 | High | Open | TK-114 (spectrum validation), TK-115 (JS FFT pipeline in progress) |
 
 ### Resolved
 
@@ -199,6 +210,9 @@ See `docs/project/defects.md` for full details.
 | F-017 | High | Resolved (D-022) | Same upstream fix as F-012 |
 | F-018 | High | Resolved | All audio configs persist across reboot |
 | F-020 | High | Resolved (workaround) | systemd drop-in: PipeWire FIFO/88 persisted |
+| F-027 | Medium | Resolved | DSP load `* 100` double multiplication (`244dd65`) |
+| F-028 | High | Resolved | ALSA period-size mismatch in loopback (`f9ba574`) |
+| F-029 | Medium | Resolved | Level bar RMS vs Peak alignment (`244dd65`) |
 
 ## External Dependencies
 
