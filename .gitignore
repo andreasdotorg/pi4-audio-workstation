@@ -1,4 +1,26 @@
-data/US-003/T3e/cyclictest_output.txt
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+
+# Testing
+.pytest_cache/
+
+# macOS
 .DS_Store
+
+# Nix
 result
+result-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Project-specific
+data/US-003/T3e/cyclictest_output.txt
