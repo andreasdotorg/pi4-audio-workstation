@@ -356,8 +356,11 @@ low-frequency excursion:
 1. **Subsonic HPF** -- Minimum-phase high-pass filter baked into the combined FIR,
    typically at 25-42Hz depending on the driver/enclosure. For ported enclosures, this
    is MANDATORY: cone excursion rises sharply below port tuning frequency.
-2. **CamillaDSP limiter** -- Per-channel digital limiter with -3dBFS threshold, 1ms
-   attack, 100ms release. Catches transient peaks that exceed safe operating levels.
+2. **D-009 cut-only guarantee + speaker_trim attenuation** -- All FIR correction filters
+   are mathematically guaranteed to have gain <= -0.5dB at every frequency (D-009).
+   Combined with the `speaker_trim` filter (which always attenuates), the output level
+   is always lower than the input level. This eliminates the possibility of digital
+   clipping from the DSP chain itself.
 3. **Amplifier thermal protection** -- External to the software stack, built into the
    amplifier hardware. Not software-controlled but must be verified as functional.
 
@@ -388,11 +391,17 @@ low-frequency excursion:
    The subsonic filter is convolved into the combined FIR -- it is not a separate
    CamillaDSP filter stage.
 
-3. **Configure CamillaDSP limiter (per-channel).**
-   [TODO: AE input needed -- CamillaDSP limiter configuration syntax and recommended
-   parameters for the current speaker inventory. The limiter is described in the AE's
-   domain answers (-3dBFS threshold, 1ms attack, 100ms release) but is not yet present
-   in the production CamillaDSP configs.]
+3. **Understand the D-009 cut-only guarantee.**
+   CamillaDSP does not have a built-in limiter. Instead, the system relies on a
+   mathematical guarantee: all FIR correction filters are verified to have gain <= -0.5dB
+   at every frequency bin (D-009), and the `speaker_trim` filter always applies negative
+   gain (attenuation). Together, these ensure that the DSP chain's output level is always
+   lower than its input level -- digital clipping from the DSP pipeline is impossible.
+
+   If a digital limiter is ever needed (e.g., for additional transient protection beyond
+   D-009), the implementation path would be a PipeWire filter-chain with a LADSPA limiter
+   plugin inserted upstream of CamillaDSP. This is a future option, not current
+   architecture.
 
 4. **Verify amplifier thermal protection.**
    Confirm the amplifier's built-in thermal protection is enabled. This is a hardware
@@ -404,14 +413,14 @@ low-frequency excursion:
    Play a 20Hz sine wave at moderate level. Confirm:
    - The web UI shows significant attenuation on sub channels (subsonic HPF working)
    - No audible cone excursion distortion from the subwoofers
-   - The limiter engages if levels approach -3dBFS (visible on web UI meters)
+   - Post-DSP levels remain below input levels (D-009 guarantee in effect)
 
 ### Verification / Success Criteria
 
 - [ ] All ported speakers have `mandatory_hpf_hz` set in identity files
 - [ ] Pipeline output confirms subsonic filter generation (Stage 5b)
 - [ ] Combined filters pass the mandatory HPF verification check
-- [ ] CamillaDSP limiter configured on all PA output channels
+- [ ] D-009 compliance verified (all filter gains <= -0.5dB)
 - [ ] Amplifier thermal protection confirmed functional
 - [ ] Subsonic test signal shows proper attenuation on sub channels
 
@@ -425,10 +434,12 @@ low-frequency excursion:
   pipeline runs, the subsonic filter is regenerated as part of the combined FIR. The
   pipeline's mandatory verification suite includes a HPF check, but confirm the output
   explicitly.
-- **Assuming the limiter protects against subsonic content.** The limiter catches peaks
-  but does not reduce average power at subsonic frequencies. A sustained 15Hz signal at
-  -6dBFS will not trigger the limiter but will cause dangerous cone excursion. The
-  subsonic HPF is the primary defense.
+- **Assuming D-009 cut-only protects against subsonic content.** D-009 guarantees the
+  filter gain is <= -0.5dB, meaning the DSP chain never amplifies. However, this does
+  not prevent subsonic content from passing through at near-unity gain. A sustained 15Hz
+  signal at -6dBFS would pass through a flat (dirac) filter at -6.5dBFS -- still enough
+  to cause dangerous cone excursion. The subsonic HPF is the primary defense against
+  low-frequency driver damage.
 
 ### Web UI Touchpoints
 
@@ -478,15 +489,24 @@ monitoring during shows.
    Place a calibrated SPL meter at the listening position. Record the dBA and dBC
    readings. This provides the absolute reference for mapping digital levels to SPL.
 
-5. **Record the UMIK-1 sensitivity offset.**
-   The UMIK-1's sensitivity at 1kHz is -1.378dB (from the calibration file). This offset
-   is applied by the room correction pipeline when processing measurements. For SPL
-   metering in the web UI, this offset must be configured in the SPL display module.
+5. **Calibrate the web UI SPL display.**
+   The UMIK-1's sensitivity at 1kHz is -1.378dB (from the calibration file). Two
+   calibration methods are available:
 
-   [TODO: AE input needed -- exact procedure for calibrating the web UI SPL display
-   against a known reference. The SPL metering architecture is documented in
-   `docs/architecture/web-ui-monitoring-plan.md` Section 3 but the calibration procedure
-   is not yet defined.]
+   **Method A: External SPL meter comparison (recommended, +/-1dB accuracy).**
+   Play pink noise at a stable level. Read the SPL value from a calibrated external
+   SPL meter at the listening position. Read the uncalibrated SPL value from the web
+   UI. Set the calibration offset to: `external reading - web UI reading`.
+
+   **Method B: Manufacturer sensitivity (no external meter, +/-2dB accuracy).**
+   Use the UMIK-1 manufacturer sensitivity (-1.378dB for serial 7161942) directly.
+   This provides approximately +/-2dB accuracy without a pistonphone or reference
+   SPL meter.
+
+   Configure the offset in the web UI settings:
+   ```
+   spl_meter.calibration_offset_db: <computed offset>
+   ```
 
 6. **Select a target curve.**
    Target curves define the desired frequency response shape after room correction:
@@ -595,13 +615,35 @@ operator's role is microphone placement and pipeline invocation.
    does not deploy filters.
 
 5. **Repeat for multiple positions (spatial averaging).**
-   For best results, take 3-5 measurements clustered within +/-0.5m of the primary
-   position. The pipeline's spatial averaging module reduces sensitivity to exact mic
-   placement and produces correction that is effective over a wider area.
+   Take 3-5 measurements clustered within +/-0.5m of the primary listening position,
+   all at ear height (~1.2m). Minimum 3 positions; the sweet spot is 5.
 
-   [TODO: AE input needed -- the spatial averaging workflow for multiple measurement
-   positions. The `spatial_average.py` module exists but the multi-position runner
-   integration is not yet documented.]
+   For each position, run the measurement stage individually:
+   ```bash
+   python runner.py --stage measure --position-id pos1 \
+       --room-config /path/to/venue-room-config.yml \
+       --profile /path/to/speaker-profile.yml \
+       --calibration /home/ela/7161942.txt \
+       --output-dir /tmp/correction-$(date +%Y%m%d-%H%M)/
+   # Move mic to next position
+   python runner.py --stage measure --position-id pos2 ...
+   python runner.py --stage measure --position-id pos3 ...
+   ```
+
+   Then run the full pipeline with spatial averaging enabled:
+   ```bash
+   python runner.py --stage full --spatial-average \
+       --room-config /path/to/venue-room-config.yml \
+       --profile /path/to/speaker-profile.yml \
+       --calibration /home/ela/7161942.txt \
+       --output-dir /tmp/correction-$(date +%Y%m%d-%H%M)/
+   ```
+
+   The spatial averaging module energy-averages the magnitude spectra across all
+   measured positions. Energy-averaging (not complex-averaging) is used because phase
+   varies chaotically at high frequencies across positions -- complex averaging would
+   cause destructive cancellation artifacts. Time alignment uses only the PRIMARY
+   position (pos1), not the averaged response.
 
 6. **Deploy the generated filters.**
    On successful verification, copy the combined filter WAV files to the CamillaDSP
@@ -696,13 +738,52 @@ adjustment if needed.
    relative delays make physical sense: a 1-meter distance difference equals ~2.9ms.
 
 2. **Apply delays in CamillaDSP.**
-   Delays are applied as sample delays in the CamillaDSP pipeline. The deployment module
-   updates the CamillaDSP configuration with the computed delay values.
+   Delays are configured as CamillaDSP `Delay` filters in the pipeline YAML. Each
+   channel that needs delay gets its own filter definition:
 
-   [TODO: AE input needed -- the exact CamillaDSP YAML syntax for per-channel delay
-   and the deployment procedure for updating delays without regenerating filters.
-   The `deploy.py` module exists but the delay injection mechanism is not yet documented
-   in this user journey context.]
+   ```yaml
+   filters:
+     delay_main_right:
+       type: Delay
+       parameters:
+         delay: 0.23
+         unit: ms
+         subsample: false
+     delay_sub1:
+       type: Delay
+       parameters:
+         delay: 1.45
+         unit: ms
+         subsample: false
+   ```
+
+   Delay filters go AFTER FIR convolution and BEFORE `speaker_trim` in the pipeline:
+   ```yaml
+   pipeline:
+     - type: Mixer
+       name: route_dj
+     - type: Filter        # FIR convolution first
+       channels: [0]
+       names: [left_hp]
+     # ... other FIR filters ...
+     - type: Filter        # Then delay
+       channels: [1]
+       names: [delay_main_right]
+     - type: Filter
+       channels: [2]
+       names: [delay_sub1]
+     - type: Filter        # Speaker trim last
+       channels: [0, 1, 2, 3]
+       names: [speaker_trim]
+   ```
+
+   Integer sample precision is sufficient (0.02ms at 48kHz). The `subsample: false`
+   setting avoids unnecessary interpolation overhead.
+
+   The deployment module (`deploy.py`) can inject these delay filters into the
+   production config automatically. Delay values can also be hot-reloaded via the
+   pycamilladsp websocket API without restarting CamillaDSP (though hot-reload has
+   not yet been verified on this system).
 
 3. **Verify alignment with a polarity/impulse test.**
    Play a short impulse or click through all channels simultaneously. At the listening
@@ -857,6 +938,8 @@ but differ in application, CamillaDSP configuration, and interaction model.
 - All hardware connected and powered (in correct order)
 - MIDI controllers connected (Hercules DJControl Mix Ultra for DJ, APCmini mk2 for both)
 - Web UI accessible on phone/tablet for monitoring
+- Firewall port 8080 open in nftables (required for phone/tablet web UI access; see
+  Journey 10 "Web UI Not Accessible" for setup instructions)
 
 ### Startup Sequence (Both Modes)
 
@@ -1137,13 +1220,24 @@ are in Journey 9.
    ```
 
 3. **Check firewall:**
-   Port 8080 should be accessible. If nftables is blocking:
+   Port 8080 MUST be allowed in nftables for phone/tablet access during shows (singer
+   IEM control, engineer monitoring). This is the same risk profile as the existing
+   VNC 5900 allowance.
+
+   **Prerequisite (one-time setup):** Add `tcp dport 8080 accept` to the nftables
+   ruleset. Without this rule, the web UI is only accessible from localhost (SSH
+   tunnel would be required, which is impractical during a show).
+
+   Verify the rule is present:
    ```bash
    sudo nft list ruleset | grep 8080
    ```
-   Note: the current firewall config does not include port 8080 in the allow list.
-   [TODO: AE input needed -- confirm whether port 8080 needs to be added to nftables
-   for web UI access, or if the web UI is intended to be accessed only via SSH tunnel.]
+   If missing, add it to the nftables configuration and reload:
+   ```bash
+   # Add to the input chain in /etc/nftables.conf:
+   #   tcp dport 8080 accept
+   sudo nft add rule inet filter input tcp dport 8080 accept
+   ```
 
 4. **Self-signed certificate issues:**
    The first connection to the HTTPS endpoint requires accepting the self-signed
