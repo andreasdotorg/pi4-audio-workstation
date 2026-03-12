@@ -814,3 +814,74 @@ processing is approaching its CPU budget limit.
 affected load bar position), TK-063 (dashboard). Files:
 `scripts/web-ui/app/collectors/`, `scripts/web-ui/static/js/dashboard.js`,
 `scripts/web-ui/templates/index.html`.
+
+## F-028: Test tone signal generation glitches via pw-play (OPEN)
+
+**Severity:** High (blocks room correction measurement pipeline)
+**Status:** Open
+**Found in:** Pi test tone playback via pw-play, 2026-03-12
+**Affects:** Room correction measurement pipeline, TK-114 (spectrum validation)
+**Found by:** Owner, 2026-03-12
+
+**Description:** `pw-play` generates audible glitches when playing test tones, even
+after quantum matching (`PIPEWIRE_QUANTUM=1024/48000`). Clean test signal generation
+is a prerequisite for the room correction measurement pipeline — if the source signal
+contains glitches, the measured impulse response will be corrupted. Owner: "Still
+glitching. This is critical to get right for our room correction, you need to be able
+to generate a clean test signal!"
+
+**Investigation needed:**
+1. Does `pw-play` need RT scheduling (`chrt -f 50`)? CM was instructed to try this
+   but status unknown.
+2. Is `pw-play` the right tool for test signal generation, or should we use a JACK
+   client or PipeWire native source node instead?
+3. Can we use the ch 7/8 output-to-input loopback to record and programmatically
+   verify signal cleanliness (glitch detection via discontinuity analysis)?
+
+**Loopback self-test capability:** Owner confirmed output-to-input loopback on
+channels 7 and 8. This allows programmatic self-validation: play a known signal,
+record via loopback, compare for glitches/discontinuities. Critical for room
+correction measurement quality assurance.
+
+**Impact:**
+- Blocks room correction measurement pipeline — cannot trust sweep measurements if
+  the source signal contains glitches
+- Blocks TK-114 (spectrum validation requires clean test signals)
+- Undermines confidence in any measurement taken with glitchy playback
+
+**Related:** F-016 (PipeWire restart glitches — may share root cause), TK-114
+(spectrum validation), TK-119 (loopback self-test capability). Room correction
+pipeline (`scripts/room-correction/`).
+
+## F-029: Level bar fill height 3dB below numeric readout (OPEN)
+
+**Severity:** Medium (visual accuracy, does not affect audio)
+**Status:** Open
+**Found in:** Dashboard ML/MR level meters on Pi, 2026-03-12
+**Affects:** TK-095 (meter rendering accuracy), dashboard
+**Found by:** Owner, 2026-03-12 (screenshot captured via Playwright)
+
+**Description:** The ML/MR level bar fill heights appear approximately 3dB too low
+compared to the numeric dB readout and moving-average peak-hold lines. The bars
+visually indicate approximately -9dB while the labels and white peak lines show -6.0dB.
+Either the bar rendering has a scaling error (e.g., using a different dB-to-pixel
+mapping than the labels) or the bar fill and the numeric label use different data
+sources (e.g., bar uses instantaneous sample, label uses peak-hold).
+
+**Likely root cause:** Scaling mismatch in the meter rendering code. The bar height
+and the numeric readout should both derive from the same value. Possible causes:
+(1) Bar height computed from RMS while label shows peak. (2) Bar height uses a
+different dB reference or scaling formula. (3) Off-by-one in the pixel mapping
+(e.g., bar drawn from wrong baseline).
+
+**Impact:** Meters display inconsistent information — operator sees two different
+readings for the same signal. Undermines trust in metering accuracy.
+
+**Fix required:**
+1. Identify whether bar fill and numeric label use the same data source
+2. Verify dB-to-pixel scaling matches between bar height and label position
+3. Ensure peak-hold line, bar fill, and numeric readout all agree
+4. Validate with known-level test signal
+
+**Related:** TK-095 (meter spec). Files: `scripts/web-ui/static/js/dashboard.js`,
+`scripts/web-ui/templates/index.html`.
