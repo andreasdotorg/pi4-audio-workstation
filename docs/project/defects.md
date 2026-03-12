@@ -724,3 +724,58 @@ during filter generation.
 **Related:** TK-080 (ported subwoofer subsonic protection — the algorithm exists but
 was not wired into the config generator). TK-107 (filed for generator fix). TK-108
 (filed for validation hardening + audit).
+
+## F-026: Spectrum display unstable on steady tone — PCM worklet ring buffer discontinuities from clock drift (OPEN)
+
+**Severity:** High (blocks TK-114 spectrum validation)
+**Status:** Open
+**Found in:** Dashboard spectrum analyzer on Pi, 2026-03-12
+**Affects:** TK-099 (spectrum module), TK-114 (formal validation blocked)
+**Found by:** Owner during live testing with 1kHz test tone
+**Root-caused by:** Architect, 2026-03-12
+
+**Description:** When a steady 1kHz sine tone is played through the spectrum analyzer,
+the display is visually unstable — the bar/level at 1kHz jumps erratically instead of
+showing a steady peak. A constant-frequency, constant-amplitude signal should produce
+a stable, near-stationary display with only minor smoothing-related fluctuation.
+
+**Root cause (confirmed by architect):** Clock drift between the Pi's USB audio clock
+(USBStreamer/ALSA hardware clock driving the JACK/PipeWire graph) and the browser's
+AudioContext clock (driven by the system's audio output device or internal oscillator).
+The two clocks run at nominally the same rate (48kHz) but drift apart over time. The
+current `pcm-worklet.js` implementation uses an array-of-chunks ring buffer that cannot
+handle this drift — when the consumer falls behind or gets ahead, it drops entire chunks
+and resets mid-read, causing phase discontinuities. The AnalyserNode's FFT window then
+straddles a discontinuity, producing spectral artifacts (broadband energy splatter) that
+manifest as erratic jumping of otherwise steady spectral peaks.
+
+**Why array-of-chunks fails:** Each chunk is a discrete typed array pushed into a JS
+array. The worklet's `process()` method pops chunks from the front. When drift
+accumulates, the buffer either overflows (chunks pile up, worklet skips ahead by
+discarding) or underflows (no chunk available, worklet outputs silence or repeats).
+Both cases create sample-level discontinuities at chunk boundaries that the FFT
+interprets as transient broadband energy.
+
+**Impact:**
+- Blocks TK-114 (spectrum formal validation) — S-2 amplitude accuracy criterion
+  cannot pass if display is unstable for steady-state signals
+- Undermines confidence in spectrum display for live monitoring use case
+- May also affect S-1 frequency accuracy if FFT artifacts cause spurious peaks
+
+**Fix required (architect prescription):**
+Replace `pcm-worklet.js` array-of-chunks buffer with a circular Float32Array ring
+buffer with drift compensation:
+1. Single contiguous Float32Array with read/write pointers
+2. Write pointer advances as WebSocket data arrives
+3. Read pointer advances as `process()` consumes samples
+4. Drift compensation: if read pointer falls too far behind write pointer (buffer
+   filling up), skip ahead to maintain target latency; if buffer empties (write
+   slower than read), output silence rather than repeating stale data
+5. No chunk boundaries — samples are continuous in memory, eliminating phase
+   discontinuities at buffer transitions
+
+Browser-side only change. No server/backend modifications needed.
+
+**Related:** TK-099 (spectrum module), TK-112 (amplitude coloring), TK-114 (blocked
+by this defect), TK-115 (fix task). Files: `scripts/web-ui/static/js/pcm-worklet.js`,
+`scripts/web-ui/static/js/spectrum.js`.
