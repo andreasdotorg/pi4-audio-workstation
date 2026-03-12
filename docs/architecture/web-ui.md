@@ -17,30 +17,48 @@ This document defines the architecture for US-022 (Web UI Platform), US-023 (Eng
 
 ## 3. Architecture Overview
 
-Single-process FastAPI server (one uvicorn worker, SCHED_OTHER priority). Six data streams:
+Single-process FastAPI server (one uvicorn worker, SCHED_OTHER priority, HTTPS
+via self-signed certificate -- see Section 12). Three WebSocket endpoints serve
+all data, backed by four singleton collectors:
 
-| Stream | Source | Transport | Consumer | Rate |
-|--------|--------|-----------|----------|------|
-| Output levels | pycamilladsp `levels_since_last()` (playback) | JSON WebSocket | Both roles | 20 Hz |
-| Input levels | pycamilladsp `levels_since_last()` (capture) | JSON WebSocket | Engineer only | 20 Hz |
-| Spectrograph | JACK capture via ring buffer (3 ch) | Binary WebSocket (raw float32 PCM) | Engineer only | 48000 samples/s per ch, 30 fps display |
-| DSP health | pycamilladsp status API | JSON WebSocket | Engineer only | 2 Hz |
-| System health | `/proc`, `pw-top`, ALSA status | JSON WebSocket | Engineer only | 1 Hz |
-| IEM control | Reaper OSC (bidirectional UDP) | JSON WebSocket | Singer + Engineer | Event-driven |
+### WebSocket Endpoints
+
+| Endpoint | Transport | Payload | Consumer | Rate |
+|----------|-----------|---------|----------|------|
+| `/ws/monitoring` | JSON WebSocket | Levels (8ch capture RMS/peak + 8ch playback RMS/peak) + CamillaDSP status | Both roles | 10 Hz |
+| `/ws/system` | JSON WebSocket | CPU, temperature, memory, PipeWire graph state, CamillaDSP health, per-process CPU | Engineer only | 1 Hz |
+| `/ws/pcm` | Binary WebSocket | 3-channel interleaved float32 PCM (L main, R main, sub sum) | Engineer only | 48000 samples/s per ch |
+
+### Backend Collectors
+
+| Collector | Source | Poll rate | Feeds endpoint |
+|-----------|--------|-----------|----------------|
+| CamillaDSPCollector | pycamilladsp `levels_since_last()` + status API (localhost:1234) | Levels: 20 Hz, Status: 2 Hz | `/ws/monitoring`, `/ws/system` |
+| PcmStreamCollector | JACK client ring buffer (3 ch from CamillaDSP monitor taps) | Continuous (JACK callback) | `/ws/pcm` |
+| SystemCollector | `/proc/stat`, `/proc/meminfo`, `/sys/class/thermal/`, `/proc/{pid}/stat` | 1 Hz | `/ws/system` |
+| PipeWireCollector | `pw-top -b -n 2` (async subprocess) | 1 Hz | `/ws/system` |
+
+In mock mode (`PI_AUDIO_MOCK=1`, default on macOS), real collectors are not
+started and MockDataGenerator provides synthetic data. On the Pi
+(`PI_AUDIO_MOCK=0`), all four collectors start on application startup.
+
+See Section 12 for HTTPS requirement and Section 13 for collector
+implementation details.
 
 ### Process Architecture
 
 ```
 Browser(s)
    |
-   | HTTP / WebSocket (port 8080)
+   | HTTPS / WSS (port 8080, self-signed cert)
    v
-FastAPI (uvicorn, 1 worker, SCHED_OTHER)
+FastAPI (uvicorn, 1 worker, SCHED_OTHER, Nice=10)
    |
-   +---> pycamilladsp (localhost:1234) --- CamillaDSP websocket
-   +---> JACK client (ring buffer) ------- PipeWire JACK bridge
-   +---> python-osc (UDP) --------------- Reaper OSC
-   +---> /proc, pw-top ------------------- system metrics
+   +---> CamillaDSPCollector ---> pycamilladsp (localhost:1234)
+   +---> PcmStreamCollector ----> JACK client (ring buffer) ---> PipeWire JACK bridge
+   +---> SystemCollector -------> /proc, /sys
+   +---> PipeWireCollector -----> pw-top (async subprocess)
+   +---> python-osc (UDP) ------> Reaper OSC (Stage 4, not yet implemented)
 ```
 
 ## 4. Streams 1-2: Level Meters (pycamilladsp)
@@ -499,7 +517,162 @@ Key behavior: on disconnect, the singer sees a clear "your mix is unchanged" mes
 
 9. **JACK callback benchmark (AD residual risk).** Before deploying the spectrograph (Stage 2), the JACK process callback must be benchmarked on the Pi to confirm it completes in < 500 microseconds. The callback performs only a memcpy into the ring buffer. If the benchmark fails (unlikely for a 3-channel memcpy of 3072 bytes), the spectrograph path must be redesigned. This is a gate for Stage 2, not Stage 1.
 
-## 12. Implementation Stages
+## 12. HTTPS Requirement (D-032)
+
+The Web Audio API's `AudioWorklet` interface requires a **secure context**
+(HTTPS or `localhost`) per the W3C specification. In a non-secure context
+(plain HTTP to a non-localhost host), the `audioContext.audioWorklet` property
+is `undefined` and the spectrum analyzer cannot function. This was discovered
+during the D-020 PoC validation (see `docs/lab-notes/D-020-poc-validation.md`,
+Step 5).
+
+**Decision (D-032):** The web UI runs over HTTPS using a self-signed
+certificate. This is sufficient for a LAN-only deployment where the operator
+controls the network.
+
+### Production Configuration
+
+The systemd service (`configs/systemd/user/pi4-audio-webui.service`) starts
+uvicorn with SSL:
+
+```
+ExecStart=.../uvicorn app.main:app --host 0.0.0.0 --port 8080 \
+    --ssl-keyfile /home/ela/web-ui/key.pem \
+    --ssl-certfile /home/ela/web-ui/cert.pem
+```
+
+**Certificate generation (one-time setup on Pi):**
+
+```bash
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+    -days 3650 -nodes -subj "/CN=mugge"
+```
+
+The 10-year validity avoids cert expiry during venue use. The `-nodes` flag
+produces an unencrypted private key (acceptable for a LAN-only service on a
+single-user system).
+
+**Browser access:** The first connection to `https://mugge:8080` will show a
+self-signed certificate warning. The operator accepts the certificate once per
+browser. After acceptance, the AudioWorklet loads normally and the spectrum
+analyzer functions.
+
+**Development (macOS):** `PI_AUDIO_MOCK=1` mode runs without HTTPS. The
+AudioWorklet is not used in mock mode (no PCM streaming), so the secure
+context requirement does not apply. For development with real PCM, use
+`localhost` (which is a secure context per W3C spec).
+
+### Environment Variables
+
+The systemd service sets the following environment:
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `PI_AUDIO_MOCK` | `0` | Enable real collectors (default `1` on macOS) |
+| `XDG_RUNTIME_DIR` | `/run/user/1000` | Required for PipeWire/JACK socket access |
+| `JACK_NO_START_SERVER` | `1` | Prevent JACK from auto-starting a server (PipeWire provides the JACK interface) |
+| `LD_LIBRARY_PATH` | `/usr/lib/aarch64-linux-gnu/pipewire-0.3/jack` | PipeWire's JACK compatibility library (required for `python-jack-client` to use PipeWire) |
+
+### Priority and Resource Isolation
+
+The service runs at `Nice=10` (lower priority than default processes) to
+ensure it never competes with CamillaDSP (SCHED_FIFO 80) or PipeWire
+(SCHED_FIFO 83-88) for CPU time. This is in addition to the SCHED_OTHER
+scheduling class (constraint 2 in Section 11).
+
+## 13. Backend Collector Architecture
+
+Four singleton collector classes poll system data sources on the Pi.
+Collectors are instantiated and started during FastAPI application startup
+(in `app/main.py`) when `PI_AUDIO_MOCK=0`. Each collector runs its own
+asyncio polling loop and exposes a snapshot method for the WebSocket handlers
+to read.
+
+### CamillaDSPCollector (`app/collectors/camilladsp_collector.py`)
+
+**Source:** pycamilladsp client connecting to CamillaDSP's websocket API at
+`127.0.0.1:1234`.
+
+**Two polling loops:**
+- **Levels at 20 Hz (50ms):** Calls `client.levels.levels_since_last()` for
+  8-channel capture/playback RMS and peak values. Drives the `/ws/monitoring`
+  endpoint's level meter data.
+- **Status at 2 Hz (500ms):** Calls `client.general.state()`,
+  `client.status.processing_load()`, `client.status.buffer_level()`,
+  `client.status.clipped_samples()`, `client.status.rate_adjust()`, and
+  `client.rate.capture()`. Drives the DSP health section of both
+  `/ws/monitoring` and `/ws/system`.
+
+**Connection lifecycle:** Connect on startup. If CamillaDSP is unreachable,
+reconnect with exponential backoff (1s -> 2s -> 4s -> 8s, capped at 15s).
+During disconnection, snapshots include `cdsp_connected: false` and all
+levels default to -120 dB so the frontend shows a disconnected state with
+meters at minimum.
+
+**Graceful degradation:** All 8 channels are zero-padded to 8 if CamillaDSP
+reports fewer (e.g., during config transitions).
+
+### PcmStreamCollector (`app/collectors/pcm_collector.py`)
+
+**Source:** JACK client registered via PipeWire's JACK bridge. Captures from
+CamillaDSP's monitor taps (`CamillaDSP.*:monitor.*` port pattern).
+
+**Ring buffer:** Pre-allocated numpy array, 8192 frames x 3 channels x
+float32 = 96 KB. Single-producer (JACK RT callback), single-consumer
+(asyncio WebSocket sender). Lock-free: the JACK callback does only numpy
+slice assignment (C-level memcpy) and integer arithmetic. No logging, no
+malloc, no syscalls in the RT callback path.
+
+**Per-client streaming:** Each connected WebSocket client in `/ws/pcm` gets
+its own read position into the shared ring buffer. Multiple clients consume
+independently. If a client falls behind, the write pointer overwrites old
+data (ring semantics).
+
+**Binary frame format:** 4-byte LE uint32 header (frame count, always 256) +
+interleaved float32 samples (256 frames x 3 channels x 4 bytes = 3072 bytes).
+Total frame size: 3076 bytes. At 48 kHz / 256 frames per chunk = 187.5
+chunks/sec = ~576 KB/s per client.
+
+**Platform guard:** On non-Linux platforms (`sys.platform != "linux"`), the
+JACK client is not started and PCM streaming is unavailable. The `/ws/pcm`
+endpoint returns close code 1008.
+
+### SystemCollector (`app/collectors/system_collector.py`)
+
+**Source:** Direct reads from `/proc` and `/sys` pseudo-filesystems.
+
+**Poll rate:** 1 Hz.
+
+**Metrics collected:**
+- CPU temperature: `/sys/class/thermal/thermal_zone0/temp` (millidegrees C)
+- Per-core CPU usage: `/proc/stat` (delta between polls, idle vs total ticks)
+- Memory: `/proc/meminfo` (MemTotal, MemAvailable)
+- Per-process CPU: `/proc/{pid}/comm` + `/proc/{pid}/stat` for tracked
+  processes (mixxx, reaper, camilladsp, pipewire, labwc)
+
+**Platform fallback:** On non-Linux (macOS development), returns zero values
+for all metrics.
+
+### PipeWireCollector (`app/collectors/pipewire_collector.py`)
+
+**Source:** Async subprocess execution of `pw-top -b -n 2` with a 3-second
+timeout. Uses `-n 2` because the first pass of `pw-top` outputs all zeros;
+the second pass has real values.
+
+**Poll rate:** 1 Hz.
+
+**Metrics extracted:**
+- PipeWire quantum (buffer size)
+- Sample rate
+- Total xruns (ERR column)
+- Graph state (running/unknown)
+- Scheduling policy and RT priority for PipeWire and CamillaDSP processes
+  (read from `/proc/{pid}/stat` fields 38-39)
+
+**Platform fallback:** On non-Linux, returns defaults (quantum 256, rate
+48000, SCHED_OTHER).
+
+## 14. Implementation Stages
 
 ### Stage 1: Level Meters + System Health (no JACK, no OSC)
 - FastAPI server with static file serving
@@ -529,7 +702,7 @@ Key behavior: on disconnect, the singer sees a clear "your mix is unchanged" mes
 - Server-side 0 dB ceiling enforcement
 - **Gate:** Audio engineer verifies IEM control does not affect PA path.
 
-## 13. Dashboard Review Findings (2026-03-11)
+## 15. Dashboard Review Findings (2026-03-11)
 
 The Stage 1 dashboard underwent three review cycles after TK-093 (dense redesign). Architecturally significant findings are captured here; task-level tracking is in `docs/project/tasks.md` (TK-095).
 
@@ -567,7 +740,7 @@ The Stage 1 dashboard underwent three review cycles after TK-093 (dense redesign
 | F-UX-107 | CLIP indicator wastes 10px height | Very low priority. Fixed height aids layout stability. |
 | F-UX-108 | "FIFO 88/80" opaque to non-experts | Very low priority. Expert-audience tool. |
 
-## 14. Resource Budget Summary
+## 16. Resource Budget Summary
 
 | Component | CPU (Pi) | Bandwidth (per engineer client) |
 |-----------|----------|-------------------------------|
