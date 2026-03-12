@@ -34,6 +34,10 @@
         };
       in
       {
+        packages = { } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          mixxx = pkgs.mixxx;
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [
             (python.withPackages (ps: [
