@@ -809,7 +809,7 @@ affected load bar position), TK-063 (dashboard). Files:
 `scripts/web-ui/app/collectors/`, `scripts/web-ui/static/js/dashboard.js`,
 `scripts/web-ui/templates/index.html`.
 
-## F-028: Test tone signal generation glitches via pw-play (OPEN)
+## F-028: Test tone signal generation glitches via pw-play (RESOLVED)
 
 **Severity:** High (blocks room correction measurement pipeline)
 **Status:** Resolved (`f9ba574`, TK-120. Validated: 0 errors after 30+ seconds continuous tone)
