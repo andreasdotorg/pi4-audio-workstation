@@ -113,6 +113,9 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - CHN-50P speaker identity, profile, and CamillaDSP config committed (`27cc089`).
 - Driver database: initial scrape data committed (`18af87c`), Soundimports decimal fix (`3f63e5a`).
 - TK-141 DONE: Near-field measurement script (`measure_nearfield.py`, 1412 lines) committed (`8766fed`). AE approved. Safety cap, pre-flight checks, xrun detection. 8 deferred follow-ups filed (TK-142 through TK-149).
+- TK-143 DONE: CamillaDSP measurement config generation + pycamilladsp hot-swap (`21a8fc7`). 15 new tests. All-hands review passed. Hard cap updated to -20 dBFS per AD defense-in-depth (S-010 near-miss). Follow-up review fixes pending commit.
+- D-033 Stage 1 COMPLETE: Multi-user Nix 2.34.1 installed on Pi (S-011). All 5 checks pass. TK-139 unblocked.
+- S-010 near-miss reclassified: PA was off, no speaker damage. Defense-in-depth fixes implemented.
 
 ### Completed (previous session, 2026-03-10)
 - TK-055 PASS: Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware V3D GL on PREEMPT_RT (previous kernel: lockup in <2.5 min). Zero lockups.
