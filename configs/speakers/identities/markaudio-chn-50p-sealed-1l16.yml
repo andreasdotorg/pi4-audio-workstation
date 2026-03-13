@@ -1,0 +1,40 @@
+# Markaudio CHN-50P — sealed box satellite (1.16L enclosure)
+# 2-inch full-range driver in compact sealed box.
+# Designed as satellite for Bose PS28 III subwoofer system.
+#
+# Sealed box analysis (AE-reviewed):
+#   Enclosure volume: 1.16 liters
+#   Qtc: 0.764, Fc: 157Hz, F3: 107Hz
+#   Alignment: slightly underdamped (good transient response)
+#
+# CRITICAL: max_power_watts is only 7W. This driver has very low
+# thermal capacity. Power limiting in CamillaDSP is essential.
+#
+# mandatory_hpf_hz at 80Hz protects against excursion below the
+# crossover region where the sub takes over.
+
+name: "Markaudio CHN-50P Sealed 1.16L"
+manufacturer: "Markaudio"
+model: "CHN-50P"
+driver: markaudio-chn-50p
+type: sealed
+enclosure_volume_liters: 1.16
+
+impedance_ohm: 4
+sensitivity_db_spl: 87.5
+
+# Sealed box parameters (AE analysis)
+sealed_qtc: 0.764
+sealed_fc_hz: 157
+sealed_f3_hz: 107
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: 80
+
+# Power handling
+max_power_watts: 7
+power_limit_note: "CRITICAL: Only 7W thermal limit. Aggressive power limiting required."
+
+# Compensation EQ — none yet, pending listening-position measurement.
+compensation_eq: []

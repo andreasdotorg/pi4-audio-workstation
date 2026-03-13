@@ -34,15 +34,15 @@ thiele_small:
   qts: 0.55
   qes: 0.69
   qms: 2.83
-  vas_liters: null
+  vas_liters: 1.08
   cms_m_per_n: 0.00098
   xmax_mm: 3.5
   xmech_mm: null
   le_mh: 0.06
-  bl_tm: null
+  bl_tm: 2.71
   mms_g: 2.09
   mmd_g: null
-  sd_cm2: 2.8
+  sd_cm2: 28.0
   sensitivity_db_1w1m: null
   sensitivity_db_2v83_1m: 87.5
   pe_max_watts: 7.0
