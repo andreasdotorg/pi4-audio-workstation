@@ -110,6 +110,9 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - US-005 DONE: Owner confirms Hercules USB-MIDI basic DJ functionality works. Residual mapping deferred.
 - US-006 DONE: Implicitly validated — owner actively DJing on Mixxx with Hercules on Pi.
 - US-003 T3a PASS: Owner approved based on real-world DJ use. US-029 (DJ UAT) now unblocked.
+- CHN-50P speaker identity, profile, and CamillaDSP config committed (`27cc089`).
+- Driver database: initial scrape data committed (`18af87c`), Soundimports decimal fix (`3f63e5a`).
+- TK-141 DONE: Near-field measurement script (`measure_nearfield.py`, 1412 lines) committed (`8766fed`). AE approved. Safety cap, pre-flight checks, xrun detection. 8 deferred follow-ups filed (TK-142 through TK-149).
 
 ### Completed (previous session, 2026-03-10)
 - TK-055 PASS: Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware V3D GL on PREEMPT_RT (previous kernel: lockup in <2.5 min). Zero lockups.
