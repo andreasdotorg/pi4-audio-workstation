@@ -12,9 +12,15 @@ the full measurement chain:
      the UMIK-1 response, deconvolves to get the impulse response, computes
      the frequency response, and applies the UMIK-1 calibration file.
 
-Audio I/O uses the `sounddevice` library which talks to PipeWire (or ALSA
-directly) on the Pi. The UMIK-1 is a separate USB device from the
-USBStreamer, so input and output use different ALSA/PipeWire devices.
+Audio is routed through PipeWire to CamillaDSP using a measurement-specific
+config. The script swaps CamillaDSP to a minimal measurement config (IIR HPF
+for excursion protection, -40dB attenuation on the test channel, -100dB mute
+on all other channels, no FIR filters) and restores the production config when
+done. This is safe because CamillaDSP config.reload() is glitch-free (no
+transients, no USBStreamer reset).
+
+The UMIK-1 is a separate USB device from the USBStreamer, so input uses the
+UMIK-1 directly while output goes through PipeWire's default sink.
 
 Outputs:
   - Frequency response text file (freq_hz, level_db)
@@ -23,36 +29,38 @@ Outputs:
   - Plot (PNG) if matplotlib is available
 
 Requirements (on the Pi):
-  python3, numpy, scipy, soundfile, sounddevice
+  python3, numpy, scipy, soundfile, sounddevice, pycamilladsp, pyyaml
   Optional: matplotlib (for plots)
 
 Usage:
   python3 measure_nearfield.py \\
     --channel 0 \\
     --speaker-name "chn50p-left" \\
+    --speaker-profile bose-home-chn50p \\
     --mic-device "UMIK" \\
-    --output-device "USBStreamer" \\
     --calibration /home/ela/7161942.txt \\
     --output-dir ./measurements/ \\
     --sweep-duration 5 \\
-    --sweep-level -40
+    --sweep-level -20
 
-SAFETY WARNING:
-  The default sweep level is -40 dBFS. This is intentionally conservative
-  because the script plays DIRECTLY to the USBStreamer output, bypassing
-  CamillaDSP's gain staging (typically -39.5 dB for CHN-50P). At -20 dBFS
-  direct, a CHN-50P (7W rated) would receive ~30W, destroying the driver.
-  Do NOT increase the sweep level without understanding the full signal path.
+SAFETY MODEL (defense-in-depth, see S-010 incident 2026-03-13):
+  Hard cap at -20 dBFS. This level is safe even WITHOUT CamillaDSP in the
+  signal path (PipeWire can bypass CamillaDSP — S-010 showed this).
+    -20 dBFS direct to amp -> ~4.5W into 4 ohm (survivable for 7W CHN-50P)
+    -20 dBFS through CamillaDSP (-40dB) -> ~0.0005W (extremely conservative)
+  The IIR HPF at mandatory_hpf_hz protects against excursion damage.
+  The script verifies CamillaDSP reaches RUNNING state after config swap.
 
 Measurement procedure:
   1. Position UMIK-1 in near-field of the driver (1-2cm, on-axis)
-  2. Ensure CamillaDSP is running and the speaker channel is active
-  3. Run this script
+  2. Ensure CamillaDSP and PipeWire are running
+  3. Run this script (it auto-swaps CamillaDSP to measurement config)
   4. During Phase 1: adjust amp volume until pink noise is at a comfortable
      but clearly audible level. The mic should not clip.
   5. Press Enter to proceed to Phase 2
   6. The sweep plays automatically; do not move the mic during the sweep
   7. Results are saved to the output directory
+  8. CamillaDSP is automatically restored to the production config
 """
 
 import argparse
@@ -61,10 +69,12 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 import numpy as np
 import soundfile as sf
+import yaml
 
 # Add the scripts/room-correction directory to path so room_correction
 # package is importable when running this script directly on the Pi.
@@ -76,6 +86,7 @@ from room_correction import dsp_utils
 from room_correction.sweep import generate_log_sweep
 from room_correction.deconvolution import deconvolve
 from room_correction.recording import apply_umik1_calibration
+from config_generator import load_profile_with_identities, MAX_CHANNELS
 
 SAMPLE_RATE = dsp_utils.SAMPLE_RATE  # 48000
 
@@ -90,10 +101,30 @@ REC_MIN_SNR_DB = 20.0        # Minimum acceptable SNR for measurement
 # Xrun retry limits
 MAX_XRUN_RETRIES = 3
 
-# Safety: absolute maximum sweep level when bypassing CamillaDSP gain staging.
-# -30 dBFS direct to USBStreamer delivers ~3W into a speaker. Above this
-# risks thermal damage to small drivers (CHN-50P is rated 7W).
-SWEEP_LEVEL_HARD_CAP_DBFS = -30.0
+# Safety: absolute maximum sweep level. Defense-in-depth: -20 dBFS is
+# survivable at moderate amp gain settings. At full amp gain (1.0V
+# sensitivity, 42.4x voltage gain), -20 dBFS direct delivers ~107W into
+# 4 ohm — destructive for a 7W CHN-50P. However, measurement procedure
+# requires Phase 1 calibration where the operator sets the amp to a
+# moderate level. The realistic bypass scenario (CamillaDSP bypass per
+# S-010, amp at moderate gain) yields ~1-5W — survivable.
+# With CamillaDSP measurement config active (-40dB), -20 dBFS delivers
+# ~0.0005W — extremely conservative.
+SWEEP_LEVEL_HARD_CAP_DBFS = -20.0
+
+# CamillaDSP measurement config parameters
+# MEASUREMENT_ATTENUATION_DB replaces the production config's three-layer
+# attenuation (global_attenuation + headroom + speaker_trim, totalling ~-39.5dB
+# for satellites). -40dB is the minimum safe value — do not raise without also
+# lowering SWEEP_LEVEL_HARD_CAP_DBFS to compensate. At -40dB + -20dBFS cap,
+# power into 4 ohm is ~0.0005W (7W driver limit).
+MEASUREMENT_ATTENUATION_DB = -40.0   # Gain applied to test channel
+MEASUREMENT_MUTE_DB = -100.0         # Gain applied to non-test channels
+MEASUREMENT_CHUNKSIZE = 2048         # Chunksize for measurement (low CPU)
+MEASUREMENT_SAMPLE_RATE = 48000
+MEASUREMENT_QUEUELIMIT = 4
+CAMILLADSP_DEFAULT_HOST = "localhost"
+CAMILLADSP_DEFAULT_PORT = 1234
 
 
 def find_device(name_substring, kind=None):
@@ -486,6 +517,303 @@ def run_preflight_checks():
     return all_ok
 
 
+# ---------------------------------------------------------------------------
+# CamillaDSP measurement config generation and hot-swap (TK-143)
+# ---------------------------------------------------------------------------
+
+def build_measurement_config(test_channel, speaker_profile_name,
+                             profiles_dir=None, identities_dir=None):
+    """
+    Build a CamillaDSP measurement config for near-field measurement.
+
+    The measurement config is minimal:
+    - 1:1 passthrough mixer (explicit routing, required by CamillaDSP when
+      capture and playback have the same channel count)
+    - IIR HPF at mandatory_hpf_hz for excursion protection on the test channel
+    - -40dB Gain on the test channel (safe attenuation)
+    - -100dB mute on all other channels
+    - No FIR filters
+    - Chunksize 2048 (low CPU, latency irrelevant for measurement)
+    - Same capture/playback devices as production (Loopback -> USBStreamer)
+
+    Parameters
+    ----------
+    test_channel : int
+        0-indexed output channel under test.
+    speaker_profile_name : str
+        Speaker profile name (e.g., 'bose-home-chn50p').
+    profiles_dir : str or Path, optional
+        Override profiles directory.
+    identities_dir : str or Path, optional
+        Override identities directory.
+
+    Returns
+    -------
+    tuple of (dict, int)
+        (config_dict, mandatory_hpf_hz) where mandatory_hpf_hz is the HPF
+        frequency from the speaker identity (for operator warning).
+
+    Raises
+    ------
+    ValueError
+        If the test channel is not found in the speaker profile.
+    """
+    profile, identities = load_profile_with_identities(
+        speaker_profile_name,
+        profiles_dir=profiles_dir,
+        identities_dir=identities_dir,
+    )
+
+    # Find the speaker identity for the test channel
+    mandatory_hpf_hz = None
+    for spk_key, spk_cfg in profile["speakers"].items():
+        if spk_cfg["channel"] == test_channel:
+            id_name = spk_cfg["identity"]
+            identity = identities.get(id_name, {})
+            mandatory_hpf_hz = identity.get("mandatory_hpf_hz")
+            break
+    else:
+        raise ValueError(
+            f"Channel {test_channel} not found in speaker profile "
+            f"'{speaker_profile_name}'. Available channels: "
+            + ", ".join(
+                f"{k}={v['channel']}" for k, v in profile["speakers"].items()
+            )
+        )
+
+    n_channels = MAX_CHANNELS  # 8, from config_generator
+
+    # Build devices section
+    devices = {
+        "samplerate": MEASUREMENT_SAMPLE_RATE,
+        "chunksize": MEASUREMENT_CHUNKSIZE,
+        "queuelimit": MEASUREMENT_QUEUELIMIT,
+        "capture": {
+            "type": "Alsa",
+            "channels": n_channels,
+            "device": "hw:Loopback,1,0",
+            "format": "S32LE",
+        },
+        "playback": {
+            "type": "Alsa",
+            "channels": n_channels,
+            "device": "hw:USBStreamer,0",
+            "format": "S32LE",
+        },
+    }
+
+    # Build 1:1 passthrough mixer (CamillaDSP requires explicit routing
+    # when capture and playback have the same channel count).
+    mixer_mapping = []
+    for ch in range(n_channels):
+        mixer_mapping.append({
+            "dest": ch,
+            "sources": [{"channel": ch, "gain": 0, "inverted": False}],
+        })
+    mixers = {
+        "passthrough": {
+            "channels": {"in": n_channels, "out": n_channels},
+            "mapping": mixer_mapping,
+        },
+    }
+
+    # Build filters: one gain per channel + optional HPF on test channel
+    filters = {}
+    for ch in range(n_channels):
+        if ch == test_channel:
+            filters[f"ch{ch}_gain"] = {
+                "type": "Gain",
+                "parameters": {
+                    "gain": float(MEASUREMENT_ATTENUATION_DB),
+                },
+            }
+        else:
+            filters[f"ch{ch}_mute"] = {
+                "type": "Gain",
+                "parameters": {
+                    "gain": float(MEASUREMENT_MUTE_DB),
+                },
+            }
+
+    if mandatory_hpf_hz is not None:
+        filters[f"ch{test_channel}_hpf"] = {
+            "type": "BiquadCombo",
+            "parameters": {
+                "type": "ButterworthHighpass",
+                "order": 4,
+                "freq": mandatory_hpf_hz,
+            },
+        }
+
+    # Build pipeline: mixer first, then HPF (if present), then gain/mute
+    pipeline = []
+
+    # 1:1 passthrough mixer (explicit routing)
+    pipeline.append({"type": "Mixer", "name": "passthrough"})
+
+    # HPF on test channel first (excursion protection)
+    if mandatory_hpf_hz is not None:
+        pipeline.append({
+            "type": "Filter",
+            "channels": [test_channel],
+            "names": [f"ch{test_channel}_hpf"],
+        })
+
+    # Gain on test channel
+    pipeline.append({
+        "type": "Filter",
+        "channels": [test_channel],
+        "names": [f"ch{test_channel}_gain"],
+    })
+
+    # Mute all other channels
+    for ch in range(n_channels):
+        if ch != test_channel:
+            pipeline.append({
+                "type": "Filter",
+                "channels": [ch],
+                "names": [f"ch{ch}_mute"],
+            })
+
+    config = {
+        "devices": devices,
+        "mixers": mixers,
+        "filters": filters,
+        "pipeline": pipeline,
+    }
+
+    return config, mandatory_hpf_hz
+
+
+def swap_camilladsp_config(config_dict, host=CAMILLADSP_DEFAULT_HOST,
+                           port=CAMILLADSP_DEFAULT_PORT):
+    """
+    Save the measurement config to a temp file and hot-swap CamillaDSP to it.
+
+    Uses pycamilladsp to:
+    1. Connect to CamillaDSP websocket
+    2. Read the current config file path (for restoration later)
+    3. Write the measurement config to a temp file
+    4. Set the new config path and reload via general.reload()
+    5. Verify CamillaDSP reaches RUNNING state
+
+    CamillaDSP general.reload() is glitch-free: it does not restart the
+    process, does not reset the USBStreamer, and does not produce transients.
+
+    Parameters
+    ----------
+    config_dict : dict
+        CamillaDSP measurement config as a Python dict.
+    host : str
+        CamillaDSP websocket host.
+    port : int
+        CamillaDSP websocket port.
+
+    Returns
+    -------
+    tuple of (CamillaClient, str, str)
+        (client, original_config_path, temp_config_path) for use in
+        restore_camilladsp_config().
+
+    Raises
+    ------
+    RuntimeError
+        If CamillaDSP does not reach RUNNING state after reload.
+    """
+    from camilladsp import CamillaClient, ProcessingState
+
+    client = CamillaClient(host, port)
+    client.connect()
+
+    # Save original config path for restoration
+    original_config_path = client.config.file_path()
+    print(f"  Original CamillaDSP config: {original_config_path}")
+
+    # Write measurement config to temp file
+    tmp_fd, temp_config_path = tempfile.mkstemp(
+        suffix=".yml", prefix="camilladsp_measurement_"
+    )
+    f = os.fdopen(tmp_fd, "w")
+    try:
+        yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+    finally:
+        f.close()
+
+    print(f"  Measurement config written to: {temp_config_path}")
+
+    # Hot-swap: set config path and reload
+    client.config.set_file_path(temp_config_path)
+    client.general.reload()
+
+    # SAFETY: Verify CamillaDSP is RUNNING after reload.
+    # The -6 dBFS hard cap is only safe WITH the measurement config active.
+    # If CamillaDSP failed to load the config, audio could pass unattenuated.
+    time.sleep(0.5)  # Brief pause for CamillaDSP to process the reload
+    state = client.general.state()
+    if state != ProcessingState.RUNNING:
+        # Attempt to restore original config before aborting
+        try:
+            client.config.set_file_path(original_config_path)
+            client.general.reload()
+        except Exception:
+            pass
+        try:
+            os.unlink(temp_config_path)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"CamillaDSP is not RUNNING after loading measurement config "
+            f"(state: {state}). The measurement config may be invalid. "
+            f"Original config has been restored. Aborting for safety — "
+            f"the sweep level hard cap assumes the measurement config is "
+            f"providing {MEASUREMENT_ATTENUATION_DB}dB attenuation."
+        )
+
+    print(f"  CamillaDSP reloaded with measurement config (state: {state.name})")
+    return client, original_config_path, temp_config_path
+
+
+def restore_camilladsp_config(client, original_config_path, temp_config_path):
+    """
+    Restore CamillaDSP to its original production config.
+
+    Parameters
+    ----------
+    client : CamillaClient
+        Connected pycamilladsp client.
+    original_config_path : str
+        Path to the original config file.
+    temp_config_path : str
+        Path to the temp measurement config (will be deleted).
+    """
+    try:
+        client.config.set_file_path(original_config_path)
+        client.general.reload()
+        print(f"  CamillaDSP restored to: {original_config_path}")
+    except Exception as e:
+        print(f"\n  ** WARNING: Failed to restore CamillaDSP config: {e} **")
+        print(f"  ** PA OUTPUT IS CURRENTLY MUTED / ATTENUATED **")
+        print(f"  ** — NOT IN PRODUCTION STATE — **")
+        print(f"  ** Manual restore required: **")
+        print(f"  **   1. Open CamillaDSP GUI at http://localhost:5005 **")
+        print(f"  **   2. Load config: {original_config_path} **")
+        print(f"  **   Or run: sudo systemctl restart camilladsp **")
+        print(f"  **   (WARNING: systemctl restart produces transients — **")
+        print(f"  **    turn off amplifiers first!) **")
+
+    # Amp level warning — operator may have set levels for measurement mode
+    print("\n  ** CHECK AMP LEVELS **")
+    print("  CamillaDSP is back on the production config.")
+    print("  If you adjusted amp volume during the measurement,")
+    print("  verify levels are appropriate for normal listening.")
+
+    # Clean up temp file
+    try:
+        os.unlink(temp_config_path)
+    except OSError:
+        pass
+
+
 def generate_pink_noise(duration_s, sr=SAMPLE_RATE, level_dbfs=-40.0,
                         f_low=100.0, f_high=10000.0):
     """
@@ -510,7 +838,8 @@ def generate_pink_noise(duration_s, sr=SAMPLE_RATE, level_dbfs=-40.0,
     sr : int
         Sample rate.
     level_dbfs : float
-        Target RMS level in dBFS (default -40.0, safe for direct output).
+        Target RMS level in dBFS (default -20.0, safe with CamillaDSP
+        measurement config providing -40dB attenuation).
     f_low : float
         Lower band limit in Hz (default 100.0).
     f_high : float
@@ -1238,12 +1567,26 @@ def main():
         ),
     )
     parser.add_argument(
+        "--speaker-profile", type=str, default="bose-home-chn50p",
+        help=(
+            "Speaker profile name (without .yml) for loading speaker identity "
+            "and mandatory HPF. Used to generate the measurement CamillaDSP "
+            "config. (default: 'bose-home-chn50p')"
+        ),
+    )
+    parser.add_argument(
         "--mic-device", type=str, default="UMIK",
         help="UMIK-1 input device name substring (default: 'UMIK')",
     )
     parser.add_argument(
-        "--output-device", type=str, default="USBStreamer",
-        help="Output device name substring (default: 'USBStreamer')",
+        "--output-device", type=str, default="pipewire",
+        help=(
+            "Output device name substring (default: 'pipewire'). Audio goes "
+            "through PipeWire -> ALSA Loopback -> CamillaDSP -> USBStreamer. "
+            "Do NOT use 'USBStreamer' directly (CamillaDSP holds exclusive "
+            "ALSA access per D-011). Do NOT use 'default' (matches 'sysdefault' "
+            "first, which is an ALSA fallback, not PipeWire)."
+        ),
     )
     parser.add_argument(
         "--calibration", type=str, default=None,
@@ -1262,13 +1605,11 @@ def main():
         help="Sweep duration in seconds (default: 5.0)",
     )
     parser.add_argument(
-        "--sweep-level", type=float, default=-40.0,
+        "--sweep-level", type=float, default=-20.0,
         help=(
-            "Sweep peak level in dBFS (default: -40.0). SAFETY: this script "
-            "plays directly to the output device, bypassing CamillaDSP gain "
-            "staging. The CHN-50P is rated 7W; at -20 dBFS direct you risk "
-            "~30W into the driver. Do not increase without understanding "
-            "the full signal path."
+            "Sweep peak level in dBFS (default: -20.0). Hard cap at -20 dBFS "
+            "(defense-in-depth: safe even without CamillaDSP attenuation, "
+            "~4.5W into 7W CHN-50P). See S-010 incident."
         ),
     )
     parser.add_argument(
@@ -1296,6 +1637,14 @@ def main():
         "--sample-rate", type=int, default=SAMPLE_RATE,
         help=f"Sample rate in Hz (default: {SAMPLE_RATE})",
     )
+    parser.add_argument(
+        "--camilladsp-host", type=str, default=CAMILLADSP_DEFAULT_HOST,
+        help=f"CamillaDSP websocket host (default: {CAMILLADSP_DEFAULT_HOST})",
+    )
+    parser.add_argument(
+        "--camilladsp-port", type=int, default=CAMILLADSP_DEFAULT_PORT,
+        help=f"CamillaDSP websocket port (default: {CAMILLADSP_DEFAULT_PORT})",
+    )
 
     args = parser.parse_args()
     sr = args.sample_rate
@@ -1308,17 +1657,26 @@ def main():
         print("Install with: pip3 install sounddevice")
         sys.exit(1)
 
+    try:
+        import camilladsp  # noqa: F401
+    except ImportError:
+        print("ERROR: pycamilladsp not installed.")
+        print("Install with: pip3 install camilladsp")
+        sys.exit(1)
+
     if args.list_devices:
         list_audio_devices()
         sys.exit(0)
 
-    # SAFETY: enforce hard cap on sweep level
+    # SAFETY: enforce hard cap on sweep level (defense-in-depth, S-010 incident)
+    # -20 dBFS is safe even without CamillaDSP attenuation (~4.5W into 7W driver)
     if args.sweep_level > SWEEP_LEVEL_HARD_CAP_DBFS:
         print(f"ERROR: Sweep level {args.sweep_level} dBFS exceeds safety cap "
               f"of {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS.")
-        print(f"This script plays directly to the output device, bypassing "
-              f"CamillaDSP gain staging.")
-        print(f"At -20 dBFS direct, a CHN-50P (7W rated) receives ~30W.")
+        print(f"Defense-in-depth: {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS is safe even "
+              f"if PipeWire bypasses CamillaDSP (S-010 incident). At "
+              f"{SWEEP_LEVEL_HARD_CAP_DBFS} dBFS direct: ~4.5W into 4 ohm "
+              f"(survivable for 7W CHN-50P).")
         print(f"Maximum allowed: {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS.")
         sys.exit(1)
 
@@ -1352,6 +1710,7 @@ def main():
     mic_info = sd.query_devices(mic_idx)
     out_info = sd.query_devices(out_idx)
     print(f"  Speaker:     {speaker_name}")
+    print(f"  Profile:     {args.speaker_profile}")
     print(f"  Microphone:  [{mic_idx}] {mic_info['name']}")
     print(f"  Output:      [{out_idx}] {out_info['name']}")
     print(f"  Channel:     {args.channel}")
@@ -1372,29 +1731,83 @@ def main():
             print("Fix the issues above, or use --skip-preflight to override.")
             sys.exit(1)
 
-    # Phase 1: Calibration
-    if not args.skip_calibration_phase:
-        phase1_calibration(
+    # Build and swap CamillaDSP to measurement config
+    print("\n" + "=" * 60)
+    print("CAMILLADSP MEASUREMENT CONFIG")
+    print("=" * 60)
+
+    print(f"\nBuilding measurement config for channel {args.channel} "
+          f"from profile '{args.speaker_profile}'...")
+    try:
+        meas_config, mandatory_hpf_hz = build_measurement_config(
+            test_channel=args.channel,
+            speaker_profile_name=args.speaker_profile,
+        )
+    except (FileNotFoundError, ValueError) as e:
+        print(f"ERROR: {e}")
+        sys.exit(1)
+
+    # Operator warning about HPF protection
+    if mandatory_hpf_hz is not None:
+        print(f"\n  IIR HPF at {mandatory_hpf_hz}Hz active on channel "
+              f"{args.channel} (excursion protection).")
+        print(f"  Content below {mandatory_hpf_hz}Hz will be attenuated "
+              f"(4th-order Butterworth, 24dB/oct).")
+        print(f"  The sweep starts at 20Hz; the HPF will shape the measured "
+              f"response below {mandatory_hpf_hz}Hz.")
+    else:
+        print("\n  ** WARNING: No mandatory HPF found in speaker identity! **")
+        print("  ** Excursion protection is NOT active. Proceed with caution. **")
+
+    print(f"\n  Measurement attenuation: {MEASUREMENT_ATTENUATION_DB}dB "
+          f"on channel {args.channel}")
+    print(f"  All other channels muted at {MEASUREMENT_MUTE_DB}dB")
+
+    print("\nSwapping CamillaDSP to measurement config...")
+    try:
+        client, original_config_path, temp_config_path = swap_camilladsp_config(
+            meas_config,
+            host=args.camilladsp_host,
+            port=args.camilladsp_port,
+        )
+    except Exception as e:
+        print(f"ERROR: Failed to swap CamillaDSP config: {e}")
+        print("Is CamillaDSP running? Check: systemctl status camilladsp")
+        print("Is pycamilladsp installed? Check: pip3 list | grep camilladsp")
+        sys.exit(1)
+
+    # Everything from here runs inside try/finally to guarantee config restoration
+    success = False
+    try:
+        # Phase 1: Calibration
+        if not args.skip_calibration_phase:
+            phase1_calibration(
+                output_channel=args.channel,
+                output_device_idx=out_idx,
+                input_device_idx=mic_idx,
+                level_dbfs=args.sweep_level,
+                sr=sr,
+            )
+
+        # Phase 2: Measurement
+        success = phase2_measurement(
             output_channel=args.channel,
             output_device_idx=out_idx,
             input_device_idx=mic_idx,
-            level_dbfs=args.sweep_level,
+            sweep_duration=args.sweep_duration,
+            sweep_level_dbfs=args.sweep_level,
+            calibration_path=args.calibration,
+            output_dir=output_dir,
+            ir_length_s=args.ir_length,
+            speaker_name=speaker_name,
             sr=sr,
         )
-
-    # Phase 2: Measurement
-    success = phase2_measurement(
-        output_channel=args.channel,
-        output_device_idx=out_idx,
-        input_device_idx=mic_idx,
-        sweep_duration=args.sweep_duration,
-        sweep_level_dbfs=args.sweep_level,
-        calibration_path=args.calibration,
-        output_dir=output_dir,
-        ir_length_s=args.ir_length,
-        speaker_name=speaker_name,
-        sr=sr,
-    )
+    except KeyboardInterrupt:
+        print("\n\nMeasurement interrupted by user.")
+    finally:
+        # Always restore CamillaDSP to production config
+        print("\nRestoring CamillaDSP production config...")
+        restore_camilladsp_config(client, original_config_path, temp_config_path)
 
     sys.exit(0 if success else 1)
 
