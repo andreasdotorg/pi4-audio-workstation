@@ -116,7 +116,7 @@ REC_MAX_PEAK_DBFS = -1.0    # Above this: likely clipping
 REC_MIN_SNR_DB = 20.0        # Minimum acceptable SNR for measurement
 
 # Phase 1 calibration thresholds (mic peak dBFS)
-CAL_TARGET_MIN_PEAK_DBFS = -30.0  # Below this: signal too quiet
+CAL_TARGET_MIN_PEAK_DBFS = -40.0  # Below this: signal too quiet
 CAL_TARGET_MAX_PEAK_DBFS = -10.0  # Above this: too loud / risk of clipping
 CAL_CLIP_WARN_PEAK_DBFS = -3.0    # Near-clipping warning threshold
 CAL_DEFAULT_DURATION_S = 10.0     # Default calibration duration (seconds)
