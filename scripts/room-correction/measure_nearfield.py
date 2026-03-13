@@ -6,15 +6,16 @@ Measures the frequency response of a single speaker driver in near-field
 (1-2cm from cone) using the Farina log sweep method. The script handles
 the full measurement chain:
 
-  1. Phase 1 (calibration): plays pink noise so the operator can set a safe
-     amp level. Waits for confirmation before proceeding.
+  1. Phase 1 (calibration): plays pink noise for a fixed duration so the
+     operator can verify amp levels. Reports mic levels and gives a pass/fail
+     verdict. Works non-interactively (safe for non-TTY SSH).
   2. Phase 2 (measurement): plays a log sweep through the speaker, records
      the UMIK-1 response, deconvolves to get the impulse response, computes
      the frequency response, and applies the UMIK-1 calibration file.
 
 Audio is routed through PipeWire to CamillaDSP using a measurement-specific
 config. The script swaps CamillaDSP to a minimal measurement config (IIR HPF
-for excursion protection, -40dB attenuation on the test channel, -100dB mute
+for excursion protection, -20dB attenuation on the test channel, -100dB mute
 on all other channels, no FIR filters) and restores the production config when
 done. This is safe because CamillaDSP config.reload() is glitch-free (no
 transients, no USBStreamer reset).
@@ -44,12 +45,12 @@ Usage:
     --sweep-level -20
 
 SAFETY MODEL (defense-in-depth, see S-010 incident 2026-03-13):
-  Hard cap at -20 dBFS. At full amp gain (1.0V sensitivity, 42.4x voltage
-  gain), -20 dBFS direct delivers ~107W into 4 ohm — destructive for a 7W
-  CHN-50P. However, Phase 1 calibration requires the operator to set amp
-  gain to a moderate level. The realistic bypass scenario (CamillaDSP bypass
-  per S-010, amp at moderate gain) yields ~1-5W — survivable.
-    -20 dBFS through CamillaDSP (-40dB) -> ~0.0005W (extremely conservative)
+  Hard cap at -20 dBFS. This level must be safe EVEN WITHOUT CamillaDSP in
+  the signal path (S-010 demonstrated bypass via sysdefault ALSA device).
+  At -20 dBFS into a 450W/4ohm amp: ~4.5W. CHN-50P rated 7W: survivable.
+  Self-built wideband speakers: large margin.
+  With CamillaDSP measurement config (-20dB attenuation):
+    -20 dBFS sweep -> -40 dBFS at USBStreamer -> ~0.045W (safe)
   The IIR HPF at mandatory_hpf_hz protects against excursion damage.
   The script verifies CamillaDSP reaches RUNNING state after config swap.
 
@@ -57,9 +58,9 @@ Measurement procedure:
   1. Position UMIK-1 in near-field of the driver (1-2cm, on-axis)
   2. Ensure CamillaDSP and PipeWire are running
   3. Run this script (it auto-swaps CamillaDSP to measurement config)
-  4. During Phase 1: adjust amp volume until pink noise is at a comfortable
-     but clearly audible level. The mic should not clip.
-  5. Press Enter to proceed to Phase 2
+  4. During Phase 1: verify that mic levels are in the target range
+     (peak -30 to -10 dBFS). Adjust amp if needed and re-run.
+  5. Phase 1 completes automatically after the calibration duration
   6. The sweep plays automatically; do not move the mic during the sweep
   7. Results are saved to the output directory
   8. CamillaDSP is automatically restored to the production config
@@ -84,6 +85,14 @@ import numpy as np
 import soundfile as sf
 import yaml
 
+# Force line-buffered stdout so output appears immediately over SSH. Non-TTY
+# pipes default to block buffering, which hides progress from the operator.
+# Line buffering flushes on every newline (i.e., every print() call).
+if not sys.stdout.line_buffering:
+    sys.stdout.reconfigure(line_buffering=True)
+if not sys.stderr.line_buffering:
+    sys.stderr.reconfigure(line_buffering=True)
+
 # Add the scripts/room-correction directory to path so room_correction
 # package is importable when running this script directly on the Pi.
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -106,27 +115,40 @@ REC_MIN_PEAK_DBFS = -40.0   # Below this: mic not receiving signal
 REC_MAX_PEAK_DBFS = -1.0    # Above this: likely clipping
 REC_MIN_SNR_DB = 20.0        # Minimum acceptable SNR for measurement
 
+# Phase 1 calibration thresholds (mic peak dBFS)
+CAL_TARGET_MIN_PEAK_DBFS = -30.0  # Below this: signal too quiet
+CAL_TARGET_MAX_PEAK_DBFS = -10.0  # Above this: too loud / risk of clipping
+CAL_CLIP_WARN_PEAK_DBFS = -3.0    # Near-clipping warning threshold
+CAL_DEFAULT_DURATION_S = 10.0     # Default calibration duration (seconds)
+CAL_BLOCK_DURATION_S = 5.0        # Each pink noise block length
+
 # Xrun retry limits
 MAX_XRUN_RETRIES = 3
 
-# Safety: absolute maximum sweep level. Defense-in-depth: -20 dBFS is
-# survivable at moderate amp gain settings. At full amp gain (1.0V
-# sensitivity, 42.4x voltage gain), -20 dBFS direct delivers ~107W into
-# 4 ohm — destructive for a 7W CHN-50P. However, measurement procedure
-# requires Phase 1 calibration where the operator sets the amp to a
-# moderate level. The realistic bypass scenario (CamillaDSP bypass per
-# S-010, amp at moderate gain) yields ~1-5W — survivable.
-# With CamillaDSP measurement config active (-40dB), -20 dBFS delivers
-# ~0.0005W — extremely conservative.
+# SAFETY: SWEEP_LEVEL_HARD_CAP_DBFS = -20.0
+#
+# Defense-in-depth: this level must be safe EVEN WITHOUT CamillaDSP
+# in the signal path. At -20 dBFS into a 450W/4ohm amp: ~4.5W.
+# CHN-50P rated 7W: survivable. Self-built wideband: large margin.
+#
+# With CamillaDSP measurement config (-20dB attenuation):
+#   -20 dBFS sweep -> -40 dBFS at USBStreamer -> ~0.045W (safe)
+#
+# History: Originally -6 dBFS assuming -40dB CamillaDSP attenuation
+# always present. S-010 (2026-03-13) demonstrated CamillaDSP bypass
+# via sysdefault ALSA device. Hard cap lowered to survive bypass.
+# Attenuation reduced from -40 to -20 dB for adequate measurement
+# SNR (22.5 dB was unusable at -60 dBFS net).
 SWEEP_LEVEL_HARD_CAP_DBFS = -20.0
 
 # CamillaDSP measurement config parameters
 # MEASUREMENT_ATTENUATION_DB replaces the production config's three-layer
 # attenuation (global_attenuation + headroom + speaker_trim, totalling ~-39.5dB
-# for satellites). -40dB is the minimum safe value — do not raise without also
-# lowering SWEEP_LEVEL_HARD_CAP_DBFS to compensate. At -40dB + -20dBFS cap,
-# power into 4 ohm is ~0.0005W (7W driver limit).
-MEASUREMENT_ATTENUATION_DB = -40.0   # Gain applied to test channel
+# for satellites). At -20dB + -20dBFS cap, net level at USBStreamer is -40 dBFS
+# -> ~0.045W into 4 ohm (CHN-50P rated 7W: safe). Reduced from -40dB after
+# first measurement session showed 22.5 dB SNR (unusable); -20dB gives ~42 dB
+# SNR. Defense-in-depth: even without CamillaDSP, -20 dBFS = ~4.5W (survivable).
+MEASUREMENT_ATTENUATION_DB = -20.0   # Gain applied to test channel
 MEASUREMENT_MUTE_DB = -100.0         # Gain applied to non-test channels
 MEASUREMENT_CHUNKSIZE = 2048         # Fallback; overridden by active config
 MEASUREMENT_SAMPLE_RATE = 48000
@@ -538,7 +560,7 @@ def build_measurement_config(test_channel, speaker_profile_name,
     - 1:1 passthrough mixer (explicit routing, required by CamillaDSP when
       capture and playback have the same channel count)
     - IIR HPF at mandatory_hpf_hz for excursion protection on the test channel
-    - -40dB Gain on the test channel (safe attenuation)
+    - -20dB Gain on the test channel (safe attenuation)
     - -100dB mute on all other channels
     - No FIR filters
     - Chunksize 2048 (low CPU, latency irrelevant for measurement)
@@ -733,8 +755,18 @@ def swap_camilladsp_config(config_dict, host=CAMILLADSP_DEFAULT_HOST,
     client = CamillaClient(host, port)
     client.connect()
 
-    # Save original config path for restoration
+    # Save original config path for restoration.
+    # Guard against AD-TK143-7: if a previous measurement left a temp file
+    # as the "current" config (e.g., failed restore), file_path() returns
+    # the stale temp path instead of the production config. Detect this and
+    # fall back to the known production config location.
     original_config_path = client.config.file_path()
+    if original_config_path and "camilladsp_measurement_" in original_config_path:
+        print(f"  WARNING: CamillaDSP is running a stale measurement config:")
+        print(f"    {original_config_path}")
+        print(f"  This is a leftover from a previous measurement. Falling back")
+        print(f"  to the production config path: /etc/camilladsp/active.yml")
+        original_config_path = "/etc/camilladsp/active.yml"
     print(f"  Original CamillaDSP config: {original_config_path}")
 
     # Match the running config's chunksize to avoid reload failure.
@@ -878,7 +910,7 @@ def generate_pink_noise(duration_s, sr=SAMPLE_RATE, level_dbfs=-40.0,
         Sample rate.
     level_dbfs : float
         Target RMS level in dBFS (default -20.0, safe with CamillaDSP
-        measurement config providing -40dB attenuation).
+        measurement config providing -20dB attenuation).
     f_low : float
         Lower band limit in Hz (default 100.0).
     f_high : float
@@ -1216,13 +1248,17 @@ def plot_frequency_response(freqs, magnitude_db, output_path, title="",
 
 
 def phase1_calibration(output_channel, output_device_idx, input_device_idx,
-                       level_dbfs=-40.0, sr=SAMPLE_RATE):
+                       level_dbfs=-40.0, duration_s=CAL_DEFAULT_DURATION_S,
+                       sr=SAMPLE_RATE):
     """
-    Phase 1: Play pink noise for level calibration.
+    Phase 1: Play pink noise for level calibration (non-interactive).
 
-    Plays continuous pink noise in 5-second blocks until the user confirms
-    levels are safe. Also monitors the mic input level to warn about
-    clipping.
+    Plays pink noise for a fixed duration in blocks, reporting mic levels
+    after each block. At the end, gives a pass/fail verdict based on whether
+    the mic peak level falls within the target range. This works over
+    non-TTY SSH (no Ctrl+C loop, no input() prompt).
+
+    Returns True if calibration levels are acceptable (PASS), False otherwise.
 
     Parameters
     ----------
@@ -1234,62 +1270,114 @@ def phase1_calibration(output_channel, output_device_idx, input_device_idx,
         Sounddevice input device index (UMIK-1).
     level_dbfs : float
         Pink noise level in dBFS.
+    duration_s : float
+        Total calibration duration in seconds.
     sr : int
         Sample rate.
+
+    Returns
+    -------
+    bool
+        True if mic levels are within the target range (PASS).
     """
     import sounddevice as sd
 
     out_info = sd.query_devices(output_device_idx)
     n_out_channels = out_info['max_output_channels']
 
+    n_blocks = max(1, int(round(duration_s / CAL_BLOCK_DURATION_S)))
+    actual_duration = n_blocks * CAL_BLOCK_DURATION_S
+
     print("\n" + "=" * 60)
     print("PHASE 1: CALIBRATION")
     print("=" * 60)
     print(f"\nPlaying pink noise at {level_dbfs} dBFS on channel {output_channel}")
-    print("Adjust your amplifier volume to a safe level.")
-    print("The mic input level will be shown after each block.")
-    print("\nPress Ctrl+C to stop pink noise, then Enter to proceed to measurement.")
+    print(f"Duration: {actual_duration:.0f}s ({n_blocks} blocks of "
+          f"{CAL_BLOCK_DURATION_S:.0f}s)")
+    print(f"Target mic peak: {CAL_TARGET_MIN_PEAK_DBFS:.0f} to "
+          f"{CAL_TARGET_MAX_PEAK_DBFS:.0f} dBFS")
     print()
 
-    try:
-        while True:
-            # Generate 5 seconds of pink noise
-            noise = generate_pink_noise(5.0, sr=sr, level_dbfs=level_dbfs)
+    overall_peak_dbfs = -200.0
+    overall_rms_sum_sq = 0.0
+    total_samples = 0
 
-            # Build multi-channel output
-            output_buffer = np.zeros((len(noise), n_out_channels), dtype=np.float32)
-            output_buffer[:, output_channel] = noise.astype(np.float32)
+    for block_num in range(1, n_blocks + 1):
+        noise = generate_pink_noise(
+            CAL_BLOCK_DURATION_S, sr=sr, level_dbfs=level_dbfs)
 
-            # Play and record simultaneously to monitor mic levels
-            recording = sd.playrec(
-                output_buffer,
-                samplerate=sr,
-                input_mapping=[1],
-                device=(input_device_idx, output_device_idx),
-                dtype='float32',
-            )
-            sd.wait()
+        # Build multi-channel output
+        output_buffer = np.zeros((len(noise), n_out_channels), dtype=np.float32)
+        output_buffer[:, output_channel] = noise.astype(np.float32)
 
-            # Report mic level
-            mic_signal = recording[:, 0]
-            mic_rms = np.sqrt(np.mean(mic_signal ** 2))
-            mic_peak = np.max(np.abs(mic_signal))
-            mic_rms_dbfs = 20 * np.log10(max(mic_rms, 1e-10))
-            mic_peak_dbfs = 20 * np.log10(max(mic_peak, 1e-10))
+        # Play and record simultaneously to monitor mic levels
+        recording = sd.playrec(
+            output_buffer,
+            samplerate=sr,
+            input_mapping=[1],
+            device=(input_device_idx, output_device_idx),
+            dtype='float32',
+        )
+        sd.wait()
 
-            print(f"  Mic level: RMS={mic_rms_dbfs:.1f} dBFS, "
-                  f"Peak={mic_peak_dbfs:.1f} dBFS", end="")
-            if mic_peak_dbfs > -3.0:
-                print("  ** WARNING: MIC NEAR CLIPPING! Reduce amp volume **")
-            elif mic_peak_dbfs > -6.0:
-                print("  (caution: getting loud)")
-            else:
-                print("  (OK)")
+        # Compute block mic levels
+        mic_signal = recording[:, 0]
+        mic_rms = np.sqrt(np.mean(mic_signal ** 2))
+        mic_peak = np.max(np.abs(mic_signal))
+        mic_rms_dbfs = 20 * np.log10(max(mic_rms, 1e-10))
+        mic_peak_dbfs = 20 * np.log10(max(mic_peak, 1e-10))
 
-    except KeyboardInterrupt:
-        print("\n\nPink noise stopped.")
+        # Track overall statistics
+        overall_peak_dbfs = max(overall_peak_dbfs, mic_peak_dbfs)
+        overall_rms_sum_sq += np.mean(mic_signal ** 2) * len(mic_signal)
+        total_samples += len(mic_signal)
 
-    input("\nPress Enter when ready to proceed to measurement...")
+        # Report per-block levels
+        status = ""
+        if mic_peak_dbfs > CAL_CLIP_WARN_PEAK_DBFS:
+            status = "  ** CLIPPING RISK **"
+        elif mic_peak_dbfs > CAL_TARGET_MAX_PEAK_DBFS:
+            status = "  (too loud)"
+        elif mic_peak_dbfs < CAL_TARGET_MIN_PEAK_DBFS:
+            status = "  (too quiet)"
+        else:
+            status = "  (OK)"
+        print(f"  Block {block_num}/{n_blocks}: "
+              f"RMS={mic_rms_dbfs:.1f} dBFS, Peak={mic_peak_dbfs:.1f} dBFS"
+              f"{status}", flush=True)
+
+    # Overall verdict
+    overall_rms = np.sqrt(overall_rms_sum_sq / max(total_samples, 1))
+    overall_rms_dbfs = 20 * np.log10(max(overall_rms, 1e-10))
+
+    print(f"\n  Overall: RMS={overall_rms_dbfs:.1f} dBFS, "
+          f"Peak={overall_peak_dbfs:.1f} dBFS")
+
+    cal_pass = (CAL_TARGET_MIN_PEAK_DBFS <= overall_peak_dbfs
+                <= CAL_TARGET_MAX_PEAK_DBFS)
+
+    if cal_pass:
+        print(f"\n  CALIBRATION PASS: mic peak {overall_peak_dbfs:.1f} dBFS "
+              f"is within target range "
+              f"[{CAL_TARGET_MIN_PEAK_DBFS:.0f}, "
+              f"{CAL_TARGET_MAX_PEAK_DBFS:.0f}]")
+    else:
+        if overall_peak_dbfs < CAL_TARGET_MIN_PEAK_DBFS:
+            print(f"\n  CALIBRATION FAIL: mic peak {overall_peak_dbfs:.1f} dBFS "
+                  f"is below {CAL_TARGET_MIN_PEAK_DBFS:.0f} dBFS. "
+                  f"Increase amp volume or raise --sweep-level.")
+        else:
+            print(f"\n  CALIBRATION FAIL: mic peak {overall_peak_dbfs:.1f} dBFS "
+                  f"exceeds {CAL_TARGET_MAX_PEAK_DBFS:.0f} dBFS. "
+                  f"Reduce amp volume.")
+
+    # BACKLOG: AE recommends a programmatic safety gate here — verify that
+    # the observed mic level matches the expected attenuation. If the mic
+    # reads much louder than expected (e.g., CamillaDSP attenuation not
+    # active), abort before proceeding to the full sweep. This would catch
+    # S-010-style bypass scenarios automatically.
+
+    return cal_pass
 
 
 def phase2_measurement(output_channel, output_device_idx, input_device_idx,
@@ -1606,11 +1694,12 @@ def main():
         ),
     )
     parser.add_argument(
-        "--speaker-profile", type=str, required=True,
+        "--speaker-profile", type=str, default=None,
         help=(
             "Speaker profile name (without .yml) for loading speaker identity "
             "and mandatory HPF. Used to generate the measurement CamillaDSP "
-            "config. Example: 'bose-home-chn50p'."
+            "config. Required for measurement (not needed with --list-devices). "
+            "Example: 'bose-home-chn50p'."
         ),
     )
     parser.add_argument(
@@ -1647,9 +1736,9 @@ def main():
         "--sweep-level", type=float, default=-20.0,
         help=(
             "Sweep peak level in dBFS (default: -20.0). Hard cap at -20 dBFS "
-            "(defense-in-depth). At full amp gain: ~107W into 4 ohm "
-            "(destructive). Requires Phase 1 amp calibration to moderate "
-            "gain. See S-010 incident."
+            "(defense-in-depth). At -20 dBFS without CamillaDSP: ~4.5W into "
+            "4 ohm (survivable). With measurement config (-20dB): ~0.045W. "
+            "See S-010 incident."
         ),
     )
     parser.add_argument(
@@ -1664,6 +1753,15 @@ def main():
     parser.add_argument(
         "--skip-calibration-phase", action="store_true",
         help="Skip Phase 1 (pink noise calibration) and go directly to measurement",
+    )
+    parser.add_argument(
+        "--calibration-duration", type=float, default=CAL_DEFAULT_DURATION_S,
+        help=(
+            f"Phase 1 calibration duration in seconds "
+            f"(default: {CAL_DEFAULT_DURATION_S:.0f}). Pink noise plays for this "
+            f"duration in {CAL_BLOCK_DURATION_S:.0f}s blocks with mic level "
+            f"reporting after each block."
+        ),
     )
     parser.add_argument(
         "--skip-preflight", action="store_true",
@@ -1708,16 +1806,19 @@ def main():
         list_audio_devices()
         sys.exit(0)
 
+    # --speaker-profile is required for measurement (but not for --list-devices)
+    if args.speaker_profile is None:
+        parser.error("--speaker-profile is required for measurement")
+
     # SAFETY: enforce hard cap on sweep level (defense-in-depth, S-010 incident)
-    # At full amp gain, -20 dBFS direct delivers ~107W into 4 ohm (destructive).
-    # Phase 1 calibration sets amp to moderate gain (~1-5W, survivable).
+    # At -20 dBFS without CamillaDSP: ~4.5W into 4 ohm (survivable for 7W CHN-50P).
+    # With measurement config (-20dB attenuation): ~0.045W (safe).
     if args.sweep_level > SWEEP_LEVEL_HARD_CAP_DBFS:
         print(f"ERROR: Sweep level {args.sweep_level} dBFS exceeds safety cap "
               f"of {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS.")
-        print(f"Defense-in-depth: at full amp gain, "
-              f"{SWEEP_LEVEL_HARD_CAP_DBFS} dBFS direct delivers ~107W into "
-              f"4 ohm (destructive for 7W CHN-50P). Phase 1 calibration "
-              f"sets amp to moderate gain. See S-010 incident.")
+        print(f"Defense-in-depth: {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS must be safe "
+              f"even without CamillaDSP (~4.5W into 4 ohm). "
+              f"See S-010 incident.")
         print(f"Maximum allowed: {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS.")
         sys.exit(1)
 
@@ -1817,29 +1918,35 @@ def main():
             port=args.camilladsp_port,
         )
 
-        # Phase 1: Calibration
+        # Phase 1: Calibration (non-interactive, fixed duration)
+        cal_pass = True
         if not args.skip_calibration_phase:
-            phase1_calibration(
+            cal_pass = phase1_calibration(
                 output_channel=args.channel,
                 output_device_idx=out_idx,
                 input_device_idx=mic_idx,
                 level_dbfs=args.sweep_level,
+                duration_s=args.calibration_duration,
                 sr=sr,
             )
+            if not cal_pass:
+                print("\nCalibration FAILED. Adjust levels and re-run.")
+                print("Skipping Phase 2 (measurement).")
 
-        # Phase 2: Measurement
-        success = phase2_measurement(
-            output_channel=args.channel,
-            output_device_idx=out_idx,
-            input_device_idx=mic_idx,
-            sweep_duration=args.sweep_duration,
-            sweep_level_dbfs=args.sweep_level,
-            calibration_path=args.calibration,
-            output_dir=output_dir,
-            ir_length_s=args.ir_length,
-            speaker_name=speaker_name,
-            sr=sr,
-        )
+        # Phase 2: Measurement (only if calibration passed)
+        if cal_pass:
+            success = phase2_measurement(
+                output_channel=args.channel,
+                output_device_idx=out_idx,
+                input_device_idx=mic_idx,
+                sweep_duration=args.sweep_duration,
+                sweep_level_dbfs=args.sweep_level,
+                calibration_path=args.calibration,
+                output_dir=output_dir,
+                ir_length_s=args.ir_length,
+                speaker_name=speaker_name,
+                sr=sr,
+            )
     except KeyboardInterrupt:
         print("\n\nMeasurement interrupted by user.")
     except Exception as e:
