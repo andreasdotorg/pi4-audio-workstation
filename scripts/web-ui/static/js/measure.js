@@ -147,6 +147,11 @@
             return;
         }
 
+        if (type === "gain_cal") {
+            updateGainCalStep(msg);
+            return;
+        }
+
         if (type === "gain_cal_done") {
             updateGainCalDone(msg);
             return;
@@ -385,6 +390,32 @@
         // Update level indicators
         var levelBar = $("mw-gcal-level-fill");
         if (levelBar) levelBar.style.width = "0%";
+    }
+
+    function updateGainCalStep(msg) {
+        // Normalize level_dbfs: 0% at -60 dBFS, 100% at 0 dBFS
+        if (msg.level_dbfs != null) {
+            var pct = Math.max(0, Math.min(100, (msg.level_dbfs + 60) / 60 * 100));
+            var levelBar = $("mw-gcal-level-fill");
+            if (levelBar) levelBar.style.width = pct.toFixed(1) + "%";
+            setText("mw-gcal-level-text", msg.level_dbfs.toFixed(1) + " dBFS");
+        }
+
+        if (msg.spl_db != null) {
+            setText("mw-gcal-spl-text", msg.spl_db.toFixed(1) + " dB SPL");
+        }
+
+        if (msg.step != null && msg.steps_total != null && msg.steps_total > 0) {
+            var stepPct = msg.step / msg.steps_total * 100;
+            var progressBar = $("mw-gcal-progress-fill");
+            if (progressBar) progressBar.style.width = stepPct.toFixed(1) + "%";
+            setText("mw-gcal-progress-text", Math.round(stepPct) + "%");
+        }
+
+        if (msg.channel_name) {
+            setText("mw-gcal-channel-name",
+                "Ch" + msg.channel + " -- " + msg.channel_name);
+        }
     }
 
     function updateGainCalDone(msg) {
