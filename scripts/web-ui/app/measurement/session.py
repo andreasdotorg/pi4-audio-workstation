@@ -96,9 +96,11 @@ class _AbortAdapter:
     """
 
     def __init__(self, abort_event: asyncio.Event,
-                 broadcast_queue: asyncio.Queue) -> None:
+                 broadcast_queue: asyncio.Queue,
+                 loop: asyncio.AbstractEventLoop) -> None:
         self._event = abort_event
         self._queue = broadcast_queue
+        self._loop = loop
 
     @property
     def abort_requested(self) -> bool:
@@ -107,6 +109,7 @@ class _AbortAdapter:
     def broadcast(self, message: dict) -> None:
         try:
             self._queue.put_nowait(message)
+            self._loop.call_soon_threadsafe(lambda: None)
         except asyncio.QueueFull:
             log.warning("Broadcast queue full, dropping: %s",
                         message.get("type", "?"))
@@ -183,6 +186,8 @@ class SessionConfig:
     output_device: Optional[Any] = None
     input_device: Optional[Any] = None
     sample_rate: int = 48000
+    input_device_name: str = "UMIK"        # Substring match for UMIK-1
+    output_device_name: str = "pipewire"   # Must match PipeWire sink, not ALSA sysdefault
 
     def __post_init__(self):
         if _MOCK_MODE:
@@ -310,7 +315,53 @@ class MeasurementSession:
         self._pump_task = asyncio.create_task(
             self._pump_broadcast_queue(), name="broadcast-pump")
         await self._watchdog.start()
+
         try:
+            # TK-199: Resolve device names to indices before any state
+            # transition (fail-fast if UMIK-1 or output device not found).
+            # Skipped in mock mode where __post_init__ already sets integer
+            # device indices.
+            if not _MOCK_MODE:
+                _ensure_rc_path()
+                from measure_nearfield import find_device
+                import sounddevice as _sd
+
+                input_idx = find_device(
+                    self._config.input_device_name, kind='input')
+                if input_idx is None:
+                    raise RuntimeError(
+                        f"Input device '{self._config.input_device_name}' "
+                        f"not found")
+
+                # Safety: reject loopback/monitor sources -- these are
+                # digital loopbacks, not a real microphone like the UMIK-1.
+                input_info = _sd.query_devices(input_idx)
+                input_name = input_info.get('name', '')
+                _LOOPBACK_KEYWORDS = ("monitor", "pipewire", "default")
+                for keyword in _LOOPBACK_KEYWORDS:
+                    if keyword in input_name.lower():
+                        raise RuntimeError(
+                            f"Resolved input device '{input_name}' "
+                            f"(index {input_idx}) appears to be a loopback "
+                            f"source (matched '{keyword}'), not a real "
+                            f"microphone. Check that UMIK-1 is connected.")
+
+                output_idx = find_device(
+                    self._config.output_device_name, kind='output')
+                if output_idx is None:
+                    raise RuntimeError(
+                        f"Output device '{self._config.output_device_name}' "
+                        f"not found")
+
+                self._config.input_device = input_idx
+                self._config.output_device = output_idx
+
+                output_info = _sd.query_devices(output_idx)
+                output_name = output_info.get('name', '')
+                log.info("Resolved devices: input=%d ('%s'), output=%d ('%s')",
+                         input_idx, input_name,
+                         output_idx, output_name)
+
             await self._run_setup()
             await self._run_gain_cal()
             await self._run_measuring()
@@ -554,7 +605,7 @@ class MeasurementSession:
         if self._sd_override is not None:
             set_mock_sd(self._sd_override)
 
-        adapter = _AbortAdapter(self.abort_event, self._broadcast_queue)
+        adapter = _AbortAdapter(self.abort_event, self._broadcast_queue, asyncio.get_running_loop())
         for i, ch in enumerate(self._config.channels):
             self._check_abort("CP-2")  # between channels
             self._current_channel_idx = i

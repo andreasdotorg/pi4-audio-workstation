@@ -53,6 +53,8 @@ class StartRequest(BaseModel):
     umik_sensitivity_dbfs_to_spl: float = 121.4
     calibration_file: Optional[str] = None
     output_dir: str = "/tmp/pi4audio-measurement"
+    input_device_name: str = "UMIK"
+    output_device_name: str = "pipewire"
 
 
 class StartResponse(BaseModel):
@@ -149,6 +151,8 @@ async def start_measurement(body: StartRequest, request: Request):
         calibration_file=body.calibration_file,
         output_dir=body.output_dir,
         production_config_path=production_config_path,
+        input_device_name=body.input_device_name,
+        output_device_name=body.output_device_name,
     )
 
     mock_mode = os.environ.get("PI_AUDIO_MOCK", "1") == "1"

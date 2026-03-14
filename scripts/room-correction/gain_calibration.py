@@ -90,6 +90,13 @@ PINK_NOISE_F_HIGH = 10000.0
 
 SAMPLE_RATE = 48000
 
+# Ambient noise baseline constants (TK-200)
+AMBIENT_RECORD_DURATION_S = 2.0
+AMBIENT_SPL_ABORT_THRESHOLD = 81.0   # Abort if ambient SPL > 81 dB
+AMBIENT_SPL_WARN_THRESHOLD = 60.0    # Warn if ambient SPL > 60 dB
+BURST_SNR_MIN_DB = 10.0              # Minimum burst SNR above ambient
+BURST_SNR_LEVEL_THRESHOLD_DBFS = -40.0  # Only check SNR above this output level
+
 # Module-level sounddevice reference. Set to a MockSoundDevice instance in
 # mock mode, or left as None for real sounddevice (imported locally).
 _sd_override = None
@@ -555,6 +562,43 @@ def calibrate_channel(
                 "xrun_count": xrun_count,
             })
 
+    # TK-200: Record ambient noise baseline before ramp loop.
+    print("  Recording ambient noise baseline (2s silence)...", end="", flush=True)
+    ambient_silence = np.zeros(int(AMBIENT_RECORD_DURATION_S * sample_rate),
+                               dtype=np.float64)
+    ambient_recording = _play_burst(
+        ambient_silence, channel_index, output_device, input_device,
+        sr=sample_rate)
+    ambient_rms = np.sqrt(np.mean(ambient_recording ** 2))
+    ambient_rms_dbfs = 20.0 * np.log10(max(ambient_rms, 1e-10))
+    ambient_spl = ambient_rms_dbfs + umik_sensitivity_dbfs_to_spl
+    print(f" ambient: {ambient_spl:.1f} dB SPL ({ambient_rms_dbfs:.1f} dBFS RMS)")
+
+    if ambient_spl > AMBIENT_SPL_ABORT_THRESHOLD:
+        reason = (f"ambient noise too high ({ambient_spl:.1f} dB SPL "
+                  f"> {AMBIENT_SPL_ABORT_THRESHOLD:.0f} dB threshold)")
+        print(f"\n  ABORT: {reason}")
+        _ws_broadcast_gain_cal(0, ambient_spl, "ambient_too_high")
+        return CalibrationResult(
+            passed=False,
+            calibrated_level_dbfs=current_level_dbfs,
+            measured_spl_db=ambient_spl,
+            steps_taken=0,
+            abort_reason=reason,
+        )
+
+    if ambient_spl > AMBIENT_SPL_WARN_THRESHOLD:
+        print(f"  WARNING: Elevated ambient noise ({ambient_spl:.1f} dB SPL "
+              f"> {AMBIENT_SPL_WARN_THRESHOLD:.0f} dB)")
+        if ws_server is not None:
+            ws_server.broadcast({
+                "type": "gain_cal_warning",
+                "channel": channel_index,
+                "channel_name": _ch_name,
+                "warning": f"Elevated ambient noise: {ambient_spl:.1f} dB SPL",
+                "ambient_spl": ambient_spl,
+            })
+
     # GC-07/11: Wrap in try/finally for cleanup on abort
     try:
         for step_num in range(1, MAX_RAMP_STEPS + 1):
@@ -603,8 +647,33 @@ def calibrate_channel(
                 recording, umik_sensitivity_dbfs_to_spl)
             last_measured_spl = measured_spl
 
+            # TK-200: Compute burst RMS dBFS for SNR check against ambient.
+            burst_rms = np.sqrt(np.mean(recording ** 2))
+            burst_rms_dbfs = 20.0 * np.log10(max(burst_rms, 1e-10))
+            burst_snr = burst_rms_dbfs - ambient_rms_dbfs
+
             print(f" measured {measured_spl:.1f} dB SPL "
-                  f"(mic peak {peak_dbfs:.1f} dBFS)")
+                  f"(mic peak {peak_dbfs:.1f} dBFS, SNR {burst_snr:.1f} dB)")
+
+            # TK-200: Check burst SNR against ambient baseline.
+            # Only check when output level is above -40 dBFS to avoid false
+            # triggers at early ramp steps where speaker output is genuinely
+            # below ambient.
+            if (burst_snr < BURST_SNR_MIN_DB
+                    and current_level_dbfs > BURST_SNR_LEVEL_THRESHOLD_DBFS):
+                reason = ("Speaker output not detected above ambient noise. "
+                          "Verify PA is on and output routing is correct.")
+                print(f"\n  ABORT: {reason} "
+                      f"(SNR {burst_snr:.1f} dB < {BURST_SNR_MIN_DB:.0f} dB "
+                      f"at {current_level_dbfs:.1f} dBFS)")
+                _ws_broadcast_gain_cal(step_num, measured_spl, "low_snr")
+                return CalibrationResult(
+                    passed=False,
+                    calibrated_level_dbfs=current_level_dbfs,
+                    measured_spl_db=measured_spl,
+                    steps_taken=step_num,
+                    abort_reason=reason,
+                )
 
             # Determine ramp state for WS message
             _distance = target_spl_db - measured_spl

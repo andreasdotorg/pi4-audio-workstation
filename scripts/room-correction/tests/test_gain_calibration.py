@@ -368,8 +368,11 @@ class TestMaxStepCap(unittest.TestCase):
         )
 
         levels = mock_play_impl.levels_played
-        for i in range(1, len(levels)):
-            step = levels[i] - levels[i - 1]
+        # Skip the first entry (ambient baseline silence recording, TK-200)
+        # and check step sizes only between ramp bursts.
+        ramp_levels = levels[1:]  # levels[0] is ambient silence
+        for i in range(1, len(ramp_levels)):
+            step = ramp_levels[i] - ramp_levels[i - 1]
             self.assertLessEqual(
                 step, MAX_STEP_DB + 0.1,
                 f"Step {i}: {step:.2f} dB exceeds {MAX_STEP_DB} dB cap")
@@ -421,10 +424,12 @@ class TestStartLevel(unittest.TestCase):
             input_device=0,
         )
 
-        self.assertEqual(len(mock_play_impl.levels_played), 1)
-        # The played level should be approximately -60 dBFS
+        # levels_played[0] is the ambient baseline (silence), levels_played[1]
+        # is the first ramp burst (TK-200 adds ambient recording before ramp).
+        self.assertEqual(len(mock_play_impl.levels_played), 2)
+        # The first ramp burst should be approximately -60 dBFS
         self.assertAlmostEqual(
-            mock_play_impl.levels_played[0], START_LEVEL_DBFS, delta=1.0)
+            mock_play_impl.levels_played[1], START_LEVEL_DBFS, delta=1.0)
 
 
 class TestOvershootHandling(unittest.TestCase):
