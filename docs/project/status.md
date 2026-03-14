@@ -124,9 +124,12 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - Phase 1 completed (WP-1, WP-2, WP-8):
   - TK-155 DONE (`45ea67e`): Hardware config schema + thermal ceiling computation. 18 tests. Covers US-045 + US-046.
   - TK-156 DONE: nixGL Mixxx 2.5.4 wrapper in flake. Needs Pi hardware test (TK-139).
-  - TK-157 DONE (`c2c44f6`): Config power budget validator. 29 tests. Sub margin +1.7 dB — AE review needed.
+  - TK-157 DONE (`c2c44f6`): Config power budget validator. 29 tests. Sub margin +1.7 dB — **AE APPROVED** (worst-case envelope, real-world margin ~11.7 dB). 3 dB minimum margin requirement deferred to Path A.
 - TK-158 DONE (`a148190`): Safety + architecture doc restructure by TW. New `docs/operations/safety.md`, `rt-audio-stack.md` restructured.
 - TK-152 SUBSUMED by TK-151: architect root cause analysis identified JACK client as active RT graph node problem.
+- AE approved sub margin (+1.7 dB). Phase 2 UNBLOCKED. WP-3 (gain cal) and WP-4 (pcm-bridge) can start.
+- PO gaps addressed: US-011b 3 dB margin deferred per AE, TK-154 DoD updated (AE Rule 13 + power revalidation), US-044 phase flag for owner.
+- TK-159 filed: Bose sub profile power_limit_db mismatch (-22.0 vs -19.0 in production config).
 - L-039: Task tool `isolation: "worktree"` is broken. Do not use.
 
 ### Completed (previous session, 2026-03-10)
