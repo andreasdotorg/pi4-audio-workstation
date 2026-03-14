@@ -139,8 +139,10 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - TK-160 DONE (`7e5b127` + uncommitted updates): UX measurement workflow design (1040+ lines). AE 3 must-fix + 5 recs all applied by UX specialist.
 - TK-161 DONE: All 4 specialist reviews complete with sign-off (AE all accepted, AD all 11 resolved, QE 9/10 resolved + 1 non-blocking residual, architect feasibility confirmed). TK-162 UNBLOCKED for architect task breakdown.
 - TK-164 filed (HIGH): 3 required gain cal fixes (GC-01 verification burst, GC-02 xrun detection, GC-07/11 CamillaDSP config verification). Gates TK-163 field deployment.
-- US-050 mock backend: architect design delivered (mock at measurement script level, ~200 lines, room simulator reuse). Implementation not started.
+- US-050 mock backend: architect design delivered (mock at measurement script level, ~200 lines, room simulator reuse). Implementation as TK-165.
 - QE non-blocking residual: Section 5.1 gain cal xrun behavior specification (invalidate + retry). Routed to UX specialist.
+- OQ1 resolved: `config.reload()` glitch-free for FIR deployment. Caveat: versioned filenames needed (TK-166).
+- TK-162 DONE: Architect delivered 8 work packages (WP-A through WP-H) across 4 phases. Critical path: WP-A(TK-165) -> WP-C(TK-167) -> WP-D(TK-168) -> WP-E(TK-169) -> WP-F(TK-170) -> WP-H(TK-172). Filed as TK-165 through TK-172. Phase 1 (TK-165 mock backend, TK-166 versioned filenames, TK-164 gain cal fixes) can start immediately in parallel.
 
 ### Completed (previous session, 2026-03-10)
 - TK-055 PASS: Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware V3D GL on PREEMPT_RT (previous kernel: lockup in <2.5 min). Zero lockups.
