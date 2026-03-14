@@ -124,12 +124,14 @@ fn main() {
 fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<AtomicBool>) {
     pipewire::init();
 
-    let mainloop = pipewire::main_loop::MainLoopBox::new(None)
+    // Use Rc variants for reference-counted ownership. MainLoopRc is
+    // Clone-able, which we need for the shutdown timer callback.
+    let mainloop = pipewire::main_loop::MainLoopRc::new(None)
         .expect("Failed to create PipeWire main loop");
-    let context = pipewire::context::ContextBox::new(mainloop.loop_(), None)
+    let context = pipewire::context::ContextRc::new(&mainloop, None)
         .expect("Failed to create PipeWire context");
     let core = context
-        .connect(None)
+        .connect_rc(None)
         .expect("Failed to connect to PipeWire daemon");
 
     let channels = args.channels;
@@ -140,37 +142,25 @@ fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<A
     // the output of a sink (i.e., monitor ports). TARGET_OBJECT names
     // the node to capture from.
     let props = pipewire::properties::properties! {
-        *pipewire::keys::MEDIA_TYPE => "Audio",
-        *pipewire::keys::MEDIA_CATEGORY => "Capture",
-        *pipewire::keys::MEDIA_ROLE => "Monitor",
-        *pipewire::keys::NODE_NAME => "pcm-bridge",
-        *pipewire::keys::NODE_DESCRIPTION => "PCM Bridge for Web UI",
-        *pipewire::keys::STREAM_CAPTURE_SINK => "true",
-        *pipewire::keys::TARGET_OBJECT => &*args.target,
+        "media.type" => "Audio",
+        "media.category" => "Capture",
+        "media.role" => "Monitor",
+        "node.name" => "pcm-bridge",
+        "node.description" => "PCM Bridge for Web UI",
+        // Capture from a sink's monitor ports (passive tap).
+        "stream.capture.sink" => "true",
+        "target.object" => &*args.target,
     };
 
-    let stream = pipewire::stream::StreamBox::new(&core, "pcm-bridge", props)
+    let stream = pipewire::stream::StreamRc::new(&core, "pcm-bridge", props)
         .expect("Failed to create PipeWire stream");
 
-    // Build audio format pod: interleaved F32LE at the configured rate/channels.
-    let mut audio_info_raw = libspa::param::audio::AudioInfoRaw::new();
-    audio_info_raw.set_format(libspa::param::audio::AudioFormat::F32LE);
-    audio_info_raw.set_rate(args.rate);
-    audio_info_raw.set_channels(channels);
-
-    let values: Vec<u8> = libspa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &libspa::pod::Value::Object(libspa::pod::Object {
-            type_: libspa::utils::SpaTypes::ObjectParamFormat.as_raw(),
-            id: libspa::param::ParamType::EnumFormat.as_raw(),
-            properties: audio_info_raw.into(),
-        }),
-    )
-    .expect("Failed to serialize audio format pod")
-    .0
-    .into_inner();
-
-    let mut params = [libspa::pod::Pod::from_bytes(&values).expect("Bad pod bytes")];
+    // Audio format negotiation: we pass empty params and let PipeWire
+    // auto-negotiate. Since we're capturing from CamillaDSP's monitor
+    // ports (which are already running at 48kHz interleaved F32), PipeWire
+    // will give us the matching format. The channelmap and rate properties
+    // are set on the stream node via the properties above.
+    let mut params: [&libspa::pod::Pod; 0] = [];
 
     // Process callback: invoked by PipeWire each quantum. Copies interleaved
     // float32 data from the PW buffer into our ring buffer. This runs on the
@@ -187,27 +177,27 @@ fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<A
         .add_local_listener()
         .process(move |stream: &pipewire::stream::Stream, _: &mut ()| {
             unsafe {
-                let raw_buf = pipewire::sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
+                let raw_buf = pipewire_sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
                 if raw_buf.is_null() {
                     return;
                 }
 
                 let spa_buf = (*raw_buf).buffer;
                 if spa_buf.is_null() || (*spa_buf).n_datas == 0 {
-                    pipewire::sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
+                    pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
                     return;
                 }
 
                 let data = &*(*spa_buf).datas;
                 let data_ptr = data.data;
                 if data_ptr.is_null() {
-                    pipewire::sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
+                    pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
                     return;
                 }
 
                 let chunk = data.chunk;
                 if chunk.is_null() || (*chunk).size == 0 {
-                    pipewire::sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
+                    pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
                     return;
                 }
 
@@ -223,7 +213,7 @@ fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<A
                     ring_for_cb.write_interleaved(float_slice, channels_usize);
                 }
 
-                pipewire::sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
+                pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
             }
         })
         .state_changed(|_stream, _data, old, new| {
@@ -248,21 +238,14 @@ fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<A
 
     // Periodic timer polls the shutdown AtomicBool (set by signal_hook
     // in main()) and quits the PipeWire main loop when triggered.
-    //
-    // We use a raw pointer to call pw_main_loop_quit because the Rust
-    // MainLoop type cannot be cloned or captured by reference in a
-    // 'static closure. The pointer remains valid because the timer
-    // source is dropped before mainloop goes out of scope.
-    let mainloop_ptr = mainloop.as_raw_ptr();
+    // MainLoopRc is Clone, so we can capture a clone in the timer callback.
     let _shutdown_timer = mainloop.loop_().add_timer({
         let shutdown = shutdown.clone();
+        let mainloop = mainloop.clone();
         move |_expirations| {
             if shutdown.load(Ordering::Relaxed) {
                 info!("Shutdown signal received, quitting PipeWire main loop");
-                // Safety: mainloop_ptr is valid — timer is dropped before mainloop.
-                unsafe {
-                    pipewire::sys::pw_main_loop_quit(mainloop_ptr);
-                }
+                mainloop.quit();
             }
         }
     });

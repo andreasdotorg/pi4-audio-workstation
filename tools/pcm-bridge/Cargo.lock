@@ -558,9 +558,9 @@ dependencies = [
  "clap",
  "env_logger",
  "libspa",
- "libspa-sys",
  "log",
  "pipewire",
+ "pipewire-sys",
  "signal-hook",
 ]
 
