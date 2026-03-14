@@ -26,6 +26,9 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+# True when running without real audio hardware (macOS dev, CI, e2e subprocess).
+_MOCK_MODE = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
+
 from ..mode_manager import MEASUREMENT_CONFIG_MARKER
 
 # Path to room-correction scripts (resolved once at import time)
@@ -170,6 +173,13 @@ class SessionConfig:
     output_device: Optional[Any] = None
     input_device: Optional[Any] = None
     sample_rate: int = 48000
+
+    def __post_init__(self):
+        if _MOCK_MODE:
+            if self.output_device is None:
+                self.output_device = 0
+            if self.input_device is None:
+                self.input_device = 1
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +585,7 @@ class MeasurementSession:
 
     async def _connect_cdsp(self) -> None:
         """Create the session's own CamillaDSP connection (#2)."""
+        _is_mock = False
         try:
             from camilladsp import CamillaClient
         except ImportError:
@@ -583,12 +594,19 @@ class MeasurementSession:
                 if mock_dir not in sys.path:
                     sys.path.insert(0, mock_dir)
                 from mock_camilladsp import MockCamillaClient as CamillaClient  # type: ignore[no-redef]
+                _is_mock = True
                 log.info("Using MockCamillaClient")
             except ImportError:
                 log.warning("No CamillaClient available")
                 self._cdsp_client = None
                 return
-        client = CamillaClient(self._cdsp_host, self._cdsp_port)
+        if _is_mock:
+            client = CamillaClient(self._cdsp_host, self._cdsp_port, measurement_mode=True)
+            # Ensure set_config_file_path exists (mock may only have set_file_path)
+            if hasattr(client, 'config') and not hasattr(client.config, 'set_config_file_path'):
+                client.config.set_config_file_path = client.config.set_file_path
+        else:
+            client = CamillaClient(self._cdsp_host, self._cdsp_port)
         try:
             await asyncio.to_thread(client.connect)
             self._cdsp_client = client
