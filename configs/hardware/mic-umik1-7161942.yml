@@ -1,0 +1,21 @@
+# miniDSP UMIK-1 — USB measurement microphone
+# Serial: 7161942
+#
+# Calibration file: magnitude-only frequency response correction.
+# Sensitivity: -1.378 dB (from miniDSP calibration data).
+# At 0 dBFS input: the mic sees approximately 121.4 dB SPL.
+#
+# The UMIK-1 connects via USB directly (not through USBStreamer/ADA8200).
+
+name: "miniDSP UMIK-1"
+manufacturer: "miniDSP"
+model: "UMIK-1"
+type: measurement_microphone
+serial: "7161942"
+
+specs:
+  sensitivity_db: -1.378
+  max_spl_at_0dbfs: 121.4       # dB SPL
+  calibration_file: "/home/ela/7161942.txt"
+  calibration_type: magnitude_only
+  interface: USB
