@@ -190,7 +190,7 @@ class ModeManager:
             log.info("Startup recovery: no active CamillaDSP config.")
             return
 
-        title = active_config.get("title", "")
+        title = active_config.get("title") or ""
         if MEASUREMENT_CONFIG_MARKER not in title:
             log.info(
                 "Startup recovery: production config active "
