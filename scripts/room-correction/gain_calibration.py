@@ -451,6 +451,8 @@ def calibrate_channel(
     thermal_ceiling_dbfs=-20.0,
     burst_duration_s=2.0,
     camilladsp_client=None,
+    ws_server=None,
+    channel_name=None,
 ):
     """Ramp from silence to target SPL. Returns calibrated digital level.
 
@@ -484,6 +486,13 @@ def calibrate_channel(
         (GC-07/11). If provided, the active config is checked for
         measurement attenuation before calibration starts. If None,
         the config check is skipped (backwards-compatible standalone mode).
+    ws_server : MeasurementWSServer or None
+        Optional WebSocket server for broadcasting gain_cal progress
+        messages to connected clients. When provided, broadcasts after
+        each ramp step and checks for abort commands.
+    channel_name : str or None
+        Human-readable channel name (e.g., "Sub1") for WS messages.
+        Defaults to "ch{channel_index}" if not provided.
 
     Returns
     -------
@@ -510,6 +519,7 @@ def calibrate_channel(
         print("  CamillaDSP measurement config verified (attenuation active)")
 
     current_level_dbfs = START_LEVEL_DBFS
+    _ch_name = channel_name or f"ch{channel_index}"
 
     print("\n" + "=" * 60)
     print("GAIN CALIBRATION RAMP")
@@ -524,9 +534,39 @@ def calibrate_channel(
 
     last_measured_spl = 0.0
 
+    # Helper to broadcast gain_cal WS messages when server is available.
+    def _ws_broadcast_gain_cal(step, spl_db, state, xrun_count=0):
+        if ws_server is not None:
+            ws_server.broadcast({
+                "type": "gain_cal",
+                "channel": channel_index,
+                "channel_name": _ch_name,
+                "step": step,
+                "level_dbfs": current_level_dbfs,
+                "spl_db": spl_db,
+                "target_spl_db": target_spl_db,
+                "hard_limit_spl_db": hard_limit_spl_db,
+                "thermal_ceiling_dbfs": thermal_ceiling_dbfs,
+                "state": state,
+                "xrun_count": xrun_count,
+            })
+
     # GC-07/11: Wrap in try/finally for cleanup on abort
     try:
         for step_num in range(1, MAX_RAMP_STEPS + 1):
+            # Check for WS abort before each step
+            if ws_server is not None and ws_server.abort_requested:
+                reason = "operator abort"
+                print(f"\n  ABORT: {reason}")
+                _ws_broadcast_gain_cal(step_num, last_measured_spl, "aborted")
+                return CalibrationResult(
+                    passed=False,
+                    calibrated_level_dbfs=current_level_dbfs,
+                    measured_spl_db=last_measured_spl,
+                    steps_taken=step_num,
+                    abort_reason=reason,
+                )
+
             # Safety: never exceed thermal ceiling
             if current_level_dbfs > thermal_ceiling_dbfs:
                 current_level_dbfs = thermal_ceiling_dbfs
@@ -562,6 +602,13 @@ def calibrate_channel(
             print(f" measured {measured_spl:.1f} dB SPL "
                   f"(mic peak {peak_dbfs:.1f} dBFS)")
 
+            # Determine ramp state for WS message
+            _distance = target_spl_db - measured_spl
+            if _distance > FINE_THRESHOLD_DB:
+                _ws_state = "ramping"
+            else:
+                _ws_state = "fine_stepping"
+
             # --- Safety gate checks ---
 
             # Check 1: Mic silence (cable disconnected, wrong device)
@@ -569,6 +616,7 @@ def calibrate_channel(
                 reason = (f"mic not detecting signal (peak {peak_dbfs:.1f} dBFS "
                           f"< {MIC_SILENCE_PEAK_DBFS:.0f} dBFS threshold)")
                 print(f"\n  ABORT: {reason}")
+                _ws_broadcast_gain_cal(step_num, measured_spl, "mic_lost")
                 return CalibrationResult(
                     passed=False,
                     calibrated_level_dbfs=current_level_dbfs,
@@ -582,6 +630,7 @@ def calibrate_channel(
                 reason = (f"measured SPL {measured_spl:.1f} dB >= hard limit "
                           f"{hard_limit_spl_db:.1f} dB")
                 print(f"\n  ABORT: {reason}")
+                _ws_broadcast_gain_cal(step_num, measured_spl, "spl_limit")
                 return CalibrationResult(
                     passed=False,
                     calibrated_level_dbfs=current_level_dbfs,
@@ -594,6 +643,7 @@ def calibrate_channel(
             if abs(measured_spl - target_spl_db) <= SPL_TOLERANCE_DB:
                 print(f"\n  TARGET REACHED: {measured_spl:.1f} dB SPL "
                       f"(target {target_spl_db:.1f} +/- {SPL_TOLERANCE_DB:.0f})")
+                _ws_broadcast_gain_cal(step_num, measured_spl, "converged")
                 return CalibrationResult(
                     passed=True,
                     calibrated_level_dbfs=current_level_dbfs,
@@ -706,6 +756,7 @@ def calibrate_channel(
                               f"but SPL only {measured_spl:.1f} dB "
                               f"(target {target_spl_db:.1f} dB)")
                     print(f"\n  ABORT: {reason}")
+                    _ws_broadcast_gain_cal(step_num, measured_spl, "thermal_ceiling")
                     return CalibrationResult(
                         passed=False,
                         calibrated_level_dbfs=current_level_dbfs,
@@ -713,6 +764,9 @@ def calibrate_channel(
                         steps_taken=step_num,
                         abort_reason=reason,
                     )
+
+            # Broadcast current ramp progress via WS
+            _ws_broadcast_gain_cal(step_num, measured_spl, _ws_state)
 
             current_level_dbfs = next_level
 

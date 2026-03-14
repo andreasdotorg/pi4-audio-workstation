@@ -1260,7 +1260,7 @@ def plot_frequency_response(freqs, magnitude_db, output_path, title="",
 
 def phase1_calibration(output_channel, output_device_idx, input_device_idx,
                        level_dbfs=-40.0, duration_s=CAL_DEFAULT_DURATION_S,
-                       sr=SAMPLE_RATE):
+                       sr=SAMPLE_RATE, ws_server=None, channel_name=None):
     """
     Phase 1: Play pink noise for level calibration (non-interactive).
 
@@ -1396,7 +1396,7 @@ def phase1_calibration(output_channel, output_device_idx, input_device_idx,
 def phase2_measurement(output_channel, output_device_idx, input_device_idx,
                        sweep_duration, sweep_level_dbfs, calibration_path,
                        output_dir, ir_length_s=0.05, speaker_name="",
-                       sr=SAMPLE_RATE):
+                       sr=SAMPLE_RATE, ws_server=None):
     """
     Phase 2: Run the actual measurement.
 
@@ -1472,6 +1472,22 @@ def phase2_measurement(output_channel, output_device_idx, input_device_idx,
         # Read xrun counter before sweep
         xrun_before = get_pipewire_xrun_count()
 
+        # Broadcast sweep start via WS
+        if ws_server is not None:
+            ws_server.broadcast({
+                "type": "sweep_progress",
+                "channel": output_channel,
+                "channel_name": speaker_name or f"ch{output_channel}",
+                "position": 1,
+                "phase": "sweep",
+                "progress_pct": 0.0,
+                "mic_peak_dbfs": 0.0,
+                "mic_rms_dbfs": 0.0,
+                "xrun_count": 0,
+                "elapsed_s": 0.0,
+                "total_s": sweep_duration,
+            })
+
         t0 = time.time()
         recording, pre_roll = play_and_record(
             sweep_signal,
@@ -1484,6 +1500,24 @@ def phase2_measurement(output_channel, output_device_idx, input_device_idx,
         )
         elapsed = time.time() - t0
         print(f"  Recording complete: {len(recording)} samples ({elapsed:.1f}s)")
+
+        # Broadcast sweep completion progress via WS
+        if ws_server is not None:
+            rec_peak = float(np.max(np.abs(recording)))
+            rec_rms = float(np.sqrt(np.mean(recording ** 2)))
+            ws_server.broadcast({
+                "type": "sweep_progress",
+                "channel": output_channel,
+                "channel_name": speaker_name or f"ch{output_channel}",
+                "position": 1,
+                "phase": "sweep",
+                "progress_pct": 100.0,
+                "mic_peak_dbfs": float(20 * np.log10(max(rec_peak, 1e-10))),
+                "mic_rms_dbfs": float(20 * np.log10(max(rec_rms, 1e-10))),
+                "xrun_count": 0,
+                "elapsed_s": elapsed,
+                "total_s": sweep_duration,
+            })
 
         # Read xrun counter after sweep
         xrun_after = get_pipewire_xrun_count()
@@ -1531,6 +1565,34 @@ def phase2_measurement(output_channel, output_device_idx, input_device_idx,
             print("    All integrity checks PASSED")
 
         # If we got here without continuing, the recording is acceptable
+
+        # Broadcast sweep_complete via WS
+        if ws_server is not None:
+            snr = integrity_details.get('snr_db', 0.0)
+            if integrity_details['peak_dbfs'] > REC_MAX_PEAK_DBFS:
+                quality = "clipped"
+            elif snr >= 35:
+                quality = "good"
+            elif snr >= 25:
+                quality = "ok"
+            else:
+                quality = "poor"
+            xrun_during = False
+            if xrun_before is not None and xrun_after is not None:
+                xrun_during = (xrun_after - xrun_before) > 0
+            ws_server.broadcast({
+                "type": "sweep_complete",
+                "channel": output_channel,
+                "channel_name": speaker_name or f"ch{output_channel}",
+                "position": 1,
+                "quality": quality,
+                "snr_db": float(snr),
+                "peak_dbfs": float(integrity_details['peak_dbfs']),
+                "rms_dbfs": float(integrity_details['rms_dbfs']),
+                "xrun_during_sweep": xrun_during,
+                "wav_path": os.path.join(output_dir, "raw_recording.wav"),
+            })
+
         break
 
     # Save raw recording
@@ -1540,11 +1602,29 @@ def phase2_measurement(output_channel, output_device_idx, input_device_idx,
 
     # Step 3: Deconvolve to get impulse response
     print(f"\n[3/6] Deconvolving to extract impulse response (IR length: {ir_length_s}s)...")
+    if ws_server is not None:
+        ws_server.broadcast({
+            "type": "pipeline_progress",
+            "stage": "deconvolution",
+            "channel": output_channel,
+            "channel_name": speaker_name or f"ch{output_channel}",
+            "progress_pct": 0.0,
+            "d009_check": None,
+        })
     t0 = time.time()
     ir = deconvolve(recording, sweep_signal, sr=sr, ir_duration_s=ir_length_s)
     elapsed = time.time() - t0
     print(f"  IR length: {len(ir)} samples ({len(ir)/sr*1000:.1f}ms)")
     print(f"  Deconvolution time: {elapsed:.2f}s")
+    if ws_server is not None:
+        ws_server.broadcast({
+            "type": "pipeline_progress",
+            "stage": "deconvolution",
+            "channel": output_channel,
+            "channel_name": speaker_name or f"ch{output_channel}",
+            "progress_pct": 100.0,
+            "d009_check": None,
+        })
 
     # Save impulse response
     ir_path = os.path.join(output_dir, "impulse_response.wav")
@@ -1554,10 +1634,28 @@ def phase2_measurement(output_channel, output_device_idx, input_device_idx,
     # Step 4: Apply UMIK-1 calibration
     if calibration_path:
         print(f"\n[4/6] Applying UMIK-1 calibration from {calibration_path}...")
+        if ws_server is not None:
+            ws_server.broadcast({
+                "type": "pipeline_progress",
+                "stage": "correction",
+                "channel": output_channel,
+                "channel_name": speaker_name or f"ch{output_channel}",
+                "progress_pct": 0.0,
+                "d009_check": None,
+            })
         t0 = time.time()
         ir_calibrated = apply_umik1_calibration(ir, calibration_path, sr=sr)
         elapsed = time.time() - t0
         print(f"  Calibration applied ({elapsed:.2f}s)")
+        if ws_server is not None:
+            ws_server.broadcast({
+                "type": "pipeline_progress",
+                "stage": "correction",
+                "channel": output_channel,
+                "channel_name": speaker_name or f"ch{output_channel}",
+                "progress_pct": 100.0,
+                "d009_check": None,
+            })
 
         ir_cal_path = os.path.join(output_dir, "impulse_response_calibrated.wav")
         save_impulse_response(ir_calibrated, ir_cal_path, sr=sr)
@@ -1811,6 +1909,19 @@ def main():
             "--mock). Defaults to scripts/room-correction/mock/room_config.yml."
         ),
     )
+    parser.add_argument(
+        "--ws", action="store_true",
+        help=(
+            "Enable the embedded WebSocket server for real-time progress "
+            "reporting. The measurement script publishes progress messages "
+            "to connected clients (e.g., the web UI). When not set, "
+            "measurement works exactly as before (CLI output only)."
+        ),
+    )
+    parser.add_argument(
+        "--ws-port", type=int, default=8081,
+        help="WebSocket server listen port (default: 8081). Only used with --ws.",
+    )
 
     args = parser.parse_args()
     sr = args.sample_rate
@@ -1947,6 +2058,19 @@ def main():
     original_config_path = None
     temp_config_path = None
     success = False
+    ws_server = None
+
+    # Start WebSocket server if --ws is set
+    if args.ws:
+        from room_correction.ws_server import MeasurementWSServer
+        ws_server = MeasurementWSServer(port=args.ws_port)
+        try:
+            ws_server.start()
+            print(f"\nWebSocket server started on ws://127.0.0.1:{args.ws_port}")
+        except Exception as e:
+            print(f"\nWARNING: Failed to start WebSocket server: {e}")
+            print("Continuing without WS progress reporting.")
+            ws_server = None
 
     if args.mock:
         from mock.mock_camilladsp import MockCamillaClient
@@ -1976,6 +2100,8 @@ def main():
                 level_dbfs=args.sweep_level,
                 duration_s=args.calibration_duration,
                 sr=sr,
+                ws_server=ws_server,
+                channel_name=speaker_name,
             )
             if not cal_pass:
                 print("\nCalibration FAILED. Adjust levels and re-run.")
@@ -1994,6 +2120,7 @@ def main():
                 ir_length_s=args.ir_length,
                 speaker_name=speaker_name,
                 sr=sr,
+                ws_server=ws_server,
             )
     except KeyboardInterrupt:
         print("\n\nMeasurement interrupted by user.")
@@ -2004,6 +2131,13 @@ def main():
             print("Is CamillaDSP running? Check: systemctl status camilladsp")
             print("Is pycamilladsp installed? Check: pip3 list | grep camilladsp")
     finally:
+        # Stop WebSocket server
+        if ws_server is not None:
+            try:
+                ws_server.stop()
+            except Exception:
+                pass
+
         restore_ok = True
         if args.mock:
             pass  # Nothing to restore in mock mode
