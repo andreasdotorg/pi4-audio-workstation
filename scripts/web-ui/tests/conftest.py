@@ -24,11 +24,7 @@ if _MOCK_DIR not in sys.path:
 
 from mock_camilladsp import _MockConfigNamespace, MockCamillaClient
 
-# 1. Add set_config_file_path (session code expects it, mock has set_file_path).
-if not hasattr(_MockConfigNamespace, "set_config_file_path"):
-    _MockConfigNamespace.set_config_file_path = _MockConfigNamespace.set_file_path
-
-# 2. Default measurement_mode=True so verify_measurement_config() passes.
+# Default measurement_mode=True so verify_measurement_config() passes.
 _original_mock_cdsp_init = MockCamillaClient.__init__
 
 

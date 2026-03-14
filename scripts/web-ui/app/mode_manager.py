@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 # Marker embedded in CamillaDSP config titles by the measurement session.
 # Future: measurement session will embed this via set_active_raw() (SetConfigJson).
-# Restoration uses set_config_file_path() + reload() (reads from disk).
+# Restoration uses set_file_path() + reload() (reads from disk).
 # Presence in the active config title means a measurement session set the config.
 MEASUREMENT_CONFIG_MARKER = "__pi4audio_measurement__"
 
@@ -167,7 +167,7 @@ class ModeManager:
     async def _load_production_config(self, client: CamillaClient) -> None:
         """Set config file path and reload on the given client."""
         await asyncio.to_thread(
-            client.config.set_config_file_path,
+            client.config.set_file_path,
             self._production_config_path,
         )
         await asyncio.to_thread(client.general.reload)

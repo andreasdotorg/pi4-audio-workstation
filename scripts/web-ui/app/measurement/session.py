@@ -498,7 +498,7 @@ class MeasurementSession:
             log.info("Measurement config written to: %s", self._temp_config_path)
 
             await asyncio.to_thread(
-                self._cdsp_client.config.set_config_file_path,
+                self._cdsp_client.config.set_file_path,
                 self._temp_config_path)
             await asyncio.to_thread(self._cdsp_client.general.reload)
 
@@ -516,7 +516,7 @@ class MeasurementSession:
             # On failure, try to restore production config.
             try:
                 await asyncio.to_thread(
-                    self._cdsp_client.config.set_config_file_path,
+                    self._cdsp_client.config.set_file_path,
                     self._config.production_config_path)
                 await asyncio.to_thread(self._cdsp_client.general.reload)
             except Exception:
@@ -869,7 +869,7 @@ class MeasurementSession:
             return
         try:
             await asyncio.to_thread(
-                self._cdsp_client.config.set_config_file_path,
+                self._cdsp_client.config.set_file_path,
                 self._config.production_config_path)
             await asyncio.to_thread(self._cdsp_client.general.reload)
             log.info("Restored production config: %s",
@@ -896,9 +896,6 @@ class MeasurementSession:
                 return
         if self._is_mock:
             client = CamillaClient(self._cdsp_host, self._cdsp_port, measurement_mode=True)
-            # Ensure set_config_file_path exists (mock may only have set_file_path)
-            if hasattr(client, 'config') and not hasattr(client.config, 'set_config_file_path'):
-                client.config.set_config_file_path = client.config.set_file_path
         else:
             client = CamillaClient(self._cdsp_host, self._cdsp_port)
         try:
