@@ -564,6 +564,45 @@ class MeasurementSession:
                     f"config (state: {state_name}). Aborting for safety.")
             log.info("CamillaDSP reloaded with measurement config for "
                      "channel %d (state: %s)", test_channel, state_name)
+
+            # Set PipeWire quantum to match CamillaDSP chunksize (2048) AFTER
+            # the measurement config is loaded and CamillaDSP is verified
+            # RUNNING.  Doing this earlier (in _run_setup) causes PipeWire to
+            # renegotiate the graph before the config swap, breaking the audio
+            # stream.  Only set once per session (guard on _quantum_overridden).
+            if not self._quantum_overridden:
+                import subprocess
+                try:
+                    subprocess.run(
+                        ["pw-metadata", "-n", "settings", "0",
+                         "clock.force-quantum", "2048"],
+                        check=True, capture_output=True, timeout=5,
+                    )
+                    log.info("PipeWire quantum set to 2048 for measurement")
+                    self._quantum_overridden = True
+                    # Let the PipeWire graph settle after quantum change before
+                    # any sd.playrec() calls.
+                    await asyncio.sleep(2.0)
+                    # Re-check CamillaDSP state — the quantum change can cause
+                    # PipeWire to renegotiate, which may transiently drop CDSP.
+                    state = await asyncio.to_thread(
+                        self._cdsp_client.general.state)
+                    state_name = getattr(state, "name", str(state))
+                    if state_name != "RUNNING":
+                        log.warning(
+                            "CamillaDSP dropped to %s after quantum change, "
+                            "waiting...", state_name)
+                        await asyncio.sleep(2.0)
+                        state = await asyncio.to_thread(
+                            self._cdsp_client.general.state)
+                        state_name = getattr(state, "name", str(state))
+                        if state_name != "RUNNING":
+                            raise RuntimeError(
+                                f"CamillaDSP failed to recover after quantum "
+                                f"change (state: {state_name})")
+                except Exception as e:
+                    log.warning("Failed to set PipeWire quantum: %s", e)
+                    self._quantum_overridden = False
         except Exception:
             # On failure, try to restore production config.
             try:
@@ -593,22 +632,6 @@ class MeasurementSession:
                 log.info("CamillaDSP state: %s", st)
             except Exception as exc:
                 log.warning("CamillaDSP state check failed: %s", exc)
-
-        # Set PipeWire quantum to match CamillaDSP chunksize (2048) to prevent
-        # reblocking glitches during measurement playback.
-        if not self._is_mock:
-            import subprocess
-            try:
-                subprocess.run(
-                    ["pw-metadata", "-n", "settings", "0",
-                     "clock.force-quantum", "2048"],
-                    check=True, capture_output=True, timeout=5,
-                )
-                log.info("PipeWire quantum set to 2048 for measurement")
-                self._quantum_overridden = True
-            except Exception as e:
-                log.warning("Failed to set PipeWire quantum: %s", e)
-                self._quantum_overridden = False
 
         await self._broadcast({"type": "setup_complete"})
 
@@ -647,6 +670,8 @@ class MeasurementSession:
                 thermal_ceiling_dbfs=ch.thermal_ceiling_dbfs,
                 camilladsp_client=self._cdsp_client,
                 ws_server=adapter, channel_name=ch.name,
+                measurement_attenuation_db=(
+                    0.0 if self._is_mock else _MEASUREMENT_ATTENUATION_DB),
             )
             self._gain_cal_results[ch.index] = result
             if not result.passed:

@@ -472,6 +472,7 @@ def calibrate_channel(
     camilladsp_client=None,
     ws_server=None,
     channel_name=None,
+    measurement_attenuation_db=0.0,
 ):
     """Ramp from silence to target SPL. Returns calibrated digital level.
 
@@ -512,6 +513,13 @@ def calibrate_channel(
     channel_name : str or None
         Human-readable channel name (e.g., "Sub1") for WS messages.
         Defaults to "ch{channel_index}" if not provided.
+    measurement_attenuation_db : float
+        CamillaDSP measurement config attenuation in dB (default 0.0,
+        meaning no attenuation in standalone mode).  When called from
+        the measurement session, pass the actual CamillaDSP attenuation
+        (e.g. -20.0).  The ramp start level and SNR threshold are
+        adjusted to compensate so the speaker sees the originally-designed
+        levels.
 
     Returns
     -------
@@ -537,7 +545,16 @@ def calibrate_channel(
         verify_measurement_config(camilladsp_client)
         print("  CamillaDSP measurement config verified (attenuation active)")
 
-    current_level_dbfs = START_LEVEL_DBFS
+    # Compensate for CamillaDSP measurement attenuation so the speaker sees
+    # the originally-designed levels.  E.g. with -20 dB attenuation, output
+    # -40 dBFS → speaker -60 dBFS (the original START_LEVEL_DBFS intent).
+    actual_start = START_LEVEL_DBFS - measurement_attenuation_db
+    current_level_dbfs = actual_start
+
+    # SNR threshold also shifts: check when the *speaker* level is above the
+    # original design threshold, not the raw digital output level.
+    effective_snr_threshold = BURST_SNR_LEVEL_THRESHOLD_DBFS - measurement_attenuation_db
+
     _ch_name = channel_name or f"ch{channel_index}"
 
     print("\n" + "=" * 60)
@@ -547,7 +564,8 @@ def calibrate_channel(
     print(f"  Target SPL:       {target_spl_db:.1f} dB")
     print(f"  Hard limit SPL:   {hard_limit_spl_db:.1f} dB")
     print(f"  Thermal ceiling:  {thermal_ceiling_dbfs:.1f} dBFS")
-    print(f"  Start level:      {current_level_dbfs:.1f} dBFS")
+    print(f"  Start level:      {current_level_dbfs:.1f} dBFS "
+          f"(speaker: {current_level_dbfs + measurement_attenuation_db:.1f} dBFS)")
     print(f"  Burst duration:   {burst_duration_s:.1f}s")
     print()
 
@@ -672,11 +690,10 @@ def calibrate_channel(
                   f"(mic peak {peak_dbfs:.1f} dBFS, SNR {burst_snr:.1f} dB)")
 
             # TK-200: Check burst SNR against ambient baseline.
-            # Only check when output level is above -40 dBFS to avoid false
-            # triggers at early ramp steps where speaker output is genuinely
-            # below ambient.
+            # Only check when effective speaker level is above the design
+            # threshold (accounting for CamillaDSP measurement attenuation).
             if (burst_snr < BURST_SNR_MIN_DB
-                    and current_level_dbfs > BURST_SNR_LEVEL_THRESHOLD_DBFS):
+                    and current_level_dbfs > effective_snr_threshold):
                 reason = ("Speaker output not detected above ambient noise. "
                           "Verify PA is on and output routing is correct.")
                 print(f"\n  ABORT: {reason} "
