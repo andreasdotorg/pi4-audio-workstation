@@ -1,7 +1,7 @@
 """Stub view tests for the D-020 Web UI.
 
-Verifies that the Measure and MIDI views show placeholder/stub content
-indicating they are planned for Stage 2.
+Verifies view content: Measure wizard header (no longer a stub), and
+MIDI stub placeholder.
 """
 
 import pytest
@@ -10,28 +10,29 @@ from playwright.sync_api import expect
 pytestmark = pytest.mark.browser
 
 
-def test_measure_stub_visible(page):
-    """Measure view shows stub container with Stage 2 message."""
+def test_measure_wizard_visible(page):
+    """Measure view shows the wizard header (not a stub)."""
     page.locator('.nav-tab[data-view="measure"]').click()
 
-    stub = page.locator("#view-measure .stub-container")
-    expect(stub).to_be_visible()
+    header = page.locator("#view-measure .mw-header")
+    expect(header).to_be_visible()
 
 
-def test_measure_stub_title(page):
-    """Measure stub displays 'Measurement' as its title."""
+def test_measure_wizard_title(page):
+    """Measure wizard displays 'MEASUREMENT' as its header title."""
     page.locator('.nav-tab[data-view="measure"]').click()
 
-    title = page.locator("#view-measure .stub-title")
-    expect(title).to_have_text("Measurement")
+    title = page.locator("#view-measure .mw-header-title")
+    expect(title).to_have_text("MEASUREMENT")
 
 
-def test_measure_stub_text(page):
-    """Measure stub contains 'Coming in Stage 2' message."""
+def test_measure_wizard_start_button(page):
+    """Measure wizard shows 'START NEW MEASUREMENT' button in IDLE state."""
     page.locator('.nav-tab[data-view="measure"]').click()
 
-    text = page.locator("#view-measure .stub-text")
-    expect(text).to_contain_text("Coming in Stage 2")
+    btn = page.locator('[data-testid="start-measurement"]')
+    expect(btn).to_be_visible()
+    expect(btn).to_have_text("START NEW MEASUREMENT")
 
 
 def test_midi_stub_visible(page):
