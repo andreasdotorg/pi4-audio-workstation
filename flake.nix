@@ -54,6 +54,7 @@
         # pw-jack compatibility works (Mixxx uses JACK via PipeWire).
         # On non-NixOS, PipeWire's pw-jack libraries live under the
         # host's /usr/lib, which Nix isolates away.
+
         mixxx-wrapped = let
           nixGLMesa = pkgs.nixgl.nixGLIntel;
         in pkgs.writeShellApplication {
@@ -80,6 +81,18 @@
 
           # Wrapped Mixxx with nixGL + host PipeWire/JACK (for non-NixOS)
           mixxx-gl = mixxx-wrapped;
+
+          # Passive PipeWire monitor-port PCM bridge for web UI.
+          # Replaces the broken JACK-based PcmStreamCollector — runs at
+          # SCHED_OTHER and cannot cause xruns in the RT audio graph.
+          pcm-bridge = pkgs.rustPlatform.buildRustPackage {
+            pname = "pcm-bridge";
+            version = "0.1.0";
+            src = ./tools/pcm-bridge;
+            cargoLock.lockFile = ./tools/pcm-bridge/Cargo.lock;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.pipewire ];
+          };
 
           # Default package for `nix run .#` on Linux
           default = mixxx-wrapped;
