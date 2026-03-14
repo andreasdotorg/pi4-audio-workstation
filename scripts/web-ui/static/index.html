@@ -276,279 +276,214 @@
     </div>
 </div>
 
-<!-- VIEW: Measure — Room correction workflow prototype -->
+<!-- VIEW: Measure — Measurement wizard (TK-170, WP-F) -->
 <div class="view" id="view-measure">
 
-    <!-- Sub-tab bar -->
-    <div class="msr-tab-bar">
-        <button class="msr-tab active" data-msr-tab="speakers">Speakers</button>
-        <button class="msr-tab" data-msr-tab="calibrate">Calibrate</button>
-        <button class="msr-tab" data-msr-tab="measure">Measure</button>
-        <button class="msr-tab" data-msr-tab="results">Results</button>
-        <button class="msr-tab" data-msr-tab="deploy">Deploy</button>
+    <!-- Wizard header: state indicator + progress bar + abort -->
+    <div class="mw-header">
+        <div class="mw-header-left">
+            <span class="mw-header-title">MEASUREMENT</span>
+            <span class="mw-state-badge" id="mw-state-text" data-testid="measurement-state">IDLE</span>
+        </div>
+        <div class="mw-progress-bar">
+            <div class="mw-progress-segment" id="mw-progress-pre" data-testid="progress-pre">
+                <span class="mw-progress-label">PRE</span>
+            </div>
+            <div class="mw-progress-segment" id="mw-progress-sweep" data-testid="progress-sweep">
+                <span class="mw-progress-label">SWEEP</span>
+            </div>
+            <div class="mw-progress-segment" id="mw-progress-post" data-testid="progress-post">
+                <span class="mw-progress-label">POST</span>
+            </div>
+        </div>
+        <button class="mw-abort-btn hidden" id="mw-abort-btn" data-testid="abort-measurement">ABORT</button>
     </div>
 
-    <!-- Sub-tab: Speakers -->
-    <div class="msr-panel active" id="msr-speakers">
-        <div class="msr-section">
-            <div class="msr-section-title">Output Channels</div>
-            <div class="msr-table">
-                <div class="msr-table-header">
-                    <span class="msr-th msr-th-ch">Ch</span>
-                    <span class="msr-th msr-th-name">Output</span>
-                    <span class="msr-th msr-th-type">Type</span>
-                    <span class="msr-th msr-th-xover">Crossover</span>
-                    <span class="msr-th msr-th-filter">Filter</span>
-                    <span class="msr-th msr-th-delay">Delay</span>
-                    <span class="msr-th msr-th-gain">Gain</span>
-                </div>
-                <div class="msr-table-row">
-                    <span class="msr-td msr-td-ch">1</span>
-                    <span class="msr-td msr-td-name">Left wideband</span>
-                    <span class="msr-td msr-td-type">Main</span>
-                    <span class="msr-td msr-td-xover">HP 200 Hz</span>
-                    <span class="msr-td msr-td-filter c-green">combined_left_hp.wav</span>
-                    <span class="msr-td msr-td-delay">0.00 ms</span>
-                    <span class="msr-td msr-td-gain">0.0 dB</span>
-                </div>
-                <div class="msr-table-row">
-                    <span class="msr-td msr-td-ch">2</span>
-                    <span class="msr-td msr-td-name">Right wideband</span>
-                    <span class="msr-td msr-td-type">Main</span>
-                    <span class="msr-td msr-td-xover">HP 200 Hz</span>
-                    <span class="msr-td msr-td-filter c-green">combined_right_hp.wav</span>
-                    <span class="msr-td msr-td-delay">0.29 ms</span>
-                    <span class="msr-td msr-td-gain">0.0 dB</span>
-                </div>
-                <div class="msr-table-row">
-                    <span class="msr-td msr-td-ch">3</span>
-                    <span class="msr-td msr-td-name">Subwoofer 1</span>
-                    <span class="msr-td msr-td-type">Sub</span>
-                    <span class="msr-td msr-td-xover">LP 200 Hz</span>
-                    <span class="msr-td msr-td-filter c-green">combined_sub1_lp.wav</span>
-                    <span class="msr-td msr-td-delay">1.17 ms</span>
-                    <span class="msr-td msr-td-gain">-2.0 dB</span>
-                </div>
-                <div class="msr-table-row">
-                    <span class="msr-td msr-td-ch">4</span>
-                    <span class="msr-td msr-td-name">Subwoofer 2</span>
-                    <span class="msr-td msr-td-type">Sub</span>
-                    <span class="msr-td msr-td-xover">LP 200 Hz</span>
-                    <span class="msr-td msr-td-filter c-yellow">no filter</span>
-                    <span class="msr-td msr-td-delay">--</span>
-                    <span class="msr-td msr-td-gain">--</span>
-                </div>
-            </div>
-        </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Configuration</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Crossover freq</span><span class="kv-value">200 Hz</span></div>
-                <div class="kv-item"><span class="kv-label">Crossover slope</span><span class="kv-value">48 dB/oct</span></div>
-                <div class="kv-item"><span class="kv-label">Filter taps</span><span class="kv-value">16,384</span></div>
-                <div class="kv-item"><span class="kv-label">Sample rate</span><span class="kv-value">48,000 Hz</span></div>
-                <div class="kv-item"><span class="kv-label">Filter type</span><span class="kv-value">Minimum-phase FIR</span></div>
-                <div class="kv-item"><span class="kv-label">Regularization</span><span class="kv-value">Cut-only, -0.5 dB margin</span></div>
-            </div>
-        </div>
-    </div>
+    <!-- Wizard screens (only one visible at a time) -->
+    <div class="mw-body">
 
-    <!-- Sub-tab: Calibrate -->
-    <div class="msr-panel" id="msr-calibrate">
-        <div class="msr-section">
-            <div class="msr-section-title">UMIK-1 Microphone</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Device</span><span class="kv-value c-green">Connected</span></div>
-                <div class="kv-item"><span class="kv-label">Serial</span><span class="kv-value">7161942</span></div>
-                <div class="kv-item"><span class="kv-label">Sensitivity</span><span class="kv-value">-1.378 dB</span></div>
-                <div class="kv-item"><span class="kv-label">Sample rate</span><span class="kv-value">48 kHz</span></div>
+        <!-- IDLE screen -->
+        <div class="mw-screen" id="mw-idle">
+            <div class="mw-screen-center">
+                <div class="mw-title">ROOM MEASUREMENT</div>
+                <div class="mw-idle-summary hidden" id="mw-idle-summary"></div>
+                <div class="mw-idle-warning hidden c-yellow" id="mw-idle-warning"></div>
+                <button class="mw-btn-hero" id="mw-start-btn" data-testid="start-measurement">
+                    START NEW MEASUREMENT
+                </button>
             </div>
         </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Calibration File</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">File</span><span class="kv-value c-green">7161942.txt</span></div>
-                <div class="kv-item"><span class="kv-label">Path</span><span class="kv-value">/home/ela/7161942.txt</span></div>
-                <div class="kv-item"><span class="kv-label">Type</span><span class="kv-value">Magnitude-only</span></div>
-                <div class="kv-item"><span class="kv-label">Entries</span><span class="kv-value">322 freq points</span></div>
-            </div>
-        </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Mic Check</div>
-            <div class="msr-mic-check">
-                <div class="msr-mic-level-bar">
-                    <div class="msr-mic-level-fill" style="width: 35%"></div>
-                    <span class="msr-mic-level-text">-42 dBFS</span>
-                </div>
-                <span class="msr-mic-status c-green">Ambient noise OK</span>
-            </div>
-        </div>
-    </div>
 
-    <!-- Sub-tab: Measure -->
-    <div class="msr-panel" id="msr-measure">
-        <div class="msr-section">
-            <div class="msr-section-title">Sweep Configuration</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Type</span><span class="kv-value">Log sweep 20 Hz - 20 kHz</span></div>
-                <div class="kv-item"><span class="kv-label">Duration</span><span class="kv-value">5.0 s</span></div>
-                <div class="kv-item"><span class="kv-label">Level</span><span class="kv-value">-12 dBFS</span></div>
-                <div class="kv-item"><span class="kv-label">Averages</span><span class="kv-value">3</span></div>
-            </div>
-        </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Measurement Positions</div>
-            <div class="msr-positions">
-                <div class="msr-pos-item msr-pos-done">
-                    <span class="msr-pos-dot c-green"></span>
-                    <span class="msr-pos-label">Pos 1 — Center</span>
-                    <span class="msr-pos-status c-green">Done</span>
-                </div>
-                <div class="msr-pos-item msr-pos-done">
-                    <span class="msr-pos-dot c-green"></span>
-                    <span class="msr-pos-label">Pos 2 — 30 cm left</span>
-                    <span class="msr-pos-status c-green">Done</span>
-                </div>
-                <div class="msr-pos-item msr-pos-active">
-                    <span class="msr-pos-dot c-yellow"></span>
-                    <span class="msr-pos-label">Pos 3 — 30 cm right</span>
-                    <span class="msr-pos-status c-yellow">Ready</span>
-                </div>
-                <div class="msr-pos-item">
-                    <span class="msr-pos-dot"></span>
-                    <span class="msr-pos-label">Pos 4 — 30 cm forward</span>
-                    <span class="msr-pos-status">Pending</span>
-                </div>
-                <div class="msr-pos-item">
-                    <span class="msr-pos-dot"></span>
-                    <span class="msr-pos-label">Pos 5 — 30 cm back</span>
-                    <span class="msr-pos-status">Pending</span>
-                </div>
-            </div>
-        </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Channel Sweep Order</div>
-            <div class="msr-sweep-channels">
-                <span class="msr-sweep-ch msr-sweep-done">Ch1 L</span>
-                <span class="msr-sweep-ch msr-sweep-done">Ch2 R</span>
-                <span class="msr-sweep-ch msr-sweep-active">Ch3 Sub1</span>
-                <span class="msr-sweep-ch">Ch4 Sub2</span>
-            </div>
-        </div>
-        <div class="msr-controls">
-            <button class="msr-btn msr-btn-primary" id="msr-btn-start">Start Sweep</button>
-            <button class="msr-btn msr-btn-danger" id="msr-btn-stop" disabled>Stop</button>
-            <span class="msr-sweep-progress">Pos 3 / Ch3 — idle</span>
-        </div>
-    </div>
-
-    <!-- Sub-tab: Results -->
-    <div class="msr-panel" id="msr-results">
-        <div class="msr-section msr-results-plot-section">
-            <div class="msr-section-title">Frequency Response — Ch1 Left Wideband</div>
-            <div class="msr-plot-placeholder">
-                <div class="msr-plot-axes">
-                    <span class="msr-plot-y-label">dB SPL</span>
-                    <div class="msr-plot-area">
-                        <div class="msr-plot-grid">
-                            <div class="msr-plot-line msr-plot-measured"></div>
-                            <div class="msr-plot-line msr-plot-corrected"></div>
-                            <div class="msr-plot-line msr-plot-target"></div>
-                        </div>
-                        <div class="msr-plot-legend">
-                            <span class="msr-legend-item"><span class="msr-legend-swatch msr-legend-measured"></span>Measured</span>
-                            <span class="msr-legend-item"><span class="msr-legend-swatch msr-legend-corrected"></span>Corrected</span>
-                            <span class="msr-legend-item"><span class="msr-legend-swatch msr-legend-target"></span>Target</span>
-                        </div>
+        <!-- SETUP screen -->
+        <div class="mw-screen hidden" id="mw-setup">
+            <div class="mw-section">
+                <div class="mw-section-title">Measurement Setup</div>
+                <div class="mw-setup-form">
+                    <div class="mw-form-row">
+                        <label class="mw-form-label" for="mw-setup-positions">Positions</label>
+                        <input class="mw-form-input" id="mw-setup-positions"
+                               type="number" min="1" max="9" value="5">
                     </div>
-                    <span class="msr-plot-x-label">Frequency (Hz)</span>
                 </div>
             </div>
-            <div class="msr-result-channel-select">
-                <button class="msr-btn msr-btn-sm active" data-msr-result-ch="1">Ch1 L</button>
-                <button class="msr-btn msr-btn-sm" data-msr-result-ch="2">Ch2 R</button>
-                <button class="msr-btn msr-btn-sm" data-msr-result-ch="3">Ch3 Sub1</button>
-                <button class="msr-btn msr-btn-sm" data-msr-result-ch="4">Ch4 Sub2</button>
+            <div class="mw-section">
+                <div class="mw-section-title">Channels</div>
+                <div class="mw-setup-channel-list" id="mw-setup-channels">
+                    <div class="mw-setup-channel-item">Ch0 Left wideband</div>
+                    <div class="mw-setup-channel-item">Ch1 Right wideband</div>
+                    <div class="mw-setup-channel-item">Ch2 Subwoofer 1</div>
+                    <div class="mw-setup-channel-item">Ch3 Subwoofer 2</div>
+                </div>
+            </div>
+            <div class="mw-section">
+                <div class="mw-section-title">Pre-flight</div>
+                <div class="mw-preflight-status c-yellow">Checking prerequisites...</div>
             </div>
         </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Correction Filter Preview</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Peak correction</span><span class="kv-value">-8.2 dB @ 63 Hz</span></div>
-                <div class="kv-item"><span class="kv-label">Max gain</span><span class="kv-value c-green">-0.5 dB (within limit)</span></div>
-                <div class="kv-item"><span class="kv-label">Filter length</span><span class="kv-value">16,384 taps</span></div>
-                <div class="kv-item"><span class="kv-label">Time alignment</span><span class="kv-value">0.00 ms (reference)</span></div>
-                <div class="kv-item"><span class="kv-label">Smoothing</span><span class="kv-value">1/6 oct &lt;200, 1/3 200-1k, 1/2 &gt;1k</span></div>
-                <div class="kv-item"><span class="kv-label">Phase</span><span class="kv-value c-green">Minimum-phase verified</span></div>
+
+        <!-- GAIN_CAL screen -->
+        <div class="mw-screen hidden" id="mw-gain_cal">
+            <div class="mw-section">
+                <div class="mw-section-title">Gain Calibration</div>
+                <div class="mw-gcal-active">
+                    <div class="mw-gcal-channel-name" id="mw-gcal-channel-name">--</div>
+                    <div class="mw-gcal-status" id="mw-gcal-status">Waiting...</div>
+
+                    <!-- Level indicator -->
+                    <div class="mw-level-bar" data-testid="gain-cal-level">
+                        <div class="mw-level-fill" id="mw-gcal-level-fill"></div>
+                        <span class="mw-level-text" id="mw-gcal-level-text">--</span>
+                    </div>
+                    <div class="mw-gcal-readings">
+                        <span id="mw-gcal-spl-text">-- dB SPL</span>
+                    </div>
+
+                    <!-- Progress -->
+                    <div class="mw-progress-track">
+                        <div class="mw-progress-fill" id="mw-gcal-progress-fill"></div>
+                        <span class="mw-progress-text" id="mw-gcal-progress-text">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Channel chips -->
+            <div class="mw-section">
+                <div class="mw-section-title">Channel Progress</div>
+                <div class="mw-channel-chips" id="mw-gcal-channels"></div>
+            </div>
+
+            <!-- Results table (fills as channels complete) -->
+            <div class="mw-section">
+                <div class="mw-section-title">Calibration Results</div>
+                <div class="mw-gcal-results-header">
+                    <span class="mw-gcal-result-name">Channel</span>
+                    <span class="mw-gcal-result-level">Level</span>
+                    <span class="mw-gcal-result-spl">SPL</span>
+                    <span class="mw-gcal-result-status">Status</span>
+                </div>
+                <div id="mw-gcal-results-table"></div>
             </div>
         </div>
+
+        <!-- MEASURING screen -->
+        <div class="mw-screen hidden" id="mw-measuring">
+            <div class="mw-section">
+                <div class="mw-section-title">Sweep Progress</div>
+                <div class="mw-sweep-info">
+                    <div class="mw-sweep-position" id="mw-sweep-position">Position -- of --</div>
+                    <div class="mw-sweep-channel" id="mw-sweep-channel">--</div>
+                    <div class="mw-sweep-count" id="mw-sweep-count">Sweep -- of --</div>
+                    <div class="mw-sweep-status" id="mw-sweep-status">Waiting...</div>
+                </div>
+
+                <!-- Sweep progress bar -->
+                <div class="mw-progress-track" data-testid="sweep-progress">
+                    <div class="mw-progress-fill" id="mw-sweep-progress-fill"></div>
+                    <span class="mw-progress-text" id="mw-sweep-progress-text">0%</span>
+                </div>
+
+                <!-- Warning banner -->
+                <div class="mw-sweep-warning">
+                    DO NOT MOVE THE MICROPHONE -- DO NOT MAKE NOISE
+                </div>
+            </div>
+
+            <!-- Completed sweeps -->
+            <div class="mw-section">
+                <div class="mw-section-title">Completed Sweeps</div>
+                <div class="mw-sweep-results-list" id="mw-sweep-results-list"></div>
+            </div>
+        </div>
+
+        <!-- FILTER_GEN screen -->
+        <div class="mw-screen hidden" id="mw-filter_gen">
+            <div class="mw-screen-center">
+                <div class="mw-title">GENERATING FILTERS</div>
+                <div class="mw-pipeline-status c-yellow" id="mw-filter_gen-status">
+                    Pending...
+                </div>
+                <div class="mw-results-summary">
+                    <span id="mw-results-sweep-count">--</span>
+                    <span id="mw-results-position-count">--</span>
+                    <span id="mw-results-channel-count">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- DEPLOY screen -->
+        <div class="mw-screen hidden" id="mw-deploy">
+            <div class="mw-screen-center">
+                <div class="mw-title">DEPLOYING FILTERS</div>
+                <div class="mw-pipeline-status c-yellow" id="mw-deploy-status">
+                    Pending...
+                </div>
+            </div>
+        </div>
+
+        <!-- VERIFY screen -->
+        <div class="mw-screen hidden" id="mw-verify">
+            <div class="mw-screen-center">
+                <div class="mw-title">VERIFICATION</div>
+                <div class="mw-pipeline-status c-yellow" id="mw-verify-status">
+                    Pending...
+                </div>
+            </div>
+        </div>
+
+        <!-- COMPLETE screen -->
+        <div class="mw-screen hidden" id="mw-complete">
+            <div class="mw-screen-center">
+                <div class="mw-title">MEASUREMENT COMPLETE</div>
+                <div class="mw-complete-summary c-green">
+                    Session finished successfully.
+                </div>
+                <button class="mw-btn-hero mw-return-btn">NEW MEASUREMENT</button>
+            </div>
+        </div>
+
+        <!-- ABORTED screen -->
+        <div class="mw-screen hidden" id="mw-aborted">
+            <div class="mw-screen-center">
+                <div class="mw-title c-yellow">MEASUREMENT ABORTED</div>
+                <div class="mw-aborted-reason" id="mw-aborted-reason">
+                    Session was aborted by the operator.
+                </div>
+                <button class="mw-btn-hero mw-return-btn">RETURN</button>
+            </div>
+        </div>
+
+        <!-- ERROR screen -->
+        <div class="mw-screen hidden" id="mw-error">
+            <div class="mw-screen-center">
+                <div class="mw-title c-red">MEASUREMENT ERROR</div>
+                <div class="mw-error-message" id="mw-error-message">
+                    An error occurred during measurement.
+                </div>
+                <button class="mw-btn-hero mw-return-btn">RETURN</button>
+            </div>
+        </div>
+
     </div>
-
-    <!-- Sub-tab: Deploy -->
-    <div class="msr-panel" id="msr-deploy">
-        <div class="msr-section">
-            <div class="msr-section-title">Filter Files to Deploy</div>
-            <div class="msr-deploy-files">
-                <div class="msr-deploy-file">
-                    <span class="msr-deploy-file-name">combined_left_hp.wav</span>
-                    <span class="msr-deploy-file-size">131 KB</span>
-                    <span class="msr-deploy-file-status c-green">Ready</span>
-                </div>
-                <div class="msr-deploy-file">
-                    <span class="msr-deploy-file-name">combined_right_hp.wav</span>
-                    <span class="msr-deploy-file-size">131 KB</span>
-                    <span class="msr-deploy-file-status c-green">Ready</span>
-                </div>
-                <div class="msr-deploy-file">
-                    <span class="msr-deploy-file-name">combined_sub1_lp.wav</span>
-                    <span class="msr-deploy-file-size">131 KB</span>
-                    <span class="msr-deploy-file-status c-green">Ready</span>
-                </div>
-                <div class="msr-deploy-file">
-                    <span class="msr-deploy-file-name">combined_sub2_lp.wav</span>
-                    <span class="msr-deploy-file-size">131 KB</span>
-                    <span class="msr-deploy-file-status c-yellow">Not measured</span>
-                </div>
-            </div>
-        </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Delay Values</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Ch1 Left</span><span class="kv-value">0.00 ms</span></div>
-                <div class="kv-item"><span class="kv-label">Ch2 Right</span><span class="kv-value">0.29 ms</span></div>
-                <div class="kv-item"><span class="kv-label">Ch3 Sub1</span><span class="kv-value">1.17 ms</span></div>
-                <div class="kv-item"><span class="kv-label">Ch4 Sub2</span><span class="kv-value c-yellow">--</span></div>
-            </div>
-        </div>
-        <div class="msr-section">
-            <div class="msr-section-title">Deploy Target</div>
-            <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Destination</span><span class="kv-value">/etc/camilladsp/coeffs/</span></div>
-                <div class="kv-item"><span class="kv-label">CamillaDSP</span><span class="kv-value c-green">Running</span></div>
-            </div>
-        </div>
-        <div class="msr-deploy-actions">
-            <button class="msr-btn msr-btn-primary" id="msr-btn-deploy">Deploy Filters</button>
-        </div>
-
-        <!-- Safety confirmation dialog (mockup, always visible for prototype) -->
-        <div class="msr-dialog-backdrop" id="msr-deploy-dialog" style="display:none">
-            <div class="msr-dialog">
-                <div class="msr-dialog-title">Confirm Deploy</div>
-                <div class="msr-dialog-body">
-                    This will copy 4 filter files to <code>/etc/camilladsp/coeffs/</code>
-                    and restart CamillaDSP.<br><br>
-                    <span class="c-red">Ensure the PA amplifier is OFF before proceeding.</span><br>
-                    Restarting CamillaDSP may produce transients on the USBStreamer outputs.
-                </div>
-                <div class="msr-dialog-buttons">
-                    <button class="msr-btn msr-btn-secondary" id="msr-btn-deploy-cancel">Cancel</button>
-                    <button class="msr-btn msr-btn-danger" id="msr-btn-deploy-confirm">Deploy</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
 </div>
 
 <!-- VIEW: MIDI -->
