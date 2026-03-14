@@ -33,8 +33,11 @@ Usage:
 """
 
 import dataclasses
+import json
+import subprocess
 import sys
 import time
+from typing import Optional
 
 import numpy as np
 
@@ -70,6 +73,15 @@ SPL_TOLERANCE_DB = 1.0
 
 # Maximum number of ramp steps before giving up (prevents infinite loops)
 MAX_RAMP_STEPS = 30
+
+# Maximum overshoot back-off verification attempts (GC-01)
+MAX_OVERSHOOT_RETRIES = 3
+
+# Maximum xrun retries per burst before aborting (GC-02)
+MAX_XRUN_RETRIES = 2
+
+# Expected measurement attenuation in CamillaDSP measurement config (GC-07/11)
+EXPECTED_MEASUREMENT_ATTENUATION_DB = -20.0
 
 # Pink noise parameters (same as measure_nearfield.py)
 PINK_NOISE_F_LOW = 100.0
@@ -121,7 +133,7 @@ class CalibrationResult:
     calibrated_level_dbfs: float
     measured_spl_db: float
     steps_taken: int
-    abort_reason: str = None
+    abort_reason: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +222,110 @@ def _compute_spl_from_recording(recording, sensitivity_dbfs_to_spl):
 
 
 # ---------------------------------------------------------------------------
+# PipeWire xrun detection (GC-02, extracted from measure_nearfield.py)
+# ---------------------------------------------------------------------------
+
+def get_pipewire_xrun_count():
+    """Query PipeWire xrun counter via pw-cli or pw-dump.
+
+    Returns
+    -------
+    int or None
+        Xrun count, or None if not determinable (mock mode, missing tools).
+    """
+    # Method 1: pw-cli info all
+    try:
+        result = subprocess.run(
+            ["pw-cli", "info", "all"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            xrun_total = 0
+            for line in result.stdout.split('\n'):
+                line_stripped = line.strip()
+                if 'xrun' in line_stripped.lower():
+                    parts = line_stripped.split('=')
+                    if len(parts) >= 2:
+                        try:
+                            xrun_total += int(parts[-1].strip().strip('"'))
+                        except ValueError:
+                            pass
+            return xrun_total
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Method 2: pw-dump JSON output
+    try:
+        result = subprocess.run(
+            ["pw-dump"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            xrun_total = 0
+            for obj in data:
+                props = obj.get('info', {}).get('props', {})
+                xruns = props.get('clock.xrun-count', 0)
+                if isinstance(xruns, int):
+                    xrun_total += xruns
+            return xrun_total
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        pass
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# CamillaDSP measurement config verification (GC-07/11)
+# ---------------------------------------------------------------------------
+
+def verify_measurement_config(camilladsp_client):
+    """Verify CamillaDSP is running the measurement config with attenuation.
+
+    Checks that the active CamillaDSP config contains at least one filter
+    with gain <= EXPECTED_MEASUREMENT_ATTENUATION_DB, which indicates the
+    measurement config is active (not the production config).
+
+    Parameters
+    ----------
+    camilladsp_client : CamillaClient or MockCamillaClient
+        Connected CamillaDSP client.
+
+    Raises
+    ------
+    RuntimeError
+        If CamillaDSP is not in measurement configuration.
+    """
+    active_config = camilladsp_client.config.active()
+    if active_config is None:
+        raise RuntimeError(
+            "CamillaDSP returned no active config. Cannot verify "
+            "measurement attenuation is active."
+        )
+
+    # Look for measurement attenuation in the filters section.
+    # The measurement config has Gain filters with gain = -20 dB on
+    # the test channel (and -100 dB mute on others).
+    filters = active_config.get("filters", {})
+    has_measurement_attenuation = False
+    for filt_name, filt_def in filters.items():
+        if filt_def.get("type") == "Gain":
+            gain = filt_def.get("parameters", {}).get("gain", 0.0)
+            if gain <= EXPECTED_MEASUREMENT_ATTENUATION_DB:
+                has_measurement_attenuation = True
+                break
+
+    if not has_measurement_attenuation:
+        raise RuntimeError(
+            "CamillaDSP is not in measurement configuration. "
+            f"No filter with gain <= {EXPECTED_MEASUREMENT_ATTENUATION_DB} dB "
+            "found in active config. The production config may be active, "
+            "which means output is 20 dB louder than expected. "
+            "Aborting for safety."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Core play-and-record burst
 # ---------------------------------------------------------------------------
 
@@ -264,6 +380,62 @@ def _play_burst(noise_signal, channel_index, output_device, input_device,
     return recording[:, 0].astype(np.float64)
 
 
+def _play_burst_with_xrun_check(noise_signal, channel_index, output_device,
+                                input_device, sr=SAMPLE_RATE):
+    """Play a burst with PipeWire xrun detection and retry (GC-02).
+
+    Wraps ``_play_burst`` with xrun counter checks. If an xrun is detected
+    during playback, retries the same burst (same level, NOT the next step)
+    up to MAX_XRUN_RETRIES times.
+
+    Parameters
+    ----------
+    noise_signal : np.ndarray
+        The pink noise burst to play (mono, float).
+    channel_index : int
+        0-indexed output channel.
+    output_device : int or str or None
+        Sounddevice output device identifier.
+    input_device : int or str or None
+        Sounddevice input device identifier (UMIK-1).
+    sr : int
+        Sample rate.
+
+    Returns
+    -------
+    np.ndarray or None
+        Mono recording from the mic (float64), or None if xruns persisted
+        after all retries.
+    """
+    for attempt in range(1, MAX_XRUN_RETRIES + 2):  # +2: 1 initial + retries
+        xrun_before = get_pipewire_xrun_count()
+
+        recording = _play_burst(
+            noise_signal, channel_index, output_device, input_device, sr=sr)
+
+        xrun_after = get_pipewire_xrun_count()
+
+        # If xrun counting is unavailable, accept the recording
+        if xrun_before is None or xrun_after is None:
+            return recording
+
+        xrun_delta = xrun_after - xrun_before
+        if xrun_delta <= 0:
+            return recording
+
+        # Xrun detected — retry if we have attempts remaining
+        if attempt <= MAX_XRUN_RETRIES:
+            print(f" [xrun detected (+{xrun_delta}), retrying {attempt}/{MAX_XRUN_RETRIES}]",
+                  end="", flush=True)
+            time.sleep(0.5)  # Brief pause before retry
+        else:
+            print(f" [xrun detected (+{xrun_delta}), retries exhausted]",
+                  end="", flush=True)
+            return None
+
+    return None  # Should not reach here, but satisfy type checker
+
+
 # ---------------------------------------------------------------------------
 # Main calibration function
 # ---------------------------------------------------------------------------
@@ -278,6 +450,7 @@ def calibrate_channel(
     umik_sensitivity_dbfs_to_spl=121.4,
     thermal_ceiling_dbfs=-20.0,
     burst_duration_s=2.0,
+    camilladsp_client=None,
 ):
     """Ramp from silence to target SPL. Returns calibrated digital level.
 
@@ -306,12 +479,36 @@ def calibrate_channel(
         The ramp will never exceed this level (default -20.0).
     burst_duration_s : float
         Duration of each pink noise burst in seconds (default 2.0).
+    camilladsp_client : CamillaClient or MockCamillaClient or None
+        Connected CamillaDSP client for measurement config verification
+        (GC-07/11). If provided, the active config is checked for
+        measurement attenuation before calibration starts. If None,
+        the config check is skipped (backwards-compatible standalone mode).
 
     Returns
     -------
     CalibrationResult
         Result with calibrated level, measured SPL, and pass/fail status.
+
+    Raises
+    ------
+    ValueError
+        If target_spl_db >= hard_limit_spl_db (GC-05).
+    RuntimeError
+        If CamillaDSP is not in measurement configuration (GC-07/11).
     """
+    # GC-05: Validate that target is below hard limit
+    if target_spl_db >= hard_limit_spl_db:
+        raise ValueError(
+            f"target_spl_db ({target_spl_db:.1f}) must be less than "
+            f"hard_limit_spl_db ({hard_limit_spl_db:.1f})")
+
+    # GC-07/11: Verify CamillaDSP measurement config if client provided
+    if camilladsp_client is not None:
+        print("  Verifying CamillaDSP measurement configuration...")
+        verify_measurement_config(camilladsp_client)
+        print("  CamillaDSP measurement config verified (attenuation active)")
+
     current_level_dbfs = START_LEVEL_DBFS
 
     print("\n" + "=" * 60)
@@ -327,109 +524,50 @@ def calibrate_channel(
 
     last_measured_spl = 0.0
 
-    for step_num in range(1, MAX_RAMP_STEPS + 1):
-        # Safety: never exceed thermal ceiling
-        if current_level_dbfs > thermal_ceiling_dbfs:
-            current_level_dbfs = thermal_ceiling_dbfs
+    # GC-07/11: Wrap in try/finally for cleanup on abort
+    try:
+        for step_num in range(1, MAX_RAMP_STEPS + 1):
+            # Safety: never exceed thermal ceiling
+            if current_level_dbfs > thermal_ceiling_dbfs:
+                current_level_dbfs = thermal_ceiling_dbfs
 
-        print(f"  Step {step_num}: playing at {current_level_dbfs:.1f} dBFS ...",
-              end="", flush=True)
+            print(f"  Step {step_num}: playing at {current_level_dbfs:.1f} dBFS ...",
+                  end="", flush=True)
 
-        # Generate and play pink noise burst
-        noise = _generate_pink_noise(
-            burst_duration_s, sr=sample_rate, level_dbfs=current_level_dbfs,
-            f_low=PINK_NOISE_F_LOW, f_high=PINK_NOISE_F_HIGH)
+            # Generate pink noise burst for this level
+            noise = _generate_pink_noise(
+                burst_duration_s, sr=sample_rate, level_dbfs=current_level_dbfs,
+                f_low=PINK_NOISE_F_LOW, f_high=PINK_NOISE_F_HIGH)
 
-        recording = _play_burst(
-            noise, channel_index, output_device, input_device,
-            sr=sample_rate)
+            # GC-02: Play burst with xrun detection and retry
+            recording = _play_burst_with_xrun_check(
+                noise, channel_index, output_device, input_device,
+                sr=sample_rate)
+            if recording is None:
+                reason = "persistent xruns during calibration"
+                print(f"\n  ABORT: {reason}")
+                return CalibrationResult(
+                    passed=False,
+                    calibrated_level_dbfs=current_level_dbfs,
+                    measured_spl_db=last_measured_spl,
+                    steps_taken=step_num,
+                    abort_reason=reason,
+                )
 
-        # Compute SPL from recording
-        measured_spl, peak_dbfs = _compute_spl_from_recording(
-            recording, umik_sensitivity_dbfs_to_spl)
-        last_measured_spl = measured_spl
+            # Compute SPL from recording
+            measured_spl, peak_dbfs = _compute_spl_from_recording(
+                recording, umik_sensitivity_dbfs_to_spl)
+            last_measured_spl = measured_spl
 
-        print(f" measured {measured_spl:.1f} dB SPL "
-              f"(mic peak {peak_dbfs:.1f} dBFS)")
+            print(f" measured {measured_spl:.1f} dB SPL "
+                  f"(mic peak {peak_dbfs:.1f} dBFS)")
 
-        # --- Safety gate checks ---
+            # --- Safety gate checks ---
 
-        # Check 1: Mic silence (cable disconnected, wrong device)
-        if peak_dbfs < MIC_SILENCE_PEAK_DBFS:
-            reason = (f"mic not detecting signal (peak {peak_dbfs:.1f} dBFS "
-                      f"< {MIC_SILENCE_PEAK_DBFS:.0f} dBFS threshold)")
-            print(f"\n  ABORT: {reason}")
-            return CalibrationResult(
-                passed=False,
-                calibrated_level_dbfs=current_level_dbfs,
-                measured_spl_db=measured_spl,
-                steps_taken=step_num,
-                abort_reason=reason,
-            )
-
-        # Check 2: Hard SPL limit exceeded
-        if measured_spl >= hard_limit_spl_db:
-            reason = (f"measured SPL {measured_spl:.1f} dB >= hard limit "
-                      f"{hard_limit_spl_db:.1f} dB")
-            print(f"\n  ABORT: {reason}")
-            return CalibrationResult(
-                passed=False,
-                calibrated_level_dbfs=current_level_dbfs,
-                measured_spl_db=measured_spl,
-                steps_taken=step_num,
-                abort_reason=reason,
-            )
-
-        # Check 3: At target (within tolerance)?
-        if abs(measured_spl - target_spl_db) <= SPL_TOLERANCE_DB:
-            print(f"\n  TARGET REACHED: {measured_spl:.1f} dB SPL "
-                  f"(target {target_spl_db:.1f} +/- {SPL_TOLERANCE_DB:.0f})")
-            return CalibrationResult(
-                passed=True,
-                calibrated_level_dbfs=current_level_dbfs,
-                measured_spl_db=measured_spl,
-                steps_taken=step_num,
-            )
-
-        # Check 4: Overshot target (above target + tolerance but below hard limit)
-        if measured_spl > target_spl_db + SPL_TOLERANCE_DB:
-            # We overshot. Back down by one fine step and report that level.
-            backed_off = current_level_dbfs - FINE_STEP_DB
-            print(f"\n  OVERSHOT: {measured_spl:.1f} dB > target "
-                  f"{target_spl_db:.1f} dB. Backing off to "
-                  f"{backed_off:.1f} dBFS.")
-            return CalibrationResult(
-                passed=True,
-                calibrated_level_dbfs=backed_off,
-                measured_spl_db=measured_spl,
-                steps_taken=step_num,
-            )
-
-        # --- Compute next step ---
-
-        # Determine step size based on proximity to target
-        distance_to_target = target_spl_db - measured_spl
-        if distance_to_target <= FINE_THRESHOLD_DB:
-            step_db = FINE_STEP_DB
-        else:
-            step_db = COARSE_STEP_DB
-
-        # Hard cap: never step by more than MAX_STEP_DB
-        step_db = min(step_db, MAX_STEP_DB)
-
-        next_level = current_level_dbfs + step_db
-
-        # Enforce thermal ceiling on next level
-        if next_level > thermal_ceiling_dbfs:
-            print(f"  (clamped to thermal ceiling {thermal_ceiling_dbfs:.1f} dBFS)")
-            next_level = thermal_ceiling_dbfs
-
-            # If we're already at the ceiling and still below target, we
-            # can't go any higher — report the best we achieved.
-            if current_level_dbfs >= thermal_ceiling_dbfs:
-                reason = (f"thermal ceiling reached ({thermal_ceiling_dbfs:.1f} dBFS) "
-                          f"but SPL only {measured_spl:.1f} dB "
-                          f"(target {target_spl_db:.1f} dB)")
+            # Check 1: Mic silence (cable disconnected, wrong device)
+            if peak_dbfs < MIC_SILENCE_PEAK_DBFS:
+                reason = (f"mic not detecting signal (peak {peak_dbfs:.1f} dBFS "
+                          f"< {MIC_SILENCE_PEAK_DBFS:.0f} dBFS threshold)")
                 print(f"\n  ABORT: {reason}")
                 return CalibrationResult(
                     passed=False,
@@ -439,17 +577,159 @@ def calibrate_channel(
                     abort_reason=reason,
                 )
 
-        current_level_dbfs = next_level
+            # Check 2: Hard SPL limit exceeded
+            if measured_spl >= hard_limit_spl_db:
+                reason = (f"measured SPL {measured_spl:.1f} dB >= hard limit "
+                          f"{hard_limit_spl_db:.1f} dB")
+                print(f"\n  ABORT: {reason}")
+                return CalibrationResult(
+                    passed=False,
+                    calibrated_level_dbfs=current_level_dbfs,
+                    measured_spl_db=measured_spl,
+                    steps_taken=step_num,
+                    abort_reason=reason,
+                )
 
-    # Exhausted maximum steps
-    reason = (f"max ramp steps ({MAX_RAMP_STEPS}) exhausted at "
-              f"{current_level_dbfs:.1f} dBFS, SPL {last_measured_spl:.1f} dB "
-              f"(target {target_spl_db:.1f} dB)")
-    print(f"\n  ABORT: {reason}")
-    return CalibrationResult(
-        passed=False,
-        calibrated_level_dbfs=current_level_dbfs,
-        measured_spl_db=last_measured_spl,
-        steps_taken=MAX_RAMP_STEPS,
-        abort_reason=reason,
-    )
+            # Check 3: At target (within tolerance)?
+            if abs(measured_spl - target_spl_db) <= SPL_TOLERANCE_DB:
+                print(f"\n  TARGET REACHED: {measured_spl:.1f} dB SPL "
+                      f"(target {target_spl_db:.1f} +/- {SPL_TOLERANCE_DB:.0f})")
+                return CalibrationResult(
+                    passed=True,
+                    calibrated_level_dbfs=current_level_dbfs,
+                    measured_spl_db=measured_spl,
+                    steps_taken=step_num,
+                )
+
+            # Check 4: Overshot target (above target + tolerance but below
+            # hard limit). GC-01: verify the backed-off level before accepting.
+            if measured_spl > target_spl_db + SPL_TOLERANCE_DB:
+                backed_off = current_level_dbfs - FINE_STEP_DB
+                print(f"\n  OVERSHOT: {measured_spl:.1f} dB > target "
+                      f"{target_spl_db:.1f} dB. Backing off to "
+                      f"{backed_off:.1f} dBFS.")
+
+                # GC-01: Play verification bursts at backed-off level
+                for verify_attempt in range(1, MAX_OVERSHOOT_RETRIES + 1):
+                    print(f"  Verification burst {verify_attempt}/{MAX_OVERSHOOT_RETRIES} "
+                          f"at {backed_off:.1f} dBFS ...", end="", flush=True)
+
+                    verify_noise = _generate_pink_noise(
+                        burst_duration_s, sr=sample_rate,
+                        level_dbfs=backed_off,
+                        f_low=PINK_NOISE_F_LOW, f_high=PINK_NOISE_F_HIGH)
+
+                    verify_rec = _play_burst_with_xrun_check(
+                        verify_noise, channel_index, output_device,
+                        input_device, sr=sample_rate)
+                    if verify_rec is None:
+                        reason = "persistent xruns during calibration"
+                        print(f"\n  ABORT: {reason}")
+                        return CalibrationResult(
+                            passed=False,
+                            calibrated_level_dbfs=backed_off,
+                            measured_spl_db=last_measured_spl,
+                            steps_taken=step_num,
+                            abort_reason=reason,
+                        )
+
+                    verify_spl, verify_peak = _compute_spl_from_recording(
+                        verify_rec, umik_sensitivity_dbfs_to_spl)
+                    last_measured_spl = verify_spl
+
+                    print(f" measured {verify_spl:.1f} dB SPL")
+
+                    # Check if verification burst is within tolerance
+                    if abs(verify_spl - target_spl_db) <= SPL_TOLERANCE_DB:
+                        print(f"\n  VERIFIED: {verify_spl:.1f} dB SPL at "
+                              f"{backed_off:.1f} dBFS")
+                        return CalibrationResult(
+                            passed=True,
+                            calibrated_level_dbfs=backed_off,
+                            measured_spl_db=verify_spl,
+                            steps_taken=step_num,
+                        )
+
+                    # Check if still too high
+                    if verify_spl > target_spl_db + SPL_TOLERANCE_DB:
+                        backed_off -= FINE_STEP_DB
+                        print(f"  Still too high. Backing off further to "
+                              f"{backed_off:.1f} dBFS.")
+                        continue
+
+                    # Below target after back-off — accept this level
+                    # (we're within a reasonable range)
+                    if verify_spl < target_spl_db - SPL_TOLERANCE_DB:
+                        print(f"\n  VERIFIED (below target): {verify_spl:.1f} dB SPL "
+                              f"at {backed_off:.1f} dBFS")
+                        return CalibrationResult(
+                            passed=True,
+                            calibrated_level_dbfs=backed_off,
+                            measured_spl_db=verify_spl,
+                            steps_taken=step_num,
+                        )
+
+                # Exhausted verification retries
+                reason = "could not converge to target after overshoot"
+                print(f"\n  ABORT: {reason}")
+                return CalibrationResult(
+                    passed=False,
+                    calibrated_level_dbfs=backed_off,
+                    measured_spl_db=last_measured_spl,
+                    steps_taken=step_num,
+                    abort_reason=reason,
+                )
+
+            # --- Compute next step ---
+
+            # Determine step size based on proximity to target
+            distance_to_target = target_spl_db - measured_spl
+            if distance_to_target <= FINE_THRESHOLD_DB:
+                step_db = FINE_STEP_DB
+            else:
+                step_db = COARSE_STEP_DB
+
+            # Hard cap: never step by more than MAX_STEP_DB
+            step_db = min(step_db, MAX_STEP_DB)
+
+            next_level = current_level_dbfs + step_db
+
+            # Enforce thermal ceiling on next level
+            if next_level > thermal_ceiling_dbfs:
+                print(f"  (clamped to thermal ceiling {thermal_ceiling_dbfs:.1f} dBFS)")
+                next_level = thermal_ceiling_dbfs
+
+                # If we're already at the ceiling and still below target, we
+                # can't go any higher — report the best we achieved.
+                if current_level_dbfs >= thermal_ceiling_dbfs:
+                    reason = (f"thermal ceiling reached ({thermal_ceiling_dbfs:.1f} dBFS) "
+                              f"but SPL only {measured_spl:.1f} dB "
+                              f"(target {target_spl_db:.1f} dB)")
+                    print(f"\n  ABORT: {reason}")
+                    return CalibrationResult(
+                        passed=False,
+                        calibrated_level_dbfs=current_level_dbfs,
+                        measured_spl_db=measured_spl,
+                        steps_taken=step_num,
+                        abort_reason=reason,
+                    )
+
+            current_level_dbfs = next_level
+
+        # Exhausted maximum steps
+        reason = (f"max ramp steps ({MAX_RAMP_STEPS}) exhausted at "
+                  f"{current_level_dbfs:.1f} dBFS, SPL {last_measured_spl:.1f} dB "
+                  f"(target {target_spl_db:.1f} dB)")
+        print(f"\n  ABORT: {reason}")
+        return CalibrationResult(
+            passed=False,
+            calibrated_level_dbfs=current_level_dbfs,
+            measured_spl_db=last_measured_spl,
+            steps_taken=MAX_RAMP_STEPS,
+            abort_reason=reason,
+        )
+    finally:
+        # GC-07/11: Ensure cleanup happens even on unexpected exceptions.
+        # The caller (measure_nearfield.py) handles CamillaDSP config
+        # restoration. This finally block is for local resource cleanup.
+        print("  Calibration ramp finished.")

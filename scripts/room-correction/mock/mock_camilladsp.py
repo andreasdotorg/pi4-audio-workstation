@@ -26,8 +26,9 @@ class MockProcessingState(enum.Enum):
 class _MockConfigNamespace:
     """Namespace for ``client.config.*`` methods."""
 
-    def __init__(self):
+    def __init__(self, measurement_mode=False):
         self._file_path = "/etc/camilladsp/active.yml"
+        self._measurement_mode = measurement_mode
 
     def file_path(self):
         """Return the current config file path."""
@@ -38,8 +39,13 @@ class _MockConfigNamespace:
         self._file_path = path
 
     def active(self):
-        """Return a production-like active config dict."""
-        return {
+        """Return the active config dict.
+
+        If measurement_mode is True, returns a config containing the
+        measurement attenuation filter (-20 dB gain).  Otherwise returns
+        a production-like config without measurement attenuation.
+        """
+        base = {
             "devices": {
                 "samplerate": 48000,
                 "chunksize": 2048,
@@ -58,6 +64,14 @@ class _MockConfigNamespace:
                 },
             },
         }
+        if self._measurement_mode:
+            base["filters"] = {
+                "ch0_gain": {
+                    "type": "Gain",
+                    "parameters": {"gain": -20.0},
+                },
+            }
+        return base
 
 
 class _MockGeneralNamespace:
@@ -73,12 +87,23 @@ class _MockGeneralNamespace:
 
 
 class MockCamillaClient:
-    """Drop-in replacement for ``camilladsp.CamillaClient``."""
+    """Drop-in replacement for ``camilladsp.CamillaClient``.
 
-    def __init__(self, host="localhost", port=1234):
+    Parameters
+    ----------
+    host : str
+        Ignored in mock mode.
+    port : int
+        Ignored in mock mode.
+    measurement_mode : bool
+        If True, ``config.active()`` returns a measurement config with
+        -20 dB attenuation filter.  Default False (production config).
+    """
+
+    def __init__(self, host="localhost", port=1234, measurement_mode=False):
         self._host = host
         self._port = port
-        self.config = _MockConfigNamespace()
+        self.config = _MockConfigNamespace(measurement_mode=measurement_mode)
         self.general = _MockGeneralNamespace()
 
     def connect(self):
