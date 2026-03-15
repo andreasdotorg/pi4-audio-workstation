@@ -50,7 +50,7 @@ pub enum PlayState {
 /// A command sent from the RPC thread to the RT process callback.
 ///
 /// Must be `Copy` -- no heap pointers, safe for lock-free SPSC transfer.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Command {
     pub kind: CommandKind,
 }
@@ -59,7 +59,7 @@ pub struct Command {
 ///
 /// The process callback drains ALL pending commands per quantum
 /// (multi-command-per-quantum semantics, AD-D037-6).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CommandKind {
     /// Start playback with the given parameters.
     Play {

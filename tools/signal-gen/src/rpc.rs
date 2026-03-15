@@ -559,7 +559,7 @@ pub fn format_line_too_long() -> String {
 
 /// Format an async event as a JSON line.
 pub fn format_event(event: &str) -> String {
-    let mut data = serde_json::Map::new();
+    let data = serde_json::Map::new();
     // Events can carry additional data depending on type.
     // The base event structure is minimal.
     let resp = EventResponse {
