@@ -613,3 +613,84 @@ executed regardless of when it was sent.
    sent, it will be executed unless explicitly cancelled. There is no
    implicit expiration. Treat every unsent cancellation as a pending
    protocol violation.
+
+---
+
+## L-020: Never raise a safety limit to compensate for a functional limitation — fix the functional limitation first
+
+**Date:** 2026-03-15
+**Context:** TK-224 — thermal ceiling raised from -20 dBFS to -6 dBFS to work around gain cal convergence failure caused by quantum 2048 routing race
+
+When the PipeWire quantum 2048 change caused gain calibration bursts to
+play into unrouted nodes (silence), the ramp could not converge because
+recorded levels stayed below threshold. A thermal ceiling raise from
+-20 dBFS to -6 dBFS was deployed as a workaround — making the ramp
+push harder to compensate for the silent bursts.
+
+**Why this is dangerous:** The thermal ceiling exists to protect speakers
+and amplifiers from excessive sustained power. Raising the ceiling does
+not fix the routing problem — it allows the ramp to send louder signals
+into an already-malfunctioning audio path. If the routing race condition
+resolves mid-ramp (which it can — it is intermittent), the burst that
+finally gets routed plays at a much higher level than intended. The
+safety limit was weakened to work around an unrelated bug.
+
+**Principle (AE):** Safety limits and functional limits serve different
+purposes. When a functional limitation (routing race) causes a feature
+to fail (gain cal convergence), the correct response is:
+1. Fix the functional limitation (persistent PortAudio stream, or
+   revert to quantum 256)
+2. Leave the safety limit unchanged (-20 dBFS thermal ceiling)
+
+The incorrect response is to raise the safety limit so that the feature
+"works" despite the underlying bug. This trades a visible failure (gain
+cal doesn't converge) for an invisible danger (louder-than-expected
+bursts when routing intermittently succeeds).
+
+**Fix:** The thermal ceiling was reverted to -20 dBFS. The quantum 2048
+change was reverted. The functional fix (persistent PortAudio stream)
+is tracked as TK-229 for medium-term implementation.
+
+---
+
+## L-021: Rushed hotfixes without DoD cause cascading failures
+
+**Date:** 2026-03-15
+**Context:** Three rapid deployments to Pi (`300c636`, `3861ecf`, quantum fix) — each introducing new problems
+
+Three commits were deployed to the Pi in quick succession during a single
+evening session, each attempting to fix a problem introduced or exposed
+by the previous deployment:
+
+1. `300c636` — deployed without PA-off confirmation (L-018 safety violation)
+2. `3861ecf` — thermal ceiling fix deployed despite owner saying "don't touch
+   it" (L-019 unauthorized deploy)
+3. Quantum 2048 fix — caused routing race condition, making gain cal bursts
+   play into silence, then thermal ceiling raised to compensate (L-020
+   safety limit compromise)
+
+Each hotfix was deployed without DoD review, without team sign-off, and
+under time pressure ("owner is waiting to test"). The cascading pattern:
+bug -> rushed fix -> new bug -> rushed fix -> safety compromise.
+
+**Root cause:** The L-017 DoD process (established that same day) was
+treated as applying only to "major" deployments, not to hotfixes. But
+hotfixes to safety-critical audio code ARE major deployments — they
+modify the signal path, the gain staging, and the safety limits. The
+distinction between "hotfix" and "feature" is irrelevant when the code
+controls 4x450W amplifiers.
+
+**Fix:**
+1. **ALL code deployed to the Pi goes through DoD review.** No "hotfix"
+   exception. If the code modifies session.py, gain_calibration.py, or
+   any file in the audio signal path, it requires AE + architect review
+   before deployment. Period.
+2. **Stop the cascade.** When a fix introduces a new problem, the correct
+   response is NOT another rapid fix. It is: (a) revert to last known
+   good state, (b) diagnose properly with AE, (c) implement a correct
+   fix, (d) review, (e) deploy. Each step takes time. That time is not
+   optional.
+3. **"Owner is waiting" is not a valid reason to skip safety review.**
+   The owner explicitly established the DoD requirement (L-017) because
+   of exactly this pattern. Rushing to satisfy the owner's immediate
+   desire to test violates the owner's own process directive.
