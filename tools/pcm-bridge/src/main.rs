@@ -133,12 +133,17 @@ fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<A
         .expect("Failed to connect to PipeWire daemon");
 
     let channels = args.channels;
+    let channels_str = channels.to_string();
 
     // Stream properties: capture from CamillaDSP's monitor ports.
     //
     // STREAM_CAPTURE_SINK = "true" tells PipeWire we want to capture
     // the output of a sink (i.e., monitor ports). TARGET_OBJECT names
     // the node to capture from.
+    //
+    // audio.channels is required for PipeWire to create the correct
+    // number of input ports. Without it, PipeWire defaults to 1 channel
+    // and WirePlumber cannot match against the 8-channel target sink.
     let props = pipewire::properties::properties! {
         "media.type" => "Audio",
         "media.category" => "Capture",
@@ -147,6 +152,7 @@ fn run_pipewire(args: &Args, ring: Arc<ring_buffer::RingBuffer>, shutdown: Arc<A
         "node.name" => "pcm-bridge",
         "node.description" => "PCM Bridge for Web UI",
         "node.always-process" => "true",
+        "audio.channels" => &*channels_str,
         // Capture from a sink's monitor ports (passive tap).
         "stream.capture.sink" => "true",
         "target.object" => &*args.target,
