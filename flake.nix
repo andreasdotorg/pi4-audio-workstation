@@ -44,6 +44,23 @@
           doCheck = false;  # tests need a running CamillaDSP instance
         };
 
+        # Python with test dependencies — shared by devShell, checks, and apps.
+        testPython = python.withPackages (ps: [
+          ps.mido
+          ps.python-rtmidi
+          ps.fastapi
+          ps.uvicorn
+          ps.scipy
+          ps.numpy
+          ps.soundfile
+          ps.websockets
+          ps.pyyaml
+          # Testing
+          ps.pytest
+          ps.httpx
+          pycamilladsp
+        ]);
+
         # nixGL wrapper for Mixxx on non-NixOS (Debian Trixie).
         # nixGLIntel is the Mesa wrapper — works for all Mesa drivers
         # including V3D on the Pi 4. Despite the "Intel" name, it sets
@@ -120,6 +137,10 @@
             pkgs.playwright-driver
           ];
 
+          # NOTE: devShell keeps its own python.withPackages (includes playwright/
+          # pytest-playwright which are NOT in testPython — e2e needs a browser).
+          # testPython is used by checks and apps below.
+
           buildInputs = [
             pkgs.libsndfile
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
@@ -141,6 +162,125 @@
 
             echo "pycamilladsp: $(python3 -c 'from camilladsp.versions import VERSION; print(VERSION)' 2>/dev/null || echo 'not available')"
           '';
+        };
+
+        # -----------------------------------------------------------------
+        # Checks — sandboxed test derivations for `nix flake check`
+        # -----------------------------------------------------------------
+        checks = {
+          test-web-ui = pkgs.runCommand "test-web-ui" {
+            nativeBuildInputs = [ testPython ];
+            PI_AUDIO_MOCK = "1";
+          } ''
+            cp -r ${./scripts/web-ui} web-ui
+            cp -r ${./scripts/room-correction} room-correction
+            chmod -R u+w web-ui room-correction
+            cd web-ui
+            python -m pytest tests/ -v -k "not e2e" --tb=short
+            touch $out
+          '';
+
+          test-room-correction = pkgs.runCommand "test-room-correction" {
+            nativeBuildInputs = [ testPython ];
+            PI_AUDIO_MOCK = "1";
+          } ''
+            cp -r ${./scripts/room-correction} room-correction
+            chmod -R u+w room-correction
+            cd room-correction
+            python -m pytest tests/ -v --tb=short
+            touch $out
+          '';
+
+          test-midi = pkgs.runCommand "test-midi" {
+            nativeBuildInputs = [ testPython ];
+            PI_AUDIO_MOCK = "1";
+          } ''
+            cp -r ${./scripts/midi} midi
+            cp -r ${./configs} configs
+            chmod -R u+w midi configs
+            cd midi
+            python -m pytest tests/ -v --tb=short
+            touch $out
+          '';
+
+          test-drivers = pkgs.runCommand "test-drivers" {
+            nativeBuildInputs = [ testPython ];
+            PI_AUDIO_MOCK = "1";
+          } ''
+            cp -r ${./scripts/drivers} drivers
+            mkdir -p scripts
+            ln -s "$PWD/drivers" scripts/drivers
+            chmod -R u+w drivers
+            cd drivers
+            python -m pytest tests/ -v --tb=short
+            touch $out
+          '';
+        };
+
+        # -----------------------------------------------------------------
+        # Apps — runnable test / dev commands via `nix run .#<name>`
+        # -----------------------------------------------------------------
+        apps = {
+          test-unit = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-unit" ''
+              export PI_AUDIO_MOCK=1
+              cd ${toString ./.}/scripts/web-ui
+              exec ${testPython}/bin/python -m pytest tests/ -v -k "not e2e" "$@"
+            ''}";
+          };
+
+          test-e2e = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-e2e" ''
+              export PI_AUDIO_MOCK=1
+              cd ${toString ./.}/scripts/web-ui
+              exec ${testPython}/bin/python -m pytest tests/e2e/ -v "$@"
+            ''}";
+          };
+
+          test-room-correction = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-room-correction" ''
+              export PI_AUDIO_MOCK=1
+              cd ${toString ./.}/scripts/room-correction
+              exec ${testPython}/bin/python -m pytest tests/ -v "$@"
+            ''}";
+          };
+
+          test-all = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-all" ''
+              export PI_AUDIO_MOCK=1
+              set -e
+              echo "=== web-ui unit tests ==="
+              cd ${toString ./.}/scripts/web-ui
+              ${testPython}/bin/python -m pytest tests/ -v -k "not e2e" --tb=short
+              echo ""
+              echo "=== room-correction tests ==="
+              cd ${toString ./.}/scripts/room-correction
+              ${testPython}/bin/python -m pytest tests/ -v --tb=short
+              echo ""
+              echo "=== midi tests ==="
+              cd ${toString ./.}/scripts/midi
+              ${testPython}/bin/python -m pytest tests/ -v --tb=short
+              echo ""
+              echo "=== drivers tests ==="
+              cd ${toString ./.}/scripts/drivers
+              ${testPython}/bin/python -m pytest tests/ -v --tb=short
+              echo ""
+              echo "All test suites passed."
+            ''}";
+          };
+
+          serve = {
+            type = "app";
+            program = "${pkgs.writeShellScript "serve" ''
+              export PI_AUDIO_MOCK=1
+              cd ${toString ./.}/scripts/web-ui
+              exec ${testPython}/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+            ''}";
+          };
         };
       }
     ))

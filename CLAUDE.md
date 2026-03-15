@@ -256,6 +256,9 @@ pre-flight checklists, and PREEMPT_RT as a safety requirement (D-013).
   checklists. **Read this before any audio-producing operation.**
 - `docs/architecture/rt-audio-stack.md` — RT audio stack architecture. Executive summary
   with key performance numbers, Mermaid pipeline diagram, detailed configuration.
+- `docs/guide/howto/development.md` — HOWTO for common development tasks. Nix
+  environment, running tests (`nix run` / `nix flake check`), dev server, Pi
+  deployment. **Read this before running any tests or commands.**
 - **Automated room correction pipeline** — NOT YET WRITTEN. This is the next major
   deliverable. See "Next Steps" below.
 
