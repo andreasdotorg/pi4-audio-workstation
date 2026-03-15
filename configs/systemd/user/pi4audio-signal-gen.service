@@ -1,0 +1,49 @@
+[Unit]
+Description=RT Signal Generator for Pi Audio Workstation (D-037)
+After=pipewire.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=/home/ela/bin/pi4audio-signal-gen \
+    --target loopback-8ch-sink \
+    --capture-target UMIK-1 \
+    --channels 8 \
+    --listen tcp:127.0.0.1:4001 \
+    --max-level-dbfs -20.0
+
+Restart=on-failure
+RestartSec=2
+
+# RT scheduling: inherited from PipeWire.
+# The signal generator uses RT_PROCESS streams, so PipeWire's data thread
+# invokes our process callbacks at its own RT priority (SCHED_FIFO/88 on
+# this system). We do NOT set CPUSchedulingPolicy here -- the binary itself
+# runs at normal priority; only the PW data thread callbacks are RT.
+# This matches how all PipeWire clients (Mixxx, Reaper) work: the application
+# thread is SCHED_OTHER, the PW callback thread is SCHED_FIFO.
+
+# Prevent OOM killer from targeting us during audio processing
+OOMScoreAdjust=-500
+
+# Resource limits
+LimitMEMLOCK=infinity
+LimitRTPRIO=88
+
+# Security hardening (SEC-D037-02)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=default.target
