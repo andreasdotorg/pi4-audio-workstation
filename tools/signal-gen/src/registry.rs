@@ -95,6 +95,17 @@ pub enum DeviceEvent {
     },
 }
 
+/// Default impl required by SpscQueue::new() for buffer initialization.
+/// The default value is never read as meaningful data.
+impl Default for DeviceEvent {
+    fn default() -> Self {
+        Self::Xrun {
+            stream: DeviceName::from_str(""),
+            count: 0,
+        }
+    }
+}
+
 /// Capacity of the device event queue. Hot-plug events are infrequent;
 /// 16 slots is generous.
 const DEVICE_EVENT_QUEUE_CAPACITY: usize = 16;
@@ -317,11 +328,11 @@ pub fn matches_watch_pattern(node_name: &str, pattern: &str) -> bool {
 /// * `conn_state` - Shared connection state flag.
 /// * `watch_pattern` - Device name pattern to match (e.g., "UMIK-1").
 pub fn register_registry_listener(
-    core: &pipewire::core::CoreRc,
+    core: &pipewire::core::Core,
     event_queue: std::sync::Arc<DeviceEventQueue>,
     conn_state: std::sync::Arc<CaptureConnectionState>,
     watch_pattern: String,
-) -> (pipewire::registry::RegistryRc, Box<dyn std::any::Any>) {
+) -> (pipewire::registry::Registry, Box<dyn std::any::Any>) {
     use std::cell::RefCell;
     use std::rc::Rc;
 

@@ -545,12 +545,12 @@ fn run_pipewire(
 ) {
     pipewire::init();
 
-    let mainloop = pipewire::main_loop::MainLoopRc::new(None)
+    let mainloop = pipewire::main_loop::MainLoop::new(None)
         .expect("Failed to create PipeWire main loop");
-    let context = pipewire::context::ContextRc::new(&mainloop, None)
+    let context = pipewire::context::Context::new(&mainloop)
         .expect("Failed to create PipeWire context");
     let core = context
-        .connect_rc(None)
+        .connect(None)
         .expect("Failed to connect to PipeWire daemon");
 
     let channels_str = args.channels.to_string();
@@ -571,7 +571,7 @@ fn run_pipewire(
     };
 
     let playback_stream =
-        pipewire::stream::StreamRc::new(&core, "pi4audio-signal-gen", playback_props)
+        pipewire::stream::Stream::new(&core, "pi4audio-signal-gen", playback_props)
             .expect("Failed to create PipeWire playback stream");
 
     let mut playback_params: [&libspa::pod::Pod; 0] = [];
@@ -593,7 +593,7 @@ fn run_pipewire(
     // Register the playback process callback.
     let _playback_listener = playback_stream
         .add_local_listener()
-        .process(move |stream: &pipewire::stream::Stream, _: &mut ()| {
+        .process(move |stream: &pipewire::stream::StreamRef, _: &mut ()| {
             unsafe {
                 let raw_buf =
                     pipewire_sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
@@ -692,7 +692,7 @@ fn run_pipewire(
     };
 
     let capture_stream =
-        pipewire::stream::StreamRc::new(&core, "pi4audio-signal-gen-capture", capture_props)
+        pipewire::stream::Stream::new(&core, "pi4audio-signal-gen-capture", capture_props)
             .expect("Failed to create PipeWire capture stream");
 
     let mut capture_params: [&libspa::pod::Pod; 0] = [];
@@ -702,7 +702,7 @@ fn run_pipewire(
     // Register the capture process callback.
     let _capture_listener = capture_stream
         .add_local_listener()
-        .process(move |stream: &pipewire::stream::Stream, _: &mut ()| {
+        .process(move |stream: &pipewire::stream::StreamRef, _: &mut ()| {
             unsafe {
                 let raw_buf =
                     pipewire_sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
@@ -790,13 +790,16 @@ fn run_pipewire(
     info!("PipeWire registry listener registered (watching: {})", args.device_watch);
 
     // Shutdown timer: poll the AtomicBool every 100ms and quit the PW loop.
+    // We capture the raw pointer because MainLoop is not Clone.
+    let mainloop_ptr = mainloop.as_raw_ptr();
     let _shutdown_timer = mainloop.loop_().add_timer({
         let shutdown = shutdown.clone();
-        let mainloop = mainloop.clone();
         move |_expirations| {
             if shutdown.load(Ordering::Relaxed) {
                 info!("Shutdown signal received, quitting PipeWire main loop");
-                mainloop.quit();
+                unsafe {
+                    pipewire_sys::pw_main_loop_quit(mainloop_ptr);
+                }
             }
         }
     });
@@ -811,7 +814,21 @@ fn run_pipewire(
     mainloop.run();
     info!("PipeWire main loop exited");
 
-    pipewire::deinit();
+    // Drop PipeWire objects in reverse order BEFORE calling deinit().
+    // Calling deinit() while stream/context/core are alive causes SIGSEGV
+    // because their Drop impls reference already-freed PipeWire internals.
+    drop(_shutdown_timer);
+    drop(_registry_listener);
+    drop(_registry);
+    drop(_capture_listener);
+    drop(capture_stream);
+    drop(_playback_listener);
+    drop(playback_stream);
+    drop(core);
+    drop(context);
+    drop(mainloop);
+
+    unsafe { pipewire::deinit(); }
 }
 
 // ---------------------------------------------------------------------------
