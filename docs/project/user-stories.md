@@ -2665,7 +2665,7 @@ session.
 and gain calibration (US-012) can be tested end-to-end without requiring
 physical hardware.
 
-**Status:** selected (architect design delivered, implementation not started)
+**Status:** in-progress (worker-mock-backend dispatched 2026-03-15; architect design delivered, TK-165 foundation done)
 **Depends on:** US-045 (hardware config schema provides device definitions)
 **Blocks:** US-047 implementation (owner directive: mock backend required for local testing)
 **Decisions:** D-035 (measurement safety)
