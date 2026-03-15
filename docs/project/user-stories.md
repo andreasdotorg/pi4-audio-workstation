@@ -2665,7 +2665,7 @@ session.
 and gain calibration (US-012) can be tested end-to-end without requiring
 physical hardware.
 
-**Status:** in-progress (owner-authorized 2026-03-14; Phase: IMPLEMENT — regressed from REVIEW after owner rejection. CI-tier DONE (4/4 DoD). E2E-tier implementation starting: 8 tasks filed (EH-1 through EH-8), 2 worker tracks. EH-1+EH-3 ready. Previous advisor sign-offs (Architect, QE, AE) apply to CI-tier only — E2E tier needs fresh review.)
+**Status:** in-progress (owner-authorized 2026-03-14; Phase: IMPLEMENT — E2E-tier 8/8 ALL DONE, pending Pi execution. CI-tier DONE (4/4 DoD). E2E-tier code complete: EH-1-8 all done. Tests require Pi (PipeWire) for execution. Advance to TEST once E2E tests pass on Pi. Previous CI-tier advisor sign-offs preserved — E2E tier needs fresh review.)
 **Depends on:** US-045 (hardware config schema provides device definitions)
 **Blocks:** US-047 implementation (owner directive: mock backend required for local testing)
 **Decisions:** D-035 (measurement safety)
