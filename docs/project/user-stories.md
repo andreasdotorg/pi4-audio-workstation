@@ -2665,7 +2665,7 @@ session.
 and gain calibration (US-012) can be tested end-to-end without requiring
 physical hardware.
 
-**Status:** in-progress (worker-mock-backend dispatched 2026-03-15; architect design delivered, TK-165 foundation done)
+**Status:** in-progress (owner-authorized 2026-03-14; Phase: IMPLEMENT complete — `_MockLevelsNamespace` committed `6cf1d12`, e2e tests committed `3b73bb3`. Pending TEST + REVIEW for story closure.)
 **Depends on:** US-045 (hardware config schema provides device definitions)
 **Blocks:** US-047 implementation (owner directive: mock backend required for local testing)
 **Decisions:** D-035 (measurement safety)
@@ -2717,7 +2717,7 @@ every web UI view,
 which tab I'm using — especially during measurement sessions when I'm not on
 the Dashboard.
 
-**Status:** selected (owner-authorized 2026-03-15; PO verified: AC complete, UX design complete)
+**Status:** in-progress (owner-authorized 2026-03-15; PO verified: AC complete, UX design complete. IMPLEMENT complete 2026-03-15: SB-1-6 done, SB-7 Phase A 12/12 PASS. Phase: TEST — formal QE test plan needed. Phase B Pi deployment pending.)
 **Depends on:** D-020 (web UI infrastructure), TK-097 (24-channel metering spec defines channel mapping)
 **Blocks:** US-053 (manual test tool needs the persistent frame)
 **Decisions:** D-020
@@ -2758,7 +2758,7 @@ PipeWire/JACK client at RT priority,
 controllable from the Python measurement daemon without per-burst stream setup
 overhead.
 
-**Status:** selected (owner-authorized 2026-03-15; D-037 APPROVED 2026-03-15, blocked on TK-151 pcm-bridge Pi validation)
+**Status:** in-progress (owner-authorized 2026-03-15; D-037 APPROVED 2026-03-15. Phase: IMPLEMENT — SG-1 done, SG-3 done, SG-9 done (3/12 subtasks). Pi integration tests blocked on TK-151 pcm-bridge validation.)
 **Depends on:** Architect design (new system component), Rust toolchain on Pi (partially validated via pcm-bridge TK-151; AD-F006 Pi validation must pass first)
 **Blocks:** US-053 (manual test tool), US-047 (amended: uses RT signal gen instead of Python sounddevice), US-012 (amended: gain calibration uses RT signal gen)
 **Decisions:** D-036 (measurement daemon architecture — signal gen becomes a subprocess/sidecar), D-009 (cut-only correction / hard level cap)
@@ -2805,7 +2805,7 @@ spectrum in real time,
 tools (e.g., REW on Windows), and verify system behavior before running
 automated measurement sessions.
 
-**Status:** selected (owner-authorized 2026-03-15; blocked on US-051 + US-052)
+**Status:** in-progress (owner-authorized 2026-03-15; Phase: IMPLEMENT — TT-1 scaffold done `f3fcfa2`. Blocked on US-051 frame + US-052 signal gen backend for full functionality.)
 **Depends on:** US-052 (RT signal generator provides the backend), US-051 (persistent status bar provides health monitoring frame), UX spec (lighter review — not full 5-phase gate, per PO recommendation; owner to confirm)
 **Blocks:** none (but enables debugging of TK-231 SPL computation and future measurement issues)
 **Decisions:** D-035 (measurement safety), D-009 (cut-only / gain limits)
