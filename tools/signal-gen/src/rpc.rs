@@ -80,6 +80,7 @@ pub struct AckResponse {
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub r#type: &'static str,
+    pub cmd: &'static str,
     pub ok: bool,
     pub playing: bool,
     pub recording: bool,
@@ -487,6 +488,7 @@ fn handle_status(latest_state: &StateSnapshot) -> HandleResult {
 
     let resp = StatusResponse {
         r#type: "ack",
+        cmd: "status",
         ok: true,
         playing: is_playing,
         recording: is_recording,
@@ -583,6 +585,7 @@ pub fn format_state_broadcast(snap: &StateSnapshot) -> String {
 
     let resp = StatusResponse {
         r#type: "state",
+        cmd: "status",
         ok: true,
         playing: is_playing,
         recording: is_recording,
@@ -995,6 +998,7 @@ mod tests {
             HandleResult::StatusJson(json_str) => {
                 let v: Value = serde_json::from_str(&json_str).unwrap();
                 assert_eq!(v["type"], "ack");
+                assert_eq!(v["cmd"], "status");
                 assert_eq!(v["ok"], true);
                 assert_eq!(v["playing"], true);
                 assert_eq!(v["recording"], false);
@@ -1110,6 +1114,7 @@ mod tests {
         let json = format_state_broadcast(&snap);
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["type"], "state");
+        assert_eq!(v["cmd"], "status");
         assert_eq!(v["playing"], false);
         assert_eq!(v["recording"], false);
     }
