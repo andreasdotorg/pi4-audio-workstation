@@ -1,0 +1,24 @@
+[package]
+name = "pi4audio-signal-gen"
+version = "0.1.0"
+edition = "2021"
+description = "RT signal generator for Pi audio workstation measurement and test tooling"
+license = "MIT"
+
+[dependencies]
+pipewire = "0.8"
+pipewire-sys = "0.8"
+libspa = "0.8"
+clap = { version = "4", features = ["derive"] }
+log = "0.4"
+env_logger = "0.11"
+signal-hook = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand_xoshiro = "0.7"
+rand_core = "0.9"
+
+[profile.release]
+opt-level = 2
+strip = true
+lto = "thin"

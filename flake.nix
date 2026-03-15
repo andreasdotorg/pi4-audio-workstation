@@ -132,6 +132,17 @@
             buildInputs = [ pkgs.pipewire ];
           };
 
+          # RT signal generator for measurement and test tooling (D-037).
+          # Always-on PipeWire streams eliminate WirePlumber routing races.
+          signal-gen = pkgs.rustPlatform.buildRustPackage {
+            pname = "pi4audio-signal-gen";
+            version = "0.1.0";
+            src = ./tools/signal-gen;
+            cargoLock.lockFile = ./tools/signal-gen/Cargo.lock;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.pipewire ];
+          };
+
           # Default package for `nix run .#` on Linux
           default = mixxx-wrapped;
         };
