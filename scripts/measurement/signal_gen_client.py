@@ -283,12 +283,20 @@ class SignalGenClient:
         if not ack.get("ok"):
             raise SignalGenError(f"playrec failed: {ack.get('error')}")
 
-        # Wait for playrec to finish.  The server transitions to
-        # playing=False, recording=False and sends a state broadcast.
-        # (The server does not currently emit a named "playrec_complete"
-        # event — it only pushes a state snapshot when the tail expires.)
-        self.wait_for_state(playing=False, recording=False,
-                            timeout=duration + 5.0)
+        # Wait for playrec to finish by polling status.  The server
+        # does not reliably push state broadcasts to the RPC client
+        # (SPSC queue delivery depends on RPC loop timing), so we
+        # actively poll with status() until playing/recording go false.
+        deadline = time.time() + duration + 5.0
+        while time.time() < deadline:
+            time.sleep(0.1)
+            st = self.status()
+            if not st.get("playing") and not st.get("recording"):
+                break
+        else:
+            raise TimeoutError(
+                f"playrec did not complete within {duration + 5.0}s"
+            )
 
         # Fetch the recorded audio
         recording = self.get_recording()
