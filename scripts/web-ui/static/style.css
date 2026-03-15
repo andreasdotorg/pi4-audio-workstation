@@ -1301,6 +1301,10 @@ html, body {
     transition: width 0.3s, background-color 0.3s;
 }
 
+.mw-level-fill-spl {
+    background: var(--cyan);
+}
+
 .mw-level-text {
     position: absolute;
     right: 8px;

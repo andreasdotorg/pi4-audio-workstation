@@ -395,6 +395,8 @@
         // Update level indicators
         var levelBar = $("mw-gcal-level-fill");
         if (levelBar) levelBar.style.width = "0%";
+        var splBar = $("mw-gcal-spl-fill");
+        if (splBar) splBar.style.width = "0%";
     }
 
     function updateGainCalStep(msg) {
@@ -408,6 +410,11 @@
 
         if (msg.spl_db != null) {
             setText("mw-gcal-spl-text", msg.spl_db.toFixed(1) + " dB SPL");
+            // Update SPL bar: map 40-100 dB SPL to 0-100% width
+            var splPct = Math.max(0, Math.min(100, (msg.spl_db - 40) / 60 * 100));
+            var splBar = $("mw-gcal-spl-fill");
+            if (splBar) splBar.style.width = splPct.toFixed(1) + "%";
+            setText("mw-gcal-spl-bar-text", msg.spl_db.toFixed(1) + " dB");
         }
 
         if (msg.step != null && msg.steps_total != null && msg.steps_total > 0) {
