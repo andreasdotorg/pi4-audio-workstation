@@ -1,0 +1,17 @@
+# Minimal CamillaDSP config for integration testing.
+# Uses File I/O backend — no audio hardware required.
+# Reads silence from /dev/zero, writes output to /dev/null.
+devices:
+  samplerate: 48000
+  chunksize: 2048
+  queuelimit: 4
+  capture:
+    type: File
+    channels: 2
+    filename: /dev/zero
+    format: S32LE
+  playback:
+    type: File
+    channels: 2
+    filename: /dev/null
+    format: S32LE

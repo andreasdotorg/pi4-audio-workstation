@@ -82,6 +82,32 @@
           ps.pytest-playwright
         ]);
 
+        # CamillaDSP binary for integration testing (TK-189).
+        # Built with websocket + file backend — no JACK/PulseAudio needed.
+        # The File capture/playback type is always compiled in (not a feature).
+        # Used by room-correction integration tests to replace MockCamillaClient.
+        camilladsp-test = pkgs.rustPlatform.buildRustPackage {
+          pname = "camilladsp";
+          version = "3.0.1";
+          src = pkgs.fetchFromGitHub {
+            owner = "HEnquist";
+            repo = "camilladsp";
+            rev = "v3.0.1";
+            hash = "sha256-IJ1sYprBh8ys1Og3T3newIDlBlR0PoQiblbJmzLbsfs=";
+          };
+          cargoLock.lockFile = ./tools/camilladsp-test/Cargo.lock;
+          # Default features = ["websocket"] — includes tungstenite WS server.
+          # No extra features needed: File I/O backend is always compiled in.
+          buildNoDefaultFeatures = false;
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs =
+            pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.alsa-lib ]
+            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+              pkgs.apple-sdk  # Provides AudioUnit, CoreAudio, CoreServices frameworks
+            ];
+          doCheck = false;  # CamillaDSP tests require audio hardware
+        };
+
         # nixGL wrapper for Mixxx on non-NixOS (Debian Trixie).
         # nixGLIntel is the Mesa wrapper — works for all Mesa drivers
         # including V3D on the Pi 4. Despite the "Intel" name, it sets
@@ -113,7 +139,10 @@
         };
       in
       {
-        packages = { } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        packages = {
+          # CamillaDSP with file backend for integration testing (all platforms).
+          inherit camilladsp-test;
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           # Unwrapped Mixxx (for NixOS or debugging)
           mixxx = pkgs.mixxx;
 
@@ -131,6 +160,10 @@
             nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
             buildInputs = [ pkgs.pipewire ];
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            BINDGEN_EXTRA_CLANG_ARGS = builtins.toString [
+              "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"
+              "-isystem ${pkgs.glibc.dev}/include"
+            ];
           };
 
           # RT signal generator for measurement and test tooling (D-037).
@@ -143,6 +176,10 @@
             nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
             buildInputs = [ pkgs.pipewire ];
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            BINDGEN_EXTRA_CLANG_ARGS = builtins.toString [
+              "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"
+              "-isystem ${pkgs.glibc.dev}/include"
+            ];
           };
 
           # Default package for `nix run .#` on Linux
@@ -153,6 +190,7 @@
           packages = [
             e2ePython
             pkgs.playwright-driver
+            camilladsp-test  # Real CamillaDSP for integration tests (TK-189)
           ];
 
           buildInputs = [
@@ -195,10 +233,11 @@
           '';
 
           test-room-correction = pkgs.runCommand "test-room-correction" {
-            nativeBuildInputs = [ testPython ];
+            nativeBuildInputs = [ testPython camilladsp-test ];
             PI_AUDIO_MOCK = "1";
           } ''
             cp -r ${./scripts/room-correction} room-correction
+            cp ${./tools/camilladsp-test/test_config.yml} room-correction/test_camilladsp.yml
             chmod -R u+w room-correction
             cd room-correction
             python -m pytest tests/ -v --tb=short
