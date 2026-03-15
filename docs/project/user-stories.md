@@ -2688,6 +2688,161 @@ do NOT need to run on macOS. One worker task to implement.
 
 ---
 
+## Tier 9 — Observable Tooling (owner strategic pivot 2026-03-15)
+
+Owner directive: build observable, controllable tools before further automation.
+Four deliverables: persistent status bar, RT signal generator, manual test tool
+page, spectrum visualization. These stories formalize the pivot.
+
+---
+
+## US-051: Persistent System Status Bar
+
+**As** the live sound engineer,
+**I want** a persistent status bar with mini 24-channel level meters, system
+health indicators, and an ABORT button visible across all web UI tabs,
+**so that** I always have peripheral awareness of audio state, clipping, and
+system health regardless of which page I am on — critical for live audio work
+where losing sight of meters while navigating can mean missing a clip or a
+system fault.
+
+**Status:** ready (PO verified 2026-03-15: AC complete, no dependencies, UX design complete)
+**Depends on:** none (uses existing `/ws/monitoring` and `/ws/system` WebSocket endpoints)
+**Blocks:** US-053 (test tool page relies on persistent status bar for ABORT and mode indication)
+**Decisions:** none yet
+**Tickets:** TK-225 (persistent status bar), TK-226 (mini 24-channel meters)
+
+**Note:** Owner promoted TK-225/226 from deferred backlog to essential (2026-03-15
+strategic pivot). UX design complete — see `docs/architecture/persistent-status-bar.md`.
+Zero additional Pi CPU: consumes only data already being streamed via existing
+WebSocket endpoints. No new backend collectors or endpoints required.
+
+**Acceptance criteria:**
+- [ ] Status bar rendered as fixed chrome between nav-bar and view content, visible on all tabs (Dashboard, System, Measure, Test, MIDI)
+- [ ] Mini level meters: 24 channels in a single horizontal row, grouped by function (MAIN, APP->DSP, DSP->OUT, PHYS IN) with color coding per TK-097 (white, cyan, green, amber)
+- [ ] Each meter: 4px wide, 20px tall vertical bar with peak hold and clip indicator
+- [ ] System health zone: DSP state (Run/Pause/Error), quantum, CPU temperature, CPU load
+- [ ] Mode indicator: current operational mode (DJ/Live/Measurement)
+- [ ] ABORT button: always visible in right zone when signal generator is playing (from US-052). One tap stops signal generator and mutes output
+- [ ] Mode-aware content: elements not applicable to current mode show "--" rather than disappearing (spatial memory preservation)
+- [ ] Glanceable at arm's length (1.5m) under stage lighting — uses color + shape (not color alone) for status encoding
+- [ ] Tab switching does not affect status bar — rendered outside `.view` container
+- [ ] No new WebSocket endpoints or backend collectors required
+
+**DoD:**
+- [ ] Status bar implemented per UX spec (`docs/architecture/persistent-status-bar.md`)
+- [ ] Statically validated (lint, syntax)
+- [ ] Playwright e2e tests: status bar visible on all tabs, meters update from `/ws/monitoring`, ABORT button appears/hides correctly
+- [ ] UX specialist sign-off on implementation fidelity
+- [ ] QE sign-off on test coverage
+
+---
+
+## US-052: Real-Time Signal Generator in Rust
+
+**As** the system operator,
+**I want** a dedicated Rust binary that maintains an always-on audio graph
+connection and generates test signals (sine, white noise, pink noise, sweep)
+controlled via TCP RPC,
+**so that** signal generation is glitch-free (no per-burst stream opening that
+causes WirePlumber routing races per TK-224), parameter changes are smooth
+(crossfade, phase-continuous frequency changes), and the tool is safe by design
+with hard level caps enforced in the binary itself.
+
+**Status:** draft
+**Depends on:** TK-151 (pcm-bridge Pi deployment validates Rust-on-Pi build chain per AD-F006)
+**Blocks:** US-053 (test tool page sends RPC commands to signal generator)
+**Decisions:** D-009 (cut-only correction / hard level cap), AD-F005 (scope expansion acknowledged), AD-F006 (validate pcm-bridge first)
+
+**Note:** Owner strategic pivot (2026-03-15). This replaces the Python
+`sd.playrec()` approach that caused TK-224 (pink noise glitches from per-burst
+stream opening + WirePlumber routing race). The RT signal generator is an
+always-on PipeWire graph node — it opens the audio stream once at startup and
+keeps it open. Signal type, frequency, level, and output channel are changed
+via RPC without closing/reopening the stream. TK-229 (persistent PortAudio
+stream) is SUPERSEDED by this story.
+
+**Owner decisions incorporated:**
+- **RPC:** TCP on 127.0.0.1, REST-like protocol, easy to debug (e.g., curl/netcat from SSH)
+- **Safety:** Hard level cap in the Rust binary (D-009 compliant: -0.5 dBFS maximum at every sample). Per-sample hard clip as final safety net — no software bug or RPC command can exceed this cap.
+- **Cross-compilation:** If cross-compilation from Mac to aarch64 is too complex, compile directly on the Pi (owner directive). TK-151 validates which approach works.
+- **RBAC:** Mandatory before production readiness — signal generator must not be controllable by unauthorized clients. Not blocking MVP but must be addressed before the system is exposed to venue networks.
+
+**Acceptance criteria:**
+- [ ] Rust binary using `pipewire-rs` (or JACK client) that connects to the audio graph at startup and maintains a persistent stream
+- [ ] Supports signal types: sine wave, white noise, pink noise, log sweep (20Hz-20kHz)
+- [ ] TCP RPC listener on 127.0.0.1 (configurable port), REST-like command format
+- [ ] RPC commands: start (signal type, channel, level, frequency), stop, set-level, set-frequency, set-signal-type, set-channel, status query
+- [ ] Hard level cap: -0.5 dBFS maximum enforced in Rust binary, per-sample hard clip as final safety net. No RPC command can override this cap.
+- [ ] Smooth transitions: channel change = fade out + fade in, level change = smooth ramp (no clicks), signal type change = crossfade, frequency change = phase-continuous
+- [ ] State reporting: binary pushes state changes to connected clients (playing/stopped, current channel, level, signal type, frequency)
+- [ ] Graceful degradation: if PipeWire/JACK is not available, binary starts but reports "not connected" via RPC status
+- [ ] Builds and runs on Raspberry Pi 4B aarch64 with PREEMPT_RT kernel
+- [ ] systemd service file for automatic startup
+
+**DoD:**
+- [ ] Binary written and compiles (on Pi or cross-compiled)
+- [ ] Statically validated (clippy, cargo check)
+- [ ] Unit tests for signal generation (correct frequency, correct level, hard clip enforcement)
+- [ ] Integration test: RPC command -> verify audio output on correct channel
+- [ ] Pi deployment test: binary runs under PREEMPT_RT, maintains stream for 30+ minutes without xruns
+- [ ] Audio engineer sign-off on signal quality (sine THD, pink noise spectrum shape)
+- [ ] Security specialist review of RPC interface (RBAC requirements documented even if not enforced in MVP)
+- [ ] Architect sign-off on PipeWire graph integration
+
+---
+
+## US-053: Manual Test Tool Page in Web UI
+
+**As** the live sound engineer,
+**I want** a manual test tool page in the web UI that provides signal generator
+controls, SPL readout, and real-time spectrum analysis on a single screen,
+**so that** I can verify routing, calibrate SPL readings, monitor the acoustic
+environment, and debug signal chain issues from any browser on the venue
+network without SSH access.
+
+**Status:** draft
+**Depends on:** US-051 (persistent status bar provides ABORT button and mode indication), US-052 (RT signal generator provides the audio output backend)
+**Blocks:** none
+**Decisions:** D-035 (measurement safety)
+**Tickets:** relates to TK-231 (SPL computation), TK-224 (pink noise glitches resolved by US-052)
+
+**Note:** Owner strategic pivot (2026-03-15) — build observable, controllable
+tools before further automation. UX design complete — see
+`docs/architecture/test-tool-page.md`. The test tool page is the operator's
+primary debugging surface. It replaces ad-hoc SSH commands
+(`jack-tone-generator.py`, `pw-play`) with a visual, interactive interface.
+
+**Owner decisions incorporated:**
+- **UMIK-1 robustness:** The page must be robust against the UMIK-1 not being connected. Spectrum monitoring degrades gracefully (shows "No mic detected" instead of crashing). Must support USB replugging — if UMIK-1 is disconnected and reconnected, the spectrum view recovers automatically without page reload.
+- **Test tool does not change risk profile:** The test tool is a manual, operator-controlled tool. It does not automate anything. Signal generation goes through the same safety-capped RT signal generator (US-052) as any other path. No new safety concerns beyond what D-009 and D-035 already cover.
+
+**Acceptance criteria:**
+- [ ] New "Test" tab in web UI navigation, accessible from all pages
+- [ ] Two-column layout (desktop/tablet): signal generator controls (left), measured signal display (right). Stacks vertically on phone screens.
+- [ ] Signal generator controls: signal type selection (Sine, White, Pink, Sweep), frequency slider (sine/sweep), output channel buttons (SatL, SatR, Sub1, Sub2, EngL, EngR, IEML, IEMR), level control with dBFS readout
+- [ ] Controls send RPC commands to the RT signal generator (US-052) via FastAPI backend proxy
+- [ ] Safe defaults: page loads with signal generator stopped, level at -40 dBFS, no channel selected. Operator must deliberately choose channel and level before anything plays.
+- [ ] Spectrum analyzer: real-time 1/3-octave display of UMIK-1 mic input (or main L+R when no mic), using existing `/ws/pcm` endpoint and browser-side FFT
+- [ ] SPL readout: numeric dB SPL display derived from mic input level + UMIK-1 sensitivity constant
+- [ ] Confirmed state display: shows state reported back FROM the signal generator (not echoed UI state). Operator sees what is actually happening, not what was requested.
+- [ ] UMIK-1 not present: spectrum panel shows "No mic detected — connect UMIK-1 for spectrum monitoring" with periodic retry. Page remains fully functional for signal generation.
+- [ ] UMIK-1 USB replug: spectrum view recovers automatically when UMIK-1 is reconnected, without requiring page reload
+- [ ] Signal generator not available: left panel shows "Signal generator not available" message with diagnostic info. Spectrum monitoring still works independently.
+- [ ] ABORT button in persistent status bar (US-051) stops signal generator when playing
+- [ ] All interactive elements: minimum 48x48px touch targets, readable at arm's length in venue lighting
+
+**DoD:**
+- [ ] Test tool page implemented per UX spec (`docs/architecture/test-tool-page.md`)
+- [ ] Statically validated (lint, syntax)
+- [ ] Playwright e2e tests: page navigation, signal controls, spectrum display, graceful degradation (no mic, no signal generator)
+- [ ] UX specialist sign-off on implementation fidelity
+- [ ] Audio engineer sign-off on SPL display accuracy and spectrum analyzer correctness
+- [ ] Security specialist confirmation that test tool does not change risk profile (per owner decision)
+- [ ] QE sign-off on test coverage
+
+---
+
 ## Process Gate: Measurement UI Development Cycle (owner directive 2026-03-14)
 
 **GATE:** US-047, US-048, and US-049 implementation is blocked until the
@@ -2781,4 +2936,8 @@ TK-160 (UX design) ──> TK-161 (specialist validation) ──> TK-162 (archit
 
 TK-139 (nixGL Mixxx) — independent, gates CPU budget for DJ mode web UI viability
 F-030 fix (TK-151) — independent, gates runtime power monitoring + DJ mode web UI
+
+US-051 (persistent status bar) — no dependencies, can start immediately
+TK-151 (pcm-bridge Pi validation) ──> US-052 (RT signal generator)
+US-051 + US-052 ──> US-053 (manual test tool page)
 ```
