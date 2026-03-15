@@ -128,8 +128,9 @@
             version = "0.1.0";
             src = ./tools/pcm-bridge;
             cargoLock.lockFile = ./tools/pcm-bridge/Cargo.lock;
-            nativeBuildInputs = [ pkgs.pkg-config ];
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
             buildInputs = [ pkgs.pipewire ];
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           };
 
           # RT signal generator for measurement and test tooling (D-037).
@@ -139,8 +140,9 @@
             version = "0.1.0";
             src = ./tools/signal-gen;
             cargoLock.lockFile = ./tools/signal-gen/Cargo.lock;
-            nativeBuildInputs = [ pkgs.pkg-config ];
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
             buildInputs = [ pkgs.pipewire ];
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           };
 
           # Default package for `nix run .#` on Linux
