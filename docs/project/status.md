@@ -48,27 +48,28 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 ## DoD Tracking
 
-| Story | Score | Status |
-|-------|-------|--------|
-| US-000 | 3/3 | **done** (all advisors signed off: audio engineer, security specialist, technical writer) |
-| US-000a | 4/4 | in-review (F-002 resolved: CamillaDSP systemd service; F-011 resolved: nfs-blkmap masked; verified across reboot in US-000b T7) |
-| US-000b | 13/13 | done (security specialist + architect signed off) |
-| US-001 | 4/4 | **done** (all 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 19.25%, T1d 6.35%, T1e 6.61%. 16k taps both modes. A1/A2 validated.) |
-| US-002 | 4/4 | **done** (Pass 1 + Pass 2 complete, lab notes written, A3 updated. D-011 confirmed. IEM passthrough = net benefit.) |
-| US-003 | 3/4 | in-progress (T3a PASS — owner approved based on real-world DJ use 2026-03-12. T3b PASS, T3c informational, T3e PASS. T3d unblocked -- pending Reaper end-to-end. T4 requires physical hardware.) |
-| US-004 | 3/4 | in-review (assumption register written with A1-A26, cross-references documented, CLAUDE.md updated. Accuracy corrections committed `0720f94`. **Gap:** AC mentions A27 but register only has A1-A26.) |
-| US-005 | 3/3 | **done** (owner confirms basic DJ functionality works 2026-03-12. Residual mapping work deferred.) |
-| US-006 | 3/3 | **done** (implicitly validated — owner actively DJing on Mixxx with Hercules on Pi 2026-03-12.) |
-| US-051 | 2/4 | **Phase: TEST** — IMPLEMENT complete (SB-1-6 done, SB-7 Phase A 12/12 PASS). (1) Status bar visible on all pages: code done, Pi not verified. (2) UX sign-off: pending (not yet requested). (3) No regressions: local checks pass, Pi validation pending. (4) 1280px viewport: local checks pass in SB-7. Formal QE test plan needed. Phase B (live Pi) blocked on deployment. |
-| US-052 | 1/6 | **Phase: IMPLEMENT** — D-037 approved (TK-234 done). SG-1 done (scaffold), SG-3 done (generators), SG-9 done (Python client). SG-2, SG-4, SG-5 ready. SG-6-8, SG-10-12 blocked. 3 of 12 subtasks complete. (1) Design doc: DONE. (2) Binary on Pi: not yet. (3) Integration test: not yet. (4) RT safety audit: not yet. (5) 5-min stability: not yet. (6) Lab note: not yet. |
-| US-053 | 0/6 | **Phase: IMPLEMENT** — TT-1 done (HTML/CSS scaffold). Blocked on US-051 (frame) + US-052 (signal gen backend) for full functionality. No DoD items completable yet — all require integrated system. |
+| Story | Phase | Score | Status |
+|-------|-------|-------|--------|
+| US-000 | done | 3/3 | **done** (all advisors signed off: audio engineer, security specialist, technical writer) |
+| US-000a | REVIEW | 4/4 | in-review (F-002 resolved: CamillaDSP systemd service; F-011 resolved: nfs-blkmap masked; verified across reboot in US-000b T7) |
+| US-000b | done | 13/13 | done (security specialist + architect signed off) |
+| US-001 | done | 4/4 | **done** (all 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 19.25%, T1d 6.35%, T1e 6.61%. 16k taps both modes. A1/A2 validated.) |
+| US-002 | done | 4/4 | **done** (Pass 1 + Pass 2 complete, lab notes written, A3 updated. D-011 confirmed. IEM passthrough = net benefit.) |
+| US-003 | IMPLEMENT | 3/4 | in-progress (T3a PASS — owner approved based on real-world DJ use 2026-03-12. T3b PASS, T3c informational, T3e PASS. T3d unblocked -- pending Reaper end-to-end. T4 requires physical hardware.) |
+| US-004 | REVIEW | 3/4 | in-review (assumption register written with A1-A26, cross-references documented, CLAUDE.md updated. Accuracy corrections committed `0720f94`. **Gap:** AC mentions A27 but register only has A1-A26.) |
+| US-005 | done | 3/3 | **done** (owner confirms basic DJ functionality works 2026-03-12. Residual mapping work deferred.) |
+| US-006 | done | 3/3 | **done** (implicitly validated — owner actively DJing on Mixxx with Hercules on Pi 2026-03-12.) |
+| US-050 | IMPLEMENT | 1/4 | IMPLEMENT complete — `_MockLevelsNamespace` committed `6cf1d12`, e2e tests `3b73bb3`. (1) Mock backend implemented: DONE. (2) E2e test scenario: DONE. (3) Architect sign-off: pending. (4) QE sign-off: pending. Pending TEST + REVIEW for closure. |
+| US-051 | IMPLEMENT | 2/4 | IMPLEMENT in progress — SB-1-6 done, SB-7 Phase A 12/12 PASS. **SB-7 Phase B (Pi validation) blocked on deployment.** (1) Status bar visible on all pages: code done, Pi not verified. (2) UX sign-off: pending. (3) No regressions: local checks pass, Pi pending. (4) 1280px viewport: local checks pass. Cannot advance to TEST until SB-7 Phase B completes. |
+| US-052 | IMPLEMENT | 1/6 | 3/12 subtasks done (SG-1 `ecad1d6`, SG-3 `a10bd95`, SG-9 `9cd316f`). SG-2, SG-4, SG-5 ready. SG-6-12 blocked. (1) Design doc: DONE. (2) Binary on Pi: not yet. (3) Integration test: not yet. (4) RT safety audit: not yet. (5) 5-min stability: not yet. (6) Lab note: not yet. |
+| US-053 | IMPLEMENT | 0/6 | TT-1 scaffold done (`f3fcfa2`). Blocked on US-051 (frame) + US-052 (signal gen backend). No DoD items completable yet — all require integrated system. |
 
 ## In Progress
 
 - **TK-202** (PAUSED): All 6 reviewers APPROVED. Paused due to owner strategic pivot — RT signal generator will address TK-224 root cause architecturally. Deployment resumes after RT signal gen operational. Review results preserved.
 - **TK-224** (PAUSED, was HIGH deployment blocker): Root cause (per-burst stream opening / WirePlumber routing race) will be addressed by RT signal generator. Previous fixes retained (cosine taper, pre-gen noise, reverts).
 - **TK-151** (in-progress, now gates RT signal gen): Rust pcm-bridge code written (281 lines). Pending CM commit + Pi deployment test. AD-F006: successful deployment validates Rust-on-Pi build chain for RT signal generator.
-- **US-051** (Phase: **TEST** — IMPLEMENT complete, formal test plan needed): Persistent system status bar with channel meters. SB-1 through SB-6 DONE, SB-4 DONE (reopened then completed). SB-7 Phase A PASS (12/12). SB-7 Phase B (live Pi testing) pending deployment. All code committed. Next: QE formal test plan, then Pi deployment (DEPLOY phase), then advisory REVIEW.
+- **US-051** (Phase: **IMPLEMENT** — blocked on DEPLOY for SB-7b Pi validation): Persistent system status bar with channel meters. SB-1 through SB-6 DONE, SB-4 DONE (reopened then completed). SB-7 Phase A PASS (12/12). SB-7 Phase B (live Pi testing) pending deployment. All code committed locally. Cannot advance to TEST until SB-7 Phase B completes on Pi.
 - **US-052** (Phase: **IMPLEMENT** — 3/12 subtasks done): Real-time signal generator in Rust. D-037 APPROVED (TK-234 DONE). **SG-1 through SG-12 filed.** SG-1 DONE (scaffold, `ecad1d6`), SG-3 DONE (generators, `a10bd95`), SG-9 DONE (Python client, `9cd316f`). SG-2, SG-4, SG-5 ready (next wave). 3 parallel tracks: Rust A (generators), Rust B (safety/RPC/capture), Python C (client). Critical path: SG-1->SG-4->SG-5->SG-6->SG-7->SG-8->SG-10->SG-11->SG-12. TK-151 nix build in progress (gates Pi integration tests). Supersedes TK-229. Blocks US-053, US-047, US-012.
 - **US-050** (Phase: **IMPLEMENT** — code delivered, pending test/review): Measurement pipeline mock backend. TK-165 foundation done (MockSoundDevice + MockCamillaClient). Enhancement committed (`6cf1d12`, `3b73bb3`): `_MockLevelsNamespace` + e2e tests. Blocks US-047.
 - **US-053** (Phase: **IMPLEMENT** — TT-1 scaffold done, blocked on US-051+US-052): Manual test tool page. TT-1 HTML/CSS scaffold DONE (`f3fcfa2`). UX spec complete (`test-tool-page.md`). Full functionality blocked on US-052 (signal gen backend) and US-051 (persistent status bar frame).

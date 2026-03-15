@@ -2717,7 +2717,7 @@ every web UI view,
 which tab I'm using — especially during measurement sessions when I'm not on
 the Dashboard.
 
-**Status:** in-progress (owner-authorized 2026-03-15; PO verified: AC complete, UX design complete. IMPLEMENT complete 2026-03-15: SB-1-6 done, SB-7 Phase A 12/12 PASS. Phase: TEST — formal QE test plan needed. Phase B Pi deployment pending.)
+**Status:** in-progress (owner-authorized 2026-03-15; PO verified: AC complete, UX design complete. Phase: IMPLEMENT — SB-1-6 done, SB-7 Phase A 12/12 PASS. SB-7 Phase B (Pi validation) blocked on deployment. Cannot advance to TEST until all implementation tasks verified on Pi.)
 **Depends on:** D-020 (web UI infrastructure), TK-097 (24-channel metering spec defines channel mapping)
 **Blocks:** US-053 (manual test tool needs the persistent frame)
 **Decisions:** D-020
