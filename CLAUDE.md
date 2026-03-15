@@ -48,13 +48,18 @@ you this. Seven times.**
    before doing ANYTHING after compaction.
 4. **Re-read this file, config.md, status.md, decisions.md, user-stories.md**
    before doing anything.
-5. **Maximize context by minimizing your own work.** Delegate everything. Your
+5. **Phase audit after compaction (L-022).** Verify that every in-progress
+   story has a current Phase value in the DoD tracking table and that the
+   phase matches reality. If the PM is alive, ask them to confirm. If
+   not, check directly. Phases: DECOMPOSE → PLAN → IMPLEMENT → TEST →
+   DEPLOY → VERIFY → REVIEW. Committed code is Phase 3 of 7 — not done.
+6. **Maximize context by minimizing your own work.** Delegate everything. Your
    job is to coordinate, not to do. Every command you run, every file you read,
    every tool call you make costs context. Message team members instead.
-6. **The change-manager coordinates BOTH git operations AND SSH access to the Pi.**
+7. **The change-manager coordinates BOTH git operations AND SSH access to the Pi.**
    Workers message change-manager to run Pi commands. Do not run Pi commands yourself.
-7. **Team name:** `pi4-audio`. 10 core members (see Team section below).
-8. See `~/mobile/gabriela-bogk/team-protocol/lessons-learned.md` — L-001, L-007,
+8. **Team name:** `pi4-audio`. 10 core members (see Team section below).
+9. See `~/mobile/gabriela-bogk/team-protocol/lessons-learned.md` — L-001, L-007,
    L-008, L-021, L-023, L-031, **L-037** are ALL about the orchestrator destroying
    the team. This has happened **SEVEN TIMES**. Documentation alone does not
    prevent this — hence the absolute rule requiring owner permission above.

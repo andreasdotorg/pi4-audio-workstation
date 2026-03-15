@@ -28,6 +28,22 @@ shut down at session end after completing the session-end checklist.
   Collect sign-off from each advisor during Review. Only after all advisors
   sign off AND the project owner accepts, move to done. Never skip owner
   acceptance.
+- **Story phase tracking (L-022, mandatory):** Every in-progress story MUST
+  have its current phase recorded in the DoD tracking table's Phase column.
+  Phases: DECOMPOSE → PLAN → IMPLEMENT → TEST → DEPLOY → VERIFY → REVIEW.
+  You update the Phase column at each transition. **Phase gate conditions
+  (you MUST verify before advancing):**
+  - → IMPLEMENT: Architect task breakdown delivered
+  - → TEST: All implementation tasks committed, workers report complete.
+    Request a formal test plan from QE for the story.
+  - → DEPLOY: QE test plan executed, all criteria pass
+  - → VERIFY: Deployment evidence recorded by CM
+  - → REVIEW: Post-deploy verification pass (or DEPLOY/VERIFY skipped with
+    rationale). Collect advisory sign-offs per review matrix.
+  - → done: All advisors signed off + owner accepted
+  If a gate cannot be met (e.g., no Pi for DEPLOY), the story stays in
+  its current phase with a blocker noted. Committed code is Phase 3 of 7 —
+  not done.
 - **Deliverable mapping:** Map stories to concrete technical deliverables
 - **Definition of Done:** Define and enforce DoD distinguishing between:
   - Code written (exists in the repo)

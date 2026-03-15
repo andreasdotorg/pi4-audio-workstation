@@ -694,3 +694,62 @@ controls 4x450W amplifiers.
    The owner explicitly established the DoD requirement (L-017) because
    of exactly this pattern. Rushing to satisfy the owner's immediate
    desire to test violates the owner's own process directive.
+
+---
+
+## L-022: Story lifecycle phases must be tracked structurally, not assumed
+
+**Date:** 2026-03-15
+**Context:** US-051 (status bar) — all subtasks (SB-1 through SB-6) committed and
+code-reviewed (SB-7a PASS), but story never moved beyond "selected" status. No
+formal TEST phase initiated, no REVIEW phase collected, no DoD score recorded.
+Owner observed: "I have the feeling we're back at 'job is done when code is written'."
+
+The PM tracked task-level progress diligently (every SB-* had status, commit hash,
+notes). But the story-level lifecycle was invisible: no record of which phase
+(DECOMPOSE → PLAN → IMPLEMENT → TEST → DEPLOY → VERIFY → REVIEW) the story was
+in, no DoD score in the tracking table, and no formal phase transitions triggered.
+
+**Root cause:** The protocol defines story phases (orchestration.md lines 222-361)
+and the PM prompt requires phase-aware tracking (role prompt lines 27-36), but
+there is no **structured format** that forces phase tracking. The task register
+has a table format with mandatory columns. The DoD tracking table has a format.
+But story phase tracking has no corresponding format — it lives only in prose
+descriptions in the "In Progress" section of status.md.
+
+When the format doesn't force it, the PM (and orchestrator) default to tracking
+what the format does capture: task completion. Completed tasks feel like progress,
+so the story feels "done" when all tasks are committed — even though phases 4-7
+haven't happened.
+
+**This is the third instance of premature "done":**
+- L-017: D-036 deployed without DoD review (mock tests ≠ DoD)
+- L-021: Hotfixes deployed without review (rushed cascading fixes)
+- L-022: US-051 subtasks all committed but TEST/REVIEW phases never initiated
+
+**Structural fixes (all applied in this commit):**
+
+1. **DoD tracking table gains a Phase column.** The status.md DoD table format
+   is extended from `| Story | Score | Status |` to
+   `| Story | Phase | Score | Status |`. Phase values: DECOMPOSE, PLAN,
+   IMPLEMENT, TEST, DEPLOY, VERIFY, REVIEW. The PM updates this column at
+   each phase transition. This makes the current phase visible at a glance.
+
+2. **Phase gate checklist added to PM role prompt.** Before the PM can update
+   the Phase column, they must verify the gate condition is met:
+   - IMPLEMENT → TEST: all tasks committed, worker reports complete
+   - TEST → DEPLOY: QE test plan executed, all pass
+   - DEPLOY → VERIFY: deployment evidence recorded
+   - VERIFY → REVIEW: post-deploy verification pass
+   - REVIEW → done: all advisors signed off + owner accepted
+   The PM cannot skip a gate. If a gate cannot be met (e.g., no Pi for DEPLOY),
+   the story stays in the current phase with a blocker noted.
+
+3. **Orchestrator compaction checklist includes phase audit.** After compaction,
+   the orchestrator verifies that in-progress stories have a current Phase value
+   and that the phase matches reality. This catches drift after context loss.
+
+**Prevention principle:** If a tracking obligation doesn't have a mandatory column
+in a table, it will be forgotten after compaction. Process rules in prose are
+read once and forgotten. Structured formats with mandatory fields are filled in
+every time the table is updated.
