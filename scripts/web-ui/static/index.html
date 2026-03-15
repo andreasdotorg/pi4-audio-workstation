@@ -26,6 +26,58 @@
     </div>
 </nav>
 
+<!-- Persistent status bar (32px) — visible on ALL tabs -->
+<div class="status-bar" id="status-bar">
+    <!-- Left: mini level meters -->
+    <div class="sb-meters">
+        <canvas class="sb-meter-canvas" id="sb-mini-main"
+                width="14" height="20" title="MAIN (ML, MR)"></canvas>
+        <div class="sb-meter-sep"></div>
+        <canvas class="sb-meter-canvas" id="sb-mini-app"
+                width="29" height="20" title="APP>DSP (A3-A8)"></canvas>
+        <div class="sb-meter-sep"></div>
+        <canvas class="sb-meter-canvas" id="sb-mini-dspout"
+                width="39" height="20" title="DSP>OUT (SatL-IR)"></canvas>
+        <div class="sb-meter-sep"></div>
+        <canvas class="sb-meter-canvas" id="sb-mini-physin"
+                width="39" height="20" title="PHYS IN (Mic-P8)"></canvas>
+    </div>
+
+    <!-- Center: system health -->
+    <div class="sb-health">
+        <span class="sb-health-item">
+            <span class="sb-label">DSP:</span><span class="sb-value" id="sb-dsp-state">--</span>
+        </span>
+        <span class="sb-health-item">
+            <span class="sb-label">Q:</span><span class="sb-value" id="sb-quantum">--</span>
+        </span>
+        <span class="sb-health-item">
+            <span class="sb-label">Clip:</span><span class="sb-value" id="sb-clip">0</span>
+        </span>
+        <span class="sb-health-item">
+            <span class="sb-label">Xr:</span><span class="sb-value" id="sb-xruns">0</span>
+        </span>
+    </div>
+
+    <!-- Center: measurement progress (hidden when not measuring) -->
+    <div class="sb-measure-progress hidden" id="sb-measure-progress">
+        <span class="sb-measure-step" id="sb-measure-step">--</span>
+        <div class="sb-measure-bar">
+            <div class="sb-measure-bar-fill" id="sb-measure-bar-fill"></div>
+        </div>
+        <span class="sb-measure-pct" id="sb-measure-pct">--%</span>
+    </div>
+
+    <!-- Right: temp, CPU, mode, ABORT -->
+    <div class="sb-right">
+        <span class="sb-value sb-temp" id="sb-temp">--</span>
+        <span class="sb-value sb-cpu" id="sb-cpu">--</span>
+        <div class="sb-sep"></div>
+        <span class="sb-mode-badge" id="sb-mode">--</span>
+        <button class="sb-abort-btn hidden" id="sb-abort-btn">ABORT</button>
+    </div>
+</div>
+
 <!-- VIEW: Dashboard — Dense single-screen engineer view -->
 <div class="view active" id="view-dashboard">
 

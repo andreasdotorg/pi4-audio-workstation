@@ -27,6 +27,7 @@
     --meter-peak: #ffffff;
 
     --nav-height: 28px;
+    --status-bar-height: 32px;
     --health-bar-height: 20px;
 
     --font-body: "Inter", "JetBrains Mono", system-ui, sans-serif;
@@ -147,13 +148,180 @@ html, body {
 
 .view {
     display: none;
-    height: calc(100vh - var(--nav-height));
+    height: calc(100vh - var(--nav-height) - var(--status-bar-height));
     overflow: hidden;
 }
 
 .view.active {
     display: flex;
     flex-direction: column;
+}
+
+/* -- Persistent status bar (32px) ---------------------------------------- */
+
+.status-bar {
+    display: flex;
+    align-items: center;
+    height: var(--status-bar-height);
+    padding: 0 8px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 8px;
+    font-size: 9px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-numeric);
+}
+
+/* -- Mini meters --------------------------------------------------------- */
+
+.sb-meters {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.sb-meter-canvas {
+    display: block;
+    image-rendering: pixelated;
+}
+
+.sb-meter-sep {
+    width: 1px;
+    height: 12px;
+    background: var(--border);
+    margin: 0 2px;
+}
+
+/* -- System health (center) ---------------------------------------------- */
+
+.sb-health {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.sb-health-item {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.sb-label {
+    color: var(--text-dim);
+}
+
+.sb-value {
+    color: var(--text);
+}
+
+/* -- Measurement progress ------------------------------------------------ */
+
+.sb-measure-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    padding: 0 8px;
+    border-left: 1px solid var(--border);
+}
+
+.sb-measure-step {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--yellow);
+    white-space: nowrap;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sb-measure-bar {
+    width: 60px;
+    height: 8px;
+    background: var(--bg-bar);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.sb-measure-bar-fill {
+    height: 100%;
+    background: var(--cyan);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+}
+
+.sb-measure-pct {
+    font-size: 8px;
+    color: var(--text-dim);
+    width: 24px;
+    text-align: right;
+}
+
+/* -- Right zone ---------------------------------------------------------- */
+
+.sb-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.sb-temp {
+    font-size: 9px;
+}
+
+.sb-cpu {
+    font-size: 9px;
+}
+
+.sb-sep {
+    width: 1px;
+    height: 12px;
+    background: var(--border);
+}
+
+.sb-mode-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--blue);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 8px;
+    line-height: 1.4;
+}
+
+/* -- ABORT button -------------------------------------------------------- */
+
+.sb-abort-btn {
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 4px 12px;
+    border: 2px solid var(--red);
+    border-radius: 3px;
+    background: rgba(229, 69, 58, 0.15);
+    color: var(--red);
+    cursor: pointer;
+    min-width: 48px;
+    min-height: 28px;
+    transition: background 0.15s;
+}
+
+.sb-abort-btn:hover {
+    background: rgba(229, 69, 58, 0.3);
+}
+
+.sb-abort-btn:active {
+    background: rgba(229, 69, 58, 0.5);
 }
 
 /* -- Health bar (20px) ---------------------------------------------------- */
@@ -1511,6 +1679,30 @@ html, body {
 /* Mobile (phone at venue) — ensure touch targets */
 
 @media (max-width: 600px) {
+    /* Status bar: hide APP>DSP and PHYS IN mini meters on phone */
+    #sb-mini-app,
+    #sb-mini-physin,
+    .sb-meters .sb-meter-sep:nth-child(2),
+    .sb-meters .sb-meter-sep:nth-child(6) {
+        display: none;
+    }
+
+    /* Status bar: compress center zone to xruns only */
+    .sb-health-item:not(:last-child) {
+        display: none;
+    }
+
+    .sb-abort-btn {
+        min-height: 40px;
+        min-width: 56px;
+        font-size: 11px;
+    }
+
+    .sb-measure-step {
+        max-width: 80px;
+    }
+
+    /* Measurement wizard */
     .mw-btn-hero {
         width: 100%;
         min-height: 64px;
@@ -1539,6 +1731,18 @@ html, body {
     .mw-channel-chip {
         min-height: 36px;
         padding: 6px 12px;
+    }
+}
+
+@media (max-width: 400px) {
+    /* Ultra-compact: MAIN + first 4 DSP>OUT only */
+    .sb-meters {
+        max-width: 80px;
+        overflow: hidden;
+    }
+
+    .sb-measure-progress {
+        display: none;
     }
 }
 
