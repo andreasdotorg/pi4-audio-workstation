@@ -44,7 +44,7 @@
           doCheck = false;  # tests need a running CamillaDSP instance
         };
 
-        # Python with test dependencies — shared by devShell, checks, and apps.
+        # Python with test dependencies — shared by checks and unit-test apps.
         testPython = python.withPackages (ps: [
           ps.mido
           ps.python-rtmidi
@@ -59,6 +59,27 @@
           ps.pytest
           ps.httpx
           pycamilladsp
+        ]);
+
+        # Python with e2e dependencies — adds playwright on top of testPython's deps.
+        # Used by test-e2e app and devShell.
+        e2ePython = python.withPackages (ps: [
+          ps.mido
+          ps.python-rtmidi
+          ps.fastapi
+          ps.uvicorn
+          ps.scipy
+          ps.numpy
+          ps.soundfile
+          ps.websockets
+          ps.pyyaml
+          # Testing
+          ps.pytest
+          ps.httpx
+          pycamilladsp
+          # E2E / browser testing
+          ps.playwright
+          ps.pytest-playwright
         ]);
 
         # nixGL wrapper for Mixxx on non-NixOS (Debian Trixie).
@@ -117,29 +138,9 @@
 
         devShells.default = pkgs.mkShell {
           packages = [
-            (python.withPackages (ps: [
-              ps.mido
-              ps.python-rtmidi
-              ps.fastapi
-              ps.uvicorn
-              ps.scipy
-              ps.numpy
-              ps.soundfile
-              ps.websockets
-              ps.pyyaml
-              # Testing
-              ps.pytest
-              ps.httpx
-              ps.playwright
-              ps.pytest-playwright
-              pycamilladsp
-            ]))
+            e2ePython
             pkgs.playwright-driver
           ];
-
-          # NOTE: devShell keeps its own python.withPackages (includes playwright/
-          # pytest-playwright which are NOT in testPython — e2e needs a browser).
-          # testPython is used by checks and apps below.
 
           buildInputs = [
             pkgs.libsndfile
@@ -234,8 +235,10 @@
             type = "app";
             program = "${pkgs.writeShellScript "test-e2e" ''
               export PI_AUDIO_MOCK=1
+              export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
+              export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
               cd ${toString ./.}/scripts/web-ui
-              exec ${testPython}/bin/python -m pytest tests/e2e/ -v "$@"
+              exec ${e2ePython}/bin/python -m pytest tests/e2e/ -v "$@"
             ''}";
           };
 

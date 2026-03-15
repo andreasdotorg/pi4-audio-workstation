@@ -13,21 +13,29 @@ all Python dependencies is `flake.nix`.
 
 ### 1.1 Running Tests and Commands
 
-Use `nix run` for reproducible, sandboxed execution. These targets provide the
-correct Python environment with all dependencies from the Nix closure:
+**`nix flake check`** is the gold standard: pure, sandboxed derivations with
+no access to the host environment. It runs four checks:
 
 ```sh
-nix flake check              # Pure, sandboxed, CI-grade — runs all checks
-nix run .#test-unit          # All unit test suites
-nix run .#test-room-correction  # Room correction DSP tests only
-nix run .#test-e2e           # Playwright e2e tests (needs browser)
-nix run .#test-all           # All test suites (unit + e2e)
-nix run .#serve              # Dev server (mock mode)
+nix flake check    # Runs all four checks in the Nix sandbox:
+                   #   test-web-ui           (web UI unit/integration tests)
+                   #   test-room-correction  (DSP pipeline tests)
+                   #   test-midi             (MIDI daemon tests)
+                   #   test-drivers          (driver validation tests)
 ```
 
-`nix flake check` is the gold standard: it runs in a pure sandbox with no
-access to the host environment. If it passes, the code is reproducible. This
-is what CI runs.
+If `nix flake check` passes, the code is reproducible. This is what CI runs.
+
+**`nix run .#<target>`** runs tests impurely against the working tree (picks
+up uncommitted changes). Use these during development:
+
+```sh
+nix run .#test-unit             # Web UI unit tests (excludes e2e)
+nix run .#test-room-correction  # Room correction DSP tests
+nix run .#test-e2e              # Playwright e2e tests
+nix run .#test-all              # All four suites sequentially
+nix run .#serve                 # Dev server (mock mode, 0.0.0.0:8080)
+```
 
 ### 1.2 Interactive Development
 
@@ -108,13 +116,16 @@ state) and are skipped by default. They require the `--destructive` flag.
 ### 2.4 MIDI Daemon and Driver Tests
 
 Located in `scripts/midi/tests/` and `scripts/drivers/tests/` respectively.
-Included in `nix run .#test-unit` and `nix run .#test-all`.
+These do not have individual `nix run` targets. They are included in:
+
+- `nix flake check` (as `test-midi` and `test-drivers` checks)
+- `nix run .#test-all` (runs all four suites sequentially)
 
 ### 2.5 Running Everything
 
 ```sh
-nix flake check    # CI-grade, pure sandbox, all checks
-nix run .#test-all # All test suites in one command
+nix flake check    # CI-grade, pure sandbox — 4 checks
+nix run .#test-all # All 4 suites sequentially against working tree
 ```
 
 
@@ -128,15 +139,17 @@ develop and test without audio hardware.
 nix run .#serve
 ```
 
-The UI will be available at `http://127.0.0.1:8080`.
+This starts uvicorn with `--reload` on `0.0.0.0:8080` in mock mode. The UI
+will be available at `http://localhost:8080`. The `--reload` flag watches for
+file changes and restarts the server automatically.
 
-For interactive development with hot-reload or custom options, use the
+For interactive development (e.g., custom host/port, debugging), use the
 development shell:
 
 ```sh
 nix develop
 cd scripts/web-ui
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8080 --reload
+python -m uvicorn app.main:app --host 127.0.0.1 --port 9000 --reload
 ```
 
 
