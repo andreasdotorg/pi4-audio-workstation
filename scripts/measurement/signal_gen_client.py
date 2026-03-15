@@ -186,12 +186,19 @@ class SignalGenClient:
         """Read messages until we get the ack for our command.
 
         Buffers interleaved state updates and events (AD-D037-5).
+
+        Matching logic: an ack message matches if ``type == "ack"`` AND
+        either ``cmd == expected_cmd`` or the ``cmd`` field is absent
+        (backwards-compatible with server builds where StatusResponse
+        did not include a ``cmd`` field).
         """
         while True:
             msg = self._read_line()
             msg_type = msg.get("type")
-            if msg_type == "ack" and msg.get("cmd") == expected_cmd:
-                return msg
+            if msg_type == "ack":
+                msg_cmd = msg.get("cmd")
+                if msg_cmd == expected_cmd or msg_cmd is None:
+                    return msg
             if msg_type == "event":
                 self._pending_events.append(msg)
             elif msg_type == "state":
@@ -276,8 +283,12 @@ class SignalGenClient:
         if not ack.get("ok"):
             raise SignalGenError(f"playrec failed: {ack.get('error')}")
 
-        # Wait for playrec_complete event
-        self.wait_for_event("playrec_complete", timeout=duration + 5.0)
+        # Wait for playrec to finish.  The server transitions to
+        # playing=False, recording=False and sends a state broadcast.
+        # (The server does not currently emit a named "playrec_complete"
+        # event — it only pushes a state snapshot when the tail expires.)
+        self.wait_for_state(playing=False, recording=False,
+                            timeout=duration + 5.0)
 
         # Fetch the recorded audio
         recording = self.get_recording()
