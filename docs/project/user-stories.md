@@ -2665,7 +2665,7 @@ session.
 and gain calibration (US-012) can be tested end-to-end without requiring
 physical hardware.
 
-**Status:** in-progress (owner-authorized 2026-03-14; Phase: TEST — all implementation done. Full test suite PASS: 15/15 e2e + 282/282 regression. Gap analysis delivered. Architect + QE reviews initiated 2026-03-15.)
+**Status:** in-review (owner-authorized 2026-03-14; Phase: REVIEW — all 4/4 DoD pass. DEPLOY/VERIFY skipped (mock backend, no Pi component). Architect APPROVED, QE APPROVED. AE review initiated. Pending AE sign-off + owner acceptance.)
 **Depends on:** US-045 (hardware config schema provides device definitions)
 **Blocks:** US-047 implementation (owner directive: mock backend required for local testing)
 **Decisions:** D-035 (measurement safety)
