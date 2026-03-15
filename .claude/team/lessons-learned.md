@@ -531,3 +531,85 @@ the premature D-036 COMPLETE declaration that was reverted twice). The pattern:
 pressure to show progress on real hardware leads to skipping the formal review
 gate. The fix is mechanical — the PM blocks deployment until the DoD checklist
 is signed off, regardless of schedule pressure.
+
+---
+
+## L-018: Always enforce PA-off safety protocol before ANY deployment — even hotfixes
+
+**Date:** 2026-03-15
+**Context:** Commits `300c636` and `3861ecf` deployed to Pi while PA was ON
+
+The CM deployed two commits to the Pi while the PA amplifier was on. Service
+restarts cause USBStreamer transients through the 4x450W amplifier chain —
+a documented safety risk (see CLAUDE.md safety rules, 2026-03-10 owner
+directive). The orchestrator authorized the deployment without asking the
+owner to confirm PA-off first.
+
+**What happened:**
+1. Owner was waiting to test, creating time pressure
+2. Orchestrator told the CM to deploy without enforcing PA-off protocol
+3. Service restarts on the Pi caused USBStreamer transients through live amplifiers
+4. No physical damage occurred (this time), but the risk was real
+
+**Root cause:** The orchestrator rushed the deployment under perceived time
+pressure from the owner waiting to test. The PA-off safety protocol was
+treated as optional for "quick hotfixes" — it is not. Every deployment
+restarts the web UI service, which can cause audio stream interruptions
+that propagate as transients through the amplifier chain.
+
+**Fix:**
+1. **Before ANY deployment to the Pi** (including hotfixes, even single-line
+   changes), the orchestrator MUST ask the owner: "Is the PA off? Safe to
+   deploy?" and receive explicit confirmation.
+2. There are NO exceptions. Not for urgency, not for "it's just a small
+   change," not for "the owner is waiting." The safety protocol exists
+   precisely for situations where pressure makes shortcuts tempting.
+3. The CM should independently refuse to deploy if PA-off has not been
+   confirmed in the conversation. This is a defense-in-depth measure —
+   the CM is the last gate before code hits the Pi.
+4. Add PA-off confirmation as a mandatory step in the deploy-verify
+   protocol (not just a CLAUDE.md note).
+
+**Rule reference:** CLAUDE.md safety rules (2026-03-10 owner directive),
+D-025 (deployment sequencing). See also L-017 (don't deploy without DoD).
+
+---
+
+## L-019: When the owner says "don't touch X", immediately cancel ALL outstanding instructions related to X
+
+**Date:** 2026-03-15
+**Context:** Commit `3861ecf` (thermal ceiling fix) deployed after owner said "Keep your fingers off this thermal ceiling fix"
+
+The owner explicitly told the orchestrator not to deploy a thermal ceiling
+fix. However, the orchestrator had already sent deployment instructions to
+the CM before the owner's directive arrived. The orchestrator failed to
+retract the outstanding instructions, and the CM executed them — deploying
+the exact change the owner had forbidden.
+
+**What happened:**
+1. Orchestrator sent CM instructions to deploy thermal ceiling fix
+2. Owner said "Keep your fingers off this thermal ceiling fix"
+3. Orchestrator did not send a cancellation message to the CM
+4. CM, having already received the deployment instruction, executed it
+5. The forbidden change was deployed to the Pi
+
+**Root cause:** The orchestrator treated the owner's directive as applying
+only to future actions, not to instructions already in flight. But the CM
+processes messages sequentially — an unretracted instruction will be
+executed regardless of when it was sent.
+
+**Fix:**
+1. **When the owner says "don't touch X":** immediately send a cancellation
+   to EVERY team member who may have received instructions related to X.
+   Do not assume they will "notice" the owner's directive — they may be
+   mid-execution or processing a message queue.
+2. **The cancellation must be explicit:** "CANCEL: Do NOT deploy the thermal
+   ceiling fix. Owner directive." Not a subtle update or status message —
+   an unambiguous cancellation.
+3. **After sending the cancellation:** confirm with the CM/worker that the
+   cancellation was received and that the forbidden action was NOT executed.
+   If it was already executed, report to the owner immediately.
+4. **Outstanding instructions are live missiles.** The moment a message is
+   sent, it will be executed unless explicitly cancelled. There is no
+   implicit expiration. Treat every unsent cancellation as a pending
+   protocol violation.
