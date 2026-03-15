@@ -667,10 +667,7 @@ class MeasurementSession:
                 output_device=self._config.output_device,
                 input_device=self._config.input_device,
                 umik_sensitivity_dbfs_to_spl=self._config.umik_sensitivity_dbfs_to_spl,
-                thermal_ceiling_dbfs=min(
-                    ch.thermal_ceiling_dbfs - _MEASUREMENT_ATTENUATION_DB,
-                    -3.0,  # Never exceed -3 dBFS to avoid digital clipping
-                ),
+                thermal_ceiling_dbfs=ch.thermal_ceiling_dbfs,
                 camilladsp_client=self._cdsp_client,
                 ws_server=adapter, channel_name=ch.name,
                 measurement_attenuation_db=(
