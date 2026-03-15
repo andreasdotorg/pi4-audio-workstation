@@ -29,9 +29,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine as _;
 use clap::Parser;
 use log::{error, info, warn};
 
+use capture::CaptureRingBuffer;
 use command::{
     Command, CommandKind, CommandQueue, PlayState, SignalType, StateQueue, StateSnapshot,
 };
@@ -40,6 +42,7 @@ use generator::{
     WhiteNoiseGenerator,
 };
 use ramp::FadeRamp;
+use registry::{CaptureConnectionState, DeviceEventQueue};
 use rpc::MAX_LINE_LENGTH;
 use safety::SafetyLimits;
 
@@ -173,13 +176,19 @@ pub(crate) struct ProcessState {
     burst_remaining: Option<u64>,
     pending_stop: bool,
 
+    // Capture state
+    /// Whether playrec is in progress (coordinating play + capture).
+    playrec_active: bool,
+    /// Tail samples remaining after playback finishes during playrec.
+    /// Capture continues for this many samples to catch reverb tail.
+    playrec_tail_remaining: Option<u64>,
+    /// Tail duration in samples (configurable, default 500ms worth).
+    playrec_tail_samples: u64,
+
     // Counters
     samples_generated: u64,
     elapsed_samples: u64,
     duration_samples: u64,
-
-    // Queues (references held via raw pointers for the callback)
-    // These are actually Arc-shared, but the callback captures them.
 }
 
 impl ProcessState {
@@ -191,6 +200,8 @@ impl ProcessState {
     ) -> Self {
         let ramp_samples = FadeRamp::ms_to_samples(ramp_ms, rate);
         let safety = SafetyLimits::from_dbfs(max_level_dbfs);
+        // Default tail: 500ms for reverb tail capture.
+        let playrec_tail_samples = (rate as u64) / 2;
 
         Self {
             channels,
@@ -211,6 +222,9 @@ impl ProcessState {
             safety,
             burst_remaining: None,
             pending_stop: false,
+            playrec_active: false,
+            playrec_tail_remaining: None,
+            playrec_tail_samples,
             samples_generated: 0,
             elapsed_samples: 0,
             duration_samples: 0,
@@ -269,7 +283,9 @@ impl ProcessState {
                 self.duration_samples = (duration_secs as f64 * self.rate) as u64;
                 self.burst_remaining = Some(self.duration_samples);
                 self.pending_stop = false;
-                // TODO(SG-7): Start capture recording here.
+                // Record-before-play (AE-MF-1): start capture first.
+                self.playrec_active = true;
+                self.playrec_tail_remaining = None;
             }
             CommandKind::Stop => {
                 if self.play_state != PlayState::Stopped {
@@ -302,10 +318,13 @@ impl ProcessState {
                 self.gen_sine.set_frequency(frequency as f64, self.rate);
             }
             CommandKind::StartCapture => {
-                // TODO(SG-7): Start capture recording.
+                // Standalone capture: record without playing.
+                self.playrec_active = false;
+                self.playrec_tail_remaining = None;
             }
             CommandKind::StopCapture => {
-                // TODO(SG-7): Stop capture recording.
+                self.playrec_active = false;
+                self.playrec_tail_remaining = None;
             }
         }
     }
@@ -352,7 +371,16 @@ impl ProcessState {
     }
 
     /// Create a state snapshot for the feedback queue.
-    fn snapshot(&self) -> StateSnapshot {
+    fn snapshot(
+        &self,
+        capture: Option<&CaptureRingBuffer>,
+        conn_state: Option<&CaptureConnectionState>,
+    ) -> StateSnapshot {
+        let (cap_peak, cap_rms) = match capture {
+            Some(cap) => (cap.peak(), cap.rms()),
+            None => (0.0, 0.0),
+        };
+        let cap_connected = conn_state.map_or(false, |cs| cs.is_connected());
         StateSnapshot {
             state: self.play_state,
             signal: self.active_signal,
@@ -361,26 +389,62 @@ impl ProcessState {
             frequency: self.current_freq,
             elapsed_secs: self.elapsed_samples as f32 / self.rate as f32,
             duration_secs: self.duration_samples as f32 / self.rate as f32,
-            capture_peak: 0.0,  // TODO(SG-7): Capture levels.
-            capture_rms: 0.0,   // TODO(SG-7): Capture levels.
-            capture_connected: false, // TODO(SG-8): Registry listener.
+            capture_peak: cap_peak,
+            capture_rms: cap_rms,
+            capture_connected: cap_connected,
             samples_generated: self.samples_generated,
         }
     }
 
-    /// Run the process callback logic on a buffer.
+    /// Run the playback process callback logic on a buffer.
     ///
     /// This is the core audio processing function, called from the PW
-    /// process callback. Factored out so the non-PW parts are testable.
+    /// playback process callback. Factored out so the non-PW parts are testable.
+    ///
+    /// `capture` is the shared capture ring buffer. When a Playrec or
+    /// StartCapture command is processed, this method controls the recording
+    /// state machine. Pass `None` in unit tests that don't need capture.
     fn process(
         &mut self,
         output: &mut [f32],
         n_frames: usize,
         cmd_queue: &CommandQueue,
         state_queue: &StateQueue,
+        capture: Option<&CaptureRingBuffer>,
+        conn_state: Option<&CaptureConnectionState>,
     ) {
         // 1. Drain all pending commands (AD-D037-6: multi-command-per-quantum).
         while let Some(cmd) = cmd_queue.pop() {
+            // Handle capture-related commands BEFORE applying to playback state.
+            match cmd.kind {
+                CommandKind::Playrec { .. } => {
+                    // Record-before-play (AE-MF-1): start capture first.
+                    if let Some(cap) = capture {
+                        cap.start_recording();
+                    }
+                }
+                CommandKind::StartCapture => {
+                    if let Some(cap) = capture {
+                        cap.start_recording();
+                    }
+                }
+                CommandKind::StopCapture => {
+                    if let Some(cap) = capture {
+                        cap.stop_recording();
+                    }
+                }
+                CommandKind::Stop => {
+                    // If we were recording during playrec, discard partial.
+                    if self.playrec_active {
+                        if let Some(cap) = capture {
+                            cap.discard_recording();
+                        }
+                        self.playrec_active = false;
+                        self.playrec_tail_remaining = None;
+                    }
+                }
+                _ => {}
+            }
             self.apply_command(cmd);
         }
 
@@ -391,6 +455,11 @@ impl ProcessState {
             self.generator = Box::new(SilenceGenerator);
             self.burst_remaining = None;
             self.pending_stop = false;
+
+            // If playrec was active and playback just stopped, start tail countdown.
+            if self.playrec_active && self.playrec_tail_remaining.is_none() {
+                self.playrec_tail_remaining = Some(self.playrec_tail_samples);
+            }
         }
 
         // 2. Generate samples into the buffer.
@@ -430,12 +499,26 @@ impl ProcessState {
             self.pending_stop = true;
         }
 
+        // 7. Handle playrec tail countdown.
+        if let Some(ref mut tail) = self.playrec_tail_remaining {
+            *tail = tail.saturating_sub(n_frames as u64);
+            if *tail == 0 {
+                // Tail expired: stop capture and emit playrec_complete.
+                if let Some(cap) = capture {
+                    cap.stop_recording();
+                }
+                self.playrec_active = false;
+                self.playrec_tail_remaining = None;
+                self.play_state = PlayState::Stopped;
+            }
+        }
+
         // Update counters.
         self.samples_generated += n_frames as u64;
         self.elapsed_samples += n_frames as u64;
 
-        // 7. Push state snapshot (at most once per callback).
-        let _ = state_queue.push(self.snapshot());
+        // 8. Push state snapshot (at most once per callback).
+        let _ = state_queue.push(self.snapshot(capture, conn_state));
     }
 }
 
@@ -448,13 +531,16 @@ fn dbfs_to_linear(dbfs: f32) -> f32 {
 // PipeWire playback stream
 // ---------------------------------------------------------------------------
 
-/// Run the PipeWire main loop with the playback stream.
+/// Run the PipeWire main loop with playback and capture streams.
 ///
 /// This function blocks until the shutdown flag is set.
 fn run_pipewire(
     args: &Args,
     cmd_queue: Arc<CommandQueue>,
     state_queue: Arc<StateQueue>,
+    capture_buf: Arc<CaptureRingBuffer>,
+    event_queue: Arc<DeviceEventQueue>,
+    conn_state: Arc<CaptureConnectionState>,
     shutdown: Arc<AtomicBool>,
 ) {
     pipewire::init();
@@ -469,8 +555,11 @@ fn run_pipewire(
 
     let channels_str = args.channels.to_string();
 
-    // Playback stream properties (Section 3.1).
-    let props = pipewire::properties::properties! {
+    // -----------------------------------------------------------------------
+    // Playback stream (Section 3.1)
+    // -----------------------------------------------------------------------
+
+    let playback_props = pipewire::properties::properties! {
         "media.type" => "Audio",
         "media.category" => "Playback",
         "media.role" => "Production",
@@ -481,11 +570,11 @@ fn run_pipewire(
         "node.always-process" => "true",
     };
 
-    let stream = pipewire::stream::StreamRc::new(&core, "pi4audio-signal-gen", props)
-        .expect("Failed to create PipeWire playback stream");
+    let playback_stream =
+        pipewire::stream::StreamRc::new(&core, "pi4audio-signal-gen", playback_props)
+            .expect("Failed to create PipeWire playback stream");
 
-    // Empty params — let PipeWire auto-negotiate format (F32 interleaved).
-    let mut params: [&libspa::pod::Pod; 0] = [];
+    let mut playback_params: [&libspa::pod::Pod; 0] = [];
 
     // Process callback state.
     let mut proc_state = ProcessState::new(
@@ -497,10 +586,12 @@ fn run_pipewire(
 
     let cmd_q = cmd_queue;
     let state_q = state_queue;
+    let playback_capture_buf = capture_buf.clone();
+    let playback_conn_state = conn_state.clone();
     let channels = args.channels as usize;
 
     // Register the playback process callback.
-    let _listener = stream
+    let _playback_listener = playback_stream
         .add_local_listener()
         .process(move |stream: &pipewire::stream::Stream, _: &mut ()| {
             unsafe {
@@ -548,7 +639,14 @@ fn run_pipewire(
                         n_frames * channels,
                     );
 
-                    proc_state.process(output, n_frames, &cmd_q, &state_q);
+                    proc_state.process(
+                        output,
+                        n_frames,
+                        &cmd_q,
+                        &state_q,
+                        Some(&playback_capture_buf),
+                        Some(&playback_conn_state),
+                    );
 
                     // Tell PipeWire how many bytes we wrote.
                     (*chunk).offset = 0;
@@ -565,22 +663,131 @@ fn run_pipewire(
         .register()
         .expect("Failed to register playback stream listener");
 
-    // Connect for playback with AUTOCONNECT + MAP_BUFFERS + RT_PROCESS.
-    stream
+    playback_stream
         .connect(
             libspa::utils::Direction::Output,
             None,
             pipewire::stream::StreamFlags::AUTOCONNECT
                 | pipewire::stream::StreamFlags::MAP_BUFFERS
                 | pipewire::stream::StreamFlags::RT_PROCESS,
-            &mut params,
+            &mut playback_params,
         )
         .expect("Failed to connect PipeWire playback stream");
 
-    info!("PipeWire playback stream connected, entering main loop");
+    info!("PipeWire playback stream connected");
 
-    // TODO(SG-7): Create and connect capture stream here.
-    // TODO(SG-8): Register PipeWire registry listener for device hot-plug.
+    // -----------------------------------------------------------------------
+    // Capture stream (Section 3.2) — targets UMIK-1
+    // -----------------------------------------------------------------------
+
+    let capture_props = pipewire::properties::properties! {
+        "media.type" => "Audio",
+        "media.category" => "Capture",
+        "media.role" => "Production",
+        "node.name" => "pi4audio-signal-gen-capture",
+        "node.description" => "RT Signal Generator (UMIK-1 capture)",
+        "target.object" => &*args.capture_target,
+        "audio.channels" => "1",
+        "node.always-process" => "true",
+    };
+
+    let capture_stream =
+        pipewire::stream::StreamRc::new(&core, "pi4audio-signal-gen-capture", capture_props)
+            .expect("Failed to create PipeWire capture stream");
+
+    let mut capture_params: [&libspa::pod::Pod; 0] = [];
+
+    let cap_buf_for_cb = capture_buf.clone();
+
+    // Register the capture process callback.
+    let _capture_listener = capture_stream
+        .add_local_listener()
+        .process(move |stream: &pipewire::stream::Stream, _: &mut ()| {
+            unsafe {
+                let raw_buf =
+                    pipewire_sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
+                if raw_buf.is_null() {
+                    return;
+                }
+
+                let spa_buf = (*raw_buf).buffer;
+                if spa_buf.is_null() || (*spa_buf).n_datas == 0 {
+                    pipewire_sys::pw_stream_queue_buffer(
+                        stream.as_raw_ptr(),
+                        raw_buf,
+                    );
+                    return;
+                }
+
+                let data = &*(*spa_buf).datas;
+                let data_ptr = data.data;
+                if data_ptr.is_null() {
+                    pipewire_sys::pw_stream_queue_buffer(
+                        stream.as_raw_ptr(),
+                        raw_buf,
+                    );
+                    return;
+                }
+
+                let chunk = data.chunk;
+                if chunk.is_null() {
+                    pipewire_sys::pw_stream_queue_buffer(
+                        stream.as_raw_ptr(),
+                        raw_buf,
+                    );
+                    return;
+                }
+
+                // Read captured samples (mono F32).
+                let size = (*chunk).size as usize;
+                let n_frames = size / std::mem::size_of::<f32>();
+
+                if n_frames > 0 {
+                    let input = std::slice::from_raw_parts(
+                        data_ptr as *const f32,
+                        n_frames,
+                    );
+
+                    // Always update live metering (even when not recording).
+                    cap_buf_for_cb.update_levels(input);
+
+                    // Write to ring buffer if recording is active.
+                    cap_buf_for_cb.write_samples(input);
+                }
+
+                pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
+            }
+        })
+        .state_changed(|_stream, _data, old, new| {
+            info!("PipeWire capture stream state: {:?} -> {:?}", old, new);
+        })
+        .register()
+        .expect("Failed to register capture stream listener");
+
+    capture_stream
+        .connect(
+            libspa::utils::Direction::Input,
+            None,
+            pipewire::stream::StreamFlags::AUTOCONNECT
+                | pipewire::stream::StreamFlags::MAP_BUFFERS
+                | pipewire::stream::StreamFlags::RT_PROCESS,
+            &mut capture_params,
+        )
+        .expect("Failed to connect PipeWire capture stream");
+
+    info!("PipeWire capture stream connected (target: {})", args.capture_target);
+
+    // -----------------------------------------------------------------------
+    // PipeWire registry listener for device hot-plug (Section 8.1)
+    // -----------------------------------------------------------------------
+
+    let (_registry, _registry_listener) = registry::register_registry_listener(
+        &core,
+        event_queue,
+        conn_state,
+        args.device_watch.clone(),
+    );
+    info!("PipeWire registry listener registered (watching: {})", args.device_watch);
 
     // Shutdown timer: poll the AtomicBool every 100ms and quit the PW loop.
     let _shutdown_timer = mainloop.loop_().add_timer({
@@ -620,6 +827,8 @@ fn run_rpc_server(
     listen_addr: &str,
     cmd_queue: Arc<CommandQueue>,
     state_queue: Arc<StateQueue>,
+    capture_buf: Arc<CaptureRingBuffer>,
+    event_queue: Arc<DeviceEventQueue>,
     shutdown: Arc<AtomicBool>,
     max_level_dbfs: f64,
 ) {
@@ -654,6 +863,8 @@ fn run_rpc_server(
                     stream,
                     &cmd_queue,
                     &state_queue,
+                    &capture_buf,
+                    &event_queue,
                     &shutdown,
                     max_level_dbfs,
                     &mut latest_state,
@@ -679,6 +890,8 @@ fn handle_client(
     stream: TcpStream,
     cmd_queue: &CommandQueue,
     state_queue: &StateQueue,
+    capture_buf: &CaptureRingBuffer,
+    event_queue: &DeviceEventQueue,
     shutdown: &AtomicBool,
     max_level_dbfs: f64,
     latest_state: &mut StateSnapshot,
@@ -706,6 +919,14 @@ fn handle_client(
             // Send state broadcast to client.
             let broadcast = rpc::format_state_broadcast(latest_state);
             if write_line(&mut writer, &broadcast).is_err() {
+                return; // Client disconnected.
+            }
+        }
+
+        // Poll device event queue for hot-plug / xrun events.
+        while let Some(event) = event_queue.pop() {
+            let event_json = registry::format_device_event(&event);
+            if write_line(&mut writer, &event_json).is_err() {
                 return; // Client disconnected.
             }
         }
@@ -742,11 +963,7 @@ fn handle_client(
                             rpc::HandleResult::StatusJson(json) => json,
                             rpc::HandleResult::CaptureLevelJson(json) => json,
                             rpc::HandleResult::GetRecording => {
-                                // TODO(SG-7): Return captured audio data.
-                                rpc::format_error(
-                                    "get_recording",
-                                    "capture not yet implemented",
-                                )
+                                format_get_recording_response(capture_buf)
                             }
                         }
                     }
@@ -776,6 +993,39 @@ fn write_line(writer: &mut TcpStream, line: &str) -> std::io::Result<()> {
     writer.write_all(line.as_bytes())?;
     writer.write_all(b"\n")?;
     writer.flush()
+}
+
+/// Format the get_recording response from the capture ring buffer.
+///
+/// Returns the captured audio as base64-encoded float32 little-endian PCM
+/// per D-037 Section 7.3.
+fn format_get_recording_response(capture_buf: &CaptureRingBuffer) -> String {
+    match capture_buf.take_recording() {
+        Some((samples, sample_rate)) => {
+            let n_frames = samples.len();
+            // Encode f32 samples as little-endian bytes, then base64.
+            let mut bytes = Vec::with_capacity(n_frames * 4);
+            for &s in &samples {
+                bytes.extend_from_slice(&s.to_le_bytes());
+            }
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+            // Build JSON response per D-037 Section 7.3.
+            let resp = serde_json::json!({
+                "type": "ack",
+                "cmd": "get_recording",
+                "ok": true,
+                "sample_rate": sample_rate,
+                "channels": 1,
+                "n_frames": n_frames,
+                "data": encoded,
+            });
+            serde_json::to_string(&resp).unwrap_or_else(|_| {
+                rpc::format_error("get_recording", "internal: failed to serialize recording")
+            })
+        }
+        None => rpc::format_error("get_recording", "no recording available"),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -818,6 +1068,23 @@ fn main() {
     let cmd_queue = Arc::new(CommandQueue::new());
     let state_queue = Arc::new(StateQueue::new());
 
+    // Shared capture ring buffer (D-037 Section 5.3).
+    let capture_buf = Arc::new(CaptureRingBuffer::new(
+        args.capture_buffer_secs,
+        args.rate,
+    ));
+    info!(
+        "Capture ring buffer: {}s at {}Hz = {} samples ({:.1} MB)",
+        args.capture_buffer_secs,
+        args.rate,
+        capture_buf.capacity(),
+        (capture_buf.capacity() * std::mem::size_of::<f32>()) as f64 / (1024.0 * 1024.0),
+    );
+
+    // Device event queue (PW registry -> RPC thread) and capture connection state.
+    let event_queue = Arc::new(DeviceEventQueue::new());
+    let conn_state = Arc::new(CaptureConnectionState::new());
+
     // Parse listen address.
     let (host, port) = parse_listen_addr(&args.listen);
     let rpc_addr = format!("{}:{}", host, port);
@@ -825,6 +1092,8 @@ fn main() {
     // Spawn the RPC server thread.
     let rpc_cmd_queue = cmd_queue.clone();
     let rpc_state_queue = state_queue.clone();
+    let rpc_capture_buf = capture_buf.clone();
+    let rpc_event_queue = event_queue.clone();
     let rpc_shutdown = shutdown.clone();
     let max_level_dbfs = args.max_level_dbfs;
     let rpc_thread = std::thread::Builder::new()
@@ -834,6 +1103,8 @@ fn main() {
                 &rpc_addr,
                 rpc_cmd_queue,
                 rpc_state_queue,
+                rpc_capture_buf,
+                rpc_event_queue,
                 rpc_shutdown,
                 max_level_dbfs,
             );
@@ -841,7 +1112,15 @@ fn main() {
         .expect("Failed to spawn RPC server thread");
 
     // Run PipeWire main loop on the main thread (blocks until shutdown).
-    run_pipewire(&args, cmd_queue.clone(), state_queue.clone(), shutdown.clone());
+    run_pipewire(
+        &args,
+        cmd_queue.clone(),
+        state_queue.clone(),
+        capture_buf.clone(),
+        event_queue.clone(),
+        conn_state.clone(),
+        shutdown.clone(),
+    );
 
     info!("PipeWire loop exited, waiting for RPC server thread...");
     let _ = rpc_thread.join();
@@ -1030,7 +1309,7 @@ mod tests {
 
         // Process one quantum.
         let mut buf = vec![0.0f32; 512]; // 256 frames * 2 channels
-        state.process(&mut buf, 256, &cmd_queue, &state_queue);
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, None, None);
 
         // Both commands should have been applied.
         assert_eq!(state.active_signal, SignalType::Pink);
@@ -1045,7 +1324,7 @@ mod tests {
         let mut state = ProcessState::new(2, 48000, -20.0, 20);
 
         let mut buf = vec![1.0f32; 512]; // pre-fill with non-zero
-        state.process(&mut buf, 256, &cmd_queue, &state_queue);
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, None, None);
 
         // All samples should be zero (silence).
         assert!(
@@ -1061,7 +1340,7 @@ mod tests {
         let mut state = ProcessState::new(2, 48000, -20.0, 20);
 
         let mut buf = vec![0.0f32; 512];
-        state.process(&mut buf, 256, &cmd_queue, &state_queue);
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, None, None);
 
         let snap = state_queue.pop();
         assert!(snap.is_some(), "Process should push a state snapshot");
@@ -1090,7 +1369,7 @@ mod tests {
 
         // Process enough frames to exhaust the burst.
         let mut buf = vec![0.0f32; 480];
-        state.process(&mut buf, 480, &cmd_queue, &state_queue);
+        state.process(&mut buf, 480, &cmd_queue, &state_queue, None, None);
 
         // Burst should have triggered pending_stop.
         assert!(state.pending_stop, "Burst completion should trigger pending_stop");
@@ -1145,5 +1424,274 @@ mod tests {
         let (host, port) = parse_listen_addr("127.0.0.1:4001");
         assert_eq!(host, "127.0.0.1");
         assert_eq!(port, "4001");
+    }
+
+    // -----------------------------------------------------------------------
+    // Capture integration: playrec starts capture recording
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn playrec_starts_capture_recording() {
+        let cmd_queue = CommandQueue::new();
+        let state_queue = StateQueue::new();
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::Playrec {
+                    signal: SignalType::Sine,
+                    channels: 0b01,
+                    level_dbfs: -20.0,
+                    frequency: 1000.0,
+                    duration_secs: 0.1,
+                    sweep_end_hz: 20000.0,
+                },
+            })
+            .unwrap();
+
+        let mut buf = vec![0.0f32; 256];
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, Some(&capture), None);
+
+        assert!(capture.is_recording(), "Playrec should start capture recording");
+        assert_eq!(state.play_state, PlayState::PlayrecInProgress);
+        assert!(state.playrec_active, "playrec_active should be true");
+    }
+
+    #[test]
+    fn start_capture_starts_recording() {
+        let cmd_queue = CommandQueue::new();
+        let state_queue = StateQueue::new();
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::StartCapture,
+            })
+            .unwrap();
+
+        let mut buf = vec![0.0f32; 256];
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, Some(&capture), None);
+
+        assert!(capture.is_recording(), "StartCapture should start recording");
+    }
+
+    #[test]
+    fn stop_capture_stops_recording() {
+        let cmd_queue = CommandQueue::new();
+        let state_queue = StateQueue::new();
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+
+        // Start capture.
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::StartCapture,
+            })
+            .unwrap();
+        let mut buf = vec![0.0f32; 256];
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, Some(&capture), None);
+        assert!(capture.is_recording());
+
+        // Write some samples to capture (simulating PW capture callback).
+        capture.write_samples(&[0.1, 0.2, 0.3]);
+
+        // Stop capture.
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::StopCapture,
+            })
+            .unwrap();
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, Some(&capture), None);
+        assert!(!capture.is_recording());
+        assert!(capture.is_complete(), "Capture should be complete after stop");
+    }
+
+    #[test]
+    fn stop_during_playrec_discards_recording() {
+        let cmd_queue = CommandQueue::new();
+        let state_queue = StateQueue::new();
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+
+        // Start playrec.
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::Playrec {
+                    signal: SignalType::Sine,
+                    channels: 0b01,
+                    level_dbfs: -20.0,
+                    frequency: 1000.0,
+                    duration_secs: 1.0,
+                    sweep_end_hz: 20000.0,
+                },
+            })
+            .unwrap();
+        let mut buf = vec![0.0f32; 256];
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, Some(&capture), None);
+        assert!(capture.is_recording());
+
+        // Write some samples.
+        capture.write_samples(&[0.5; 100]);
+
+        // User sends Stop during playrec -> discard partial recording.
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::Stop,
+            })
+            .unwrap();
+        state.process(&mut buf, 256, &cmd_queue, &state_queue, Some(&capture), None);
+
+        assert!(!capture.is_recording());
+        assert!(
+            !capture.is_complete(),
+            "Partial recording should be discarded on Stop"
+        );
+        assert!(!state.playrec_active, "playrec_active should be cleared on Stop");
+    }
+
+    #[test]
+    fn playrec_tail_stops_capture_after_playback() {
+        let cmd_queue = CommandQueue::new();
+        let state_queue = StateQueue::new();
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+
+        // Very short burst: 0.005s (240 samples at 48kHz).
+        // Very short ramp to ensure fade completes quickly.
+        state.ramp_samples = 1;
+        // Short tail for testing: 480 samples (0.01s).
+        state.playrec_tail_samples = 480;
+
+        cmd_queue
+            .push(Command {
+                kind: CommandKind::Playrec {
+                    signal: SignalType::Sine,
+                    channels: 0b01,
+                    level_dbfs: -20.0,
+                    frequency: 1000.0,
+                    duration_secs: 0.005,
+                    sweep_end_hz: 20000.0,
+                },
+            })
+            .unwrap();
+
+        // Process to exhaust burst + fade.
+        let mut buf = vec![0.0f32; 512];
+        state.process(&mut buf, 512, &cmd_queue, &state_queue, Some(&capture), None);
+        // Write capture samples to simulate PW capture callback.
+        capture.write_samples(&[0.1; 512]);
+
+        // Playback should have stopped, tail countdown started.
+        assert!(state.playrec_tail_remaining.is_some(), "Tail should be counting");
+        assert!(capture.is_recording(), "Capture should still be recording during tail");
+
+        // Process enough frames to exhaust the tail.
+        let mut buf2 = vec![0.0f32; 512];
+        state.process(&mut buf2, 512, &cmd_queue, &state_queue, Some(&capture), None);
+        capture.write_samples(&[0.2; 512]);
+
+        // Tail expired: capture should be stopped and complete.
+        assert!(!state.playrec_active, "playrec_active should be false after tail");
+        assert!(!capture.is_recording(), "Capture should stop after tail");
+        assert!(capture.is_complete(), "Recording should be complete after tail");
+    }
+
+    #[test]
+    fn snapshot_includes_capture_levels() {
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let state = ProcessState::new(1, 48000, -20.0, 20);
+
+        capture.update_levels(&[0.5; 100]);
+        let snap = state.snapshot(Some(&capture), None);
+
+        assert!((snap.capture_peak - 0.5).abs() < 1e-6, "peak: {}", snap.capture_peak);
+        assert!((snap.capture_rms - 0.5).abs() < 1e-6, "rms: {}", snap.capture_rms);
+    }
+
+    #[test]
+    fn snapshot_without_capture_has_zero_levels() {
+        let state = ProcessState::new(1, 48000, -20.0, 20);
+        let snap = state.snapshot(None, None);
+
+        assert_eq!(snap.capture_peak, 0.0);
+        assert_eq!(snap.capture_rms, 0.0);
+    }
+
+    #[test]
+    fn snapshot_with_connected_capture() {
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let conn = CaptureConnectionState::new();
+        let state = ProcessState::new(1, 48000, -20.0, 20);
+
+        conn.set_connected(47);
+        let snap = state.snapshot(Some(&capture), Some(&conn));
+        assert!(snap.capture_connected, "Should be connected");
+
+        conn.set_disconnected();
+        let snap = state.snapshot(Some(&capture), Some(&conn));
+        assert!(!snap.capture_connected, "Should be disconnected");
+    }
+
+    // -----------------------------------------------------------------------
+    // get_recording response format
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn get_recording_returns_error_when_no_recording() {
+        let capture = CaptureRingBuffer::new(1, 48000);
+        let response = format_get_recording_response(&capture);
+        assert!(response.contains("no recording available"));
+        assert!(response.contains("\"ok\":false"));
+    }
+
+    #[test]
+    fn get_recording_returns_base64_data() {
+        let capture = CaptureRingBuffer::new(1, 48000);
+        capture.start_recording();
+        capture.write_samples(&[0.25, 0.5, 0.75]);
+        capture.stop_recording();
+
+        let response = format_get_recording_response(&capture);
+        let v: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(v["type"], "ack");
+        assert_eq!(v["cmd"], "get_recording");
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["sample_rate"], 48000);
+        assert_eq!(v["channels"], 1);
+        assert_eq!(v["n_frames"], 3);
+
+        // Decode base64 and verify samples.
+        let encoded = v["data"].as_str().unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        assert_eq!(bytes.len(), 12); // 3 samples * 4 bytes
+
+        let s0 = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let s1 = f32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let s2 = f32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+
+        assert!((s0 - 0.25).abs() < 1e-7);
+        assert!((s1 - 0.5).abs() < 1e-7);
+        assert!((s2 - 0.75).abs() < 1e-7);
+    }
+
+    #[test]
+    fn get_recording_consumes_recording() {
+        let capture = CaptureRingBuffer::new(1, 48000);
+        capture.start_recording();
+        capture.write_samples(&[0.1]);
+        capture.stop_recording();
+
+        // First call succeeds.
+        let response = format_get_recording_response(&capture);
+        assert!(response.contains("\"ok\":true"));
+
+        // Second call fails -- recording consumed.
+        let response2 = format_get_recording_response(&capture);
+        assert!(response2.contains("no recording available"));
     }
 }
