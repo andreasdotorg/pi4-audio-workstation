@@ -2665,7 +2665,7 @@ session.
 and gain calibration (US-012) can be tested end-to-end without requiring
 physical hardware.
 
-**Status:** in-review (owner-authorized 2026-03-14; Phase: REVIEW — owner NOT ACCEPTED. Scope revision required: current mock backend (MockSoundDevice, MockCamillaClient) is the fast CI path only. Owner requires full E2E test harness with real PipeWire + real CamillaDSP + real signal-gen + real D-036 daemon + real web UI + real pcm-bridge; room simulator is the ONLY mock. Architect designing PipeWire integration approach. Previous advisor sign-offs (Architect, QE, AE) apply to CI-tier only — E2E tier needs fresh review.)
+**Status:** in-progress (owner-authorized 2026-03-14; Phase: IMPLEMENT — regressed from REVIEW after owner rejection. CI-tier DONE (4/4 DoD). E2E-tier implementation starting: 8 tasks filed (EH-1 through EH-8), 2 worker tracks. EH-1+EH-3 ready. Previous advisor sign-offs (Architect, QE, AE) apply to CI-tier only — E2E tier needs fresh review.)
 **Depends on:** US-045 (hardware config schema provides device definitions)
 **Blocks:** US-047 implementation (owner directive: mock backend required for local testing)
 **Decisions:** D-035 (measurement safety)
@@ -2867,6 +2867,98 @@ does NOT depend on TK-231 being resolved first. UX design complete — see
 
 ---
 
+## Tier 10 — ADA8200 Mic Input for Measurements (AE calibration transfer assessment 2026-03-15)
+
+AE assessment: transfer calibration from UMIK-1 to ADA8200 mic is acoustically
+sound (standard transfer function method). Reliable below 4 kHz — adequate for
+room correction where most corrections are below 500 Hz. Key constraint: mic
+spacing limits HF accuracy. ADA8200 preamp gain knob position must be locked
+after calibration.
+
+---
+
+## US-054: ADA8200 Mic Channel Selection for Room Measurements
+
+**As** the sound engineer,
+**I want** to use a microphone connected to an ADA8200 input for room
+measurements,
+**so that** I can use higher-quality or specialized mics beyond the UMIK-1
+(e.g., a measurement mic permanently mounted on the speaker stack).
+
+**Status:** draft
+**Depends on:** US-052 (RT signal generator for sweep playback), US-047 (Path A measurement)
+**Blocks:** US-055 (calibration transfer needs this channel selection working first)
+**Decisions:** none yet
+
+**Note:** Per architect estimate, ~35 lines of code. The ADA8200 inputs are
+already routed through PipeWire (ch 1-8 via USBStreamer ADAT). This story adds
+mic channel selection to the measurement config so it can capture from an
+ADA8200 input instead of the UMIK-1 USB device. AE assessment (2026-03-15)
+confirms approach is acoustically sound (IEC 61672/61094 reference).
+
+**Acceptance criteria:**
+- [ ] Measurement pipeline supports selecting an ADA8200 input channel (1-8) as the capture source
+- [ ] Mic channel selection configurable in measurement config (~35 lines change)
+- [ ] Channel selection available in both CLI measurement scripts and web UI test tool page (US-053)
+- [ ] Selected ADA8200 channel routes through PipeWire to the measurement capture stream (no new JACK/ALSA connections)
+- [ ] UMIK-1 remains the default capture device; ADA8200 mic is an explicit opt-in
+- [ ] Separate sensitivity constant per mic (ADA8200 mic has different sensitivity than UMIK-1)
+- [ ] ADA8200 preamp gain knob position documented as part of mic config (must be locked for consistent measurements)
+- [ ] Phantom power state tracked in mic config (48V on/off — must match between calibration and measurement)
+- [ ] Signal generator (US-052) capture stream can target ADA8200 input channels
+- [ ] Measurement results include metadata identifying which capture device/channel was used
+
+**DoD:**
+- [ ] Channel selection implemented in measurement pipeline
+- [ ] AE sign-off on signal path correctness
+- [ ] Integration test: sweep played, captured on ADA8200 channel, IR computed
+
+---
+
+## US-055: Calibration Transfer from UMIK-1 to ADA8200 Mic
+
+**As** the sound engineer,
+**I want** to derive a calibration file for an ADA8200-connected mic by
+measuring it side-by-side with the calibrated UMIK-1,
+**so that** I can use any mic with known frequency response correction.
+
+**Status:** draft
+**Depends on:** US-054 (ADA8200 channel selection), US-052 (RT signal generator)
+**Blocks:** none
+**Decisions:** none yet
+
+**Note:** Per architect estimate, ~200 lines new Python script
+(`calibration_transfer.py`). Per AE assessment (2026-03-15): standard transfer
+function calibration (IEC 61672/61094) — play sweep, capture simultaneously on
+UMIK-1 and ADA8200 mic, compute H(f) = ADA8200(f) / UMIK1(f), apply UMIK-1 cal
+file, store result as ADA8200 calibration curve. AE recommended Approach A:
+sample-aligned simultaneous capture in same PW graph cycle via PipeWire virtual
+merge node. Reliable below 4 kHz (mic spacing limits HF accuracy — adequate for
+room correction where most corrections are below 500 Hz). ADA8200 preamp gain
+knob position must be locked after calibration — any change invalidates the
+transfer. Phantom power state must match between calibration and measurement.
+Both mics MUST record simultaneously (NOT sequential).
+
+**Acceptance criteria:**
+- [ ] Dual-mic calibration procedure: simultaneous capture from UMIK-1 (USB) and ADA8200 channel (ADAT) during sweep playback — both mics MUST record simultaneously, NOT sequentially
+- [ ] PipeWire virtual merge node for sample-aligned simultaneous dual-mic capture in same PW graph cycle (AE Approach A)
+- [ ] Transfer function H(f) computed: ADA8200(f) / UMIK-1(f), UMIK-1 factory cal applied
+- [ ] Resulting calibration curve stored as a file (same format as UMIK-1 `.txt` cal file)
+- [ ] Calibration reliable below 4 kHz; 4-8 kHz range smoothed with 1/3-octave smoothing; above 8 kHz flagged as unreliable (mic spacing constraint per AE)
+- [ ] Near-field measurement option for extended HF accuracy (reduces mic spacing effect)
+- [ ] Warning displayed if ADA8200 preamp gain setting differs from calibration-time setting
+- [ ] Warning displayed if phantom power state differs from calibration-time state
+- [ ] Calibration transfer can be re-run at any time (e.g., after changing preamp gain)
+- [ ] Measurement pipeline automatically applies stored ADA8200 calibration when ADA8200 channel is selected (US-054)
+
+**DoD:**
+- [ ] Calibration transfer script implemented (`calibration_transfer.py`, ~200 lines)
+- [ ] AE sign-off on acoustic validity and frequency range limitations
+- [ ] AD sign-off on gain-lock and phantom power warning mechanisms
+- [ ] Integration test: transfer calibration, then measure known source — result matches UMIK-1 measurement within tolerance below 4 kHz
+
+---
+
 ## Process Gate: Measurement UI Development Cycle (owner directive 2026-03-14)
 
 **GATE:** US-047, US-048, and US-049 implementation is blocked until the
@@ -2967,5 +3059,7 @@ US-052 ──> US-012 (amended: gain cal uses RT signal gen)
 US-052 ──> US-047 (amended: sweeps use RT signal gen)
 US-049 (amended: spectrum feed also consumed by US-053)
 US-051 + US-052 ──> US-053 (manual test tool page)
+US-052 + US-047 ──> US-054 (ADA8200 mic channel selection)
+US-054 + US-052 ──> US-055 (calibration transfer UMIK-1 to ADA8200 mic)
 TK-225/226/227 SUBSUMED into US-051. TK-229 SUPERSEDED by US-052. TK-230 root cause ELIMINATED by US-052.
 ```
