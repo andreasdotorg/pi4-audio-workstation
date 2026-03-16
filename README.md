@@ -58,10 +58,18 @@ latency, and enough DSP to build a full digital mixer.
 
 ## How It Works
 
-Sound from the Pi travels through a chain: software application, audio server,
-digital signal processor, USB audio interface, digital-to-analog converter,
-amplifier, and finally speakers. The key piece is **[CamillaDSP](https://github.com/HEnquist/camilladsp)**, an
-open-source DSP engine that reshapes the audio in real time.
+Sound from the Pi travels through a single audio processing chain: software
+application, audio server with built-in DSP, USB audio interface,
+digital-to-analog converter, amplifier, and finally speakers. The key piece is
+**[PipeWire](https://pipewire.org/)**'s built-in filter-chain convolver, which
+handles all FIR processing (crossover + room correction) natively using FFTW3
+with ARM NEON SIMD optimization. The system previously used
+[CamillaDSP](https://github.com/HEnquist/camilladsp) as an external DSP
+engine, but
+[benchmarks](docs/lab-notes/LN-BM2-pw-filter-chain-benchmark.md) showed
+PipeWire's convolver is 3-5.6x more CPU-efficient on the Pi's ARM Cortex-A72,
+and the architectural simplification eliminates ~88ms of signal path latency in
+DJ mode.
 
 ### Room Correction
 
@@ -73,9 +81,10 @@ frequency response that change from seat to seat.
 The system corrects for this by measuring each room with a calibrated
 microphone. It plays test tones through each speaker, records what the
 microphone picks up, and computes the difference between what was sent and
-what arrived. That difference becomes a correction filter -- a set of precise
-instructions that tells CamillaDSP how to reshape the sound so that what
-reaches the audience is closer to what the music is supposed to sound like.
+what arrived. That difference becomes a correction filter -- a WAV file containing precise
+FIR coefficients that the PipeWire convolver applies in real time, reshaping
+the sound so that what reaches the audience is closer to what the music is
+supposed to sound like.
 
 A critical constraint: the correction only *cuts* frequencies that are too
 loud, never *boosts* frequencies that are too quiet. Psytrance tracks are
@@ -109,7 +118,7 @@ processors limit FIR filters to 512-1,024 taps due to fixed-point hardware
 constraints -- too short for combined crossover and room correction at low
 frequencies.
 
-This system runs 16,384 taps on a Raspberry Pi 4B (enabled by CamillaDSP's efficient FFT-based algorithm),
+This system runs 16,384 taps on a Raspberry Pi 4B (using PipeWire's filter-chain convolver with FFTW3 and ARM NEON optimization),
 combining both crossover and room correction into a single **minimum-phase
 FIR filter** per output channel. "Minimum-phase" means it introduces the
 smallest possible timing delay for the amount of frequency shaping applied.
@@ -127,20 +136,21 @@ fidelity is a welcome secondary benefit.
 Latency -- the delay between when a sound enters the system and when it comes
 out the speakers -- matters differently in each mode.
 
-In **DJ mode**, the audience does not notice 43 milliseconds of delay. That is
-equivalent to standing about 15 meters from the speakers, which is normal at
-an event. The system uses large audio buffers (2048 samples at 48kHz) that
-let CamillaDSP process the math efficiently, leaving more CPU headroom for
-Mixxx.
+In **DJ mode**, the audience does not notice 21 milliseconds of delay. That is
+equivalent to standing about 7 meters from the speakers, which is normal at
+an event. The system uses audio buffers of 1024 samples at 48kHz (PipeWire
+quantum 1024), and the filter-chain convolver processes within the same graph
+cycle with no additional buffering. The previous architecture (CamillaDSP via
+ALSA Loopback) added ~109ms; the current architecture adds ~21ms.
 
 In **live mode**, the singer is the one who notices. She hears her own voice
-through bone conduction (instant) and through her in-ear monitors (about 22
-milliseconds through the digital chain). She also hears the PA speakers in
-the room, which arrive about 9 milliseconds later than her monitors -- close
-enough that the brain fuses the two into one perception. The system achieves
-this by routing all eight channels through CamillaDSP with small buffers (256
-samples), keeping the total delay under the threshold where echoes become
-distracting.
+through bone conduction (instant) and through her in-ear monitors (about 5
+milliseconds through the digital chain at quantum 256). She also hears the PA
+speakers in the room. The system keeps the PA path delay to about 5.3
+milliseconds -- so close to instantaneous that she perceives no echo at all.
+This was the primary motivation for the architecture change: the previous
+system needed aggressive buffer tuning (chunksize 256) to achieve ~22ms; the
+new system achieves ~5.3ms at the same quantum.
 
 ## Hardware
 
@@ -157,37 +167,42 @@ distracting.
 
 The Pi outputs eight channels simultaneously: left and right main speakers,
 two independently corrected subwoofers, engineer headphones (stereo), and
-singer in-ear monitors (stereo). All eight channels route through CamillaDSP,
-which applies FIR processing to the four speaker channels and passes the
-monitor channels through untouched.
+singer in-ear monitors (stereo). The four speaker channels route through
+PipeWire's filter-chain convolver for FIR processing (crossover + room
+correction). The monitor channels bypass the convolver via direct PipeWire
+links to the USBStreamer.
 
 ## Software Stack
 
 | Software | Version | Role |
 |----------|---------|------|
-| [PipeWire](https://pipewire.org/) | 1.4.9 | Audio server and routing (replaces JACK/PulseAudio) |
-| [CamillaDSP](https://github.com/HEnquist/camilladsp) | 3.0.1 | Real-time DSP engine -- crossover, room correction, routing |
+| [PipeWire](https://pipewire.org/) | 1.4.9 | Audio server, routing, AND DSP (filter-chain convolver with FFTW3/NEON) |
 | [Mixxx](https://mixxx.org/) | 2.5.0 | DJ software for psytrance sets |
 | [Reaper](https://www.reaper.fm/) | 7.64 | Digital audio workstation for live vocal performance |
 | Python 3.13 | with [scipy](https://scipy.org/), [numpy](https://numpy.org/), [soundfile](https://github.com/bastibe/python-soundfile) | Measurement pipeline and filter generation |
 
+CamillaDSP 3.0.1 is installed but no longer in the active signal path
+(D-040, 2026-03-16). PipeWire's built-in convolver replaced it for all FIR
+processing.
+
 ## Project Status
 
-The foundation is proven. The Pi 4B can handle 16,384-tap FIR convolution on
-four channels at 5% CPU in DJ mode and about 34% in live mode with the full
-8-channel production configuration -- far below what we feared starting out. Latency measurements confirmed that CamillaDSP
-adds exactly two chunks of delay, and the bone-to-electronic path for the
-vocalist targets approximately 21 milliseconds at the D-011 parameters --
-within the range where a singer can perform comfortably. Stability testing
-under sustained load is in progress.
+The foundation is proven and the architecture has evolved. The system now runs
+a pure PipeWire audio pipeline with the built-in filter-chain convolver
+handling 16,384-tap FIR convolution on four channels at 1.7% CPU in DJ mode
+and 3.5% in live mode -- 3-5.6x more efficient than the previous CamillaDSP
+architecture. The first successful DJ session on the new architecture ran 40+
+minutes with zero xruns, 58% idle CPU, and 71C temperature
+([GM-12](docs/lab-notes/GM-12-dj-stability-pw-filter-chain.md)). DJ-mode PA
+path latency dropped from ~109ms to ~21ms by eliminating the ALSA Loopback
+bridge.
 
-Current work focuses on the automated room correction pipeline and the
-real-time monitoring web UI. The room correction pipeline will automate the
-arrive-at-venue workflow: set up speakers, place the measurement microphone,
-press one button, and have the system measure the room, compute correction
-filters, and deploy them -- ready to perform. The web UI provides a live
-dashboard with spectrum analysis, level meters, and CamillaDSP health
-monitoring over the local network.
+Current work focuses on the GraphManager (automated PipeWire link management),
+the automated room correction pipeline, and the real-time monitoring web UI.
+The room correction pipeline will automate the arrive-at-venue workflow: set up
+speakers, place the measurement microphone, press one button, and have the
+system measure the room, compute correction filters, and deploy them -- ready
+to perform.
 
 For detailed progress, see [docs/project/status.md](docs/project/status.md).
 

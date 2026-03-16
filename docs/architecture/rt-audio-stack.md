@@ -2,8 +2,17 @@
 
 This document describes the full real-time (RT) configuration of the Pi 4B
 audio workstation. It covers the PREEMPT_RT kernel, thread scheduling
-priorities, PipeWire and CamillaDSP RT configuration, buffer sizing, and
-verification procedures.
+priorities, PipeWire RT configuration, the PipeWire filter-chain convolver,
+buffer sizing, and verification procedures.
+
+**Architecture pivot (D-040, 2026-03-16):** The system has migrated from a
+dual-graph architecture (PipeWire + CamillaDSP via ALSA Loopback) to a
+single-graph architecture where PipeWire's built-in filter-chain convolver
+handles all FIR processing natively. CamillaDSP is no longer in the active
+signal path. See [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md)
+for the first successful DJ session on the new architecture and
+[BM-2](../lab-notes/LN-BM2-pw-filter-chain-benchmark.md) for the benchmark
+that triggered the decision.
 
 All configuration files referenced here are version-controlled under
 `configs/` in this repository. The ground truth hierarchy for the Pi's
@@ -24,18 +33,35 @@ prioritizes scheduling determinism as a safety requirement (D-013).
 
 ### Key Performance Numbers
 
+**Current architecture (PW filter-chain, D-040):**
+
+| Metric | DJ/PA Mode | Live Mode | Evidence |
+|--------|-----------|-----------|----------|
+| PW convolver CPU (16k taps, 4ch FIR) | 1.70% at quantum 1024 | 3.47% at quantum 256 | [BM-2](../lab-notes/LN-BM2-pw-filter-chain-benchmark.md) |
+| PW daemon total CPU (real DJ session) | 41.7% of one core | Not yet tested | [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md) |
+| Estimated PA path (one-way) | ~21ms (1 quantum) | ~5.3ms (1 quantum) | GM-12 theoretical (formal measurement pending) |
+| PipeWire quantum | 1024 (21.3ms) | 256 (5.3ms) | D-011 |
+| Mixxx CPU (hardware V3D GL) | 25% of one core | N/A | [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md) |
+| System idle (total, 4 cores) | 58.5% | Not yet tested | [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md) |
+| Temperature | 71.1C | Not yet tested | [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md) |
+| Xruns (40+ min DJ session) | 0 (after ALSA buffer fix) | Not yet tested | [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md) |
+| Mixxx at quantum 256 | 175% CPU, ~24 xruns/min | -- | [S-003](../lab-notes/change-S-003-dj-mode-quantum.md) |
+
+**Previous architecture (CamillaDSP via ALSA Loopback, pre-D-040):**
+
 | Metric | DJ/PA Mode | Live Mode | Evidence |
 |--------|-----------|-----------|----------|
 | CamillaDSP CPU (16k taps, 4ch FIR) | 5.23% at chunksize 2048 | 19.25% at chunksize 256 | [US-001](../lab-notes/US-001-camilladsp-benchmarks.md) T1a, T1c |
 | CamillaDSP latency (2 chunks) | 85.3ms | 10.7ms | [US-002](../lab-notes/US-002-latency-measurement.md) T2a, T2b |
-| Estimated PA path (one-way) | ~120ms | ~22ms (projected) | [US-002](../lab-notes/US-002-latency-measurement.md) analysis |
-| PipeWire quantum | 1024 (21.3ms) | 256 (5.3ms) | D-011 |
-| Mixxx CPU (hardware V3D GL) | ~85% | N/A | [F-012/F-017](../lab-notes/F-012-F-017-rt-gpu-lockups.md) Test 5 |
-| Mixxx CPU (llvmpipe, obsolete) | 142-166% | N/A | [F-012/F-017](../lab-notes/F-012-F-017-rt-gpu-lockups.md) Test 1 |
-| Xruns (30-min DJ stability) | 0 [citation needed -- T3d aborted] | Not yet tested | [TK-039-T3d](../lab-notes/TK-039-T3d-dj-stability.md) |
-| Mixxx at quantum 256 | 175% CPU, ~24 xruns/min | -- | [S-003](../lab-notes/change-S-003-dj-mode-quantum.md) |
+| Estimated PA path (one-way) | ~109ms | ~22ms (projected) | [US-002](../lab-notes/US-002-latency-measurement.md) analysis |
 
-### Architecture at a Glance
+The PW filter-chain convolver is 3-5.6x more CPU-efficient than CamillaDSP
+at comparable buffer sizes, primarily due to FFTW3's hand-optimized ARM NEON
+codelets vs CamillaDSP's rustfft LLVM auto-vectorization. DJ-mode PA path
+latency dropped from ~109ms to ~21ms by eliminating the ALSA Loopback bridge
+and CamillaDSP's 2-chunk buffering.
+
+### Architecture at a Glance (Current — PW Filter-Chain, D-040)
 
 ```mermaid
 flowchart LR
@@ -44,43 +70,81 @@ flowchart LR
         RE["Reaper<br/>(Live mode)"]
     end
 
-    subgraph PW["PipeWire<br/>SCHED_FIFO 88"]
-        PWR["8ch Routing<br/>quantum 1024 (DJ)<br/>quantum 256 (Live)"]
-    end
-
-    subgraph LB["ALSA Loopback<br/>period-size=256, period-num=8"]
-        LBD["8ch virtual<br/>device"]
-    end
-
-    subgraph CDSP["CamillaDSP<br/>SCHED_FIFO 80"]
-        direction TB
-        MIX["8→8 Mixer"]
-        FIR["FIR Convolution<br/>16,384 taps<br/>(ch 0-3: crossover +<br/>room correction)"]
-        PT["Passthrough<br/>(ch 4-5: headphones<br/>ch 6-7: IEM)"]
-        DLY["Per-channel<br/>delay + gain"]
-        MIX --> FIR
-        MIX --> PT
-        FIR --> DLY
-        PT --> DLY
+    subgraph PW["PipeWire — Single Audio Graph<br/>SCHED_FIFO 88"]
+        PWR["JACK Bridge<br/>quantum 1024 (DJ)<br/>quantum 256 (Live)"]
+        FIR["filter-chain Convolver<br/>(FFTW3 + ARM NEON)<br/>16,384-tap FIR<br/>4 speaker channels"]
     end
 
     subgraph Output["USBStreamer → ADA8200"]
         direction TB
-        CH01["ch 0-1: Main L/R"]
-        CH23["ch 2-3: Sub 1 / Sub 2"]
-        CH45["ch 4-5: Engineer HP"]
-        CH67["ch 6-7: Singer IEM"]
+        CH01["ch 0-1: Main L/R<br/>(via HP FIR)"]
+        CH23["ch 2-3: Sub 1 / Sub 2<br/>(via LP FIR, mono sum)"]
+        CH45["ch 4-5: Engineer HP<br/>(direct bypass)"]
+        CH67["ch 6-7: Singer IEM<br/>(Reaper only)"]
     end
 
     MX -->|"pw-jack<br/>(D-027)"| PWR
     RE --> PWR
-    PWR --> LBD
-    LBD --> MIX
-    DLY --> CH01
-    DLY --> CH23
-    DLY --> CH45
-    DLY --> CH67
+    PWR --> FIR
+    FIR --> CH01
+    FIR --> CH23
+    PWR -->|"direct link"| CH45
+    RE -->|"direct link<br/>(live mode)"| CH67
 ```
+
+The entire audio pipeline runs within a single PipeWire graph. No ALSA
+Loopback, no external DSP process. The filter-chain convolver uses FFTW3
+with ARM NEON SIMD for non-uniform partitioned convolution. Headphone and
+IEM channels bypass the convolver via direct PipeWire links.
+
+**Routing topology (GM-12 validated):**
+```
+Mixxx:out_0 (L)     -> convolver:AUX0 (left HP FIR)     -> USBStreamer:AUX0
+Mixxx:out_1 (R)     -> convolver:AUX1 (right HP FIR)    -> USBStreamer:AUX1
+Mixxx:out_0 + out_1 -> convolver:AUX2 (sub1 LP FIR)     -> USBStreamer:AUX2
+Mixxx:out_0 + out_1 -> convolver:AUX3 (sub2 LP FIR)     -> USBStreamer:AUX3
+Mixxx:out_4/out_5   -> USBStreamer:AUX4/AUX5 (headphones, direct bypass)
+```
+
+PipeWire natively sums multiple inputs connected to the same port, providing
+the L+R mono sum for subwoofer channels without an explicit mixer stage.
+
+### Previous Architecture (Pre-D-040, CamillaDSP via ALSA Loopback)
+
+```mermaid
+flowchart LR
+    subgraph Sources
+        MX2["Mixxx<br/>(DJ mode)"]
+        RE2["Reaper<br/>(Live mode)"]
+    end
+
+    subgraph PW2["PipeWire<br/>SCHED_FIFO 88"]
+        PWR2["8ch Routing"]
+    end
+
+    subgraph LB["ALSA Loopback"]
+        LBD["8ch virtual<br/>device"]
+    end
+
+    subgraph CDSP["CamillaDSP<br/>SCHED_FIFO 80"]
+        FIR2["FIR + Mixer +<br/>Passthrough"]
+    end
+
+    subgraph Out2["USBStreamer"]
+        O2["8ch output"]
+    end
+
+    MX2 --> PWR2
+    RE2 --> PWR2
+    PWR2 --> LBD
+    LBD --> FIR2
+    FIR2 --> O2
+```
+
+This architecture was replaced by D-040. CamillaDSP remains installed but its
+service is stopped. Historical performance data is preserved in
+[US-001](../lab-notes/US-001-camilladsp-benchmarks.md) and
+[US-002](../lab-notes/US-002-latency-measurement.md).
 
 ---
 
@@ -156,9 +220,8 @@ deterministically. Verified empirically on the Pi
 ([TK-039-T3d](../lab-notes/TK-039-T3d-dj-stability.md) Phase 0).
 
 ```
-FIFO/88  PipeWire (graph clock)
+FIFO/88  PipeWire (graph clock + filter-chain convolver)
 FIFO/83  Mixxx audio callback (data-loop.0), pipewire-pulse, WirePlumber
-FIFO/80  CamillaDSP (all threads including ALSA capture/playback)
 FIFO/50  Kernel IRQ threads
 OTHER    Mixxx GUI, PipeWire client threads, system services
 BATCH    Mixxx disk I/O
@@ -166,13 +229,16 @@ BATCH    Mixxx disk I/O
 
 | Priority | Scheduler | Process / Thread | Rationale |
 |----------|-----------|------------------|-----------|
-| 88 | SCHED_FIFO | PipeWire (main) | Audio server drives the graph clock. Must preempt everything except kernel threads. |
+| 88 | SCHED_FIFO | PipeWire (main) | Audio server drives the graph clock AND runs the filter-chain convolver. Post-D-040, all DSP processing happens inside the PipeWire process at this priority. |
 | 83 | SCHED_FIFO | Mixxx audio callback (`data-loop.0`) | PipeWire data loop thread inside Mixxx process. Runs Mixxx's JACK process callback (decode, mix, effects). |
-| 83 | SCHED_FIFO | pipewire-pulse, WirePlumber | PipeWire ecosystem threads. Same priority tier as data loops. |
-| 80 | SCHED_FIFO | CamillaDSP (all threads) | DSP engine. Processes audio buffers. Must complete before PipeWire's next deadline but must not preempt PipeWire itself. |
+| 83 | SCHED_FIFO | pipewire-pulse, WirePlumber | PipeWire ecosystem threads. WirePlumber handles device format negotiation and port creation (GM-12 Finding 2: required for device management even though D-039 targets no WP for session management). |
 | 50 | SCHED_FIFO | IRQ threads | Kernel default on PREEMPT_RT. Hardware interrupt handlers. |
 | 0 | SCHED_OTHER | Mixxx GUI, `pw-Mixxx` threads | GUI rendering and PipeWire client housekeeping. Not audio-critical. |
 | 0 | SCHED_BATCH | Mixxx disk I/O (`mixxx:disk$0`) | Track loading. Lowest priority (nice 19). |
+
+**Note:** CamillaDSP (previously at SCHED_FIFO/80) is no longer in the active
+signal path (D-040). Its systemd service is stopped. The convolver workload
+now runs inside the PipeWire process at FIFO/88.
 
 ### Mixxx Thread Model
 
@@ -273,69 +339,110 @@ PREEMPT_RT kernels, or when a PipeWire update resolves the issue.
 
 ---
 
-## 4. CamillaDSP RT Scheduling
+## 4. PipeWire Filter-Chain Convolver (D-040)
 
-CamillaDSP runs as a system service at SCHED_FIFO priority 80 via a
-systemd drop-in override (same pattern as the PipeWire F-020 fix).
+Since D-040, all FIR convolution runs inside PipeWire's built-in filter-chain
+module. The convolver is loaded via a PipeWire config fragment that defines
+the filter topology, coefficient files, and routing.
 
-**Config file:** `configs/systemd/camilladsp.service.d/override.conf`
-**Deployed to:** `/etc/systemd/system/camilladsp.service.d/override.conf`
+**Config file (on Pi):**
+`~/.config/pipewire/pipewire.conf.d/30-filter-chain-convolver.conf`
 
-```ini
-[Service]
-ExecStart=
-ExecStart=/usr/local/bin/camilladsp -a 127.0.0.1 -p 1234 /etc/camilladsp/active.yml
-CPUSchedulingPolicy=fifo
-CPUSchedulingPriority=80
+The convolver creates two PipeWire nodes:
+- **pi4audio-convolver** (`Audio/Sink`): Capture node — receives audio from
+  Mixxx/Reaper via PipeWire links
+- **pi4audio-convolver-out** (`Audio/Source`): Playback node — sends processed
+  audio to USBStreamer
+
+### FIR Coefficient Files
+
+| Channel | File | Filter Type |
+|---------|------|-------------|
+| Left main (ch 0) | `/etc/pi4audio/coeffs/combined_left_hp.wav` | Highpass FIR (crossover + room correction) |
+| Right main (ch 1) | `/etc/pi4audio/coeffs/combined_right_hp.wav` | Highpass FIR (crossover + room correction) |
+| Sub 1 (ch 2) | `/etc/pi4audio/coeffs/combined_sub1_lp.wav` | Lowpass FIR (crossover + room correction) |
+| Sub 2 (ch 3) | `/etc/pi4audio/coeffs/combined_sub2_lp.wav` | Lowpass FIR (crossover + room correction, phase-inverted for isobaric) |
+
+All filters: 16,384 taps, 48kHz, float32 WAV. Generated by the room
+correction pipeline.
+
+### FFT Engine
+
+PipeWire's filter-chain convolver uses **FFTW3** single-precision
+(`libfftw3f.so.3`) with hand-optimized ARM NEON codelets for non-uniform
+partitioned convolution. Verified on Pi:
+
+```bash
+ldd /usr/lib/aarch64-linux-gnu/spa-0.2/filter-graph/libspa-filter-graph.so | grep fft
+# Output: libfftw3f.so.3 => /lib/aarch64-linux-gnu/libfftw3f.so.3
 ```
 
-The blank `ExecStart=` line clears the default ExecStart from the package
-service file before setting the correct path (`/usr/local/bin/camilladsp`
-from manual install, not apt). The `-a 127.0.0.1` binds the websocket API
-to localhost only.
+This is 3-5.6x more CPU-efficient than CamillaDSP's rustfft (LLVM
+auto-vectorization) at comparable buffer sizes
+([BM-2](../lab-notes/LN-BM2-pw-filter-chain-benchmark.md)).
 
-### Why Priority 80
+### CPU Budget (PW Filter-Chain)
 
-CamillaDSP must complete its buffer processing within each audio cycle
-but must not preempt PipeWire. PipeWire at priority 88 drives the graph
-clock and delivers buffers to clients. CamillaDSP at priority 80 processes
-them. If CamillaDSP preempted PipeWire, PipeWire could miss its scheduling
-deadline and fail to deliver buffers on time -- causing the very underruns
-the RT stack exists to prevent.
+| Configuration | CPU % | Measurement | Lab Note |
+|---------------|-------|-------------|----------|
+| Quantum 1024 (DJ mode) | 1.70% | pidstat (convolver process only) | BM-2 |
+| Quantum 256 (live mode) | 3.47% | pidstat (convolver process only) | BM-2 |
+| Quantum 1024 (real DJ session) | 41.7% of one core | top (full PW daemon) | GM-12 |
+| Convolver B/Q ratio (DJ session) | 8-12% | pw-top | GM-12 |
 
-### CPU Budget
+The BM-2 figures measure the convolver process in isolation with silence
+input. The GM-12 figure measures the full PipeWire daemon under real DJ
+workload (convolver + graph scheduling + JACK bridge + device I/O). The B/Q
+ratio (8-12% of quantum budget) is the convolver-specific metric, consistent
+with BM-2.
 
-CamillaDSP's measured CPU consumption with 16,384-tap FIR filters on 4
-speaker channels ([US-001](../lab-notes/US-001-camilladsp-benchmarks.md)):
+### Known Issue: `config.gain` Silently Ignored (PW 1.4.9)
 
-| Configuration | CPU % | Lab Note |
-|---------------|-------|----------|
-| Chunksize 2048 (DJ mode) | 5.23% | US-001 T1a |
-| Chunksize 512 | 10.42% | US-001 T1b |
-| Chunksize 256 (live mode) | 19.25% | US-001 T1c |
-| 8,192-tap fallback @ 2048 | 2.63% | US-001 T1d |
-| 8,192-tap fallback @ 512 | 5.32% | US-001 T1e |
+PipeWire 1.4.9's filter-chain convolver silently ignores the `gain` parameter
+in convolver block configs. A `gain = -30.0` specification produces no
+attenuation — audio passes at full level (~-0.6 dB from FIR coefficient
+normalization only). This is a **safety-critical** issue when driving PA
+amplifiers.
+
+**Production workaround:** Apply -30 dB attenuation via `pw-cli` after every
+PipeWire restart. See
+[GM-12 Finding 4](../lab-notes/GM-12-dj-stability-pw-filter-chain.md#finding-4-pw-convolver-configgain-silently-ignored--safety-issue)
+for the full procedure.
+
+### Historical: CamillaDSP (Pre-D-040)
+
+CamillaDSP 3.0.1 previously ran as a system service at SCHED_FIFO/80 via
+a systemd drop-in override. It processed audio received from PipeWire via
+the ALSA Loopback bridge, adding 2 chunks of buffering latency (85.3ms at
+chunksize 2048, 10.7ms at chunksize 256). Its service is now stopped.
+Historical CPU data is preserved in
+[US-001](../lab-notes/US-001-camilladsp-benchmarks.md).
 
 ---
 
 ## 5. Quantum and Buffer Sizing
 
 The system operates in two modes with different latency/CPU tradeoffs.
-Three buffer sizes interact and must be correctly coordinated: PipeWire
-quantum, CamillaDSP chunksize, and the ALSA Loopback buffer.
+Post-D-040, the buffer coordination is simpler: PipeWire quantum is the
+single controlling parameter. The convolver processes within the same
+graph cycle, adding no additional buffering latency.
 
 ### Per-Mode Settings
 
 | Parameter | DJ/PA Mode | Live Mode |
 |-----------|-----------|-----------|
 | PipeWire quantum | 1024 (21.3ms) | 256 (5.3ms) |
-| CamillaDSP chunksize | 2048 (42.7ms) | 256 (5.3ms) |
-| ALSA Loopback period-size | 256 | 256 |
-| ALSA Loopback period-num | 8 | 8 |
-| ALSA Loopback total buffer | 2048 samples | 2048 samples |
+| USBStreamer ALSA period-size | 1024 | 256 |
+| USBStreamer ALSA period-num | 3 | 3 |
+| USBStreamer ALSA buffer total | 3072 samples (64ms) | 768 samples (16ms) |
 
 All values assume a 48kHz sample rate. Latency values are computed as
 samples / sample_rate (e.g., 1024 / 48000 = 21.3ms).
+
+**Critical rule (GM-12 Finding 1):** The USBStreamer ALSA period-size MUST
+match the PipeWire quantum. A period-size smaller than the quantum causes
+guaranteed underruns every audio cycle. Triple-buffering (period-num=3)
+provides margin for scheduling jitter on PREEMPT_RT.
 
 ### PipeWire Quantum
 
@@ -366,106 +473,69 @@ A systemd oneshot service (`configs/systemd/user/pipewire-force-quantum.service`
 runs this command after PipeWire starts to ensure the configured quantum is
 applied on boot.
 
-### CamillaDSP Chunksize
+### USBStreamer ALSA Buffer
 
-CamillaDSP's chunksize determines how many samples it processes per
-internal cycle. In DJ mode, chunksize 2048 provides efficient FIR
-convolution for 16,384-tap filters. In live mode, chunksize 256 minimizes
-latency for the singer's monitoring path (D-011).
+The USBStreamer is PipeWire's ALSA sink — the final output device. Its ALSA
+buffer parameters must be coordinated with the PipeWire quantum.
 
-CamillaDSP adds exactly two chunks of latency (capture buffer fill +
-playback buffer drain; the FIR convolution completes within the same
-processing cycle). At chunksize 256, that is 10.7ms. At chunksize 2048,
-that is 85.3ms. This was confirmed by
-[US-002](../lab-notes/US-002-latency-measurement.md) (T2a measured 139ms
-round-trip at chunksize 2048, consistent with 2-chunk CamillaDSP model
-plus PipeWire buffering on both sides).
+**Config file (on Pi):**
+`~/.config/pipewire/pipewire.conf.d/21-usbstreamer-playback.conf`
 
-Production configs:
-- `configs/camilladsp/production/dj-pa.yml` -- chunksize 2048
-- `configs/camilladsp/production/live.yml` -- chunksize 256
-
-### ALSA Loopback Buffer
-
-The ALSA Loopback device bridges PipeWire and CamillaDSP. PipeWire writes
-to `hw:Loopback,0,0`; CamillaDSP reads from `hw:Loopback,1,0`. The
-Loopback buffer size is critical: it must be large enough to hold at least
-one PipeWire quantum worth of samples, or PipeWire cannot complete its
-write cycle.
-
-**Config file:** `configs/pipewire/25-loopback-8ch.conf`
-
+For DJ mode (quantum 1024):
 ```
-api.alsa.period-size   = 256
-api.alsa.period-num    = 8
+api.alsa.period-size   = 1024
+api.alsa.period-num    = 3
 ```
 
-Total buffer: 256 x 8 = 2048 samples.
+Total buffer: 1024 x 3 = 3072 samples (64ms).
 
-### The Loopback Buffer Discovery (TK-064)
+**The USBStreamer Buffer Discovery (GM-12 Finding 1):** The original config
+had `period-size=256, period-num=2` (buffer=512 samples). This was correct
+for live mode (quantum 256) but caused guaranteed underruns in DJ mode
+(quantum 1024): the ALSA buffer was smaller than a single quantum. PipeWire
+logged `XRun! rate:1024/48000` with USBStreamer ERR count growing ~24/sec.
 
-The original Loopback config used `period-size=256, period-num=2` (total
-buffer: 512 samples). This worked in live mode (quantum 256) but crashed
-in DJ mode (quantum 1024).
+**Fix:** Updated period-size to match the quantum (1024) and increased
+period-num to 3 for scheduling margin. USBStreamer ERR dropped to 0.
 
-**Root cause:** PipeWire writes one quantum of samples per graph cycle. In
-DJ mode with quantum 1024, PipeWire attempted to write 1024 frames into
-a 512-frame buffer. The ALSA Loopback driver cannot service this write --
-it produces "impossible timeout" errors (93 per burst). The audio pipeline
-stalls and Mixxx crashes.
+**Design rule:** The USBStreamer ALSA period-size MUST match the PipeWire
+quantum. When the system switches between DJ mode (quantum 1024) and live
+mode (quantum 256), the USBStreamer config must also change. This is an
+open item — currently requires manual config update and PipeWire restart.
 
-**Symptoms observed (DJ test runs 1-4):**
-- PipeWire logs: "impossible timeout" errors, 93 suppressed per burst
-- Audio pipeline stall
-- Mixxx crash
+### Historical: ALSA Loopback Buffer (Pre-D-040)
 
-**First fix** (commit `f6e941b`, TK-064): Increased Loopback buffer to
-`period-size=1024, period-num=3` (3072 samples). This accommodated
-PipeWire's 1024-frame writes and provided headroom for CamillaDSP's
-2048-frame reads.
-
-**Second fix** (commit `f9ba574`, F-028): Changed to
-`period-size=256, period-num=8` (2048 samples). The 1024-sample period
-size caused a 4:1 period mismatch with PipeWire's quantum 256 in live
-mode, producing rebuffering glitches (917+ errors in 30 seconds of
-continuous tone). Matching the period size to the PipeWire quantum (256)
-eliminated the mismatch. The larger period count (8) maintains the total
-buffer above the DJ mode quantum requirement (1024).
-
-**Design rule:** The ALSA Loopback period-size should match the PipeWire
-quantum to avoid rebuffering. The total buffer (period-size x period-num)
-must be >= the maximum PipeWire quantum (1024 in DJ mode). Current config:
-`period-size=256, period-num=8` (2048 samples) satisfies both constraints.
+The ALSA Loopback device previously bridged PipeWire and CamillaDSP. Its
+config (`25-loopback-8ch.conf`) has been renamed to `.disabled` on the Pi.
+The Loopback buffer sizing lessons (TK-064, F-028) informed the USBStreamer
+buffer rule above: ALSA period-size must match the PipeWire quantum to avoid
+rebuffering.
 
 ---
 
 ## 6. Signal Path Overview
 
+### Current Signal Path (PW Filter-Chain, D-040)
+
 The complete audio signal path with RT scheduling context:
 
 ```
-Mixxx (SCHED_OTHER)
+Mixxx (SCHED_OTHER main thread, SCHED_FIFO/83 data-loop.0)
   |
   | pw-jack JACK bridge (via LD_PRELOAD, D-027)
   v
-PipeWire (SCHED_FIFO 88)
+PipeWire (SCHED_FIFO 88) — single audio graph
   |
-  | writes quantum-sized blocks
+  | internal PipeWire links (no IPC, no kernel boundary)
   v
-ALSA Loopback hw:Loopback,0,0  (period-size=256, period-num=8)
-  |
-  | kernel virtual sound device
+filter-chain convolver (runs inside PipeWire process)
+  |  - 4x FIR convolution (16,384 taps, FFTW3/NEON)
+  |  - ch 0: left HP (crossover + room correction)
+  |  - ch 1: right HP (crossover + room correction)
+  |  - ch 2: sub1 LP (crossover + room correction, L+R mono sum input)
+  |  - ch 3: sub2 LP (crossover + room correction, L+R mono sum, phase-inverted)
   v
-ALSA Loopback hw:Loopback,1,0
-  |
-  | reads chunksize-sized blocks
-  v
-CamillaDSP (SCHED_FIFO 80)
-  |  - 8ch routing (mixer)
-  |  - FIR convolution (16,384 taps, 4 speaker channels)
-  |  - Passthrough (4 monitor channels)
-  v
-USBStreamer hw:USBStreamer,0  (exclusive ALSA playback)
+USBStreamer hw:USBStreamer,0  (ALSA playback, period-size=1024, period-num=3)
   |
   | USB -> ADAT
   v
@@ -473,6 +543,12 @@ ADA8200 (8ch ADAT-to-analog)
   |
   v
 Amplifiers (4x450W) -> Speakers / Headphones / IEM
+
+Headphone bypass (ch 4-5):
+  Mixxx:out_4/out_5 -> USBStreamer:AUX4/AUX5 (direct PipeWire link, no convolver)
+
+Singer IEM (ch 6-7, live mode only):
+  Reaper -> USBStreamer:AUX6/AUX7 (direct PipeWire link, no convolver)
 ```
 
 Note on `pw-jack` (D-027): Mixxx connects to PipeWire via the `pw-jack`
@@ -483,24 +559,45 @@ three sessions (S-005, S-006, S-007) demonstrated that
 `update-alternatives` is fundamentally incompatible with `ldconfig` soname
 management for shared libraries.
 
+Note on WirePlumber (GM-12 Finding 2, Finding 11): WirePlumber is still
+running for device management (format negotiation, port creation, JACK
+device exposure). However, its auto-linking behavior creates unwanted
+direct links from Mixxx to USBStreamer that bypass the convolver, causing
+garbled audio (double-signal). These must be manually removed with
+`pw-link -d`. A persistent fix (WP linking rule or GraphManager bypass
+detection) is needed. See D-039 for the long-term plan.
+
 ### Latency Budget
 
-Measured end-to-end latency
-([US-002](../lab-notes/US-002-latency-measurement.md)):
+**Current architecture (PW filter-chain, D-040):**
 
-| Segment | DJ Mode (chunksize 2048) | Live Mode (projected, chunksize 256) |
-|---------|-------------------------|--------------------------------------|
-| PipeWire output adapter | ~21.3ms (1 quantum) | ~5.3ms |
+| Segment | DJ Mode (quantum 1024) | Live Mode (quantum 256) |
+|---------|------------------------|-------------------------|
+| PipeWire graph (1 quantum) | ~21.3ms | ~5.3ms |
+| Filter-chain convolver | ~0ms (synchronous, within same graph cycle) | ~0ms |
+| USB + ADAT | ~1ms | ~1ms |
+| **Estimated PA path** | **~21ms** | **~5.3ms** |
+
+**Previous architecture (CamillaDSP via ALSA Loopback, pre-D-040):**
+
+| Segment | DJ Mode (chunksize 2048) | Live Mode (chunksize 256) |
+|---------|-------------------------|---------------------------|
+| PipeWire output adapter | ~21.3ms | ~5.3ms |
 | ALSA Loopback | <1ms | <1ms |
 | CamillaDSP (2 chunks) | ~85.3ms | ~10.7ms |
 | USB + ADAT | ~1ms | ~1ms |
-| **Estimated PA path** | **~120ms** | **~22ms** (D-011 target) |
+| **Estimated PA path** | **~109ms** | **~22ms** |
 
-The live mode projection assumes PipeWire quantum 256. The DJ mode number
-is derived from US-002 T2a round-trip measurement (139ms) minus the
-capture-side PipeWire buffering (measurement artifact). The live mode
-estimate at chunksize 256 + quantum 256 has not been directly measured
-yet -- it is projected from the component latencies validated in US-002.
+The DJ-mode latency improvement is ~5x (109ms -> 21ms). The ALSA Loopback
+bridge and CamillaDSP's 2-chunk buffering — both eliminated by D-040 —
+accounted for ~88ms of the original signal path.
+
+**Note:** The ~21ms DJ-mode figure is theoretical (1 quantum). A formal
+loopback measurement (like US-002) has not yet been performed on the
+PW filter-chain architecture. The live-mode ~5.3ms figure is
+transformative for singer slapback prevention — the original D-011
+motivation targeted ~22ms at chunksize 256, and the new architecture
+achieves ~5.3ms.
 
 ---
 
@@ -544,20 +641,38 @@ systemctl --user cat pipewire.service | grep -A2 CPUScheduling
 #   CPUSchedulingPriority=88
 ```
 
-### CamillaDSP Scheduling
+### PipeWire Filter-Chain Convolver
 
 ```bash
-# Check CamillaDSP scheduling policy:
-chrt -p $(pgrep -x camilladsp)
-# Expected:
-#   current scheduling policy: SCHED_FIFO
-#   current scheduling priority: 80
+# Check convolver nodes exist:
+pw-cli ls Node | grep pi4audio-convolver
+# Expected: two nodes:
+#   pi4audio-convolver (Audio/Sink — capture side)
+#   pi4audio-convolver-out (Audio/Source — playback side)
 
-# Check the systemd override:
-systemctl cat camilladsp.service | grep -A2 CPUScheduling
-# Expected:
-#   CPUSchedulingPolicy=fifo
-#   CPUSchedulingPriority=80
+# Check convolver B/Q ratio (busy/quantum):
+pw-top
+# Look for the convolver node. B/Q should be 0.08-0.12 (8-12% of quantum)
+
+# Check FFT engine:
+ldd /usr/lib/aarch64-linux-gnu/spa-0.2/filter-graph/libspa-filter-graph.so | grep fft
+# Expected: libfftw3f.so.3
+
+# Check convolver volume (gain workaround):
+pw-dump $(pw-cli ls Node | grep -B1 pi4audio-convolver | head -1 | awk '{print $2}' | tr -d ',') | grep volume
+# Expected: "volume": 0.0316... (if -30 dB workaround is applied)
+
+# Verify FIR coefficient files exist:
+ls -la /etc/pi4audio/coeffs/combined_*.wav
+# Expected: 4 files (left_hp, right_hp, sub1_lp, sub2_lp)
+```
+
+### CamillaDSP (Historical — Pre-D-040)
+
+```bash
+# CamillaDSP service should be stopped:
+systemctl is-active camilladsp.service
+# Expected: inactive
 ```
 
 ### PipeWire Quantum
@@ -573,34 +688,50 @@ pw-top
 # Look at the "QUANT" column -- should show 1024 (DJ) or 256 (live)
 ```
 
-### ALSA Loopback Buffer
+### USBStreamer ALSA Buffer
 
 ```bash
-# Check Loopback device exists:
-aplay -l | grep Loopback
-# Expected: card N: Loopback [Loopback], device 0: ...
+# Check USBStreamer device exists:
+aplay -l | grep USBStreamer
+# Expected: card N: USBStreamer [USBStreamer], device 0: ...
 
-# Check PipeWire Loopback node config:
-pw-cli info loopback-8ch-sink | grep -E 'period|buffer'
-# Or check directly:
-cat ~/.config/pipewire/pipewire.conf.d/25-loopback-8ch.conf | grep period
-# Expected:
-#   api.alsa.period-size   = 256
-#   api.alsa.period-num    = 8
+# Check USBStreamer ALSA hw_params (while audio is flowing):
+cat /proc/asound/USBStreamer/pcm0p/sub0/hw_params
+# Expected (DJ mode):
+#   period_size: 1024
+#   buffer_size: 3072
+#   rate: 48000
+
+# Check PipeWire USBStreamer config:
+cat ~/.config/pipewire/pipewire.conf.d/21-usbstreamer-playback.conf | grep period
+# Expected (DJ mode):
+#   api.alsa.period-size   = 1024
+#   api.alsa.period-num    = 3
+
+# Check USBStreamer ERR count (should be 0):
+pw-top
+# Look at the USBStreamer node ERR column
 ```
 
-### CamillaDSP Active Config
+### Audio Link Topology
 
 ```bash
-# Check which config is active:
-readlink -f /etc/camilladsp/active.yml
-# Expected (DJ mode): /etc/camilladsp/dj-pa.yml
-# Expected (live mode): /etc/camilladsp/live.yml
+# Show all active PipeWire links:
+pw-link -l
+# Expected links (DJ mode):
+#   Mixxx:out_0 -> pi4audio-convolver:AUX0
+#   Mixxx:out_1 -> pi4audio-convolver:AUX1
+#   Mixxx:out_0 -> pi4audio-convolver:AUX2 (mono sum L)
+#   Mixxx:out_1 -> pi4audio-convolver:AUX2 (mono sum L)
+#   Mixxx:out_0 -> pi4audio-convolver:AUX3 (mono sum R)
+#   Mixxx:out_1 -> pi4audio-convolver:AUX3 (mono sum R)
+#   pi4audio-convolver-out:AUX0-3 -> USBStreamer:AUX0-3
+#   Mixxx:out_4/out_5 -> USBStreamer:AUX4/AUX5 (headphone bypass)
 
-# Check chunksize in active config:
-grep chunksize /etc/camilladsp/active.yml
-# Expected (DJ): chunksize: 2048
-# Expected (live): chunksize: 256
+# Check for unwanted WP bypass links (should NOT exist):
+pw-link -l | grep -E "Mixxx.*USBStreamer.*AUX[0-3]"
+# Expected: empty (no direct Mixxx->USBStreamer links on speaker channels)
+# If present: remove with pw-link -d <output> <input>
 ```
 
 ### Full Priority Check
@@ -611,7 +742,7 @@ ps -eo pid,cls,rtprio,ni,comm | grep FF
 # Expected to see at minimum:
 #   pipewire       FF  88
 #   pipewire-pulse FF  83
-#   camilladsp     FF  80
+# CamillaDSP should NOT appear (service stopped per D-040)
 
 # Confirm Mixxx GUI thread is NOT FIFO:
 ps -eo pid,cls,rtprio,ni,comm | grep -i mixxx
@@ -645,36 +776,42 @@ ps -eLo pid,tid,cls,rtprio,comm -p $(pgrep -x mixxx) | grep FF
 
 | ID | Document | Relevance |
 |----|----------|-----------|
-| D-011 | `docs/project/decisions.md` | Live mode chunksize 256 + quantum 256 |
+| D-039 | `docs/project/decisions.md` | GraphManager is sole session manager (no WP for linking) |
+| D-040 | `docs/project/decisions.md` | Abandon CamillaDSP — pure PipeWire filter-chain pipeline |
+| D-011 | `docs/project/decisions.md` | Live mode quantum 256 (latency target) |
 | D-013 | `docs/project/decisions.md` | PREEMPT_RT mandatory for production |
 | D-022 | `docs/project/decisions.md` | V3D fix, hardware GL on PREEMPT_RT |
 | D-027 | `docs/project/decisions.md` | pw-jack permanent solution |
 | F-020 | `docs/project/defects.md` | PipeWire RT self-promotion failure |
-| F-028 | `docs/project/defects.md` | ALSA period-size mismatch |
-| TK-064 | `docs/project/tasks.md` | Loopback buffer discovery |
 
 ### Configuration Files
 
 | File | Location | Purpose |
 |------|----------|---------|
 | `f020-pipewire-fifo.conf` | `configs/pipewire/workarounds/` | PipeWire FIFO override |
-| `override.conf` | `configs/systemd/camilladsp.service.d/` | CamillaDSP FIFO override |
 | `10-audio-settings.conf` | `configs/pipewire/` | PipeWire quantum settings |
-| `25-loopback-8ch.conf` | `configs/pipewire/` | ALSA Loopback buffer config |
-| `dj-pa.yml` | `configs/camilladsp/production/` | DJ mode CamillaDSP config |
-| `live.yml` | `configs/camilladsp/production/` | Live mode CamillaDSP config |
+| `30-filter-chain-convolver.conf` | On Pi: `~/.config/pipewire/pipewire.conf.d/` | PW filter-chain convolver config |
+| `21-usbstreamer-playback.conf` | On Pi: `~/.config/pipewire/pipewire.conf.d/` | USBStreamer ALSA buffer config |
+| `combined_*.wav` | On Pi: `/etc/pi4audio/coeffs/` | FIR coefficient files (4 channels) |
 
 ### Lab Notes (evidence for quoted numbers)
 
 | Lab Note | Key Numbers |
 |----------|-------------|
-| [US-001](../lab-notes/US-001-camilladsp-benchmarks.md) | CamillaDSP CPU: 5.23% (chunksize 2048), 10.42% (512), 19.25% (256) |
-| [US-002](../lab-notes/US-002-latency-measurement.md) | Round-trip latency: 139ms (chunksize 2048), 80.8ms (512). CamillaDSP = 2 chunks. |
-| [US-003](../lab-notes/US-003-stability-tests.md) | Peak CamillaDSP CPU: 28% (pidstat) |
-| [F-012/F-017](../lab-notes/F-012-F-017-rt-gpu-lockups.md) | Mixxx CPU: 142-166% (llvmpipe), ~85% (hardware GL) |
-| [TK-039-T3d](../lab-notes/TK-039-T3d-dj-stability.md) | DJ stability test (aborted Phase 1 -- F-021/F-022) |
+| [BM-2](../lab-notes/LN-BM2-pw-filter-chain-benchmark.md) | PW convolver CPU: 1.70% (q1024), 3.47% (q256). FFTW3 NEON 3-5.6x faster than CamillaDSP. |
+| [GM-12](../lab-notes/GM-12-dj-stability-pw-filter-chain.md) | First PW-native DJ session: 0 xruns, 58.5% idle, 71C. 11 findings. |
+| [US-001](../lab-notes/US-001-camilladsp-benchmarks.md) | Historical CamillaDSP CPU: 5.23% (cs2048), 10.42% (cs512), 19.25% (cs256) |
+| [US-002](../lab-notes/US-002-latency-measurement.md) | Historical latency: 139ms (cs2048), 80.8ms (cs512). CamillaDSP = 2 chunks. |
+| [F-012/F-017](../lab-notes/F-012-F-017-rt-gpu-lockups.md) | Mixxx CPU: 142-166% (llvmpipe), ~40% (hardware GL + CamillaDSP era) |
 | [S-003](../lab-notes/change-S-003-dj-mode-quantum.md) | Quantum 256 not viable for DJ: 175% CPU, ~24 xruns/min |
 
 ### Safety
 
 All safety constraints are in [`docs/operations/safety.md`](../operations/safety.md).
+
+**Critical safety note (GM-12 Finding 4):** PipeWire 1.4.9's filter-chain
+convolver silently ignores the `config.gain` parameter. The production
+workaround (pw-cli volume) must be re-applied after every PipeWire restart.
+See [GM-12 Finding 4](../lab-notes/GM-12-dj-stability-pw-filter-chain.md)
+for the procedure. Failure to apply the workaround results in full-volume
+output to the amplifier chain.

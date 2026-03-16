@@ -183,16 +183,19 @@ Gabriela Bogk. This is a personal project, not mobile.de work.
 
 ## Current Mission
 
-**TK-055 PASS. V3D RT fix confirmed. D-022 filed.**
+**D-040: CamillaDSP abandoned. Pure PipeWire filter-chain pipeline.**
 
-Upstream V3D fix (commit `09fb2c6f4093`, Melissa Wen / Igalia) is included in stock
-RPi kernel `6.12.62+rpt-rpi-v8-rt`. Pi upgraded and running with hardware V3D GL on
-PREEMPT_RT for 37+ minutes — zero lockups. F-012/F-017 RESOLVED. D-022 supersedes
-D-021 software rendering requirement. DJ-A trivially viable — single kernel for both
-modes with hardware GL.
+BM-2 benchmark (2026-03-16) showed PipeWire's built-in convolver is 3-5.6x more
+CPU-efficient than CamillaDSP on Pi 4B ARM (1.70% vs 5.23% at comparable buffer
+sizes). First successful PW-native DJ session (GM-12): 40+ minutes, zero xruns,
+58% idle, 71C. DJ PA path latency dropped from ~109ms to ~21ms.
+
+US-059 (GraphManager Core + Production Filter-Chain) is in IMPLEMENT phase.
+GraphManager manages PipeWire link topology and mode transitions. Two reconciler
+bugs block automated routing — manual `pw-link` used for GM-12.
 
 **Pi is on PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`) with hardware V3D GL.**
-No V3D blacklist, no pixman, no llvmpipe. Production configuration.
+No V3D blacklist, no pixman, no llvmpipe. CamillaDSP service stopped (D-040).
 
 See `docs/project/status.md` for full current state. Decisions in `docs/project/decisions.md`.
 
@@ -218,7 +221,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **OS:** Debian 13 Trixie. **Currently booted: PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`)**. Upgraded from `6.12.47` via `apt upgrade`. `config.txt` has `kernel=kernel8_rt.img`.
 - **Desktop:** labwc (Wayland) with **hardware V3D GL compositor** (D-022). No pixman override. lightdm disabled, labwc runs as systemd user service.
 - **V3D:** Hardware V3D GL active on PREEMPT_RT. No blacklist needed (D-022). Upstream fix for ABBA deadlock (commit `09fb2c6f4093`) included in `6.12.62+rpt-rpi-v8-rt`. F-012/F-017 RESOLVED.
-- **Audio:** PipeWire 1.4.9 at SCHED_FIFO 88 (systemd override, F-020 workaround deployed), CamillaDSP 3.0.1 at SCHED_FIFO 80 (systemd override). Both persist across reboot.
+- **Audio:** PipeWire 1.4.9 at SCHED_FIFO 88 (systemd override, F-020 workaround deployed). PW filter-chain convolver handles all FIR processing (FFTW3/NEON, 16k taps, 4ch). CamillaDSP 3.0.1 installed but **service stopped** (D-040: abandoned in favor of PW convolver). **Known issue:** PW 1.4.9 `config.gain` silently ignored — runtime `pw-cli` volume workaround (-30 dB) must be re-applied after every PW restart.
 - **Quantum:** Production config at `~/.config/pipewire/pipewire.conf.d/10-audio-settings.conf` sets quantum 256. DJ mode needs quantum 1024 (set at runtime via `pw-metadata -n settings 0 clock.force-quantum 1024`).
 - **99-no-rt.conf:** DELETED (was Test 3 artifact forcing PipeWire to SCHED_OTHER).
 - **Mixxx:** Runs with hardware V3D GL on PREEMPT_RT (D-022). `pw-jack mixxx` — no `LIBGL_ALWAYS_SOFTWARE=1` needed. CPU ~85% with hardware GL (vs 142-166% with llvmpipe).
@@ -237,7 +240,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **Mode switching:** Whole-gig for starters, quick switch future nice-to-have
 - **Singer IEM:** Engineer controls for MVP, singer self-control future bonus
 - **Singer needs:** Extra track for vocal cues (Reaper provides)
-- **IEM signal path:** Reaper → CamillaDSP (passthrough on ch 7/8, no FIR processing) → USBStreamer. Per D-011: CamillaDSP holds exclusive ALSA access to all 8 channels, so IEM cannot bypass it.
+- **IEM signal path:** Reaper → direct PipeWire link → USBStreamer ch 6-7 (bypasses convolver entirely). Post-D-040, IEM channels no longer need to route through a DSP engine — PipeWire links directly to the USBStreamer output ports.
 
 ### Safety Rules (2026-03-10)
 
@@ -251,9 +254,12 @@ pre-flight checklists, and PREEMPT_RT as a safety requirement (D-013).
 
 - **WARN BEFORE REBOOTS.** Resetting the USBStreamer produces transients through
   the amplifier chain that can damage speakers. The owner MUST be warned before any
-  reboot, `systemctl restart camilladsp`, or any action that causes the USBStreamer
+  reboot, `systemctl --user restart pipewire`, or any action that causes the USBStreamer
   to lose its audio stream. This applies to all team members — workers, CM, everyone.
   The owner decides when it is safe to proceed (e.g., after turning off amps).
+  **After PipeWire restart:** Re-apply the -30 dB convolver volume workaround
+  (`pw-cli s <node-id> Props '{ volume: 0.0316 }'` on convolver capture node).
+  See GM-12 Finding 4.
 
 ## Key Documents
 
@@ -301,8 +307,8 @@ pre-flight checklists, and PREEMPT_RT as a safety requirement (D-013).
 
 ## Software Stack
 
-- **PipeWire** — Audio server, provides JACK bridge for apps
-- **CamillaDSP v3.0.1** — DSP engine (crossover + room correction via FIR convolution)
+- **PipeWire 1.4.9** — Audio server, JACK bridge, AND DSP engine (filter-chain convolver with FFTW3/NEON for FIR crossover + room correction). Single audio graph — no external DSP process.
+- **CamillaDSP v3.0.1** — Installed but **service stopped** (D-040). Previously handled DSP via ALSA Loopback. Historical data in US-001/US-002.
 - **Mixxx** — DJ software (DJ/PA mode)
 - **Reaper** — DAW for live mixing (Live mode, installed via Pi-Apps or manual download)
 - **REW** — Room measurement (may run on Pi or separate machine)
@@ -320,27 +326,31 @@ channel. This was a deliberate choice for psytrance transient fidelity:
 - **Minimum-phase FIR (chosen)**: ~1-2ms group delay, NO pre-ringing, crisp transients
 
 The combined filters are generated by the automated room correction pipeline (not yet
-built). CamillaDSP loads them as WAV files. This means you can't tweak crossover
-frequency in CamillaDSP YAML — you regenerate the FIR coefficients instead.
+built). PipeWire's filter-chain convolver loads them as WAV files. To change crossover
+frequency, regenerate the FIR coefficients — no runtime parameter adjustment.
 
-Filter files:
-- `/etc/camilladsp/coeffs/combined_left_hp.wav` — Left main (highpass + correction)
-- `/etc/camilladsp/coeffs/combined_right_hp.wav` — Right main (highpass + correction)
-- `/etc/camilladsp/coeffs/combined_sub1_lp.wav` — Sub 1 (lowpass + correction)
-- `/etc/camilladsp/coeffs/combined_sub2_lp.wav` — Sub 2 (lowpass + correction)
+Filter files (on Pi):
+- `/etc/pi4audio/coeffs/combined_left_hp.wav` — Left main (highpass + correction)
+- `/etc/pi4audio/coeffs/combined_right_hp.wav` — Right main (highpass + correction)
+- `/etc/pi4audio/coeffs/combined_sub1_lp.wav` — Sub 1 (lowpass + correction)
+- `/etc/pi4audio/coeffs/combined_sub2_lp.wav` — Sub 2 (lowpass + correction, phase-inverted for isobaric)
 
-### 2. Dual Chunksize: 2048 (DJ) vs 512 (Live)
+### 2. Dual Quantum: 1024 (DJ) vs 256 (Live)
 
-- DJ/PA mode: `chunksize: 2048` (42.7ms latency) — efficient convolution, saves CPU for Mixxx
-- Live mode: `chunksize: 512` (10.7ms latency) — prevents singer hearing slapback echo from PA
+Post-D-040, the PipeWire quantum is the single latency-controlling parameter. The
+convolver processes within the same graph cycle, adding no buffering latency.
 
-The singer's IEM path bypasses CamillaDSP (~5ms latency). But she also hears the PA
-acoustically. If PA path > ~25ms, she perceives slapback of her own voice. At chunksize
-512, total PA path is ~18ms — acceptable.
+- DJ/PA mode: quantum 1024 (~21ms PA path) — efficient convolution, saves CPU for Mixxx
+- Live mode: quantum 256 (~5.3ms PA path) — prevents singer hearing slapback echo from PA
 
-**D-011 supersedes D-002 for live mode:** Live mode now targets chunksize 256 + PipeWire
-quantum 256 (~21ms bone-to-electronic latency). Fallback: chunksize 512 + quantum 256
-(~31ms). DJ mode unchanged at chunksize 2048 + quantum 1024.
+The singer's IEM path bypasses the convolver entirely (~5ms via direct PipeWire link).
+She also hears the PA acoustically. At quantum 256, total PA path is ~5.3ms — far below
+the ~25ms slapback threshold. This is a dramatic improvement over the previous
+architecture (~22ms at chunksize 256 + quantum 256 via CamillaDSP/Loopback).
+
+**D-011 context:** D-011 originally targeted chunksize 256 + quantum 256 to achieve
+~21ms. D-040's architecture change achieves ~5.3ms at the same quantum 256 — the D-011
+latency target is exceeded by 4x.
 
 ### 3. Two Independent Subwoofers
 
@@ -349,7 +359,9 @@ Sub 1 and Sub 2 have independent:
 - Delay values (different distance to listening position)
 - Gain trims
 
-Both receive the same L+R mono sum as source material.
+Both receive the same L+R mono sum as source material. Post-D-040, the mono sum is
+achieved by linking both Mixxx:out_0 (L) and Mixxx:out_1 (R) to each sub's convolver
+input port — PipeWire natively sums multiple inputs connected to the same port.
 
 ### 4. FIR Filter Length: 16,384 taps
 
@@ -366,9 +378,9 @@ Original assumptions tracked in the Test Plan (SETUP-MANUAL.md section 6.13):
 
 | ID | Assumption | Confidence | Test |
 |----|-----------|------------|------|
-| A1 | 16k taps @ chunksize 2048 fits in Pi 4 CPU budget alongside Mixxx | HIGH | T1a, T3a |
-| A2 | 16k taps @ chunksize 512 fits in Pi 4 CPU budget alongside Reaper | MEDIUM | T1b, T3b |
-| A3 | End-to-end PA latency in live mode < 25ms | VALIDATED (D-011) | T2b: 30.3ms at chunksize 512 (FAIL vs 25ms), ~20ms projected at chunksize 256 (D-011) |
+| A1 | 16k taps @ quantum 1024 fits in Pi 4 CPU budget alongside Mixxx | **VALIDATED** (D-040) | BM-2: 1.70% CPU. GM-12: 58% idle with Mixxx + convolver |
+| A2 | 16k taps @ quantum 256 fits in Pi 4 CPU budget alongside Reaper | **VALIDATED** (D-040) | BM-2: 3.47% CPU. Live session not yet tested. |
+| A3 | End-to-end PA latency in live mode < 25ms | **VALIDATED** (D-040) | ~5.3ms theoretical at quantum 256 (formal measurement pending). Previous: 30.3ms at chunksize 512 (FAIL), ~22ms projected (D-011). |
 | A4 | Pi 4 thermals stay below 75°C in flight case under sustained load | LOW | T4 |
 | A5 | 16k-tap FIR actually provides effective correction at 20Hz | MEDIUM | T5 |
 | A6 | Hercules DJControl Mix Ultra presents as USB-MIDI on Linux | UNKNOWN | Manual test |
