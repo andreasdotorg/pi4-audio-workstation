@@ -559,46 +559,61 @@ fn dbfs_to_linear(dbfs: f32) -> f32 {
 /// Without format params, PipeWire never creates ports and WirePlumber
 /// cannot auto-link the stream (BUG-SG12-5 / TK-236).
 ///
+/// `positions` specifies channel position IDs (e.g. AUX0-AUX7 for playback,
+/// MONO for capture). When provided, PipeWire creates per-channel ports that
+/// match the target sink/source topology, enabling WirePlumber auto-linking.
+/// Without positions, PipeWire creates a single interleaved port that cannot
+/// be linked to multi-port targets (TK-236 topology mismatch).
+///
 /// The pod is constructed directly in the SPA wire format because the
 /// `spa_pod_builder_*` C functions are inline and not exposed by bindgen.
 #[allow(non_upper_case_globals)]
-fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
+fn build_audio_format(channels: u32, rate: u32, positions: &[u32]) -> Vec<u8> {
     // SPA pod wire format (all little-endian, 8-byte aligned):
     //
     // Pod header:     size:u32, type:u32
     // Object body:    body_type:u32, body_id:u32
     // Property:       key:u32, flags:u32, value_pod(size:u32, type:u32, data...)
+    // Array pod:      size:u32, type:u32(=Array), child_size:u32, child_type:u32, elements...
     //
-    // Constants from spa/utils/type.h and spa/param/format.h:
-    const SPA_TYPE_OBJECT_Format: u32 = 0x40002;
+    // Constants from spa/utils/type.h and spa/param/format.h
+    // (verified against Pi PipeWire 1.4.10 headers in Nix store):
+    const SPA_TYPE_Id: u32 = 3;       // enum spa_type: None=1, Bool=2, Id=3
+    const SPA_TYPE_Int: u32 = 4;      // Int=4, Long=5, Float=6, Double=7
+    const SPA_TYPE_Array: u32 = 13;   // String=8..Bitmap=12, Array=13
+    const SPA_TYPE_OBJECT_Format: u32 = 0x40003; // START=0x40000, PropInfo, Props, Format
     const SPA_PARAM_EnumFormat: u32 = 3;
     const SPA_FORMAT_mediaType: u32 = 1;
     const SPA_FORMAT_mediaSubtype: u32 = 2;
-    const SPA_FORMAT_AUDIO_format: u32 = 0x10001;
-    const SPA_FORMAT_AUDIO_rate: u32 = 0x10004;
-    const SPA_FORMAT_AUDIO_channels: u32 = 0x10005;
-    const SPA_MEDIA_TYPE_audio: u32 = 0;
+    const SPA_FORMAT_AUDIO_format: u32 = 0x10001;    // START_Audio + 1
+    const SPA_FORMAT_AUDIO_rate: u32 = 0x10003;      // +3 (flags at +2)
+    const SPA_FORMAT_AUDIO_channels: u32 = 0x10004;  // +4
+    const SPA_FORMAT_AUDIO_position: u32 = 0x10005;  // +5
+    const SPA_MEDIA_TYPE_audio: u32 = 1; // unknown=0, audio=1
     const SPA_MEDIA_SUBTYPE_raw: u32 = 1;
-    const SPA_AUDIO_FORMAT_F32LE: u32 = 3;
+    const SPA_AUDIO_FORMAT_F32LE: u32 = 0x11A; // F32_LE in interleaved block
 
-    let mut buf = Vec::with_capacity(136);
+    // 5 scalar properties * 24 bytes + position array property + 16 bytes header.
+    // Position array: 8 (key+flags) + 8 (array pod header) + 8 (child descriptor)
+    //   + 4*N positions, padded to 8-byte alignment.
+    let mut buf = Vec::with_capacity(200);
 
-    // Helper: write a property with an Id value (SPA_TYPE_Id = 4)
+    // Helper: write a property with an Id value
     fn write_prop_id(buf: &mut Vec<u8>, key: u32, val: u32) {
         buf.extend_from_slice(&key.to_le_bytes());    // property key
         buf.extend_from_slice(&0u32.to_le_bytes());    // property flags
         buf.extend_from_slice(&4u32.to_le_bytes());    // pod size
-        buf.extend_from_slice(&4u32.to_le_bytes());    // pod type = SPA_TYPE_Id
+        buf.extend_from_slice(&SPA_TYPE_Id.to_le_bytes()); // pod type
         buf.extend_from_slice(&val.to_le_bytes());     // value
         buf.extend_from_slice(&[0u8; 4]);              // pad to 8-byte align
     }
 
-    // Helper: write a property with an Int value (SPA_TYPE_Int = 6)
+    // Helper: write a property with an Int value
     fn write_prop_int(buf: &mut Vec<u8>, key: u32, val: i32) {
         buf.extend_from_slice(&key.to_le_bytes());
         buf.extend_from_slice(&0u32.to_le_bytes());
         buf.extend_from_slice(&4u32.to_le_bytes());    // pod size
-        buf.extend_from_slice(&6u32.to_le_bytes());    // pod type = SPA_TYPE_Int
+        buf.extend_from_slice(&SPA_TYPE_Int.to_le_bytes()); // pod type
         buf.extend_from_slice(&val.to_le_bytes());
         buf.extend_from_slice(&[0u8; 4]);              // pad to 8-byte align
     }
@@ -617,11 +632,61 @@ fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
     write_prop_int(&mut buf, SPA_FORMAT_AUDIO_rate, rate as i32);
     write_prop_int(&mut buf, SPA_FORMAT_AUDIO_channels, channels as i32);
 
+    // Position array property (TK-236): tells PipeWire which channel each
+    // port represents, enabling per-channel port creation and WirePlumber
+    // auto-linking to matching target ports.
+    if !positions.is_empty() {
+        let n = positions.len() as u32;
+        // Array element size is 4 bytes (Id), child descriptor is 8 bytes.
+        let array_data_size = 8 + n * 4; // child_desc(8) + elements(4*N)
+
+        buf.extend_from_slice(&SPA_FORMAT_AUDIO_position.to_le_bytes()); // property key
+        buf.extend_from_slice(&0u32.to_le_bytes());                       // property flags
+        // Array pod: size includes child descriptor + all elements.
+        buf.extend_from_slice(&array_data_size.to_le_bytes());            // pod size
+        buf.extend_from_slice(&SPA_TYPE_Array.to_le_bytes());             // pod type = Array
+        // Child descriptor: size and type of each element.
+        buf.extend_from_slice(&4u32.to_le_bytes());                       // child size = 4
+        buf.extend_from_slice(&SPA_TYPE_Id.to_le_bytes());                // child type = Id
+        // Elements: one Id per channel position.
+        for &pos in positions {
+            buf.extend_from_slice(&pos.to_le_bytes());
+        }
+        // Pad to 8-byte alignment if needed.
+        let remainder = (n * 4) % 8;
+        if remainder != 0 {
+            let pad = 8 - remainder;
+            for _ in 0..pad {
+                buf.push(0u8);
+            }
+        }
+    }
+
     // Fill in object body size
     let body_size = (buf.len() - header_pos - 8) as u32;
     buf[header_pos..header_pos + 4].copy_from_slice(&body_size.to_le_bytes());
 
     buf
+}
+
+/// Channel position constants from spa/param/audio/raw.h.
+/// Used for `audio.position` in stream properties and SPA format pods.
+#[allow(dead_code)]
+mod spa_channel {
+    pub const MONO: u32 = 0x02;  // UNKNOWN=0, NA=1, MONO=2
+    pub const AUX0: u32 = 0x1000;
+    pub const AUX1: u32 = 0x1001;
+    pub const AUX2: u32 = 0x1002;
+    pub const AUX3: u32 = 0x1003;
+    pub const AUX4: u32 = 0x1004;
+    pub const AUX5: u32 = 0x1005;
+    pub const AUX6: u32 = 0x1006;
+    pub const AUX7: u32 = 0x1007;
+
+    /// Playback channel positions: 8 aux channels matching loopback sink.
+    pub const PLAYBACK_8CH: [u32; 8] = [AUX0, AUX1, AUX2, AUX3, AUX4, AUX5, AUX6, AUX7];
+    /// Capture channel position: mono (UMIK-1 measurement mic).
+    pub const CAPTURE_MONO: [u32; 1] = [MONO];
 }
 
 /// Run the PipeWire main loop with playback and capture streams.
@@ -661,6 +726,7 @@ fn run_pipewire(
         "node.description" => "RT Signal Generator",
         "target.object" => &*args.target,
         "audio.channels" => &*channels_str,
+        "audio.position" => "AUX0,AUX1,AUX2,AUX3,AUX4,AUX5,AUX6,AUX7",
         "node.always-process" => "true",
     };
 
@@ -668,10 +734,12 @@ fn run_pipewire(
         pipewire::stream::Stream::new(&core, "pi4audio-signal-gen", playback_props)
             .expect("Failed to create PipeWire playback stream");
 
-    // SPA format params: F32LE at configured rate and channel count.
-    // Drives PipeWire port creation — without this, PipeWire never
-    // creates ports and WirePlumber cannot auto-link (BUG-SG12-5).
-    let playback_fmt_bytes = build_audio_format(args.channels, args.rate);
+    // SPA format params: F32LE at configured rate, channel count, and
+    // positions (AUX0-AUX7). Drives PipeWire per-channel port creation
+    // matching the loopback sink topology (BUG-SG12-5 / TK-236).
+    let playback_fmt_bytes = build_audio_format(
+        args.channels, args.rate, &spa_channel::PLAYBACK_8CH,
+    );
     let playback_fmt_pod = unsafe {
         &*(playback_fmt_bytes.as_ptr() as *const libspa::pod::Pod)
     };
@@ -790,6 +858,7 @@ fn run_pipewire(
         "node.description" => "RT Signal Generator (UMIK-1 capture)",
         "target.object" => &*args.capture_target,
         "audio.channels" => "1",
+        "audio.position" => "MONO",
         "node.always-process" => "true",
     };
 
@@ -797,8 +866,9 @@ fn run_pipewire(
         pipewire::stream::Stream::new(&core, "pi4audio-signal-gen-capture", capture_props)
             .expect("Failed to create PipeWire capture stream");
 
-    // SPA format params: mono F32LE at configured rate (BUG-SG12-5).
-    let capture_fmt_bytes = build_audio_format(1, args.rate);
+    // SPA format params: mono F32LE at configured rate with MONO
+    // position (BUG-SG12-5 / TK-236).
+    let capture_fmt_bytes = build_audio_format(1, args.rate, &spa_channel::CAPTURE_MONO);
     let capture_fmt_pod = unsafe {
         &*(capture_fmt_bytes.as_ptr() as *const libspa::pod::Pod)
     };
@@ -1827,11 +1897,11 @@ mod tests {
         assert!(response2.contains("no recording available"));
     }
 
-    // --- BUG-SG12-5: build_audio_format regression tests ---
+    // --- BUG-SG12-5 + TK-236: build_audio_format regression tests ---
 
     #[test]
-    fn build_audio_format_size_and_alignment() {
-        let pod = build_audio_format(8, 48000);
+    fn build_audio_format_no_positions_size_and_alignment() {
+        let pod = build_audio_format(8, 48000, &[]);
         assert_eq!(pod.len() % 8, 0, "SPA pod must be 8-byte aligned");
         // 5 properties * 24 bytes each = 120, plus 16 bytes header = 136.
         assert_eq!(pod.len(), 136);
@@ -1839,23 +1909,23 @@ mod tests {
 
     #[test]
     fn build_audio_format_header_type() {
-        let pod = build_audio_format(2, 44100);
-        // Bytes 4..8 are the pod type (SPA_TYPE_OBJECT_Format = 0x40002).
+        let pod = build_audio_format(2, 44100, &[]);
+        // Bytes 4..8 are the pod type (SPA_TYPE_OBJECT_Format = 0x40003).
         let pod_type = u32::from_le_bytes(pod[4..8].try_into().unwrap());
-        assert_eq!(pod_type, 0x40002);
+        assert_eq!(pod_type, 0x40003);
     }
 
     #[test]
     fn build_audio_format_body_size() {
-        let pod = build_audio_format(3, 48000);
+        let pod = build_audio_format(3, 48000, &[]);
         // Bytes 0..4 are the body size (total - 8 byte pod header).
         let body_size = u32::from_le_bytes(pod[0..4].try_into().unwrap());
         assert_eq!(body_size as usize, pod.len() - 8);
     }
 
     #[test]
-    fn build_audio_format_channels_embedded() {
-        let pod = build_audio_format(8, 48000);
+    fn build_audio_format_channels_embedded_no_positions() {
+        let pod = build_audio_format(8, 48000, &[]);
         // channels property value at: 16 + 4*24 + 16 = 128.
         let ch_val = u32::from_le_bytes(pod[128..132].try_into().unwrap());
         assert_eq!(ch_val, 8);
@@ -1863,18 +1933,68 @@ mod tests {
 
     #[test]
     fn build_audio_format_rate_embedded() {
-        let pod = build_audio_format(2, 96000);
+        let pod = build_audio_format(2, 96000, &[]);
         // rate property value at: 16 + 3*24 + 16 = 104.
         let rate_val = i32::from_le_bytes(pod[104..108].try_into().unwrap());
         assert_eq!(rate_val, 96000);
     }
 
     #[test]
-    fn build_audio_format_mono_capture() {
-        // Capture stream uses 1 channel -- verify it produces valid pod.
-        let pod = build_audio_format(1, 48000);
-        assert_eq!(pod.len(), 136);
-        let ch_val = u32::from_le_bytes(pod[128..132].try_into().unwrap());
-        assert_eq!(ch_val, 1);
+    fn build_audio_format_mono_capture_with_position() {
+        // Capture stream: 1 channel with MONO position.
+        let pod = build_audio_format(1, 48000, &spa_channel::CAPTURE_MONO);
+        assert_eq!(pod.len() % 8, 0, "SPA pod must be 8-byte aligned");
+        // Should be larger than 136 (base) due to position property.
+        assert!(pod.len() > 136);
+        let body_size = u32::from_le_bytes(pod[0..4].try_into().unwrap());
+        assert_eq!(body_size as usize, pod.len() - 8);
+    }
+
+    #[test]
+    fn build_audio_format_8ch_with_positions() {
+        // Playback stream: 8 channels with AUX0-AUX7 positions.
+        let pod = build_audio_format(8, 48000, &spa_channel::PLAYBACK_8CH);
+        assert_eq!(pod.len() % 8, 0, "SPA pod must be 8-byte aligned");
+        // Base (136) + position property: 8 (key+flags) + 8 (array header)
+        //   + 8 (child desc) + 32 (8*4 elements) = 56. But alignment...
+        // Position property: key(4) + flags(4) + size(4) + type(4)
+        //   + child_size(4) + child_type(4) + 8*4=32 elements = 56 bytes.
+        // 56 % 8 == 0, no extra padding needed.
+        assert!(pod.len() > 136);
+        let body_size = u32::from_le_bytes(pod[0..4].try_into().unwrap());
+        assert_eq!(body_size as usize, pod.len() - 8);
+    }
+
+    #[test]
+    fn build_audio_format_positions_contain_aux_values() {
+        // Verify AUX0-AUX7 position IDs are embedded in the pod.
+        let pod = build_audio_format(8, 48000, &spa_channel::PLAYBACK_8CH);
+        // Position array elements start after:
+        //   16 (object header) + 5*24 (scalar properties) = 136
+        //   + 8 (position key+flags) + 8 (array pod header+child desc) = 152
+        // Actually: position property = key(4)+flags(4)+array_size(4)+array_type(4)
+        //   +child_size(4)+child_type(4) = 24 bytes of overhead, then elements.
+        // Offset of first element: 136 + 24 = 160.
+        let first_pos = u32::from_le_bytes(pod[160..164].try_into().unwrap());
+        assert_eq!(first_pos, spa_channel::AUX0, "First position should be AUX0");
+        let last_pos = u32::from_le_bytes(pod[188..192].try_into().unwrap());
+        assert_eq!(last_pos, spa_channel::AUX7, "Last position should be AUX7");
+    }
+
+    #[test]
+    fn build_audio_format_mono_position_value() {
+        let pod = build_audio_format(1, 48000, &spa_channel::CAPTURE_MONO);
+        // Mono position element at offset 160.
+        let pos_val = u32::from_le_bytes(pod[160..164].try_into().unwrap());
+        assert_eq!(pos_val, spa_channel::MONO, "Capture position should be MONO");
+    }
+
+    #[test]
+    fn spa_channel_constants() {
+        assert_eq!(spa_channel::MONO, 0x02);
+        assert_eq!(spa_channel::AUX0, 0x1000);
+        assert_eq!(spa_channel::AUX7, 0x1007);
+        assert_eq!(spa_channel::PLAYBACK_8CH.len(), 8);
+        assert_eq!(spa_channel::CAPTURE_MONO.len(), 1);
     }
 }

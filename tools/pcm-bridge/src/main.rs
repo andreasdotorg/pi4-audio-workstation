@@ -167,19 +167,19 @@ fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
     // Property:       key:u32, flags:u32, value_pod(size:u32, type:u32, data...)
     //
     // Constants from spa/utils/type.h and spa/param/format.h
-    // (names match C headers for easy cross-reference):
-    const SPA_TYPE_Id: u32 = 4;
-    const SPA_TYPE_Int: u32 = 6;
-    const SPA_TYPE_OBJECT_Format: u32 = 0x40002;
+    // (verified against Pi PipeWire 1.4.10 headers in Nix store):
+    const SPA_TYPE_Id: u32 = 3;       // enum spa_type: None=1, Bool=2, Id=3
+    const SPA_TYPE_Int: u32 = 4;      // Int=4, Long=5, Float=6, Double=7
+    const SPA_TYPE_OBJECT_Format: u32 = 0x40003; // START=0x40000, PropInfo, Props, Format
     const SPA_PARAM_EnumFormat: u32 = 3;
     const SPA_FORMAT_mediaType: u32 = 1;
     const SPA_FORMAT_mediaSubtype: u32 = 2;
-    const SPA_FORMAT_AUDIO_format: u32 = 0x10001;
-    const SPA_FORMAT_AUDIO_rate: u32 = 0x10004;
-    const SPA_FORMAT_AUDIO_channels: u32 = 0x10005;
-    const SPA_MEDIA_TYPE_audio: u32 = 0;
+    const SPA_FORMAT_AUDIO_format: u32 = 0x10001;    // START_Audio + 1
+    const SPA_FORMAT_AUDIO_rate: u32 = 0x10003;      // +3 (flags at +2)
+    const SPA_FORMAT_AUDIO_channels: u32 = 0x10004;  // +4
+    const SPA_MEDIA_TYPE_audio: u32 = 1; // unknown=0, audio=1
     const SPA_MEDIA_SUBTYPE_raw: u32 = 1;
-    const SPA_AUDIO_FORMAT_F32LE: u32 = 3;
+    const SPA_AUDIO_FORMAT_F32LE: u32 = 0x11A; // F32_LE in interleaved block
 
     let mut buf = Vec::with_capacity(136);
 
@@ -188,7 +188,7 @@ fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
         buf.extend_from_slice(&key.to_le_bytes());    // property key
         buf.extend_from_slice(&0u32.to_le_bytes());    // property flags
         buf.extend_from_slice(&4u32.to_le_bytes());    // pod size
-        buf.extend_from_slice(&4u32.to_le_bytes());    // pod type = SPA_TYPE_Id
+        buf.extend_from_slice(&SPA_TYPE_Id.to_le_bytes()); // pod type = SPA_TYPE_Id
         buf.extend_from_slice(&val.to_le_bytes());     // value
         buf.extend_from_slice(&[0u8; 4]);              // pad to 8-byte align
     }
@@ -198,7 +198,7 @@ fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
         buf.extend_from_slice(&key.to_le_bytes());
         buf.extend_from_slice(&0u32.to_le_bytes());
         buf.extend_from_slice(&4u32.to_le_bytes());    // pod size
-        buf.extend_from_slice(&6u32.to_le_bytes());    // pod type = SPA_TYPE_Int
+        buf.extend_from_slice(&SPA_TYPE_Int.to_le_bytes()); // pod type = SPA_TYPE_Int
         buf.extend_from_slice(&val.to_le_bytes());
         buf.extend_from_slice(&[0u8; 4]);              // pad to 8-byte align
     }
@@ -448,9 +448,9 @@ mod tests {
     #[test]
     fn build_audio_format_header_type() {
         let pod = build_audio_format(2, 44100);
-        // Bytes 4..8 are the pod type (SPA_TYPE_OBJECT_Format = 0x40002).
+        // Bytes 4..8 are the pod type (SPA_TYPE_OBJECT_Format = 0x40003).
         let pod_type = u32::from_le_bytes(pod[4..8].try_into().unwrap());
-        assert_eq!(pod_type, 0x40002);
+        assert_eq!(pod_type, 0x40003);
     }
 
     #[test]
