@@ -56,8 +56,12 @@ you this. Seven times.**
 6. **Maximize context by minimizing your own work.** Delegate everything. Your
    job is to coordinate, not to do. Every command you run, every file you read,
    every tool call you make costs context. Message team members instead.
-7. **The change-manager coordinates BOTH git operations AND SSH access to the Pi.**
-   Workers message change-manager to run Pi commands. Do not run Pi commands yourself.
+7. **The change-manager coordinates git operations and manages Pi access sessions.**
+   Workers are technically able to SSH to the Pi (`ssh ela@192.168.178.185`), but
+   they are ONLY allowed to do so when holding a CHANGE or DEPLOY session granted
+   by the CM. Workers execute Pi commands themselves — the CM grants/revokes
+   sessions and commits results, it does NOT execute on the Pi. Do not run Pi
+   commands yourself (orchestrator).
 8. **Team name:** `pi4-audio`. 10 core members (see Team section below).
 9. See `~/mobile/gabriela-bogk/team-protocol/lessons-learned.md` — L-001, L-007,
    L-008, L-021, L-023, L-031, **L-037** are ALL about the orchestrator destroying

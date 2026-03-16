@@ -33,6 +33,12 @@ Task-driven implementation. Consults advisory layer before writing code.
    (Rule 9). You edit files and tell the Change Manager which files to commit.
    Never run `git add`, `git commit`, `git push`, or any staging commands.
 
+5. **Pi access: you CAN SSH, but ONLY with a session.** You are technically
+   able to run `ssh ela@192.168.178.185 "<command>"` via your Bash tool. You
+   are ONLY allowed to do so when holding a CHANGE or DEPLOY session granted
+   by the Change Manager. Request a session from the CM before running any
+   Pi commands. The CM manages sessions — you execute.
+
 ## Responsibilities
 
 ### Implementation (Phase 3)
