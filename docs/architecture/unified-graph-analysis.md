@@ -298,8 +298,11 @@ PipeWire ports.
 **What is lost or changed:**
 
 - **Independent chunksize.** CamillaDSP processes at PipeWire's quantum,
-  not its own chunksize. PipeWire quantum is graph-global -- there is no
-  per-node override for follower nodes (Architect analysis). In DJ mode,
+  not its own chunksize. CamillaDSP's `chunksize` YAML field is ignored
+  under the JACK backend -- the JACK server (PipeWire) dictates buffer
+  size. PipeWire quantum is graph-global: `clock.force-quantum` applies
+  to all nodes, `jack_set_buffer_size()` is server-wide, and there is no
+  per-node override for follower nodes (Architect + AE analysis). In DJ mode,
   this means processing at quantum 1024 instead of chunksize 2048 -- 16
   partitions of 1024 taps (via 2048-point FFT) instead of 8 partitions
   of 2048 taps (via 4096-point FFT). AE interpolation from three measured
@@ -1062,7 +1065,7 @@ practical for CamillaDSP as a JACK client. (Architect analysis)
 | Dimension | Quantum 1024 (current DJ) | Quantum 2048 (proposed) | Assessment |
 |-----------|--------------------------|------------------------|------------|
 | CamillaDSP CPU (DJ) | 8-9% (AE) | 5.23% (measured) | Saves ~3-4%. Within budget either way. |
-| Mixxx CPU | ~85% | ~70-75% (AE estimate) | **This is the real motivation.** But the trade-offs below outweigh it. |
+| Mixxx CPU | ~85% | ~70-80% (AE estimate) | **This is the real motivation.** But the trade-offs below outweigh it. |
 | DJ fader/kill response | 21.3ms quantization | **42.7ms quantization** | **Audible and unacceptable for psytrance.** Crossfader cuts and kill switches quantized to 43ms produce noticeable lag. (AD) |
 | PA path latency | ~90ms round-trip | **~141ms round-trip** | Challenging for DJ headphone monitoring. (AD) |
 | WP routing races | Normal | **L-020 resurfaces:** 42-128ms for new connections. (AE) |
