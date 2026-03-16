@@ -2988,10 +2988,10 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **I want** CamillaDSP switched from its ALSA backend (`type: Alsa` via ALSA Loopback) to a JACK backend (`type: Jack` via `pw-jack`) so that it becomes a native node in the PipeWire graph,
 **so that** the ALSA Loopback bridge is eliminated, signal tapping becomes trivial (all ports visible in PW graph), mode switching simplifies (PW quantum change only, CamillaDSP follows automatically), and diagnostic clarity improves (one graph, one monitoring surface).
 
-**Status:** selected (owner-authorized 2026-03-16)
-**Depends on:** none (zero dependencies to start, quick win)
-**Blocks:** US-057 (PW-native backend investigation depends on JACK baseline)
-**Decisions:** D-027 (pw-jack as permanent JACK bridge), unified graph analysis Option A
+**Status:** cancelled (owner directive 2026-03-16, D-040: CamillaDSP abandoned in favour of pure PW filter-chain pipeline. JACK backend migration no longer needed.)
+**Depends on:** none
+**Blocks:** ~~US-057~~ (cancelled)
+**Decisions:** D-027 (pw-jack as permanent JACK bridge), unified graph analysis Option A. **Superseded by D-040.**
 **Architecture ref:** `docs/architecture/unified-graph-analysis.md` Section 3.1 (Option A), Section 6 (decision tree), Section 7.4 (Phase 0 consensus)
 
 **Note:** All four advisors reached CONSENSUS on Phase 0. AE confirms signal quality is identical under JACK backend. Latency expected to drop 42-61% (ALSA Loopback overhead eliminated). Rollback is trivial: revert `type: Jack` to `type: Alsa` in CamillaDSP YAML. Under the JACK backend, CamillaDSP's `chunksize` field becomes advisory -- processing granularity follows PW quantum. This is a feature: no separate quantum management needed. Per-channel JACK ports avoid the SPA format negotiation issues that caused TK-236 and BUG-SG12-5. **This is a validate-or-rollback operation, not a guaranteed win.** BM-1 is a go/no-go gate: if BM-1 fails (CPU > 12%), the story ends with rollback to ALSA backend and a lab note documenting why. The chunksize loss only affects DJ mode (live mode already processes at quantum 256 = chunksize 256). DJ mode CPU increase from 5.23% (chunksize 2048) to estimated 8-9% (quantum 1024) consumes 3-4% headroom from Mixxx's ~85% budget -- plausible but unverified until BM-1.
@@ -3032,10 +3032,10 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **I want** to investigate whether CamillaDSP's native PipeWire backend (`type: PipeWire`, built with `--features pipewire`) works on the Pi and what advantages it offers over the JACK backend,
 **so that** we have data to decide whether the native PW backend is worth pursuing as a future improvement over the JACK backend established in US-056.
 
-**Status:** selected (owner-authorized 2026-03-16)
-**Depends on:** US-056 (JACK backend provides the baseline to compare against)
+**Status:** cancelled (owner directive 2026-03-16, D-040: CamillaDSP abandoned in favour of pure PW filter-chain pipeline. PW-native CamillaDSP investigation no longer relevant.)
+**Depends on:** ~~US-056~~ (cancelled)
 **Blocks:** none (investigation only, no deployment commitment)
-**Decisions:** unified graph analysis Option C
+**Decisions:** unified graph analysis Option C. **Superseded by D-040.**
 **Architecture ref:** `docs/architecture/unified-graph-analysis.md` Section 3.2 (Option C)
 
 **Note:** This is a TIME-BOXED SPIKE (1 day), not a migration commitment. AE recommends JACK first, PW-native second -- JACK has guaranteed per-channel ports while PW-native has SPA format negotiation risk (same surface as TK-236). EH-3 already validated CamillaDSP with `type: PipeWire` in the test harness for short runs. The spike answers: does it work on Pi in production conditions? Does it offer measurable advantages over JACK?
@@ -3066,9 +3066,9 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **I want** to benchmark PipeWire's built-in filter-chain convolver with 16,384-tap FIR filters on 4 speaker channels on the Pi 4B,
 **so that** we have definitive data on whether PipeWire-native convolution is a viable long-term replacement for CamillaDSP's FIR engine on this hardware.
 
-**Status:** in-review (all 6 BM2 tasks done 2026-03-16. BM2-4 PASS: q1024 1.70% CPU, q256 3.47% CPU. AE + Architect signed off. Pending owner acceptance.)
+**Status:** done (owner-accepted 2026-03-16. BM2-4 PASS: q1024 1.70% CPU, q256 3.47% CPU. FFTW3 NEON 3-5.6x more efficient than CamillaDSP ALSA. Triggered D-040: abandon CamillaDSP for pure PW pipeline.)
 **Depends on:** none (independent track)
-**Blocks:** none directly (gates long-term Option B evaluation per unified graph analysis decision tree)
+**Blocks:** none directly. **Result triggered D-040** (abandon CamillaDSP, US-056/057 cancelled, US-059 unblocked).
 **Decisions:** unified graph analysis Section 6 (decision tree), Section 8 (long-term PW-native convolution)
 **Architecture ref:** `docs/architecture/unified-graph-analysis.md` BM-2 definition (line 835), decision tree (lines 837-877)
 
@@ -3106,10 +3106,10 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **I want** a GraphManager subsystem in the audio workstation daemon that is the single authority over the PipeWire application graph -- owning all link creation, component lifecycle, device monitoring, and mode-based routing,
 **so that** audio routing is deterministic by declaration, components are simple sample producers/consumers with no session management logic, and the class of integration bugs caused by distributed PipeWire negotiation (BUG-SG12-1 through SG12-7, TK-224, TK-236) cannot recur.
 
-**Status:** selected (owner-authorized 2026-03-16)
-**Depends on:** ANY ONE OF US-056 / US-057 / US-058 (all three place CamillaDSP in the PW graph with individually linkable ports -- without at least one, GraphManager has nothing to link to)
+**Status:** selected (owner-authorized 2026-03-16, unblocked by D-040 -- US-058 PASS satisfies dependency)
+**Depends on:** ~~ANY ONE OF US-056 / US-057 / US-058~~ **SATISFIED** (US-058 PASS + D-040: PW filter-chain replaces CamillaDSP, giving GraphManager linkable PW ports natively)
 **Blocks:** none
-**Decisions:** D-039 (owner corrections 2026-03-16: daemon subsystem, WHAT not HOW, sole session manager). Supersedes the original WP Lua scripts approach.
+**Decisions:** D-039 (owner corrections 2026-03-16: daemon subsystem, WHAT not HOW, sole session manager). D-040 (abandon CamillaDSP for PW filter-chain). Supersedes the original WP Lua scripts approach.
 
 **The problem:** Each audio component (signal-gen, pcm-bridge) currently negotiates its own PipeWire session management independently. Signal-gen alone required 7 properties to coexist in the PW graph (AUTOCONNECT, DRIVER, node.group, target.object, media.role, session.suspend-timeout, audio.position). Getting these right caused 7 bugs and consumed days of debugging. The root cause is architectural: there is no single authority over the audio graph. Every new component must independently discover and negotiate its place, and the general-purpose session manager's heuristic matching actively interferes with a fixed-topology system.
 
@@ -3251,9 +3251,9 @@ US-052 + US-047 ──> US-054 (ADA8200 mic channel selection)
 US-054 + US-052 ──> US-055 (calibration transfer UMIK-1 to ADA8200 mic)
 TK-225/226/227 SUBSUMED into US-051. TK-229 SUPERSEDED by US-052. TK-230 root cause ELIMINATED by US-052.
 
-Tier 11 — Architecture Evolution (owner directive 2026-03-16):
-US-056 (JACK backend, Phase 0) — no dependencies, validate-or-rollback
-US-056 ──> US-057 (PW-native investigation spike, depends on JACK baseline)
-US-056 / US-057 / US-058 ──> US-059 (GraphManager: sole PW session manager, depends on ANY ONE giving CamillaDSP linkable PW ports)
-US-058 (BM-2 filter-chain benchmark) — no dependencies, can start immediately
+Tier 11 — Architecture Evolution (owner directive 2026-03-16, D-040 pivot 2026-03-16):
+US-058 (BM-2 filter-chain benchmark) — DONE (1.70% CPU q1024, 3.47% q256). Triggered D-040.
+US-056 (JACK backend) — CANCELLED (D-040: CamillaDSP abandoned)
+US-057 (PW-native spike) — CANCELLED (D-040: CamillaDSP abandoned)
+US-058 ──> US-059 (GraphManager: sole PW session manager. Dependency SATISFIED by D-040 — PW filter-chain gives linkable ports natively)
 ```
