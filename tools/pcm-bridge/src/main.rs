@@ -170,6 +170,7 @@ fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
     // (verified against Pi PipeWire 1.4.10 headers in Nix store):
     const SPA_TYPE_Id: u32 = 3;       // enum spa_type: None=1, Bool=2, Id=3
     const SPA_TYPE_Int: u32 = 4;      // Int=4, Long=5, Float=6, Double=7
+    const SPA_TYPE_Object: u32 = 15;  // Struct=14, Object=15
     const SPA_TYPE_OBJECT_Format: u32 = 0x40003; // START=0x40000, PropInfo, Props, Format
     const SPA_PARAM_EnumFormat: u32 = 3;
     const SPA_FORMAT_mediaType: u32 = 1;
@@ -206,7 +207,7 @@ fn build_audio_format(channels: u32, rate: u32) -> Vec<u8> {
     // Object pod header (size filled in at end)
     let header_pos = buf.len();
     buf.extend_from_slice(&0u32.to_le_bytes());                        // size placeholder
-    buf.extend_from_slice(&SPA_TYPE_OBJECT_Format.to_le_bytes());      // type
+    buf.extend_from_slice(&SPA_TYPE_Object.to_le_bytes());             // type = Object (15)
     buf.extend_from_slice(&SPA_TYPE_OBJECT_Format.to_le_bytes());      // body type
     buf.extend_from_slice(&SPA_PARAM_EnumFormat.to_le_bytes());        // body id
 
@@ -448,9 +449,9 @@ mod tests {
     #[test]
     fn build_audio_format_header_type() {
         let pod = build_audio_format(2, 44100);
-        // Bytes 4..8 are the pod type (SPA_TYPE_OBJECT_Format = 0x40003).
+        // Bytes 4..8 are the pod type (SPA_TYPE_Object = 15).
         let pod_type = u32::from_le_bytes(pod[4..8].try_into().unwrap());
-        assert_eq!(pod_type, 0x40003);
+        assert_eq!(pod_type, 15, "pod header type must be SPA_TYPE_Object");
     }
 
     #[test]
