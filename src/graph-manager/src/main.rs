@@ -26,11 +26,13 @@
 //! - `routing` — Declarative routing table (mode → desired links)
 //! - `registry` — PW registry listener (push-based graph awareness)
 //! - `reconcile` — Reconciliation engine (diff desired vs actual → actions)
+//! - `rpc` — TCP JSON-RPC server (port 4002), cross-thread commands
 
 mod graph;
 mod reconcile;
 mod registry;
 mod routing;
+mod rpc;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -214,7 +216,9 @@ fn main() {
     }
 
     // Run PipeWire main loop (blocks until shutdown).
-    // TODO (GM-4): Start RPC server thread before PW loop.
+    // TODO (GM-4): Wire rpc::start_rpc_thread() here before PW loop,
+    // passing the RPC cmd_tx/event_tx into run_pipewire for integration.
+    // RPC module (GM-9) is complete; integration is GM-4/GM-6.
     run_pipewire(initial_mode, shutdown);
 
     info!("pi4audio-graph-manager exited");
