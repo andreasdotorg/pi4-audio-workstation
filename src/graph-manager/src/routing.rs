@@ -132,6 +132,36 @@ pub struct RoutingTable {
     table: HashMap<Mode, Vec<DesiredLink>>,
 }
 
+// ---------------------------------------------------------------------------
+// Well-known node names (from component configs)
+// ---------------------------------------------------------------------------
+
+/// Filter-chain capture sink (receives app audio).
+/// From: configs/pipewire/30-filter-chain-convolver.conf capture.props.node.name
+const CONVOLVER_IN: &str = "pi4audio-convolver";
+
+/// Filter-chain playback source (feeds USBStreamer ch 0-3).
+/// From: configs/pipewire/30-filter-chain-convolver.conf playback.props.node.name
+const CONVOLVER_OUT: &str = "pi4audio-convolver-out";
+
+/// USBStreamer playback node name prefix (ALSA-generated, variable suffix).
+const USBSTREAMER_OUT_PREFIX: &str = "alsa_output.usb-MiniDSP_USBStreamer";
+
+/// USBStreamer capture node name prefix.
+const USBSTREAMER_IN_PREFIX: &str = "alsa_input.usb-MiniDSP_USBStreamer";
+
+/// Signal generator playback node.
+const SIGNAL_GEN: &str = "pi4audio-signal-gen";
+
+/// Signal generator capture node (UMIK-1 target).
+const SIGNAL_GEN_CAPTURE: &str = "pi4audio-signal-gen-capture";
+
+/// UMIK-1 capture node name prefix.
+const UMIK1_PREFIX: &str = "alsa_input.usb-miniDSP_UMIK-1";
+
+/// pcm-bridge node name (monitor port tap).
+const PCM_BRIDGE: &str = "pi4audio-pcm-bridge";
+
 impl RoutingTable {
     /// Build the production routing table.
     ///
@@ -141,14 +171,17 @@ impl RoutingTable {
     pub fn production() -> Self {
         let mut table = HashMap::new();
 
-        // Monitoring mode: filter-chain receives from USBStreamer capture,
-        // filter-chain output goes to USBStreamer playback.
-        // No application (Mixxx/Reaper) is linked.
         table.insert(Mode::Monitoring, Self::monitoring_links());
         table.insert(Mode::Dj, Self::dj_links());
         table.insert(Mode::Live, Self::live_links());
         table.insert(Mode::Measurement, Self::measurement_links());
 
+        Self { table }
+    }
+
+    /// Build a routing table from explicit entries (for testing).
+    pub fn from_entries(entries: Vec<(Mode, Vec<DesiredLink>)>) -> Self {
+        let table = entries.into_iter().collect();
         Self { table }
     }
 
@@ -166,34 +199,156 @@ impl RoutingTable {
     // Mode link definitions (private)
     // -------------------------------------------------------------------
 
-    /// Monitoring mode: filter-chain active, no application.
+    /// Monitoring mode: convolver output → USBStreamer (speaker channels).
     ///
-    /// TODO: Populate with actual filter-chain port names once the
-    /// production PW filter-chain config is defined (US-059 Phase A).
-    /// For now, this is a placeholder structure.
+    /// No application is linked. The convolver processes whatever is in
+    /// its input buffers (silence if nothing is linked to it).
+    ///
+    /// Links: convolver-out ch 0-3 → USBStreamer playback ch 0-3.
     fn monitoring_links() -> Vec<DesiredLink> {
-        // Placeholder — actual links depend on filter-chain node/port names
-        // which will be defined when the production filter-chain config is
-        // created as part of US-059.
-        Vec::new()
+        // TODO: AE-F6 USBStreamer volume lock — when USBStreamer is first
+        // detected, set volume to unity to prevent post-DSP clipping.
+        Self::convolver_to_usbstreamer_links()
     }
 
-    /// DJ mode: Mixxx → filter-chain → USBStreamer + headphones.
+    /// DJ mode: Mixxx → convolver → USBStreamer (speakers + headphones).
+    ///
+    /// Mixxx provides 8 channels. Ch 0-3 go through the convolver for
+    /// speaker processing. Ch 4-5 (engineer headphones) bypass convolver
+    /// and go directly to USBStreamer ch 4-5.
     fn dj_links() -> Vec<DesiredLink> {
-        // Placeholder — requires Mixxx PW node name and filter-chain config.
-        Vec::new()
+        let mut links = Vec::new();
+
+        // Mixxx → convolver (ch 0-3: speaker channels through FIR).
+        // Note: Mixxx node name depends on whether it's run via pw-jack
+        // or native JACK. Under pw-jack: node name is "Mixxx".
+        // This will be confirmed during integration testing.
+        // TODO: Confirm Mixxx PW node name from Pi testing.
+        for ch in 0..4 {
+            links.push(DesiredLink {
+                output_node: NodeMatch::Exact("Mixxx".to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                input_port: format!("input_{}", ch),
+                optional: false,
+            });
+        }
+
+        // Convolver → USBStreamer (ch 0-3: processed speakers).
+        links.extend(Self::convolver_to_usbstreamer_links());
+
+        // Mixxx → USBStreamer direct (ch 4-5: engineer headphones, bypass convolver).
+        for ch in 4..6 {
+            links.push(DesiredLink {
+                output_node: NodeMatch::Exact("Mixxx".to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
+                input_port: format!("playback_AUX{}", ch),
+                optional: false,
+            });
+        }
+
+        links
     }
 
-    /// Live mode: Reaper → filter-chain → USBStreamer + headphones + IEM.
+    /// Live mode: Reaper → convolver → USBStreamer (speakers + HP + IEM).
+    ///
+    /// Reaper provides 8 channels. Ch 0-3 through convolver (speakers),
+    /// ch 4-5 direct to USBStreamer (engineer HP), ch 6-7 direct to
+    /// USBStreamer (singer IEM, passthrough per D-011).
     fn live_links() -> Vec<DesiredLink> {
-        // Placeholder — requires Reaper PW node name and IEM routing.
-        Vec::new()
+        let mut links = Vec::new();
+
+        // Reaper → convolver (ch 0-3: speaker channels through FIR).
+        // Note: Reaper PW node name under pw-jack is typically "REAPER".
+        // TODO: Confirm Reaper PW node name from Pi testing.
+        for ch in 0..4 {
+            links.push(DesiredLink {
+                output_node: NodeMatch::Exact("REAPER".to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                input_port: format!("input_{}", ch),
+                optional: false,
+            });
+        }
+
+        // Convolver → USBStreamer (ch 0-3: processed speakers).
+        links.extend(Self::convolver_to_usbstreamer_links());
+
+        // Reaper → USBStreamer direct (ch 4-5: engineer headphones).
+        for ch in 4..6 {
+            links.push(DesiredLink {
+                output_node: NodeMatch::Exact("REAPER".to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
+                input_port: format!("playback_AUX{}", ch),
+                optional: false,
+            });
+        }
+
+        // Reaper → USBStreamer direct (ch 6-7: singer IEM, passthrough).
+        for ch in 6..8 {
+            links.push(DesiredLink {
+                output_node: NodeMatch::Exact("REAPER".to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
+                input_port: format!("playback_AUX{}", ch),
+                optional: true, // IEM is optional equipment
+            });
+        }
+
+        links
     }
 
-    /// Measurement mode: signal-gen → filter-chain, UMIK-1 → capture.
+    /// Measurement mode: signal-gen → convolver, UMIK-1 → signal-gen capture.
+    ///
+    /// Signal-gen sends test signals through the convolver to the speakers.
+    /// UMIK-1 captures the room response back to signal-gen for analysis.
     fn measurement_links() -> Vec<DesiredLink> {
-        // Placeholder — requires signal-gen and UMIK-1 node/port names.
-        Vec::new()
+        let mut links = Vec::new();
+
+        // Signal-gen → convolver (ch 0-3: measurement signals).
+        for ch in 0..4 {
+            links.push(DesiredLink {
+                output_node: NodeMatch::Exact(SIGNAL_GEN.to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                input_port: format!("input_{}", ch),
+                optional: false,
+            });
+        }
+
+        // Convolver → USBStreamer (ch 0-3: measurement signal to speakers).
+        links.extend(Self::convolver_to_usbstreamer_links());
+
+        // UMIK-1 → signal-gen capture (mono measurement mic).
+        links.push(DesiredLink {
+            output_node: NodeMatch::Prefix(UMIK1_PREFIX.to_string()),
+            output_port: "capture_MONO".to_string(),
+            input_node: NodeMatch::Exact(SIGNAL_GEN_CAPTURE.to_string()),
+            input_port: "input_0".to_string(),
+            optional: true, // UMIK-1 may not be plugged in
+        });
+
+        links
+    }
+
+    // -------------------------------------------------------------------
+    // Shared link sets
+    // -------------------------------------------------------------------
+
+    /// Convolver output → USBStreamer playback (ch 0-3).
+    /// Used by all modes (speakers always go through the convolver).
+    fn convolver_to_usbstreamer_links() -> Vec<DesiredLink> {
+        (0..4)
+            .map(|ch| DesiredLink {
+                output_node: NodeMatch::Exact(CONVOLVER_OUT.to_string()),
+                output_port: format!("output_{}", ch),
+                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
+                input_port: format!("playback_AUX{}", ch),
+                optional: false,
+            })
+            .collect()
     }
 }
 
@@ -317,5 +472,101 @@ mod tests {
     fn production_table_modes_count() {
         let table = RoutingTable::production();
         assert_eq!(table.modes().len(), 4);
+    }
+
+    // -----------------------------------------------------------------------
+    // Production routing entries
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn monitoring_has_4_links() {
+        // convolver-out → USBStreamer ch 0-3 (4 links).
+        let table = RoutingTable::production();
+        assert_eq!(table.links_for(Mode::Monitoring).len(), 4);
+    }
+
+    #[test]
+    fn dj_has_10_links() {
+        // Mixxx → convolver (4) + convolver → USBStreamer (4) + Mixxx → USBStreamer HP (2).
+        let table = RoutingTable::production();
+        assert_eq!(table.links_for(Mode::Dj).len(), 10);
+    }
+
+    #[test]
+    fn live_has_12_links() {
+        // REAPER → convolver (4) + convolver → USBStreamer (4) + REAPER → USBStreamer HP (2) + REAPER → USBStreamer IEM (2).
+        let table = RoutingTable::production();
+        assert_eq!(table.links_for(Mode::Live).len(), 12);
+    }
+
+    #[test]
+    fn measurement_has_9_links() {
+        // signal-gen → convolver (4) + convolver → USBStreamer (4) + UMIK-1 → signal-gen-capture (1).
+        let table = RoutingTable::production();
+        assert_eq!(table.links_for(Mode::Measurement).len(), 9);
+    }
+
+    #[test]
+    fn live_iem_links_are_optional() {
+        let table = RoutingTable::production();
+        let live_links = table.links_for(Mode::Live);
+        // ch 6-7 (IEM) should be optional.
+        let iem_links: Vec<_> = live_links
+            .iter()
+            .filter(|l| l.output_port.contains('6') || l.output_port.contains('7'))
+            .collect();
+        assert_eq!(iem_links.len(), 2);
+        assert!(iem_links.iter().all(|l| l.optional));
+    }
+
+    #[test]
+    fn measurement_umik1_link_is_optional() {
+        let table = RoutingTable::production();
+        let meas_links = table.links_for(Mode::Measurement);
+        let umik_links: Vec<_> = meas_links
+            .iter()
+            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("UMIK")))
+            .collect();
+        assert_eq!(umik_links.len(), 1);
+        assert!(umik_links[0].optional);
+    }
+
+    #[test]
+    fn all_modes_share_convolver_to_usbstreamer() {
+        // Every mode should have the 4 convolver → USBStreamer links.
+        let table = RoutingTable::production();
+        for mode in Mode::ALL {
+            let links = table.links_for(mode);
+            let conv_to_usb: Vec<_> = links
+                .iter()
+                .filter(|l| {
+                    matches!(&l.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver-out")
+                        && matches!(&l.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output.usb-MiniDSP_USBStreamer"))
+                })
+                .collect();
+            assert_eq!(
+                conv_to_usb.len(),
+                4,
+                "Mode {} should have 4 convolver→USBStreamer links",
+                mode
+            );
+        }
+    }
+
+    #[test]
+    fn from_entries_roundtrip() {
+        let table = RoutingTable::from_entries(vec![
+            (Mode::Monitoring, vec![]),
+            (Mode::Dj, vec![DesiredLink {
+                output_node: NodeMatch::Exact("test".to_string()),
+                output_port: "out_0".to_string(),
+                input_node: NodeMatch::Exact("sink".to_string()),
+                input_port: "in_0".to_string(),
+                optional: false,
+            }]),
+        ]);
+        assert_eq!(table.links_for(Mode::Monitoring).len(), 0);
+        assert_eq!(table.links_for(Mode::Dj).len(), 1);
+        assert_eq!(table.links_for(Mode::Live).len(), 0); // not in table
     }
 }

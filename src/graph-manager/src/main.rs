@@ -25,8 +25,10 @@
 //! - `graph` — Node/port/link tracking data structures
 //! - `routing` — Declarative routing table (mode → desired links)
 //! - `registry` — PW registry listener (push-based graph awareness)
+//! - `reconcile` — Reconciliation engine (diff desired vs actual → actions)
 
 mod graph;
+mod reconcile;
 mod registry;
 mod routing;
 
@@ -112,15 +114,24 @@ fn run_pipewire(
     // Both closures run on the PW main loop thread, so Rc<RefCell<>> is safe.
     let graph = Rc::new(RefCell::new(GraphState::new()));
 
-    // Register registry listener (push-based graph awareness).
-    let (_registry, _registry_listener) =
-        registry::register_graph_listener(&core, graph.clone());
-    info!("PipeWire registry listener registered");
-
     // Build the routing table.
-    let _routing_table = RoutingTable::production();
+    let routing_table = Rc::new(RoutingTable::production());
     info!("Routing table loaded ({} modes)", Mode::ALL.len());
+
+    // Current mode — shared so RPC can update it for mode transitions.
+    let current_mode = Rc::new(RefCell::new(initial_mode));
     info!("Initial mode: {}", initial_mode);
+
+    // Register registry listener (push-based graph awareness).
+    // After every graph state change, reconciliation runs automatically.
+    let (_registry, _registry_listener) =
+        registry::register_graph_listener(
+            &core,
+            graph.clone(),
+            routing_table.clone(),
+            current_mode.clone(),
+        );
+    info!("PipeWire registry listener registered (reconciliation wired)");
 
     // Shutdown timer: poll the AtomicBool every 100ms and quit the PW loop.
     let mainloop_ptr = mainloop.as_raw_ptr();
@@ -203,7 +214,7 @@ fn main() {
     }
 
     // Run PipeWire main loop (blocks until shutdown).
-    // TODO (GM-3): Start RPC server thread before PW loop.
+    // TODO (GM-4): Start RPC server thread before PW loop.
     run_pipewire(initial_mode, shutdown);
 
     info!("pi4audio-graph-manager exited");
