@@ -51,7 +51,7 @@ use crate::rpc::GraphEvent;
 /// create action.
 pub fn apply_actions(
     actions: &[LinkAction],
-    core: &pipewire::core::Core,
+    core: &pipewire::core::CoreRef,
     graph: &GraphState,
     event_tx: &mpsc::Sender<GraphEvent>,
     link_proxies: &Rc<RefCell<HashMap<(u32, u32), pipewire::link::Link>>>,
@@ -190,7 +190,7 @@ fn run_reconcile(
     graph: &GraphState,
     table: &RoutingTable,
     mode: Mode,
-    core: &pipewire::core::Core,
+    core: &pipewire::core::CoreRef,
     event_tx: &mpsc::Sender<GraphEvent>,
     link_proxies: &Rc<RefCell<HashMap<(u32, u32), pipewire::link::Link>>>,
     component_registry: &Rc<RefCell<ComponentRegistry>>,
@@ -245,8 +245,10 @@ pub fn register_graph_listener(
         .get_registry()
         .expect("Failed to get PipeWire registry");
 
-    let core_weak_add = core.downgrade();
-    let core_weak_remove = core.downgrade();
+    // Core is Clone (Rc-based) — safe to clone into closures on the
+    // same PW main loop thread. No WeakCore needed.
+    let core_add = core.clone();
+    let core_remove = core.clone();
     let graph_add = graph.clone();
     let table_add = table.clone();
     let mode_add = mode.clone();
@@ -362,17 +364,15 @@ pub fn register_graph_listener(
             // Trigger reconciliation and health update after every graph mutation.
             if mutated {
                 let current_mode = *mode_add.borrow();
-                if let Some(core) = core_weak_add.upgrade() {
-                    run_reconcile(
-                        &g,
-                        &table_add,
-                        current_mode,
-                        &core,
-                        &event_tx_add,
-                        &link_proxies_add,
-                        &comp_reg_add,
-                    );
-                }
+                run_reconcile(
+                    &g,
+                    &table_add,
+                    current_mode,
+                    &core_add,
+                    &event_tx_add,
+                    &link_proxies_add,
+                    &comp_reg_add,
+                );
             }
         })
         .global_remove(move |id| {
@@ -396,17 +396,15 @@ pub fn register_graph_listener(
             // Trigger reconciliation and health update after every graph mutation.
             if removed {
                 let current_mode = *mode_remove.borrow();
-                if let Some(core) = core_weak_remove.upgrade() {
-                    run_reconcile(
-                        &g,
-                        &table_remove,
-                        current_mode,
-                        &core,
-                        &event_tx_remove,
-                        &link_proxies_remove,
-                        &comp_reg_remove,
-                    );
-                }
+                run_reconcile(
+                    &g,
+                    &table_remove,
+                    current_mode,
+                    &core_remove,
+                    &event_tx_remove,
+                    &link_proxies_remove,
+                    &comp_reg_remove,
+                );
             }
         })
         .register();

@@ -206,17 +206,27 @@ fn run_pipewire(
     // RPC command timer: poll the mpsc channel every 50ms and process
     // commands from the RPC thread. 50ms worst-case latency is well
     // under human perception threshold for mode transitions.
+    // Safety: core_ptr is the raw pointer to the PW core. The Core object
+    // is owned by run_pipewire() and lives until after mainloop.run() returns.
+    // The timer callback runs on the same PW main loop thread. The pointer
+    // is stable for the duration of the main loop.
+    let core_ptr = core.as_raw_ptr();
     let _rpc_timer = mainloop.loop_().add_timer({
         let graph = graph.clone();
         let routing_table = routing_table.clone();
         let current_mode = current_mode.clone();
         let event_tx = event_tx.clone();
         let link_proxies = link_proxies.clone();
-        let core_weak = core.downgrade();
         let component_registry = component_registry.clone();
         move |_expirations| {
             // Drain all pending commands.
             while let Ok(cmd) = cmd_rx.try_recv() {
+                // Safety: core_ptr is valid for the duration of the main loop.
+                // CoreRef is the borrowed form of Core — we reconstruct it from
+                // the raw pointer to pass into dispatch_rpc_command.
+                let core_ref = unsafe {
+                    &*(core_ptr as *const pipewire::core::CoreRef)
+                };
                 dispatch_rpc_command(
                     cmd,
                     &graph,
@@ -224,7 +234,7 @@ fn run_pipewire(
                     &current_mode,
                     &event_tx,
                     &link_proxies,
-                    &core_weak,
+                    core_ref,
                     &component_registry,
                 );
             }
@@ -271,10 +281,10 @@ fn dispatch_rpc_command(
     current_mode: &std::rc::Rc<std::cell::RefCell<Mode>>,
     event_tx: &std::sync::mpsc::Sender<rpc::GraphEvent>,
     link_proxies: &std::rc::Rc<std::cell::RefCell<std::collections::HashMap<(u32, u32), pipewire::link::Link>>>,
-    core_weak: &pipewire::core::WeakCore,
+    core_ref: &pipewire::core::CoreRef,
     component_registry: &std::rc::Rc<std::cell::RefCell<lifecycle::ComponentRegistry>>,
 ) {
-    use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult, StateSnapshot};
+    use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
     match cmd {
         rpc::RpcCommand::SetMode { mode, reply } => {
@@ -294,17 +304,13 @@ fn dispatch_rpc_command(
             let actions = reconcile::reconcile(&g, routing_table, mode);
 
             // 3. Apply link actions.
-            if let Some(core) = core_weak.upgrade() {
-                registry::apply_actions(
-                    &actions,
-                    &core,
-                    &g,
-                    event_tx,
-                    link_proxies,
-                );
-            } else {
-                log::warn!("PW core unavailable during mode transition");
-            }
+            registry::apply_actions(
+                &actions,
+                core_ref,
+                &g,
+                event_tx,
+                link_proxies,
+            );
 
             // 4. Send reply.
             let _ = reply.send(RpcResult::Ok);
