@@ -1130,6 +1130,16 @@ split the speaker signal chain -- it separates two independent paths.
 AD's critique applies most strongly to AE's stage-based decomposition
 (Phases 2-5), not to the channel-based approach.
 
+**Consensus map (Architect + AE consolidated, all four advisors):**
+
+| Phase | Architect | AE | AD | PO | Status |
+|-------|-----------|-----|-----|-----|--------|
+| Phase 0: Option A (JACK backend) | YES | YES | YES | YES | **CONSENSUS** |
+| Phase 1: Option H (WP Lua scripts) | YES | YES | YES | YES | **CONSENSUS** |
+| Phase 2: IEM/HP bypass (ch 4-7) | YES (latency value) | NEUTRAL (deferred decision) | Less objectionable than stage-based | Operator-transparent? | **ARCHITECT PROPOSES** |
+| Phase 3+: Further decomposition | DEFER | DEFER | REJECT | -- | **CONSENSUS DEFER** |
+| Never migrate: mixer, FIR, monitoring API | NEVER | NEVER | NEVER | -- | **CONSENSUS NEVER** |
+
 **Recommended phased path (Architect, with AE/PO/AD input):**
 
 ```
@@ -1185,9 +1195,22 @@ monitoring model already supports.
 - Further migration (moving gain, delay, HPF out of CamillaDSP) provides
   marginal benefit while splitting the speaker signal chain -- exactly
   the anti-pattern that both the Architect and AD warn against.
+- CamillaDSP's non-FIR overhead (mixer, gain, delay, HPF) is ~0.1% CPU.
+  There is no CPU motivation to extract these stages. (AE + Architect)
 - The speaker signal chain in CamillaDSP is proven, lab-validated,
   safety-audited, and under active measurement pipeline control. There
   is no operational pain motivating its decomposition.
+
+**Never migrate (all advisors agree):**
+- **Mixer:** Measurement pipeline's atomic `set_config_file_path()` +
+  `reload()` (`session.py` lines 391-460, 552-555) depends on mixer +
+  FIR + gain swapping together. No PipeWire equivalent exists.
+- **FIR convolution:** No partitioned overlap-save convolver in PipeWire.
+  CamillaDSP is irreplaceable for this workload on Pi 4B.
+- **Monitoring API (websocket):** 20Hz per-channel levels, clipped sample
+  counting, buffer monitoring, state queries. Rebuilding against PipeWire
+  internals has no proven path and would invalidate 28+ files of
+  integration.
 
 ### 7.5 Contributor Perspectives on Migration
 
