@@ -424,12 +424,20 @@ on the measurement pipeline and web UI. Rollback impractical.
 attempt it unless PipeWire gains a partitioned overlap-save convolution
 plugin, which does not exist today and is not on any public roadmap.
 
+**Correction (2026-03-16):** The statement above that PipeWire filter-chain
+"does not implement partitioned convolution" may be wrong. AE has
+identified that PipeWire may have included partitioned convolution since
+v0.3.56 (2022). Our installed version (1.4.9) likely includes it. If so,
+the CPU estimates above (40-60%) are based on the wrong algorithm and
+would be significantly lower. **BM-2 is now the critical gate** -- it
+must be run before any conclusion about Option B viability. See Section 8
+for the full analysis of PW-native convolution as a long-term endpoint.
+
 **AD counterpoint:** The losses (items 1-10 above) are engineering
-problems with known solutions -- not fundamental impossibilities. If a
-partitioned convolver did become available in PipeWire, the architecture
-would be the cleanest option. The benchmark gate (BM-2) remains the
-definitive test, but AE's analysis of the underlying algorithms strongly
-predicts failure on Pi 4B ARM.
+problems with known solutions -- not fundamental impossibilities. If
+PipeWire's convolver does implement partitioned convolution (or gains
+it), the architecture would be the cleanest option. The benchmark gate
+(BM-2) remains the definitive test.
 
 ### Option C: CamillaDSP Native PipeWire Backend
 
@@ -729,7 +737,7 @@ of the loopback/backend question.
 |-----------|---------------------|---------------------------|------------------------|
 | **Effort** | -- (baseline) | **S** — YAML `type: Jack`, systemd `pw-jack` wrapper, pw-link rules | **XL** — rebuild monitoring APIs, rewrite measurement session config swap, new level metering, re-audit safety model, rewrite 28+ files using pycamilladsp |
 | **Risk** | **LOW** — known, documented, resolved issues; fragile boundary is understood | **MEDIUM** — CamillaDSP CPU increase at chunksize 1024 (AE: ~8-9%, interpolated from measured data), fault isolation regression (processing spike blocks graph clock), filter reload may block graph thread. JACK per-channel ports avoid TK-236 class issues. | **HIGH** — non-partitioned FIR on ARM (AE: dealbreaker, ~6.3B MACs/s direct or 341ms monolithic FFT blocks), measurement workflow redesign required, loss of websocket API invalidates monitoring + safety model, single-process failure mode on 4x450W PA |
-| **Latency** | Baseline + 1 quantum overhead | Baseline (loopback removed) | Baseline (loopback removed) |
+| **Latency** | ~114ms PA path (ALSA 2-chunk buffering + loopback) | **~44-65ms** PA path (loopback + ALSA buffering eliminated; G-0 required) | Baseline (loopback removed) |
 | **CPU (DJ mode)** | 5.23% (chunksize 2048) | **8-9% estimated** (chunksize 1024, AE interpolation from 3 data points; 10% upper bound) | ~40-60% estimated (non-partitioned FFT, AE: **dealbreaker**) |
 | **CPU (Live mode)** | 19.25% (chunksize 256) | 19.25% (unchanged — same chunksize) | Likely higher (non-partitioned FFT overhead, AE: **dealbreaker**) |
 | **Audio quality** | Baseline | **Identical** — partitioned FFT output is mathematically equivalent regardless of partition size (AE) | Unknown — different convolution algorithm |
@@ -789,15 +797,17 @@ computation. No NEON regression risk.
 
 Rollback is trivial: change YAML back to `type: Alsa`, restart services.
 
-**Option B risk: HIGH (structural, hard to reverse). AE verdict: dealbreaker.**
+**Option B risk: HIGH (structural, hard to reverse). AE initial verdict:
+dealbreaker -- but see correction below.**
 Four compounding risks:
-1. *CPU budget exceeded (CRITICAL, per AE):* PipeWire filter-chain does
-   not implement partitioned convolution. AE estimates 40-60% CPU for
-   16k taps x 4ch on Pi 4B. Combined with Mixxx at ~85%, this exceeds
-   100% and is unviable. Direct convolution requires ~6.3 billion
+1. *CPU budget (CRITICAL):* Earlier analysis assumed PipeWire filter-chain
+   does not implement partitioned convolution (40-60% CPU estimate). AE
+   correction (2026-03-16): PW may have partitioned convolution since
+   v0.3.56 (2022). **BM-2 must be run to determine actual CPU cost.**
+   If non-partitioned: direct convolution requires ~6.3 billion
    MACs/second; monolithic FFT requires 341ms blocks (incompatible with
-   latency). This is not merely "unverified" -- the underlying algorithm
-   analysis strongly predicts failure on this hardware.
+   latency) -- unviable. If partitioned: CPU may be comparable to
+   CamillaDSP's 19% at chunksize 256.
 2. *Measurement workflow redesign:* D-036's config hot-swap depends on
    CamillaDSP's websocket API. Filter-chain module restart causes stream
    disconnect, reintroducing TK-224 routing races. Core control mechanism
@@ -824,7 +834,7 @@ Two benchmarks gate the entire decision:
 | Benchmark | What | Criteria | Determines |
 |-----------|------|----------|------------|
 | **BM-1** | CamillaDSP `type: Jack` via `pw-jack`: 16k taps x 4ch at quantum 1024 on Pi 4B | CPU < 12% (DJ mode budget). AE interpolation: 8-9% expected (10% upper bound). | Option A viability |
-| **BM-2** | PipeWire filter-chain convolver: 16k taps x 4ch at quantum 1024 on Pi 4B | CPU < 30% (total DSP budget under DJ load). AE estimates 40-60% (non-partitioned FFT) and assesses this as a dealbreaker. Algorithm analysis strongly predicts FAIL, but benchmark confirms definitively. | Option B viability |
+| **BM-2** | PipeWire filter-chain convolver: 16k taps x 4ch at quantum 1024 on Pi 4B | CPU < 20% (comparable to CamillaDSP). AE correction: PW v1.4.9 may already have partitioned convolution (since v0.3.56). Earlier 40-60% estimate assumed non-partitioned -- may be wrong. **Must benchmark to determine.** | Option B viability + Section 8 long-term endpoint |
 
 ### Decision Tree
 
@@ -875,6 +885,7 @@ is selected:
 
 | Gate | Question | Applies To | How to Validate |
 |------|----------|------------|-----------------|
+| G-0 | CamillaDSP JACK backend latency on Pi? | A | T2a-equivalent loopback measurement with `type: Jack`. Expected: ~2 quanta (42-86ms at q1024/q2048). Baseline: current ALSA ~114ms. ~5 min on Pi. |
 | G-1 | CamillaDSP 3.0.1 `type: Jack` via `pw-jack` works with PipeWire 1.4.9 on Pi? | A | `pw-jack camilladsp config.yml`, verify JACK ports appear in `pw-dump` |
 | G-1c | CamillaDSP 3.0.1 `type: PipeWire` works with PipeWire 1.4.9 on Pi? | C | Requires CamillaDSP rebuild with PW feature; verify node appears in `pw-dump` |
 | G-2 | PipeWire graph stable with ~19% CPU callback on data-loop? | A, C | 30-min stability test under DJ load |
@@ -942,6 +953,9 @@ If any one of these conditions fails, the case for Option A strengthens.
    `pw-link` rules for JACK port auto-connection, re-run T1-T3
 
 **Phase 3: Long-term evaluation (if BM-2 also passes)**
+
+See Section 8 for the full long-term endpoint analysis (licensing,
+technical requirements, upstream contribution path).
 
 9. Prototype filter-chain config equivalent to current CamillaDSP YAML
 10. Evaluate monitoring API alternatives (pw-cli, custom SPA plugin)
@@ -1063,33 +1077,80 @@ practical for CamillaDSP as a JACK client. (Architect analysis)
 
 **Impact analysis:**
 
-| Aspect | Quantum 1024 (current DJ) | Quantum 2048 (proposed) | Assessment |
-|--------|--------------------------|------------------------|------------|
-| CamillaDSP CPU | ~8-9% (AE) | ~5.2% (measured) | Saves ~3-4%. |
-| Mixxx CPU (est.) | ~85% | ~70-80% (AE) | Saves ~10-15%. **Significant on Pi 4.** |
-| PA path latency | ~87ms | ~173ms | For DJ/PA with pre-recorded material, functionally irrelevant (US-002 finding #5). |
-| DJ fader response | Not affected | Not affected | Faders, crossfaders, kill switches, EQ are processed inside Mixxx's audio engine before samples reach PipeWire. Quantum does not affect DJ control response. |
-| Routing race (startup) | 21-64ms | 42-128ms (L-020) | Mitigated by persistent streams (Option H Lua scripts). |
-| USBStreamer compatibility | Verified at period-size 1024 | period-size 2048 needs verification | One-time test on Pi. |
-| Spectrum update rate | ~47 Hz | ~23 Hz | Reduced but adequate for DJ mode. |
-| Live mode (quantum 256) | N/A | **Non-starter.** Violates D-011 by ~6x (42.7ms vs 5.3ms target). Singer IEM slapback. | Unchanged -- live mode quantum 256 is non-negotiable. |
+| Aspect | Current (ALSA, q=1024, cs=2048) | JACK, q=1024 | JACK, q=2048 | Assessment |
+|--------|-------------------------------|-------------|-------------|------------|
+| CamillaDSP CPU | ~8-9% | ~8-9% | ~5.2% (measured) | q2048 saves ~3-4%. |
+| Mixxx CPU (est.) | ~85% | ~85% | ~70-80% (AE) | q2048 saves ~10-15%. **Significant on Pi 4.** |
+| PA path latency | ~114ms | ~44-65ms | ~87-130ms | **JACK improves all scenarios.** See latency model below. |
+| DJ fader response | Not affected | Not affected | Not affected | Faders are inside Mixxx's audio engine. Quantum does not affect DJ control response. |
+| Routing race (startup) | N/A | 21-64ms | 42-128ms (L-020) | Mitigated by persistent streams (Option H Lua scripts). |
+| USBStreamer compat. | Verified at ps=1024 | Same | ps=2048 needs verification | One-time test on Pi. |
+| Spectrum update rate | ~47 Hz | ~47 Hz | ~23 Hz | q2048 reduced but adequate for DJ mode. |
+| Live mode (q=256) | N/A | Supported | **Non-starter** (D-011) | Live mode quantum 256 is non-negotiable. |
 
-**Correction (2026-03-16):** An earlier draft of this section claimed
-that DJ fader/kill response would be degraded to 42.7ms quantization.
-This was factually wrong. DJ faders, crossfaders, kill switches, and
-EQ knobs are all processed inside Mixxx's audio engine. PipeWire
-quantum affects only when processed audio blocks are delivered to the
-graph -- the fader action is already baked into the samples. AE and
-Architect retracted the fader argument.
+**Correction (2026-03-16, fader response):** An earlier draft claimed
+DJ fader/kill response would be degraded to 42.7ms quantization. This
+was factually wrong. DJ faders, crossfaders, kill switches, and EQ
+knobs are all processed inside Mixxx's audio engine. PipeWire quantum
+affects only when processed audio blocks are delivered to the graph --
+the fader action is already baked into the samples. AE and Architect
+retracted the fader argument.
+
+**Latency model correction (2026-03-16, AE first-principles analysis):**
+
+CamillaDSP's "2 chunks" latency is an **ALSA buffering artifact**, not
+an inherent property of the DSP algorithm. Under the JACK backend,
+CamillaDSP processes synchronously within the JACK `process(nframes)`
+callback -- zero additional buffering latency. The overlap-save
+convolution state is algorithmic look-back, not additional latency.
+
+Under the current ALSA backend, CamillaDSP's 2-chunk buffering adds
+85.3ms at chunksize 2048 (1 chunk capture ring-buffer fill + 1 chunk
+playback ring-buffer drain). This buffering is eliminated entirely
+with the JACK backend because there are no capture/playback ring
+buffers -- the audio is processed in-place within the graph callback.
+
+**Revised latency breakdown:**
+
+| Component | Current (ALSA, q=1024, cs=2048) | JACK, q=1024 | JACK, q=2048 |
+|-----------|-------------------------------|-------------|-------------|
+| PW graph latency | 21.3ms (1 quantum) | 21.3-42.7ms (1-2Q) | 42.7-85.3ms (1-2Q) |
+| ALSA loopback overhead | ~5ms | 0ms (eliminated) | 0ms (eliminated) |
+| CamillaDSP buffering | 85.3ms (2 x cs2048) | 0ms (synchronous) | 0ms (synchronous) |
+| USB/ADAT/converter | ~2ms | ~2ms | ~2ms |
+| **Total (conservative)** | **~114ms** | **~65ms** | **~130ms** |
+| **Total (optimistic)** | **~114ms** | **~44ms** | **~87ms** |
+
+The range (optimistic vs conservative) depends on PipeWire graph
+scheduling: the conservative model assumes 2 quanta (source-to-
+processing + processing-to-sink delivery); the optimistic model assumes
+1 quantum (all nodes processed in a single cycle with correct DAG
+topology). Measurement on Pi is needed to confirm (see validation
+gate G-0).
+
+**(AE first-principles analysis, 2026-03-16. Not yet validated by
+measurement -- G-0 required.)**
+
+**Key finding:** The JACK backend is not just about eliminating the ALSA
+Loopback architectural complexity -- it also delivers a substantial
+latency improvement:
+- **DJ mode (q=1024):** PA path drops from ~114ms to ~44-65ms, nearly
+  halving it.
+- **DJ mode (q=2048):** PA path ~87-130ms, comparable to current ~114ms
+  while saving ~10-15% CPU.
+- **Live mode (q=256):** PA path drops to ~7-13ms (1-2 quanta of 5.3ms
+  + ~2ms USB/ADAT). Far below the ~20ms singer slapback threshold
+  (D-011, design principle #5). This is a transformative improvement
+  over the current ALSA path.
+
+This significantly strengthens the case for Phase 0 (Option A).
 
 **The loss of independent chunksize is the documented cost of Option A.**
-For DJ mode, the real trade-offs of quantum 2048 are: (1) PA path
-latency roughly doubles (~87ms to ~173ms), and (2) L-020 routing races
-widen at startup. The PA latency increase is functionally irrelevant
-for DJ/PA with pre-recorded material (US-002 finding #5: PA latency
-only matters for live performers hearing their own voice through the
-PA). The routing race is a startup-only concern mitigated by persistent
-streams.
+For DJ mode, the trade-offs of quantum 2048 vs 1024 are: (1) PA path
+latency increases from ~44-65ms to ~87-130ms, and (2) L-020 routing
+races widen at startup. Both quantum options under JACK are improvements
+over or comparable to the current ALSA architecture (~114ms). The
+routing race is a startup-only concern mitigated by persistent streams.
 
 The combined CPU saving of ~10-15% (Mixxx + CamillaDSP) is significant
 on the Pi 4's constrained budget. **Quantum 2048 is a legitimate
@@ -1298,6 +1359,279 @@ monitoring model already supports.
 
 ---
 
+## 8. Long-Term Vision: PipeWire Upstream Convolver
+
+The owner proposes a long-term endpoint beyond Phase 3: lift CamillaDSP's
+partitioned FFT convolution algorithm and contribute it as a PipeWire
+filter-chain element upstream. If PipeWire had a native partitioned
+convolver, CamillaDSP would no longer be the sole engine capable of
+running this workload on Pi 4B, and the entire graph unification question
+resolves differently.
+
+This is a Phase 4+ activity. It does not change the near-term roadmap
+(Phase 0-1-2-STOP remains the recommended path). It is documented here
+as the owner's stated vision for the project's long-term architectural
+endpoint.
+
+### 8.1 Critical Correction: PipeWire May Already Have Partitioned Convolution
+
+**Correction (2026-03-16):** Earlier sections of this document (Section 4,
+Option B) stated categorically that "PipeWire filter-chain does not
+implement partitioned convolution." AE has identified that **PipeWire
+may have included partitioned convolution since v0.3.56 (2022).** Our
+installed version (1.4.9) almost certainly includes it.
+
+If this is correct, the entire Option B analysis changes:
+- The 40-60% CPU estimate (based on non-partitioned FFT) is wrong.
+- Actual CPU cost could be comparable to CamillaDSP's ~19% at chunksize
+  256, depending on the FFT engine and NEON optimization.
+- The path becomes "improve what exists" rather than "build from scratch."
+
+**This makes BM-2 the single most important benchmark in this document.**
+Running BM-2 (16k taps x 4ch on Pi 4B) would immediately resolve
+whether PW's existing convolver is viable, obsoleting months of
+speculative analysis.
+
+### 8.2 Licensing Feasibility
+
+CamillaDSP is GPL-3.0. PipeWire core is LGPL-2.1+/MIT dual-licensed.
+GPL code cannot be directly contributed to an LGPL/MIT project without
+relicensing.
+
+**Four paths (Architect analysis):**
+
+| Path | Approach | Feasibility | Effort |
+|------|----------|-------------|--------|
+| A | Relicense CamillaDSP convolver (ask Henrik Enquist) | **Unlikely.** Requires sole copyright holder agreement. No precedent. | LOW (if granted) |
+| B | Clean-room reimplementation from published DSP literature | **Viable.** Algorithm is well-documented (Stockham 1966, Gardner 1995, Oppenheim & Schafer). ~4-6 person-weeks of C code. | L-XL |
+| C | Direct code lift (copy GPL into LGPL project) | **Legally prohibited.** GPL-3.0 incompatible with LGPL-2.1+ for code integration. | N/A |
+| D | GPL-3.0 SPA plugin (separately distributed, dynamically loaded) | **Most realistic.** Same model as GStreamer's GPL plugins (`gst-plugins-ugly`). PipeWire's SPA plugin API is a stable ABI boundary. Plugin is a separate work under GPL-3.0. | M-L |
+
+**Path D is the recommended approach** (Architect). It allows the
+convolver to remain GPL-3.0 while PipeWire loads it through the SPA
+plugin interface without license contamination. The GStreamer precedent
+is well-established. Path B (clean-room) is the safest for upstream
+mainline inclusion if LGPL/MIT licensing is desired.
+
+**FFT library options for the implementation:**
+
+| Library | License | Language | ARM NEON | Notes |
+|---------|---------|----------|----------|-------|
+| FFTW3 | GPL-2.0+ | C | Yes | Fast, well-proven on ARM. Natural choice for GPL SPA plugin (Path D). |
+| PFFFT | BSD | C (~1500 lines) | Yes | Header-only, embeddable. Best choice for LGPL/MIT clean-room (Path B). (AE + Architect consensus) |
+| KissFFT | BSD | C | Partial | Small, simple. Less optimized than PFFFT for ARM. |
+| rustfft | MIT/Apache-2.0 | Rust | Via LLVM | What CamillaDSP uses. Not viable for C upstream contribution. |
+
+**Prior art:**
+- **zita-convolver** (C++, GPL-3.0): Mature partitioned convolver by
+  Fons Adriaensen. Usable via Path D (GPL SPA plugin) but not directly
+  embeddable into LGPL PipeWire core.
+- **PFFFT** (BSD, C, NEON-optimized): FFT engine suitable for Path B
+  clean-room implementation. Already optimized for ARM NEON.
+
+### 8.3 Technical Feasibility
+
+CamillaDSP's partitioned overlap-save convolution maps cleanly to
+PipeWire's SPA plugin callback model (Architect analysis):
+
+- **Processing model:** SPA filter plugins receive fixed-size buffers
+  via `process()` callback, exactly matching the per-quantum callback
+  that partitioned convolution needs. Each quantum corresponds to one
+  partition.
+- **Partition size = quantum:** The PipeWire quantum becomes the
+  partition size. At quantum 256, 16,384 taps require 64 partitions.
+  At quantum 1024, 16 partitions. This is the standard partitioned
+  overlap-save trade-off: smaller partitions = lower latency + more FFT
+  overhead; larger partitions = higher latency + less FFT overhead.
+- **Filter loading:** WAV coefficient files loaded at plugin
+  instantiation via SPA properties (filter file path as plugin
+  parameter).
+- **Multi-channel:** The plugin processes N independent convolution
+  channels, each with its own filter -- matching CamillaDSP's current
+  per-channel filter architecture.
+
+**Key insight (Architect):** Partitioned overlap-save is a well-understood
+algorithm with extensive published literature (Gardner 1995, Stockham
+1966). The implementation challenge is engineering quality (memory
+management, ARM NEON optimization, edge cases), not algorithmic novelty.
+CamillaDSP's value is in its proven, optimized implementation -- the
+algorithm itself is public domain knowledge.
+
+**Requirements for a PW-native convolver replacing CamillaDSP:**
+
+| Requirement | CamillaDSP Today | PW Convolver Must Match |
+|-------------|-----------------|------------------------|
+| Partitioned overlap-save FFT | 64 segments x 256 taps (at chunksize 256) | Equivalent or better partitioning |
+| ARM NEON optimization | LLVM auto-vectorization | PFFFT provides explicit NEON |
+| 16,384-tap FIR per channel | 4 channels x 16k taps | Same |
+| CPU budget | ~19% at chunksize 256, ~8-9% at 1024 | Comparable or better |
+| Glitch-free config swap | `set_config_file_path()` + `reload()` | Hot-swap without stream disconnect |
+| Per-channel level metering | 20Hz websocket API | SPA-based equivalent |
+| Clipped sample counter | Per-output clip detection | Must replicate |
+| Buffer level monitoring | Internal buffer health | Must replicate |
+
+**Hot-swap is the hard problem (AE).** CamillaDSP's atomic config reload
+swaps mixer + FIR + gain in a single operation without stream disconnect.
+A PW filter-chain equivalent would need either:
+- File-watch approach: monitor coefficient WAV files for changes, reload
+  in-place (simplest, AE recommended)
+- SPA property injection: update coefficients via SPA properties at
+  runtime
+- Module restart with gapless handoff: new instance starts before old
+  stops (complex, WirePlumber coordination)
+
+### 8.4 Language Boundary
+
+PipeWire is a C project. Its SPA plugin API is a C ABI. Contributing
+Rust code upstream is not viable -- PipeWire will not accept a Rust
+toolchain dependency. (Architect analysis)
+
+Two implementation strategies:
+
+1. **C rewrite (required for upstream):** Implement the partitioned
+   convolver in C, using FFTW3 or PFFFT for FFT. This is the only path
+   to PipeWire mainline or to a community-maintained plugin. ARM NEON
+   intrinsics for the hot path (FFT butterfly, complex
+   multiply-accumulate) are well-documented.
+2. **Rust SPA plugin (alternative):** Write the plugin in Rust, exposing
+   a C ABI via `#[no_mangle] extern "C"` functions. Technically feasible
+   for a separately distributed plugin (Path D) but limits community
+   adoption since Rust is not part of PipeWire's build ecosystem.
+
+**Recommendation (Architect):** C implementation with FFTW3 (Path D) or
+PFFFT (Path B). The algorithm is straightforward in C. The major
+engineering effort is in testing, edge cases, and performance tuning --
+not in the convolution algorithm itself.
+
+### 8.5 Upstream Appetite
+
+Unknown. Wim Taymans (PipeWire lead) has not been consulted.
+PipeWire's `filter-chain` module already supports a `convolver`
+element, demonstrating that the project acknowledges the use case.
+Whether it already implements partitioned convolution (see Section 8.1
+correction) or uses direct-form convolution is the open question that
+BM-2 resolves.
+
+**Recommended first step (all advisors agree):** Open a PipeWire GitLab
+issue gauging interest before writing any code. The issue should
+describe: the use case (room correction + crossover FIR on
+resource-constrained ARM), the performance gap (if BM-2 confirms one),
+and the proposed approach (SPA filter plugin, C + FFTW3/PFFFT, GPL-3.0
+or LGPL depending on upstream preference).
+
+If upstream is receptive, this becomes a community contribution project.
+If not, a separately distributed GPL SPA plugin (Path D) achieves the
+same technical result for this project.
+
+### 8.6 Risk Assessment
+
+**AD challenge (in full):**
+
+1. **Timeline: 11-24 months vs "working today."** CamillaDSP delivers
+   every requirement now. An upstream contribution is a multi-month
+   standalone project with uncertain acceptance. The opportunity cost
+   delays the room correction pipeline and other near-term deliverables.
+
+2. **Upstream rejection risk.** 6-12 months of development could be
+   wasted if Wim Taymans (PipeWire maintainer) decides the convolver
+   does not belong in PipeWire core, or if architectural feedback
+   requires fundamental redesign. Forced retreat to CamillaDSP with
+   months lost.
+
+3. **PipeWire release cycle dependency.** Bug fixes and feature
+   improvements are on upstream's timeline, not ours. A critical
+   convolver bug at a gig requires waiting for a PipeWire release or
+   maintaining a local fork.
+
+4. **Testing surface expansion.** Every PipeWire upgrade becomes a
+   potential regression for the convolver. The T1-T4 test suite must
+   run against each new PipeWire version.
+
+**But AD agrees:** The first steps (benchmark + upstream RFC) are free
+and immediate. They resolve uncertainty without commitment.
+
+### 8.7 Recommended Approach
+
+**Consensus (all four advisors):** This is a Phase 4+ long-term activity.
+It does NOT change the near-term roadmap (Phase 0: JACK backend, Phase 1:
+Lua scripts). The recommended sequence:
+
+```
+Step 1: BM-2 — Benchmark PW v1.4.9 convolver (IMMEDIATE, free)
+  |
+  Creates: minimal filter-chain config, 16k taps x 4ch, quantum 1024
+  Measures: CPU on Pi 4B
+  Duration: ~2 hours setup + measurement
+  |
+  +-- BM-2 PASS (CPU < 20%) ──────────> PW convolver already viable.
+  |     Path is "improve what exists."     Evaluate remaining gaps
+  |     Focus shifts to hot-swap,          (hot-swap, metering,
+  |     metering, and monitoring.          monitoring API).
+  |
+  +-- BM-2 FAIL (CPU > 20%) ──────────> PW convolver needs work.
+        Path C (clean-room PFFFT-based     Gauge upstream appetite
+        convolver) or stay with             before investing.
+        CamillaDSP.
+  |
+Step 2: Gauge upstream interest (FREE, immediate)
+  |
+  Open PipeWire GitLab issue / RFC with:
+  - Pi 4B benchmark data (from BM-2)
+  - Use case description (multi-channel FIR room correction)
+  - Proposed contribution scope
+  - Question: is this welcome in PipeWire core or SPA plugin?
+  Duration: days for response, weeks for discussion
+  |
+  +-- Upstream receptive ──────────────> Proceed to Step 3
+  +-- Upstream declines ───────────────> STOP. Stay with CamillaDSP.
+  |
+Step 3: Implementation (ONLY after Steps 1-2 succeed)
+  |
+  If BM-2 PASS: improve existing convolver (hot-swap, monitoring)
+  If BM-2 FAIL: clean-room partitioned convolver using PFFFT (Path C)
+  Or: GPL SPA plugin wrapping zita-convolver (Path D)
+  |
+  C implementation required for upstream acceptance.
+  Effort: L-XL as standalone project.
+  Timeline: 6-12 months minimum.
+```
+
+**Key principle:** Steps 1-2 cost nothing and resolve the biggest
+unknowns (performance and upstream appetite). No code investment until
+both gates pass.
+
+### 8.8 Relationship to Near-Term Roadmap
+
+This section describes a long-term vision that is explicitly decoupled
+from the Phase 0-2 roadmap in Section 7:
+
+| Phase | Timeline | Dependency on Section 8 |
+|-------|----------|------------------------|
+| Phase 0: JACK backend | Near-term | NONE -- proceed independently |
+| Phase 1: WP Lua scripts | Near-term | NONE -- proceed independently |
+| Phase 2: IEM bypass | Medium-term (open trade-off) | NONE |
+| Phase 4+: PW-native convolution | Long-term (12+ months) | This section |
+
+Phase 4+ is contingent on:
+1. Upstream interest (PipeWire GitLab issue response)
+2. Phase 0-1 validated and stable
+3. Volunteer or funded development effort for the C implementation
+4. If upstream rejects: Path D (separately distributed GPL plugin)
+   remains viable as a project-local solution
+
+**Important caveat (Architect):** Even if Phase 4+ succeeds, CamillaDSP
+remains in the stack for its websocket monitoring API, atomic config
+swap (measurement pipeline), and operational tooling. The convolver
+plugin would replace only the FIR processing path, not the full
+CamillaDSP feature set. Full CamillaDSP elimination requires rebuilding
+the monitoring and config-swap infrastructure against PipeWire internals
+-- a separate, larger effort.
+
+BM-2 can be run at any time -- before, during, or after Phase 0-1.
+It provides valuable data regardless of the long-term decision.
+
+---
+
 ## References
 
 - [`rt-audio-stack.md`](rt-audio-stack.md) -- Current architecture documentation
@@ -1309,3 +1643,6 @@ monitoring model already supports.
 - D-027 -- pw-jack permanent solution
 - D-036 -- Measurement daemon architecture
 - D-037 -- RT signal generator design
+- PipeWire wiki -- filter-chain module documentation (convolver element)
+- Gardner, W.G. (1995) -- "Efficient Convolution without Input-Output Delay" (partitioned convolution)
+- Stockham, T.G. (1966) -- "High-Speed Convolution and Correlation" (FFT-based convolution)
