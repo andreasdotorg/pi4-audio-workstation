@@ -66,7 +66,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-056 | CANCELLED | 0/0 | **cancelled** (owner directive 2026-03-16, D-040: CamillaDSP abandoned. JACK backend migration no longer needed.) |
 | US-057 | CANCELLED | 0/0 | **cancelled** (owner directive 2026-03-16, D-040: CamillaDSP abandoned. PW-native investigation no longer relevant.) |
 | US-058 | done | 7/7 | **done** (owner-accepted 2026-03-16). PW filter-chain FIR benchmark (BM-2). BM2-4 PASS: q1024 1.70% CPU, q256 3.47% CPU. FFTW3 NEON 3-5.6x more efficient than CamillaDSP ALSA. **Triggered D-040: abandon CamillaDSP.** Lab note: `LN-BM2-pw-filter-chain-benchmark.md`. |
-| US-059 | IMPLEMENT | 8/14 | **in-progress** (Phase A: GraphManager Core + Production Filter-Chain). GM-0 PASS. GM-1-6 + GM-9 DONE (GM-4/5/6/9 pending commit, main.rs/registry.rs overlap — CM coordinating). Next: build infra (Rust toolchain in Nix dev shell). GM-7/8/10-14 remaining. |
+| US-059 | IMPLEMENT | 1/14 | **in-progress** (Phase A: GraphManager Core + Production Filter-Chain). **DoD: 1/14** (only GM-0 gate PASS fully satisfied). **GM tasks: 8/15 done** (GM-0-6 + GM-9 committed). Code written but unverified — never compiled against real libpipewire, never run on Pi. **HOLDING** on GM-7/8/10-14 pending build infra (Rust in Nix dev shell). Build infra assigned to worker-signal-gen. |
 
 ## In Progress
 
@@ -76,7 +76,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-056** (CANCELLED — D-040 2026-03-16): CamillaDSP abandoned. JACK backend migration no longer needed.
 - **US-057** (CANCELLED — D-040 2026-03-16): CamillaDSP abandoned. PW-native investigation no longer relevant.
 - **US-058** (**DONE** — owner-accepted 2026-03-16): PW filter-chain FIR benchmark. BM2-4 PASS: 1.70% q1024, 3.47% q256. Triggered D-040.
-- **US-059** (Phase: **IMPLEMENT 8/14** — owner-authorized 2026-03-16, D-040): GraphManager Core + Production Filter-Chain (Phase A). GM-0 PASS. GM-1 (`4e0b8dd`), GM-2 (`53c1008`), GM-3 (`d525bf0`), GM-4, GM-5, GM-6, GM-9 all DONE (GM-4/5/6/9 pending commit, main.rs + registry.rs overlap — CM coordinating). **Build infra issue:** no Rust in Nix dev shell, workers falling back to system rustup. Architect recommends Rust toolchain in dev shell + feature flag for macOS + Nix check. Next task after commit. GM-7/8 unblocked, GM-10-14 blocked on upstream.
+- **US-059** (Phase: **IMPLEMENT, DoD 1/14** — owner-authorized 2026-03-16, D-040): GraphManager Core + Production Filter-Chain (Phase A). GM-0 PASS (only DoD item fully satisfied). GM tasks: 8/15 done — GM-1 (`4e0b8dd`), GM-2 (`53c1008`), GM-3 (`d525bf0`), GM-4+5+6+9 (`9ac987e`). Code written but unverified — never compiled against real libpipewire, never run on Pi. **HOLDING** on GM-7/8/10-14: owner directive to resolve build infra (Rust toolchain in Nix dev shell, PW macOS compilation) before writing more unverified code. Build infra assigned to worker-signal-gen.
 - **US-060** (DRAFT — filed 2026-03-16): PipeWire Monitoring Replacement (Phase B). Replaces pycamilladsp collectors with native PW monitoring. Depends on US-059.
 - **US-061** (DRAFT — filed 2026-03-16): Measurement Pipeline Adaptation (Phase C). Adapts D-036 measurement daemon from CamillaDSP to PW filter-chain. Depends on US-059. Independent of US-060 (parallelizable).
 - **US-051** (DEFERRED — owner directive 2026-03-16): Was IMPLEMENT 2/4. SB-1-6 done, Playwright E2E written. Work preserved, resumes later.
