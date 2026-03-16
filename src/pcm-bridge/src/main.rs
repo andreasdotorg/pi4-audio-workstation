@@ -45,6 +45,14 @@ struct Args {
     #[arg(long, value_enum, default_value_t = Mode::Monitor)]
     mode: Mode,
 
+    /// Run under GraphManager supervision. pcm-bridge continues managing
+    /// its own PW connections (monitor taps use stream.capture.sink which
+    /// cannot be replicated by the link API), but uses the pi4audio- node
+    /// naming convention so GraphManager's ownership filter recognizes
+    /// pcm-bridge links as "not mine, don't touch."
+    #[arg(long, env = "PI4AUDIO_MANAGED")]
+    managed: bool,
+
     /// PipeWire target node name for monitor mode.
     /// Matched against node.name. Used with --mode monitor.
     #[arg(long, default_value = "loopback-8ch-sink")]
@@ -98,9 +106,13 @@ fn main() {
     let (listen_kind, listen_addr) = parse_listen(&args.listen);
 
     info!(
-        "pcm-bridge starting: mode={:?}, target={}, listen={:?}:{}, channels={}, rate={}, quantum={}",
-        args.mode, args.target, listen_kind, listen_addr, args.channels, args.rate, args.quantum,
+        "pcm-bridge starting: mode={:?}, managed={}, target={}, listen={:?}:{}, channels={}, rate={}, quantum={}",
+        args.mode, args.managed, args.target, listen_kind, listen_addr, args.channels, args.rate, args.quantum,
     );
+
+    if args.managed {
+        info!("Managed mode: running under GraphManager supervision (self-managed connections)");
+    }
 
     if args.mode == Mode::Capture {
         let node = args.node_name.as_deref().unwrap_or("(none)");
@@ -242,7 +254,7 @@ fn build_stream_props(args: &Args) -> pipewire::properties::Properties {
                 "media.category" => "Capture",
                 "media.role" => "Monitor",
                 "media.class" => "Stream/Input/Audio",
-                "node.name" => "pcm-bridge",
+                "node.name" => "pi4audio-pcm-bridge",
                 "node.description" => "PCM Bridge for Web UI",
                 "node.always-process" => "true",
                 "audio.channels" => &*channels_str,
@@ -260,7 +272,7 @@ fn build_stream_props(args: &Args) -> pipewire::properties::Properties {
                 "media.category" => "Capture",
                 "media.role" => "Production",
                 "media.class" => "Stream/Input/Audio",
-                "node.name" => "pcm-bridge-capture",
+                "node.name" => "pi4audio-pcm-bridge-capture",
                 "node.description" => "PCM Bridge Capture",
                 "node.always-process" => "true",
                 "audio.channels" => &*channels_str,
@@ -551,6 +563,18 @@ mod tests {
         assert_eq!(args.listen, "tcp:127.0.0.1:9090");
     }
 
+    #[test]
+    fn cli_managed_default_is_false() {
+        let args = parse_args(&["pcm-bridge"]).unwrap();
+        assert!(!args.managed);
+    }
+
+    #[test]
+    fn cli_managed_flag() {
+        let args = parse_args(&["pcm-bridge", "--managed"]).unwrap();
+        assert!(args.managed);
+    }
+
     // --- PipeWire property generation tests ---
     //
     // pipewire::init() is safe to call without a running daemon — it only
@@ -569,6 +593,7 @@ mod tests {
     fn make_args(mode: Mode, target: &str, node_name: Option<&str>, channels: u32) -> Args {
         Args {
             mode,
+            managed: false,
             target: target.to_string(),
             node_name: node_name.map(String::from),
             listen: "tcp:127.0.0.1:9090".to_string(),
@@ -615,7 +640,7 @@ mod tests {
         ensure_pw_init();
         let args = make_args(Mode::Monitor, "loopback-8ch-sink", None, 3);
         let props = build_stream_props(&args);
-        assert_eq!(props.get("node.name"), Some("pcm-bridge"));
+        assert_eq!(props.get("node.name"), Some("pi4audio-pcm-bridge"));
     }
 
     #[test]
@@ -666,7 +691,7 @@ mod tests {
         ensure_pw_init();
         let args = make_args(Mode::Capture, "loopback-8ch-sink", Some("usb-input"), 8);
         let props = build_stream_props(&args);
-        assert_eq!(props.get("node.name"), Some("pcm-bridge-capture"));
+        assert_eq!(props.get("node.name"), Some("pi4audio-pcm-bridge-capture"));
     }
 
     #[test]
