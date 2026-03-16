@@ -3107,7 +3107,7 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **so that** audio routing is deterministic by declaration, components are simple sample producers/consumers with no session management logic, and the class of integration bugs caused by distributed PipeWire negotiation (BUG-SG12-1 through SG12-7, TK-224, TK-236) cannot recur.
 
 **Status:** draft
-**Depends on:** US-056 (JACK backend places CamillaDSP in the PW graph with individually linkable ports -- without this, GraphManager has nothing to link to)
+**Depends on:** ANY ONE OF US-056 / US-057 / US-058 (all three place CamillaDSP in the PW graph with individually linkable ports -- without at least one, GraphManager has nothing to link to)
 **Blocks:** none
 **Decisions:** D-039 (owner corrections 2026-03-16: daemon subsystem, WHAT not HOW, sole session manager). Supersedes the original WP Lua scripts approach.
 
@@ -3254,6 +3254,6 @@ TK-225/226/227 SUBSUMED into US-051. TK-229 SUPERSEDED by US-052. TK-230 root ca
 Tier 11 — Architecture Evolution (owner directive 2026-03-16):
 US-056 (JACK backend, Phase 0) — no dependencies, validate-or-rollback
 US-056 ──> US-057 (PW-native investigation spike, depends on JACK baseline)
-US-056 ──> US-059 (GraphManager: central audio graph control, depends on JACK topology)
+US-056 / US-057 / US-058 ──> US-059 (GraphManager: sole PW session manager, depends on ANY ONE giving CamillaDSP linkable PW ports)
 US-058 (BM-2 filter-chain benchmark) — no dependencies, can start immediately
 ```
