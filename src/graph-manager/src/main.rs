@@ -29,29 +29,25 @@
 //! - `lifecycle` — Component health observer (derive health from graph state)
 //! - `rpc` — TCP JSON-RPC server (port 4002), cross-thread commands
 
+// Pure-logic modules — compile on all platforms.
 mod graph;
 mod lifecycle;
 mod reconcile;
-mod registry;
 mod routing;
 mod rpc;
 
-use std::cell::RefCell;
-use std::rc::Rc;
+// PipeWire registry listener — Linux only (needs libpipewire).
+#[cfg(feature = "pipewire-backend")]
+mod registry;
+
+// Common imports (always compiled).
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
 
 use clap::Parser;
 use log::info;
 
-use graph::GraphState;
-use lifecycle::ComponentRegistry;
-use routing::{Mode, RoutingTable};
-use rpc::{
-    DeviceStatus, GraphEvent, LinkSnapshot, RpcCommand, RpcResult, StateSnapshot,
-};
+use routing::Mode;
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -99,7 +95,7 @@ fn parse_listen_addr(addr: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// PipeWire main loop
+// PipeWire main loop (Linux only — requires pipewire-backend feature)
 // ---------------------------------------------------------------------------
 
 /// Run the PipeWire main loop with registry listener, graph tracking,
@@ -112,12 +108,21 @@ fn parse_listen_addr(addr: &str) -> String {
 /// * `cmd_rx` — Receives `RpcCommand` from the RPC thread.
 /// * `event_tx` — Sends `GraphEvent` push events to the RPC thread.
 /// * `shutdown` — Shared flag set by signal handlers.
+#[cfg(feature = "pipewire-backend")]
 fn run_pipewire(
     initial_mode: Mode,
-    cmd_rx: mpsc::Receiver<RpcCommand>,
-    event_tx: mpsc::Sender<GraphEvent>,
+    cmd_rx: std::sync::mpsc::Receiver<rpc::RpcCommand>,
+    event_tx: std::sync::mpsc::Sender<rpc::GraphEvent>,
     shutdown: Arc<AtomicBool>,
 ) {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    use graph::GraphState;
+    use lifecycle::ComponentRegistry;
+    use routing::RoutingTable;
+
     pipewire::init();
 
     let mainloop = pipewire::main_loop::MainLoop::new(None)
@@ -258,18 +263,21 @@ fn run_pipewire(
 ///
 /// This runs inside the 50ms timer callback. It has full access to
 /// the PW graph state (Rc<RefCell<>>) because it is on the PW thread.
+#[cfg(feature = "pipewire-backend")]
 fn dispatch_rpc_command(
-    cmd: RpcCommand,
-    graph: &Rc<RefCell<GraphState>>,
-    routing_table: &Rc<RoutingTable>,
-    current_mode: &Rc<RefCell<Mode>>,
-    event_tx: &mpsc::Sender<GraphEvent>,
-    link_proxies: &Rc<RefCell<std::collections::HashMap<(u32, u32), pipewire::link::Link>>>,
+    cmd: rpc::RpcCommand,
+    graph: &std::rc::Rc<std::cell::RefCell<graph::GraphState>>,
+    routing_table: &std::rc::Rc<routing::RoutingTable>,
+    current_mode: &std::rc::Rc<std::cell::RefCell<Mode>>,
+    event_tx: &std::sync::mpsc::Sender<rpc::GraphEvent>,
+    link_proxies: &std::rc::Rc<std::cell::RefCell<std::collections::HashMap<(u32, u32), pipewire::link::Link>>>,
     core_weak: &pipewire::core::WeakCore,
-    component_registry: &Rc<RefCell<ComponentRegistry>>,
+    component_registry: &std::rc::Rc<std::cell::RefCell<lifecycle::ComponentRegistry>>,
 ) {
+    use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult, StateSnapshot};
+
     match cmd {
-        RpcCommand::SetMode { mode, reply } => {
+        rpc::RpcCommand::SetMode { mode, reply } => {
             let old_mode = *current_mode.borrow();
             if mode == old_mode {
                 // No-op: already in the requested mode.
@@ -308,7 +316,7 @@ fn dispatch_rpc_command(
             });
         }
 
-        RpcCommand::GetState { reply } => {
+        rpc::RpcCommand::GetState { reply } => {
             let g = graph.borrow();
             let mode = *current_mode.borrow();
             let reg = component_registry.borrow();
@@ -316,7 +324,7 @@ fn dispatch_rpc_command(
             let _ = reply.send(snap);
         }
 
-        RpcCommand::GetDevices { reply } => {
+        rpc::RpcCommand::GetDevices { reply } => {
             let reg = component_registry.borrow();
             let devices = reg
                 .all_health()
@@ -330,7 +338,7 @@ fn dispatch_rpc_command(
             let _ = reply.send(devices);
         }
 
-        RpcCommand::GetLinks { reply } => {
+        rpc::RpcCommand::GetLinks { reply } => {
             let g = graph.borrow();
             let mode = *current_mode.borrow();
             let desired = routing_table.links_for(mode);
@@ -352,11 +360,12 @@ fn dispatch_rpc_command(
 }
 
 /// Build a StateSnapshot from the current GraphState, mode, and component health.
+#[cfg(feature = "pipewire-backend")]
 fn build_state_snapshot(
-    graph: &GraphState,
+    graph: &graph::GraphState,
     mode: Mode,
-    component_registry: &ComponentRegistry,
-) -> StateSnapshot {
+    component_registry: &lifecycle::ComponentRegistry,
+) -> rpc::StateSnapshot {
     use rpc::NodeInfo as RpcNodeInfo;
     use rpc::LinkInfo as RpcLinkInfo;
 
@@ -386,7 +395,7 @@ fn build_state_snapshot(
         .map(|(name, health)| (name.to_string(), health.as_str().to_string()))
         .collect();
 
-    StateSnapshot {
+    rpc::StateSnapshot {
         mode: mode.to_string(),
         nodes,
         links,
@@ -398,7 +407,11 @@ fn build_state_snapshot(
 // Entry point
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "pipewire-backend")]
 fn main() {
+    use std::sync::mpsc;
+    use rpc::{RpcCommand, GraphEvent};
+
     let args = Args::parse();
 
     // Initialize logging.
@@ -448,6 +461,13 @@ fn main() {
     run_pipewire(initial_mode, cmd_rx, event_tx, shutdown);
 
     info!("pi4audio-graph-manager exited");
+}
+
+#[cfg(not(feature = "pipewire-backend"))]
+fn main() {
+    eprintln!("pi4audio-graph-manager requires the pipewire-backend feature (Linux only).");
+    eprintln!("On macOS, run: cargo test --no-default-features");
+    std::process::exit(1);
 }
 
 // ===========================================================================

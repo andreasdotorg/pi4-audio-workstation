@@ -198,6 +198,11 @@
             e2ePython
             pkgs.playwright-driver
             camilladsp-test  # Real CamillaDSP for integration tests (TK-189)
+            # Rust toolchain — same version as buildRustPackage uses.
+            pkgs.cargo
+            pkgs.rustc
+            pkgs.clippy
+            pkgs.rust-analyzer
           ];
 
           buildInputs = [
@@ -205,14 +210,24 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
             pkgs.alsa-lib
             pkgs.libjack2
+            # PipeWire dev deps for cargo build of PW crates
+            pkgs.pipewire
+            pkgs.pkg-config
+            pkgs.llvmPackages.libclang
           ];
 
           shellHook = ''
             export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
             export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+          '' + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+            export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
+            export BINDGEN_EXTRA_CLANG_ARGS="-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include -isystem ${pkgs.glibc.dev}/include"
+          '' + ''
 
             echo "Pi 4B audio workstation dev shell"
             echo "Python: $(python3 --version)"
+            echo "Rust:   $(rustc --version 2>/dev/null || echo 'not available')"
+            echo "Cargo:  $(cargo --version 2>/dev/null || echo 'not available')"
             echo ""
             echo "Packages from nixpkgs: mido, python-rtmidi, fastapi,"
             echo "  uvicorn, scipy, numpy, soundfile, websockets,"
@@ -275,10 +290,35 @@
             python -m pytest tests/ -v --tb=short
             touch $out
           '';
+          # Graph-manager pure-logic tests (no PipeWire needed — runs on all platforms).
+          test-graph-manager = pkgs.runCommand "test-graph-manager" {
+            nativeBuildInputs = [ pkgs.cargo pkgs.rustc ];
+          } ''
+            cp -r ${./src/graph-manager} graph-manager
+            chmod -R u+w graph-manager
+            cd graph-manager
+            HOME=$TMPDIR cargo test --no-default-features --release 2>&1
+            touch $out
+          '';
         } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           # Rust PipeWire tools — cargo test runs during buildRustPackage.
           test-pcm-bridge = pcm-bridge;
           test-signal-gen = signal-gen;
+
+          # Full graph-manager build + test (Linux with PipeWire).
+          test-graph-manager-full = pkgs.rustPlatform.buildRustPackage {
+            pname = "pi4audio-graph-manager";
+            version = "0.1.0";
+            src = ./src/graph-manager;
+            cargoLock.lockFile = ./src/graph-manager/Cargo.lock;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
+            buildInputs = [ pkgs.pipewire ];
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            BINDGEN_EXTRA_CLANG_ARGS = builtins.toString [
+              "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"
+              "-isystem ${pkgs.glibc.dev}/include"
+            ];
+          };
         };
 
         # -----------------------------------------------------------------

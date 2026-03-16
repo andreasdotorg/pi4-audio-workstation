@@ -5,10 +5,14 @@ edition = "2021"
 description = "PipeWire graph manager — sole session manager for Pi audio workstation routing"
 license = "MIT"
 
+[features]
+default = ["pipewire-backend"]
+pipewire-backend = ["pipewire", "pipewire-sys", "libspa"]
+
 [dependencies]
-pipewire = "0.8"
-pipewire-sys = "0.8"
-libspa = "0.8"
+pipewire = { version = "0.8", optional = true }
+pipewire-sys = { version = "0.8", optional = true }
+libspa = { version = "0.8", optional = true }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
