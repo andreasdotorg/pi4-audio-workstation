@@ -1215,20 +1215,31 @@ monitoring model already supports.
 ### 7.5 Contributor Perspectives on Migration
 
 - **AE:** Proposed 5-phase stage-based migration. Recommends stopping at
-  Phase 1 (routing/mixing). Acknowledges that Phases 2-5 are
-  questionable. CPU savings from quantum 2048 are real but motivated
-  by Mixxx, not CamillaDSP.
+  Phase 1 maximum (backend + routing only). Confirms non-FIR overhead
+  is ~0.1% CPU -- no motivation to extract non-FIR stages. CPU savings
+  from quantum 2048 are real but motivated by Mixxx (~85% to ~70-75%),
+  not CamillaDSP (~9% to ~5%). Neutral on Phase 2 (IEM bypass) --
+  deferred decision.
 - **Architect:** Proposed channel-based decomposition (Phase 0-1-2-STOP).
   The clean boundary is speakers vs IEM/HP, not processing stages.
-  Quantum 2048 not recommended -- the ~3-4% CPU saving is not worth
-  the DJ response degradation.
+  Measurement pipeline's atomic config swap is the hard blocker against
+  mixer extraction. Quantum 2048 not recommended -- PW quantum is
+  graph-global with no per-node override, ~3-4% CPU saving not worth
+  DJ response degradation. Phase 2 has IEM latency value but
+  acknowledges AE's audit simplicity argument for stopping at Phase 1.
 - **AD:** Challenges incremental migration entirely. Every intermediate
-  state requires revalidation. Recommends Option A or status quo. The
-  channel-based Phase 2 is less objectionable than stage-based
-  decomposition because it does not split the speaker signal chain.
-- **PO:** Each step must be operator-transparent. Live mode quantum 256
-  is non-negotiable (D-011). Metering at 42ms (quantum 2048) would be
-  acceptable for DJ mode, but the fader response degradation is not.
+  state requires full revalidation (4x testing burden). Recommends
+  Option A or status quo -- do not split the DSP path. The channel-based
+  Phase 2 is less objectionable than stage-based decomposition because
+  it does not split the speaker signal chain, but any intermediate state
+  carries maintenance and debugging risk.
+- **PO:** Each step must be operator-transparent. Migration steps must
+  move complete functional units or maintain the current API surface.
+  Live mode quantum 256 is non-negotiable (D-011, design principle #5).
+  Metering at 42ms (quantum 2048) would be acceptable for DJ mode, but
+  the 43ms fader quantization is not.
+- **All four agree:** Phase 0 + Phase 1 are unambiguously beneficial.
+  Never migrate mixer, FIR, or monitoring API. Quantum 2048 rejected.
 
 ---
 
