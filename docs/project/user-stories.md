@@ -3100,50 +3100,136 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 
 ---
 
-## US-059: Central Audio Graph Control (GraphManager)
+## US-059: GraphManager Core + Production Filter-Chain (Phase A)
 
 **As** the system builder,
-**I want** a GraphManager subsystem in the audio workstation daemon that is the single authority over the PipeWire application graph -- owning all link creation, component lifecycle, device monitoring, and mode-based routing,
-**so that** audio routing is deterministic by declaration, components are simple sample producers/consumers with no session management logic, and the class of integration bugs caused by distributed PipeWire negotiation (BUG-SG12-1 through SG12-7, TK-224, TK-236) cannot recur.
+**I want** a GraphManager subsystem that is the sole authority over PipeWire application routing, and a production PW filter-chain configuration that replaces CamillaDSP for all FIR convolution,
+**so that** the entire audio pipeline runs as native PipeWire nodes with deterministic, centrally-managed routing -- eliminating the ALSA Loopback bridge, the CamillaDSP external process, and the class of integration bugs caused by distributed session management (BUG-SG12-1 through SG12-7, TK-224, TK-236).
 
 **Status:** selected (owner-authorized 2026-03-16, unblocked by D-040 -- US-058 PASS satisfies dependency)
-**Depends on:** ~~ANY ONE OF US-056 / US-057 / US-058~~ **SATISFIED** (US-058 PASS + D-040: PW filter-chain replaces CamillaDSP, giving GraphManager linkable PW ports natively)
-**Blocks:** none
+**Depends on:** US-058 PASS (D-040: PW filter-chain replaces CamillaDSP, giving GraphManager linkable PW ports natively). **SATISFIED.**
+**Blocks:** US-060 (PW monitoring replacement), US-061 (measurement pipeline adaptation)
 **Decisions:** D-039 (owner corrections 2026-03-16: daemon subsystem, WHAT not HOW, sole session manager). D-040 (abandon CamillaDSP for PW filter-chain). Supersedes the original WP Lua scripts approach.
 
-**The problem:** Each audio component (signal-gen, pcm-bridge) currently negotiates its own PipeWire session management independently. Signal-gen alone required 7 properties to coexist in the PW graph (AUTOCONNECT, DRIVER, node.group, target.object, media.role, session.suspend-timeout, audio.position). Getting these right caused 7 bugs and consumed days of debugging. The root cause is architectural: there is no single authority over the audio graph. Every new component must independently discover and negotiate its place, and the general-purpose session manager's heuristic matching actively interferes with a fixed-topology system.
+**The problem:** Each audio component (signal-gen, pcm-bridge) currently negotiates its own PipeWire session management independently. Signal-gen alone required 7 properties to coexist in the PW graph. Getting these right caused 7 bugs and consumed days of debugging. The root cause is architectural: there is no single authority over the audio graph. Every new component must independently discover and negotiate its place, and the general-purpose session manager's heuristic matching actively interferes with a fixed-topology system. Meanwhile, CamillaDSP sits outside the PipeWire graph behind an ALSA Loopback bridge, consuming 3-5x more CPU than PipeWire's native filter-chain (BM-2: 1.70% vs ~8-9%).
 
-**The solution:** GraphManager replaces the general-purpose session manager as the sole authority over PipeWire application routing. It maintains a declarative routing table per operating mode, manages the lifecycle of all audio components, and creates all links between application nodes. Components launch with zero session management properties -- they produce or consume samples, nothing more. PipeWire handles device node creation, audio processing, and clock management. GraphManager handles everything above that: link topology, mode transitions, component lifecycle, device monitoring, and USB hotplug recovery.
+**The solution:** GraphManager replaces the general-purpose session manager as the sole authority over PipeWire application routing. A production PW filter-chain configuration replaces CamillaDSP for all FIR convolution (crossover + room correction on 4 speaker channels). Components launch with zero session management properties -- they produce or consume samples, nothing more. PipeWire handles device node creation, audio processing, and clock management. GraphManager handles everything above that: link topology, mode transitions, component lifecycle, device monitoring, and USB hotplug recovery.
+
+**Scope:** This is Phase A of the architecture evolution. It covers the GraphManager core, the production filter-chain config, and stability validation. Phase B (US-060: monitoring replacement) and Phase C (US-061: measurement pipeline adaptation) are separate stories.
 
 **Acceptance criteria:**
+- [ ] GM-0 gate PASS: PipeWire links created by an external process survive that process's SIGKILL -- verified before any other implementation work
+- [ ] Production PW filter-chain configuration loads and runs the existing 4x 16k-tap FIR correction filters (combined_left_hp.wav, combined_right_hp.wav, combined_sub1_lp.wav, combined_sub2_lp.wav) at the production sample rate
+- [ ] Filter-chain nodes appear as native PW nodes with individually linkable ports
+- [ ] CamillaDSP process and systemd service removed from production configuration
+- [ ] ALSA Loopback bridge eliminated from the audio path
 - [ ] GraphManager is the sole PipeWire session manager for the audio workstation -- no other session manager creates or destroys application links
 - [ ] Declarative routing table defines the complete link topology for each operating mode (monitoring, measurement, DJ, live)
 - [ ] GraphManager creates and destroys PipeWire links programmatically for all application nodes
 - [ ] Push-based graph awareness: GraphManager detects node appearance and disappearance within 100ms, without polling
 - [ ] Component lifecycle management: GraphManager spawns, monitors, and restarts audio components (signal-gen, pcm-bridge)
 - [ ] Mode transitions are atomic: switching between operating modes swaps the complete link topology with no intermediate state where audio is routed incorrectly
-- [ ] Audio survives daemon restart: links persist after the daemon process dies (SIGKILL). Audio is never interrupted by a daemon restart. (GM-0 gate: verify this property before any other implementation work)
+- [ ] Audio survives daemon restart: links persist after the daemon process dies (SIGKILL). Audio is never interrupted by a daemon restart
 - [ ] Components support standalone debugging mode: optional `--target` flag enables self-connecting behavior for development without requiring the daemon. Without `--target`, components have no session management properties and rely on GraphManager for all link creation
 - [ ] USB hotplug recovery: device disconnect and reconnect (UMIK-1, USBStreamer) triggers automatic re-linking of affected components
 - [ ] Crash recovery: if a managed component crashes, GraphManager detects the failure, restarts the component, and re-creates its links
 - [ ] Device monitoring: GraphManager tracks all relevant audio devices (USBStreamer, UMIK-1, MIDI controllers) and reports their presence/absence
-- [ ] Graph health reporting: current graph state (connected nodes, active links, device status, any disconnections) is available to the web UI presentation layer
 - [ ] TK-224 eliminated: mode-based routing swap is atomic, no session manager race condition
 - [ ] BUG-SG12-* class eliminated: components have no session management properties in managed mode -- GraphManager links by explicit port identity
+- [ ] 30-minute Mixxx stability test: DJ playback through PW filter-chain with correct graph topology, zero xruns, no spurious disconnections
+- [ ] 30-minute Reaper stability test: live vocal playback through PW filter-chain with correct graph topology, zero xruns, no spurious disconnections
+- [ ] Round-trip latency measurement at production quantum (256): total PA path latency measured and documented, compared against D-011 target (~21ms bone-to-electronic)
 
 **DoD:**
-- [ ] GM-0 gate PASS: link persistence after daemon SIGKILL verified before implementation begins
+- [ ] GM-0 gate PASS verified before implementation begins
+- [ ] Production PW filter-chain config deployed and running on Pi
 - [ ] GraphManager subsystem written and integrated into the audio workstation daemon
 - [ ] Signal-gen and pcm-bridge updated with managed/standalone dual-mode support
 - [ ] No other session manager active in the production configuration
 - [ ] Statically validated (lint, type check)
 - [ ] Automated regression tests in CI: correct link topology after startup, re-linking after USB hotplug, atomic mode swap, crash recovery, daemon death resilience
-- [ ] 30-minute stability test: graph topology correct under DJ load with no spurious disconnections
+- [ ] 30-minute stability tests PASS (Mixxx + Reaper, separately)
+- [ ] Latency measurement documented in lab note
 - [ ] Architect sign-off on GraphManager design and daemon integration
 - [ ] Security specialist review: component spawning has no command injection or privilege escalation risk
 - [ ] AD challenge (second pass complete, 3 findings accepted: link persistence, standalone mode, hard dependency)
 - [ ] QE sign-off on test coverage
-- [ ] Lab note documenting routing policy, GraphManager architecture, and rollback procedure
+- [ ] Lab note documenting routing policy, GraphManager architecture, filter-chain config, latency measurement, and rollback procedure
+
+---
+
+## US-060: PipeWire Monitoring Replacement (Phase B)
+
+**As** the system builder,
+**I want** all web UI monitoring (dashboard health indicators, real-time levels, spectrum data) to use PipeWire-native data sources instead of the CamillaDSP websocket API,
+**so that** the web UI dashboard and status bar function correctly after CamillaDSP removal (D-040), with equivalent or better data fidelity.
+
+**Status:** draft
+**Depends on:** US-059 (GraphManager core + production filter-chain must be operational)
+**Blocks:** none
+**Decisions:** D-040 (CamillaDSP websocket API lost -- consequence #5). D-020 (web UI dashboard uses pycamilladsp collectors that must be replaced).
+
+**The problem:** The web UI dashboard (D-020) and persistent status bar (US-051) rely on `pycamilladsp` to collect real-time data from CamillaDSP's websocket API: DSP state, buffer levels, processing load, peak levels, and configuration state. With CamillaDSP removed (D-040), these data sources no longer exist. The dashboard shows stale or missing data for 6 health indicators and the 24-channel level meters.
+
+**The solution:** Replace each pycamilladsp data collector with a PipeWire-native equivalent. PipeWire provides graph state via its registry API, audio levels via monitor ports (already tapped by pcm-bridge), processing statistics via metadata, and system health via standard OS interfaces. The GraphManager (US-059) already tracks graph health -- this story exposes that data to the web UI presentation layer.
+
+**Acceptance criteria:**
+- [ ] DSP state indicator shows the current state of the PW filter-chain (running/stopped/error) -- equivalent to the former CamillaDSP "Run"/"Stop" display
+- [ ] Buffer/quantum indicator shows the current PipeWire quantum value -- replacing the former CamillaDSP buffer utilization display
+- [ ] Processing load indicator shows PW graph DSP load -- replacing the former CamillaDSP processing load
+- [ ] Peak level data for all 24 channels sourced from PW monitor ports (pcm-bridge) -- replacing pycamilladsp peak levels
+- [ ] Clip detection (>= -0.5 dBFS) still triggers the mini meter red flash (3-second hold) using PW-sourced level data
+- [ ] Temperature and CPU indicators continue functioning (these already use OS sources, not CamillaDSP)
+- [ ] Xrun counter sourced from PipeWire -- replacing the former CamillaDSP xrun count
+- [ ] Graph health reporting from GraphManager (US-059) exposed to the web UI: connected nodes, active links, device status, disconnections
+- [ ] No pycamilladsp imports remain in the production codebase
+- [ ] Dashboard renders with equivalent data fidelity at the same update rate (10Hz for meters, 1Hz for health indicators)
+
+**DoD:**
+- [ ] All pycamilladsp collectors replaced with PW-native equivalents
+- [ ] Dashboard and status bar display correct data from the PW filter-chain pipeline
+- [ ] Statically validated (lint, type check)
+- [ ] Automated regression tests: data collectors return valid data when PW filter-chain is running
+- [ ] Playwright E2E tests updated for new data sources
+- [ ] AE sign-off: level metering accuracy equivalent to pycamilladsp
+- [ ] Lab note documenting data source mapping (old CamillaDSP source -> new PW source for each indicator)
+
+---
+
+## US-061: Measurement Pipeline Adaptation (Phase C)
+
+**As** the system builder,
+**I want** the measurement daemon (session.py, gain_calibration.py) to work with PipeWire filter-chain instead of CamillaDSP,
+**so that** the automated room correction pipeline (US-047, US-012) can measure, compute, and deploy correction filters to the PW filter-chain -- completing the CamillaDSP removal.
+
+**Status:** draft
+**Depends on:** US-059 (GraphManager core + production filter-chain must be operational)
+**Blocks:** none (but enables US-047 Path A measurement and US-012 automation to function with the new architecture)
+**Decisions:** D-040 (CamillaDSP removed). D-036 (measurement daemon design -- integration points change). D-009 (cut-only correction, -0.5 dBFS hard cap -- unchanged).
+
+**The problem:** The measurement daemon (D-036, TK-202) uses `pycamilladsp` to: (1) swap CamillaDSP to a measurement configuration with per-channel attenuation, (2) read CamillaDSP state during measurement, (3) restore the production configuration after measurement, and (4) deploy newly generated FIR filter WAV files via config reload. With CamillaDSP removed (D-040), these operations have no target.
+
+**The solution:** Adapt the measurement daemon to work with PipeWire filter-chain. Measurement attenuation is applied by inserting a volume node or adjusting filter-chain gain parameters. Filter deployment reloads the filter-chain module with updated WAV file paths. The GraphManager (US-059) coordinates the measurement routing mode, and the signal generator (US-052) already connects through GraphManager-managed links.
+
+**Acceptance criteria:**
+- [ ] Measurement session can apply per-channel attenuation to the PW filter-chain pipeline -- equivalent to the former CamillaDSP measurement config swap
+- [ ] Measurement session can restore production filter-chain configuration after measurement completes or is aborted
+- [ ] Newly generated FIR filter WAV files can be deployed to the running PW filter-chain without a full PipeWire restart
+- [ ] Gain calibration (gain_calibration.py) reads actual output levels from PW-native sources -- replacing pycamilladsp level readback
+- [ ] ABORT from any web UI tab (US-051 status bar) restores production filter-chain state -- same safety guarantee as the former CamillaDSP restore
+- [ ] D-009 compliance: all generated correction filters verified to have gain <= -0.5 dBFS at every frequency (unchanged -- verification logic is in the room correction pipeline, not in the CamillaDSP interface)
+- [ ] No pycamilladsp imports remain in measurement daemon code
+- [ ] GraphManager measurement mode correctly routes signal-gen output through the filter-chain and UMIK-1 capture back to the measurement daemon
+
+**DoD:**
+- [ ] session.py and gain_calibration.py adapted for PW filter-chain
+- [ ] Filter deployment tested: new WAV files loaded without PW restart
+- [ ] Measurement attenuation and restore tested end-to-end
+- [ ] Statically validated (lint, type check)
+- [ ] Automated regression tests using E2E harness (US-050): measurement session with PW filter-chain mock
+- [ ] AE sign-off: measurement accuracy equivalent to pycamilladsp path
+- [ ] Safety review: ABORT restore path verified by QE
+- [ ] Lab note documenting measurement daemon PW integration points
 
 ---
 
@@ -3255,5 +3341,8 @@ Tier 11 — Architecture Evolution (owner directive 2026-03-16, D-040 pivot 2026
 US-058 (BM-2 filter-chain benchmark) — DONE (1.70% CPU q1024, 3.47% q256). Triggered D-040.
 US-056 (JACK backend) — CANCELLED (D-040: CamillaDSP abandoned)
 US-057 (PW-native spike) — CANCELLED (D-040: CamillaDSP abandoned)
-US-058 ──> US-059 (GraphManager: sole PW session manager. Dependency SATISFIED by D-040 — PW filter-chain gives linkable ports natively)
+US-058 ──> US-059 (GraphManager Core + Production Filter-Chain, Phase A)
+US-059 ──> US-060 (PW Monitoring Replacement, Phase B)
+US-059 ──> US-061 (Measurement Pipeline Adaptation, Phase C)
+US-060 and US-061 are independent of each other (can be parallelized after US-059)
 ```
