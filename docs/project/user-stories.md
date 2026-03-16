@@ -3103,50 +3103,45 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 ## US-059: Central Audio Graph Control (GraphManager)
 
 **As** the system builder,
-**I want** a GraphManager module in the web UI backend that owns all PipeWire application routing -- spawning components, creating links, managing lifecycle, and swapping topologies on mode changes,
-**so that** audio routing is deterministic by declaration, components are simple audio producers/consumers with no PipeWire negotiation logic, and the 7 signal-gen integration bugs (BUG-SG12-1 through SG12-7) cannot recur.
+**I want** a GraphManager subsystem in the audio workstation daemon that is the single authority over the PipeWire application graph -- owning all link creation, component lifecycle, device monitoring, and mode-based routing,
+**so that** audio routing is deterministic by declaration, components are simple sample producers/consumers with no session management logic, and the class of integration bugs caused by distributed PipeWire negotiation (BUG-SG12-1 through SG12-7, TK-224, TK-236) cannot recur.
 
 **Status:** draft
-**Depends on:** US-056 (JACK backend places CamillaDSP in the PW graph as a JACK client with 16 individually linkable ports -- without this, GraphManager has nothing to link to)
+**Depends on:** US-056 (JACK backend places CamillaDSP in the PW graph with individually linkable ports -- without this, GraphManager has nothing to link to)
 **Blocks:** none
 **Decisions:** owner directive 2026-03-16. Supersedes the original WP Lua scripts approach.
 
-**Hard dependency on US-056 (JACK backend):** Under the current ALSA backend, CamillaDSP is not a node in the PipeWire graph -- it reads from ALSA Loopback directly. GraphManager has nothing to link to. The JACK backend (US-056) places CamillaDSP in the PW graph as a JACK client with 16 individually linkable ports, which is what GraphManager manages.
+**The problem:** Each audio component (signal-gen, pcm-bridge) currently negotiates its own PipeWire session management independently. Signal-gen alone required 7 properties to coexist in the PW graph (AUTOCONNECT, DRIVER, node.group, target.object, media.role, session.suspend-timeout, audio.position). Getting these right caused 7 bugs and consumed days of debugging. The root cause is architectural: there is no single authority over the audio graph. Every new component must independently discover and negotiate its place, and the general-purpose session manager's heuristic matching actively interferes with a fixed-topology system.
 
-**The problem:** Each audio component (signal-gen, pcm-bridge) currently negotiates its own PipeWire plumbing independently. Signal-gen alone required 7 properties to coexist in the PW graph (AUTOCONNECT, DRIVER, node.group, target.object, media.role, session.suspend-timeout, audio.position). Getting these right caused 7 bugs (BUG-SG12-1 through SG12-7) and consumed days of debugging. The root cause is architectural: there is no central authority over the audio graph. Every new component must independently discover and negotiate its place, and WirePlumber's general-purpose matching heuristics actively interfere (TK-224 routing race, TK-236 media.class misinterpretation).
-
-**The solution:** GraphManager is a new module in `scripts/web-ui/app/` that acts as the single authority for all application-level PW routing. It maintains a declarative routing table defining two topologies (monitoring mode and measurement mode). When a component starts, GraphManager detects it via `pw-dump --monitor`, looks up the routing table, and creates the appropriate PW links via `pw-link`. Components launch with zero PW negotiation properties -- they produce or consume samples, nothing more. WirePlumber stays for hardware device management (USB hotplug, ALSA card enumeration) but a single Lua fragment (`50-pi4audio-no-autolink.lua`) tells it to ignore all `pi4audio-*` and `CamillaDSP*` nodes.
+**The solution:** GraphManager replaces the general-purpose session manager as the sole authority over PipeWire application routing. It maintains a declarative routing table per operating mode, manages the lifecycle of all audio components, and creates all links between application nodes. Components launch with zero session management properties -- they produce or consume samples, nothing more. PipeWire handles device node creation, audio processing, and clock management. GraphManager handles everything above that: link topology, mode transitions, component lifecycle, device monitoring, and USB hotplug recovery.
 
 **Acceptance criteria:**
-- [ ] GraphManager module in `scripts/web-ui/app/` with declarative routing table for monitoring and measurement topologies
-- [ ] GraphManager spawns signal-gen and pcm-bridge instances, manages their lifecycle (start, stop, restart on crash)
-- [ ] GraphManager creates all PW links for application nodes via `pw-link` -- components have no AUTOCONNECT, no target.object, no node.group, no node.always-process when launched in managed mode
-- [ ] GraphManager monitors PW graph via `pw-dump --monitor` for node appear/disappear events -- detects component start, stop, and crash
-- [ ] Mode switch (monitoring <-> measurement) performs atomic link swap: old links destroyed, new links created, no intermediate state with incorrect routing
-- [ ] Audio continues flowing for 60s after web UI process death (SIGKILL). PW links persist without the creating process -- GraphManager creates links that survive its own crash. Audio is never interrupted by a web UI restart. (PW links are kernel-managed objects that survive the creating process.)
-- [ ] Signal-gen supports two modes: **managed mode** (no `--target`, no AUTOCONNECT -- GraphManager creates links externally) and **standalone mode** (`--target` flag, self-connecting for debugging/development). `--target` is optional, not removed.
-- [ ] pcm-bridge supports same two modes: managed (no `--target`) and standalone (`--target` flag preserved for debugging)
-- [ ] In managed mode, components have no PW negotiation properties (AUTOCONNECT, target.object, node.group, node.always-process all omitted). In standalone mode, existing self-connecting behavior is preserved.
-- [ ] WirePlumber Lua fragment deployed: WP ignores all `pi4audio-*` AND `CamillaDSP*` nodes, does not create automatic links for them. WP device management (USB hotplug, profiles) preserved.
-- [ ] USB hotplug recovery: UMIK-1 or USBStreamer disconnect/reconnect triggers GraphManager re-link, not WP auto-link
-- [ ] Crash recovery: if signal-gen or pcm-bridge crashes, GraphManager detects via node disappear event, restarts the process, and re-creates links
-- [ ] Graph health reporting: GraphManager pushes graph state (connected nodes, active links, disconnections) to web UI via existing WebSocket endpoint
-- [ ] Integration with mode_manager.py: mode transitions trigger GraphManager topology swap
-- [ ] Integration with session.py: measurement session start/stop triggers measurement mode entry/exit
-- [ ] TK-224 eliminated: measurement mode routing swap is atomic, no WirePlumber race
-- [ ] BUG-SG12-* class eliminated: components have no PW negotiation properties in managed mode -- GraphManager links by explicit port name
+- [ ] GraphManager is the sole PipeWire session manager for the audio workstation -- no other session manager creates or destroys application links
+- [ ] Declarative routing table defines the complete link topology for each operating mode (monitoring, measurement, DJ, live)
+- [ ] GraphManager creates and destroys PipeWire links programmatically for all application nodes
+- [ ] Push-based graph awareness: GraphManager detects node appearance and disappearance within 100ms, without polling
+- [ ] Component lifecycle management: GraphManager spawns, monitors, and restarts audio components (signal-gen, pcm-bridge)
+- [ ] Mode transitions are atomic: switching between operating modes swaps the complete link topology with no intermediate state where audio is routed incorrectly
+- [ ] Audio survives daemon restart: links persist after the daemon process dies (SIGKILL). Audio is never interrupted by a daemon restart. (GM-0 gate: verify this property before any other implementation work)
+- [ ] Components support standalone debugging mode: optional `--target` flag enables self-connecting behavior for development without requiring the daemon. Without `--target`, components have no session management properties and rely on GraphManager for all link creation
+- [ ] USB hotplug recovery: device disconnect and reconnect (UMIK-1, USBStreamer) triggers automatic re-linking of affected components
+- [ ] Crash recovery: if a managed component crashes, GraphManager detects the failure, restarts the component, and re-creates its links
+- [ ] Device monitoring: GraphManager tracks all relevant audio devices (USBStreamer, UMIK-1, MIDI controllers) and reports their presence/absence
+- [ ] Graph health reporting: current graph state (connected nodes, active links, device status, any disconnections) is available to the web UI presentation layer
+- [ ] TK-224 eliminated: mode-based routing swap is atomic, no session manager race condition
+- [ ] BUG-SG12-* class eliminated: components have no session management properties in managed mode -- GraphManager links by explicit port identity
 
 **DoD:**
-- [ ] GraphManager module written and integrated into FastAPI backend
-- [ ] Lua fragment deployed on Pi, WP ignores pi4audio-* and CamillaDSP* nodes
+- [ ] GM-0 gate PASS: link persistence after daemon SIGKILL verified before implementation begins
+- [ ] GraphManager subsystem written and integrated into the audio workstation daemon
 - [ ] Signal-gen and pcm-bridge updated with managed/standalone dual-mode support
-- [ ] GM-0 gate passed: PW link persistence verified after SIGKILL (gates all other testing)
+- [ ] No other session manager active in the production configuration
 - [ ] Statically validated (lint, type check)
-- [ ] Automated regression tests in CI: correct link topology after startup, re-linking after USB hotplug, atomic mode swap, crash recovery, web UI death resilience
+- [ ] Automated regression tests in CI: correct link topology after startup, re-linking after USB hotplug, atomic mode swap, crash recovery, daemon death resilience
 - [ ] 30-minute stability test: graph topology correct under DJ load with no spurious disconnections
-- [ ] Architect sign-off on GraphManager design and mode_manager/session integration
-- [ ] Security specialist review: subprocess spawning has no command injection or privilege escalation risk
-- [ ] AD challenge (second pass -- first pass applied to original WP Lua framing, implementation approach changed fundamentally)
+- [ ] Architect sign-off on GraphManager design and daemon integration
+- [ ] Security specialist review: component spawning has no command injection or privilege escalation risk
+- [ ] AD challenge (second pass complete, 3 findings accepted: link persistence, standalone mode, hard dependency)
 - [ ] QE sign-off on test coverage
 - [ ] Lab note documenting routing policy, GraphManager architecture, and rollback procedure
 
