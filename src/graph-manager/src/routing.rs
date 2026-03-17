@@ -230,37 +230,61 @@ impl RoutingTable {
 
     /// DJ mode: Mixxx → convolver → USBStreamer (speakers + headphones).
     ///
-    /// Mixxx provides 8 channels. Ch 0-3 go through the convolver for
-    /// speaker processing. Ch 4-5 (engineer headphones) bypass convolver
-    /// and go directly to USBStreamer ch 4-5.
+    /// Mixxx outputs 4 channels via pw-jack (verified on Pi, GM-12):
+    ///   out_0 = Master L, out_1 = Master R,
+    ///   out_2 = Headphone L, out_3 = Headphone R.
+    ///
+    /// Master L/R go 1:1 to convolver mains (AUX0-1) AND fan-out to
+    /// both sub convolver inputs (AUX2-3) for mono-sum. PipeWire mixes
+    /// multiple links to the same input port additively. The -6 dB mono
+    /// sum compensation is baked into the sub FIR WAV coefficients
+    /// (architect guidance).
+    ///
+    /// Headphone L/R bypass the convolver and go directly to USBStreamer
+    /// ch 4-5.
     fn dj_links() -> Vec<DesiredLink> {
         let mut links = Vec::new();
-        let aux = ["AUX0", "AUX1", "AUX2", "AUX3"];
 
-        // Mixxx → convolver (ch 0-3: speaker channels through FIR).
-        // TODO: Verify Mixxx port names on Pi — JACK clients may use
-        // output_FL/output_FR for stereo or output_AUX0 for multi-channel.
-        for ch_name in &aux {
+        // Mixxx master → convolver mains (1:1).
+        // out_0 (Master L) → playback_AUX0 (left wideband)
+        // out_1 (Master R) → playback_AUX1 (right wideband)
+        for (out_ch, aux) in [(0, "AUX0"), (1, "AUX1")] {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
-                output_port: format!("output_{}", ch_name),
+                output_port: format!("out_{}", out_ch),
                 input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
-                input_port: format!("playback_{}", ch_name),
+                input_port: format!("playback_{}", aux),
                 optional: false,
             });
+        }
+
+        // Mixxx master → convolver subs (fan-out for L+R mono sum).
+        // Both Master L and Master R feed each sub input. PipeWire
+        // sums the two links at the input port.
+        for sub_aux in ["AUX2", "AUX3"] {
+            for out_ch in [0, 1] {
+                links.push(DesiredLink {
+                    output_node: NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
+                    output_port: format!("out_{}", out_ch),
+                    input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                    input_port: format!("playback_{}", sub_aux),
+                    optional: false,
+                });
+            }
         }
 
         // Convolver → USBStreamer (ch 0-3: processed speakers).
         links.extend(Self::convolver_to_usbstreamer_links());
 
-        // Mixxx → USBStreamer direct (ch 4-5: engineer headphones, bypass convolver).
-        // TODO: Verify Mixxx output port names for ch 4-5 on Pi.
-        for ch in 4..6 {
+        // Mixxx headphones → USBStreamer direct (bypass convolver).
+        // out_2 (Headphone L) → USBStreamer playback_AUX4
+        // out_3 (Headphone R) → USBStreamer playback_AUX5
+        for (out_ch, usb_aux) in [(2, "AUX4"), (3, "AUX5")] {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
-                output_port: format!("output_AUX{}", ch),
+                output_port: format!("out_{}", out_ch),
                 input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                input_port: format!("playback_AUX{}", ch),
+                input_port: format!("playback_{}", usb_aux),
                 optional: false,
             });
         }
@@ -270,15 +294,24 @@ impl RoutingTable {
 
     /// Live mode: Reaper → convolver → USBStreamer (speakers + HP + IEM).
     ///
-    /// Reaper provides 8 channels. Ch 0-3 through convolver (speakers),
-    /// ch 4-5 direct to USBStreamer (engineer HP), ch 6-7 direct to
-    /// USBStreamer (singer IEM, passthrough per D-011).
+    /// Reaper provides 8 channels via explicit per-track routing in its
+    /// mixer. Ch 0-3 through convolver (speakers), ch 4-5 direct to
+    /// USBStreamer (engineer HP), ch 6-7 direct to USBStreamer (singer
+    /// IEM, passthrough per D-011).
+    ///
+    /// Unlike Mixxx, Reaper can output discrete pre-summed sub feeds on
+    /// ch 2-3, so no fan-out mono-sum is needed here. The owner controls
+    /// Reaper's output routing explicitly.
+    ///
+    /// TODO: Verify Reaper JACK port names on Pi (`pw-jack reaper`).
+    /// REAPER typically exposes `out1`..`outN` (1-indexed, no underscore)
+    /// under pw-jack, not `output_AUX0` format. These port names are
+    /// PLACEHOLDER and will need updating after Pi verification.
     fn live_links() -> Vec<DesiredLink> {
         let mut links = Vec::new();
         let aux = ["AUX0", "AUX1", "AUX2", "AUX3"];
 
         // Reaper → convolver (ch 0-3: speaker channels through FIR).
-        // TODO: Verify Reaper port names on Pi — multi-channel JACK output.
         for ch_name in &aux {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
@@ -293,7 +326,6 @@ impl RoutingTable {
         links.extend(Self::convolver_to_usbstreamer_links());
 
         // Reaper → USBStreamer direct (ch 4-5: engineer headphones).
-        // TODO: Verify Reaper output port names for ch 4-5 on Pi.
         for ch in 4..6 {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
@@ -305,7 +337,6 @@ impl RoutingTable {
         }
 
         // Reaper → USBStreamer direct (ch 6-7: singer IEM, passthrough).
-        // TODO: Verify Reaper output port names for ch 6-7 on Pi.
         for ch in 6..8 {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
@@ -516,10 +547,11 @@ mod tests {
     }
 
     #[test]
-    fn dj_has_10_links() {
-        // Mixxx → convolver (4) + convolver → USBStreamer (4) + Mixxx → USBStreamer HP (2).
+    fn dj_has_12_links() {
+        // Mixxx → convolver mains (2) + Mixxx → convolver subs fan-out (4)
+        // + convolver → USBStreamer (4) + Mixxx → USBStreamer HP (2) = 12.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Dj).len(), 10);
+        assert_eq!(table.links_for(Mode::Dj).len(), 12);
     }
 
     #[test]
@@ -707,8 +739,54 @@ mod tests {
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "Mixxx"))
             .collect();
-        // 4 to convolver + 2 to USBStreamer HP = 6
-        assert_eq!(mixxx_links.len(), 6);
+        // 2 mains + 4 sub fan-out + 2 HP = 8
+        assert_eq!(mixxx_links.len(), 8);
+    }
+
+    #[test]
+    fn dj_sub_mono_sum_fan_out() {
+        // Each sub convolver input (AUX2, AUX3) receives links from BOTH
+        // Mixxx Master L (out_0) and Master R (out_1) for mono sum.
+        let table = RoutingTable::production();
+        let dj_links = table.links_for(Mode::Dj);
+
+        for sub_aux in ["AUX2", "AUX3"] {
+            let sub_links: Vec<_> = dj_links
+                .iter()
+                .filter(|l| {
+                    matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-convolver")
+                        && l.input_port == format!("playback_{}", sub_aux)
+                })
+                .collect();
+            assert_eq!(
+                sub_links.len(),
+                2,
+                "Sub input {} should have 2 fan-out links (L+R mono sum)",
+                sub_aux,
+            );
+            // One from out_0 (Master L), one from out_1 (Master R).
+            let ports: Vec<&str> = sub_links.iter().map(|l| l.output_port.as_str()).collect();
+            assert!(ports.contains(&"out_0"), "Missing Master L for {}", sub_aux);
+            assert!(ports.contains(&"out_1"), "Missing Master R for {}", sub_aux);
+        }
+    }
+
+    #[test]
+    fn dj_mixxx_port_names_use_out_prefix() {
+        // Mixxx JACK ports are out_0..out_3 (verified on Pi, GM-12).
+        let table = RoutingTable::production();
+        let dj_links = table.links_for(Mode::Dj);
+        let mixxx_links: Vec<_> = dj_links
+            .iter()
+            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "Mixxx"))
+            .collect();
+        for link in &mixxx_links {
+            assert!(
+                link.output_port.starts_with("out_"),
+                "Mixxx port should use out_ prefix, got: {}",
+                link.output_port
+            );
+        }
     }
 
     #[test]
