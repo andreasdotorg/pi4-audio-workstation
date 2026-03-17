@@ -643,7 +643,292 @@ after any application connect/reconnect event.
 
 ---
 
-## 10. Cross-References
+## 10. GraphManager Architecture
+
+GraphManager (`pi4audio-graph-manager`) is the sole PipeWire session manager
+for the audio workstation (D-039). It replaces WirePlumber for all application
+routing. PipeWire handles device nodes, audio processing, and clocking;
+GraphManager handles everything above: link topology, mode transitions,
+component lifecycle observation, and device monitoring.
+
+**Source:** `src/graph-manager/src/` (Rust, ~1700 lines across 6 modules)
+
+### 10.1 Daemon Architecture
+
+GraphManager runs as a two-thread daemon:
+
+```
++-------------------------------------------------+
+|                  Main Thread                     |
+|  PipeWire main loop (pw_main_loop_run)          |
+|                                                  |
+|  +-- Registry listener (global / global_remove)  |
+|  |     on Node/Port/Link events:                 |
+|  |       1. Update GraphState                    |
+|  |       2. Run reconciliation                   |
+|  |       3. Update component health              |
+|  |       4. Emit push events to RPC thread       |
+|  |                                                |
+|  +-- RPC command timer (50ms poll)               |
+|  |     Drains mpsc channel from RPC thread       |
+|  |     Dispatches SetMode, GetState, etc.        |
+|  |                                                |
+|  +-- Shutdown timer (100ms poll)                 |
+|       Checks AtomicBool for SIGINT/SIGTERM       |
++-------------------------------------------------+
+         |  cmd_rx (mpsc)          |  event_tx (mpsc)
+         v                        v
++-------------------------------------------------+
+|                  RPC Thread                      |
+|  TCP listener on 127.0.0.1:4002 (SEC-GM-01)     |
+|  Newline-delimited JSON protocol                 |
+|  Broadcasts push events to all connected clients |
++-------------------------------------------------+
+```
+
+**Thread safety model:** The PW main loop thread uses `Rc<RefCell<>>` for all
+shared state (GraphState, RoutingTable, current mode, link proxies, component
+registry). This is safe because PipeWire callbacks and the timer callbacks all
+run on the same thread. The RPC thread communicates exclusively via `mpsc`
+channels -- it never touches PW state directly.
+
+**Security (SEC-GM-01):** The RPC server only binds to loopback addresses
+(127.0.0.1, ::1, localhost). Binding to non-loopback addresses is rejected
+at startup to prevent unauthenticated mode-change access from the venue LAN.
+Line length is capped at 4096 bytes per SEC-D037-03.
+
+### 10.2 Modules
+
+| Module | File | Responsibility |
+|--------|------|---------------|
+| `graph` | `graph.rs` | Node/port/link tracking (`GraphState`). Local mirror of PW graph state. |
+| `routing` | `routing.rs` | Declarative routing table. Compiled-in (not config file). Mode -> desired links. |
+| `reconcile` | `reconcile.rs` | Reconciliation engine. Pure function: diff desired vs actual -> `Vec<LinkAction>`. |
+| `registry` | `registry.rs` | PW registry listener. Push-based graph awareness. Linux-only (`pipewire-backend` feature). |
+| `lifecycle` | `lifecycle.rs` | Component health observer. Derives Connected/Disconnected from node presence. |
+| `rpc` | `rpc.rs` | TCP JSON-RPC server. Commands in, events out. |
+
+### 10.3 Reconciliation Engine
+
+The reconciler is the core of GraphManager's session management. It runs after
+every graph state change (node/port/link appear or disappear) and on every
+mode transition.
+
+**Algorithm:**
+
+1. **Phase 1 -- Create missing links:** For each `DesiredLink` in the active
+   mode's routing table, resolve both endpoints to concrete PW port IDs via
+   `find_node_port()`. If the link does not exist in GraphState, emit a
+   `LinkAction::Create`.
+
+2. **Phase 2 -- Destroy stale links:** For each existing link in GraphState
+   where at least one endpoint is a "known" node (matches any `NodeMatch` in
+   the routing table, any mode), check if the link's port pair is in the
+   desired set. If not, emit a `LinkAction::Destroy`.
+
+**Key properties:**
+
+- **Pure function:** `reconcile()` takes `&GraphState`, `&RoutingTable`, and
+  `Mode`, returning `Vec<LinkAction>`. No PW API calls. Fully testable
+  without PipeWire.
+
+- **Idempotent:** Calling reconcile multiple times with the same state produces
+  the same actions. Missing endpoints are skipped (not errored), so rapid
+  events during node startup converge naturally as ports appear.
+
+- **Ownership boundary:** GraphManager only manages links where at least one
+  endpoint is a known node. PipeWire-internal links (device-to-driver, clock
+  links) are invisible to reconciliation.
+
+- **Re-entrancy guard:** The registry listener uses a `Cell<bool>` guard to
+  prevent recursive reconciliation when link creation triggers a new
+  `global` event.
+
+**`find_node_port()` -- the GM-13/GM-14 fix:**
+
+The original implementation used `find_node()` (first node matching the
+`NodeMatch`) followed by `find_port()` (port on that node). This failed for
+JACK clients (Mixxx, Reaper) that register separate input and output PW nodes
+under the same name prefix. The first matching node might be the input node,
+which does not have the requested output port -- causing the desired link to
+fail resolution even though the correct output node exists in the graph.
+
+The fix (`find_node_port()`, reconcile.rs lines 64-77) iterates ALL nodes
+matching the `NodeMatch` and returns the first `(node_id, port_id)` where
+the node actually has the requested port. This correctly handles
+prefix-matched JACK clients with split input/output nodes.
+
+```rust
+fn find_node_port(
+    graph: &GraphState,
+    matcher: &NodeMatch,
+    port_name: &str,
+) -> Option<(u32, u32)> {
+    let nodes = graph.nodes_matching(|name| matcher.matches(name));
+    for node in &nodes {
+        let ports = graph.ports_for_node(node.id, port_name);
+        if let Some(port) = ports.first() {
+            return Some((node.id, port.id));
+        }
+    }
+    None
+}
+```
+
+### 10.4 Routing Table
+
+The routing table is compiled into the binary (not loaded from a config file)
+because it is tightly coupled to the project's specific PW node names and port
+names. Adding a mode always requires new routing logic, so runtime
+configurability provides no benefit (architect guidance, GM-2).
+
+**Four operating modes:**
+
+| Mode | Application | Links | Quantum |
+|------|------------|-------|---------|
+| Monitoring | None | Convolver -> USBStreamer (4 links) | q1024 |
+| DJ | Mixxx (pw-jack) | Mixxx -> convolver + headphone bypass (12 links) | q1024 |
+| Live | Reaper (pw-jack) | Reaper -> convolver + HP + IEM + capture (up to 22 links) | q1024 (D-042) |
+| Measurement | signal-gen | signal-gen -> convolver + UMIK-1 capture (5-6 links) | q1024 |
+
+**Node matching (`NodeMatch`):**
+
+- `Exact(name)`: For nodes the project controls (convolver, signal-gen,
+  pcm-bridge, ada8200-in). Matched by `node.name == name`.
+- `Prefix(prefix)`: For USB devices with ALSA-generated variable suffixes
+  (USBStreamer, UMIK-1) and JACK clients with potential instance suffixes
+  (Mixxx, Reaper). Matched by `node.name.starts_with(prefix)`.
+
+**Port naming (D-041):** All channel references use one-based indexing.
+`AppPortNaming` maps canonical one-based channel numbers to application-specific
+port name strings (Mixxx: `out_0` zero-based; Reaper: `out1` one-based;
+filter-chain: `playback_AUX0` zero-based). Translation happens at link
+definition time, not at runtime.
+
+**Shared link sets:** The convolver-to-USBStreamer links (ch 1-4) are shared
+across all modes via `convolver_to_usbstreamer_links()`. Speakers always go
+through the convolver regardless of operating mode.
+
+### 10.5 Mode Transitions
+
+Mode transitions are topology-only (D-042: no quantum switching). The `SetMode`
+RPC command triggers:
+
+1. Update `current_mode` to the new mode.
+2. Run reconciliation against the new mode's desired link set.
+3. Apply link actions (create missing links, destroy stale links).
+4. Send `RpcResult::Ok` reply to the RPC client.
+5. Emit `ModeChanged` push event to all connected RPC clients.
+
+**D-042 simplification:** Since both DJ and Live modes now run at q1024,
+mode transitions do not involve quantum switching. This eliminates the
+transient xrun on quantum renegotiation (C-006) and the compositor starvation
+risk at q256. When q256 achieves production stability, D-042 will be reverted
+and GraphManager will need to call `pw-metadata -n settings 0
+clock.force-quantum <value>` during DJ-to-Live transitions.
+
+**No-op detection:** If the requested mode equals the current mode,
+`SetMode` returns `Ok` immediately without reconciliation.
+
+### 10.6 Component Lifecycle
+
+GraphManager is an **observer**, not a supervisor. systemd manages process
+restarts (services have `Restart=on-failure`). GraphManager's lifecycle
+module:
+
+1. Detects node appearance/disappearance from the PW registry.
+2. Derives component health (Connected/Disconnected) from GraphState.
+3. Emits `DeviceConnected`/`DeviceDisconnected` events on transitions.
+4. Provides health status for RPC `get_devices` responses.
+
+**Tracked components (5):**
+
+| Component | Matcher | Type |
+|-----------|---------|------|
+| signal-gen | `Exact("pi4audio-signal-gen")` | Managed service |
+| pcm-bridge | `Exact("pi4audio-pcm-bridge")` | Managed service |
+| convolver | `Exact("pi4audio-convolver")` | PW filter-chain module |
+| usbstreamer | `Prefix("alsa_output.usb-MiniDSP_USBStreamer")` | Hardware |
+| umik1 | `Prefix("alsa_input.usb-miniDSP_UMIK-1")` | Hardware |
+
+Mixxx and Reaper are user-launched and NOT tracked as components. Their
+nodes appear/disappear based on user action, not system health.
+
+Reconciliation (Phase 1) handles re-linking automatically when components
+reappear -- no lifecycle-specific link management is needed.
+
+### 10.7 Key Design Decisions
+
+**pcm-bridge self-connects (Option 3):** The pcm-bridge creates its own
+monitor port connections for level metering. GraphManager recognizes the
+`pi4audio-pcm-bridge` node name so its ownership filter does not destroy
+pcm-bridge's self-created links. GraphManager never creates or destroys
+links for pcm-bridge -- it only avoids interfering with them.
+
+**`object.linger=true` for link persistence (GM-0):** PipeWire links
+created via `core.create_object("link-factory", ...)` are owned by the
+creating client. If GraphManager dies (SIGKILL), those links die too --
+unless `object.linger=true` is set. This property tells PipeWire to keep
+the object alive even after the creating client disconnects. The GM-0
+integration test (`tests/integration/test_gm0_link_survives_sigkill.sh`)
+validates this requirement: links must survive client SIGKILL.
+
+**Link proxy storage:** Created link proxies are stored in a
+`HashMap<(u32, u32), pipewire::link::Link>` keyed by `(output_port_id,
+input_port_id)`. The proxy must be kept alive for the link to persist
+(PipeWire destroys links when the owning proxy drops). The duplicate
+creation guard checks this map before calling `create_object()` to prevent
+re-creation during the window between creation and the confirming registry
+event.
+
+**Compiled-in routing table (GM-2):** No runtime config file. The routing
+table is tightly coupled to hardware-specific node names and port names.
+Adding a new mode requires code changes (new `DesiredLink` definitions,
+new `AppPortNaming` entries). Runtime configurability was rejected by the
+architect as unnecessary complexity.
+
+### 10.8 RPC Protocol
+
+TCP JSON-RPC on port 4002. Newline-delimited JSON. Three message types:
+
+| Direction | Type | Format |
+|-----------|------|--------|
+| Client -> GM | Request | `{"cmd": "<name>", ...}\n` |
+| GM -> Client | Ack/Response | `{"type": "ack"/"response", "cmd": "<name>", "ok": true/false, ...}\n` |
+| GM -> Client | Push event | `{"type": "event", "event": "<name>", ...}\n` |
+
+**Commands:**
+
+| Command | Description | Response |
+|---------|-------------|----------|
+| `set_mode` | Transition to a new operating mode | `ok: true` or error |
+| `get_state` | Full graph snapshot (nodes, links, devices, mode) | `StateSnapshot` JSON |
+| `get_devices` | Component health statuses | `DeviceStatus[]` JSON |
+| `get_links` | Link summary (desired vs actual counts) | `LinkSnapshot` JSON |
+
+**Push events:** `mode_changed`, `link_created`, `link_failed`,
+`device_connected`, `device_disconnected`. Broadcast to all connected TCP
+clients.
+
+### 10.9 Known Limitations
+
+1. **Link destroy not wired (TODO GM-7):** `LinkAction::Destroy` is logged
+   but not executed. Destroying links via `Registry::destroy_global()` requires
+   passing the Registry reference into `apply_actions()`, which is not yet
+   implemented. Stale links are logged but persist until PipeWire garbage
+   collects them or the node disappears.
+
+2. **Detailed link info in get_links (TODO GM-3):** The `get_links` response
+   returns counts (desired, actual, missing) but not individual link details.
+
+3. **Port name mismatch (GM-12 Finding 7):** The `ConvolverOutput` port naming
+   generates `output_AUX0`, but the actual convolver output node uses
+   `capture_AUX0` as port names. This mismatch blocks automated convolver-out
+   to USBStreamer routing until verified and corrected.
+
+---
+
+## 11. Cross-References
 
 | Document | Covers |
 |----------|--------|
@@ -655,6 +940,8 @@ after any application connect/reconnect event.
 | `docs/lab-notes/LN-BM2-pw-filter-chain-benchmark.md` | CPU benchmark: PW convolver vs CamillaDSP |
 | `docs/operations/safety.md` | Transient risk, gain staging limits, measurement safety |
 | `docs/project/defects.md` | F-033 (JACK thread promotion), F-020 (PW daemon promotion) |
+| `src/graph-manager/src/` | GraphManager source: main.rs, reconcile.rs, routing.rs, registry.rs, rpc.rs, graph.rs, lifecycle.rs |
+| `docs/project/decisions.md` | D-039 (sole session manager), D-040 (PW filter-chain), D-041 (one-based indexing), D-042 (q1024 default) |
 
 ---
 
