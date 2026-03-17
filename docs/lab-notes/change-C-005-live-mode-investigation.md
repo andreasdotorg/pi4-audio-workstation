@@ -184,8 +184,8 @@ PW filter-chain. A different mechanism is needed.
 
 ## Finding 6: PW `linear` Builtin Deployed as Gain Node (TK-247, TK-249)
 
-**Severity:** Medium (under investigation)
-**Status:** Deployed but effectiveness uncertain
+**Severity:** Medium
+**Status:** Deployed and **Mult verified functional** (interactive listening test)
 **Reference:** TK-247, TK-249
 
 **Solution:** The PipeWire `linear` builtin was identified as a gain control
@@ -198,14 +198,21 @@ Mult = 0.001 (-60 dB). The Mult parameter is runtime-adjustable via:
 pw-cli s <node-id> Props '{ params: [ "Mult", <value> ] }'
 ```
 
-**Concern (TK-249):** SPL levels at the speakers do not match theoretical
-predictions from the Mult value. It is possible that PW 1.4.9 also silently
-ignores the `linear` node's Mult parameter, similar to how it ignores
-`config.gain` on the convolver. This is under active investigation.
+**Mult verified during C-005 interactive session:** The owner actively
+listened while Mult values were changed via `pw-cli`. Volume changed audibly
+and proportionally:
+- Mult 0.0316 (-30 dB) -- too loud (this was the S-012 incident)
+- Mult 0.001 (-60 dB) -- acceptable level for mains
+- Mult 0.000631 (-64 dB) -- set for subs after owner requested slight boost from -70 dB
 
-If `linear` Mult is also ignored, the only confirmed working gain mechanism
-is `pw-cli s <node> Props '{ volume: <linear> }'` on the convolver capture
-node (as documented in GM-12 Finding 4's workaround procedure).
+**Conclusion:** The `linear` Mult parameter is **confirmed functional** -- it
+is NOT silently ignored like `config.gain`. This makes `linear` the primary
+gain control mechanism for the PW filter-chain architecture, superior to the
+`pw-cli volume` workaround because it can be configured per-channel within the
+filter-chain definition.
+
+The remaining TK-249 investigation (Finding 10) concerns absolute SPL
+calibration accuracy, not Mult functionality.
 
 ---
 
@@ -316,35 +323,39 @@ volume management and auto-linking need suppression.
 
 ---
 
-## Finding 10: PW `linear` Mult Possibly Silently Ignored (TK-249)
+## Finding 10: Absolute SPL Discrepancy Under Investigation (TK-249)
 
-**Severity:** Medium (under investigation)
-**Status:** Open — investigation ongoing
+**Severity:** Medium (calibration accuracy)
+**Status:** Open — Mult verified functional, absolute SPL calibration unresolved
 **Reference:** TK-249
 
-**Observation:** During the gain control investigation, SPL at the speakers
-did not match theoretical predictions based on the `linear` node's Mult value.
-At the current gain settings (-60 dB mains, -64 dB subs), theoretical SPL
-should be well below conversational level — yet the owner reported the output
-as "uncomfortably loud." This discrepancy suggests the gain path is not
-behaving as configured.
+**Update:** The `linear` Mult parameter was verified functional during the
+C-005 interactive listening test (Finding 6). Changing Mult values produces
+audible, proportional volume changes. The Mult parameter is NOT silently
+ignored. This eliminates explanation #1 below.
 
-**Possible explanations:**
-1. PW 1.4.9 silently ignores the `linear` Mult parameter (same class of bug
-   as `config.gain` on the convolver — Finding 4)
-2. WP `channelVolumes` at -91 dB (Finding 9) is dominating the gain path,
-   masking the `linear` node's contribution — or conversely, WP volumes were
-   reset to unity while `linear` Mult was ignored, passing full signal
-3. The `linear` node is working but its effect is being overridden by another
-   gain stage in the chain
+**Remaining issue:** Absolute SPL at the speakers does not match theoretical
+predictions based on the Mult value and the amplifier's known gain. At the
+current gain settings (-60 dB mains, -64 dB subs), theoretical SPL should be
+well below conversational level — yet the owner reported the output as
+"uncomfortably loud." The Mult is working (relative changes are correct), but
+the absolute calibration chain has an unidentified error.
+
+**Possible explanations (updated):**
+1. ~~PW 1.4.9 silently ignores the `linear` Mult parameter~~ **ELIMINATED** —
+   Mult verified functional (Finding 6)
+2. WP `channelVolumes` or other WP-managed volume overriding the expected
+   gain chain (Finding 9)
+3. Amplifier gain higher than assumed (42.4x nominal — actual gain may differ
+   at the operating point)
 4. Multiple gain paths summing (similar to GM-12 Finding 11 where WP
    auto-links created double signal)
+5. Error in the thermal ceiling calculation (Finding 7) — input sensitivity
+   or impedance assumptions may be wrong
 
-**Next step:** Investigate with WP channelVolumes explicitly set to unity
-(per Finding 9 workaround) and measure the `linear` Mult effect in isolation.
-If Mult is confirmed non-functional, the only proven gain mechanism remains
-`pw-cli s <node> Props '{ volume: ... }'` on the convolver capture node
-(GM-12 Finding 4 workaround).
+**Next step:** Calibrated SPL measurement at known Mult values to identify
+where the gain chain diverges from theory. This is an accuracy/calibration
+issue, not a functionality issue.
 
 ---
 
@@ -382,14 +393,19 @@ mechanisms. Summary of findings:
 |-----------|--------|-------|
 | `config.gain` on convolver | Non-functional | PW 1.4.9 silently ignores (GM-12 F4) |
 | `bq_lowshelf` at Freq=0.0 | Non-functional | Degenerate filter, produces distortion (TK-247) |
-| PW `linear` Mult parameter | Under investigation | SPL doesn't match theory — may be ignored or masked by WP channelVolumes (TK-249) |
-| `pw-cli volume` on capture node | Confirmed working | GM-12 workaround; runtime-only, resets on PW restart |
+| **PW `linear` Mult parameter** | **Confirmed working** | Interactive listening test verified proportional volume changes. Per-channel gain control. Runtime-adjustable via `pw-cli`. |
+| `pw-cli volume` on capture node | Confirmed working | GM-12 workaround; runtime-only, resets on PW restart. Superseded by `linear` for per-channel control. |
 | WP `channelVolumes` | Functional but hostile | WP sets to -91 dB, silencing convolver path (TK-246) |
 
-**Confirmed working path:** The only proven gain control is `pw-cli s <node>
-Props '{ volume: <linear> }'` on the convolver capture node, as documented in
-GM-12 Finding 4. All other mechanisms are either non-functional, under
-investigation, or controlled by WP in ways that interfere with the audio path.
+**Confirmed working paths:** Two gain mechanisms are verified functional:
+1. **PW `linear` Mult** (preferred) — per-channel gain within the filter-chain,
+   runtime-adjustable via `pw-cli s <node> Props '{ params: [ "Mult", <value> ] }'`.
+   Verified during C-005 interactive session.
+2. **`pw-cli volume`** on convolver capture node — global gain, runtime-only.
+   Original GM-12 workaround. Less precise (applies to all channels uniformly).
+
+The `linear` Mult approach is preferred because it supports per-channel gain
+staging, which is required for mixed speaker systems (Finding 7).
 
 ---
 
@@ -447,7 +463,7 @@ share the same ADAT link) must be in the same `node.group`. Their
 | 1 | S-012 safety rule: formalize "no gain increase without owner confirmation" | Critical | Architect | Finding 1, S-012 |
 | 2 | Remove/disable `pipewire-force-quantum.service` permanently | High | CM | Finding 2, TK-243 |
 | 3 | WP channelVolumes suppression for convolver nodes | Medium | Architect | Finding 9, TK-246 |
-| 4 | Confirm `linear` Mult functionality with WP volumes at unity | Medium | Worker | Finding 10, TK-249 |
+| 4 | ~~Confirm `linear` Mult functionality~~ VERIFIED. Remaining: absolute SPL calibration (TK-249) | Medium | Worker | Finding 6, Finding 10, TK-249 |
 | 5 | Web UI: replace `pw-top` spawning with native API | Medium | Worker | Finding 8, TK-245 |
 | 6 | ~~Update safety.md with S-012 gain-increase rule~~ DONE | Medium | TW | Finding 1 |
 | 7 | Thermal safety documentation for mixed speaker configs | Low | TW | Finding 7, TK-248 |
@@ -473,12 +489,16 @@ wake cycles). Fixed by disabling the service, killing debug processes, and
 adding `node.group = pi4audio.usbstreamer` to group both ALSA devices under
 a single PW driver.
 
-**Gain control state:** PW 1.4.9 has significant gaps in filter-chain gain
-control. `config.gain`, `bq_lowshelf` at DC, and possibly `linear` Mult are
-all non-functional or unreliable. The only confirmed working mechanism is
-`pw-cli volume` on the convolver capture node (runtime-only). WirePlumber
-further complicates gain staging by setting channelVolumes to -91 dB on the
-convolver capture node.
+**Gain control state:** PW 1.4.9 `config.gain` and `bq_lowshelf` at DC are
+non-functional, but the **PW `linear` Mult parameter is confirmed working**
+(verified via interactive listening test: volume changes audibly and
+proportionally with Mult value). This makes `linear` the primary per-channel
+gain mechanism for the PW filter-chain architecture. `pw-cli volume` on the
+convolver capture node also works (GM-12 workaround) but is global, not
+per-channel. WirePlumber complicates gain staging by setting channelVolumes
+to -91 dB on the convolver capture node (TK-246). Absolute SPL calibration
+remains unresolved (TK-249) — Mult works, but theoretical SPL predictions
+don't match listening experience.
 
 **Thermal safety (TK-248):** Mixed speaker systems (CHN-50P 7W vs PS28 III
 62W) require per-channel gain. Thermal ceilings: CHN-50P -31.9 dBFS, PS28 III
