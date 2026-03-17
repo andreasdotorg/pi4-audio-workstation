@@ -20,7 +20,7 @@
 //! channels: commands flow RPC → PW, events flow PW → RPC.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -804,32 +804,70 @@ fn handle_client(
         }
     };
 
-    let reader = BufReader::new(stream);
+    let mut reader = BufReader::new(stream);
 
-    for line_result in reader.lines() {
+    // SEC-GM-03: Cap line reads at the I/O layer to prevent unbounded memory
+    // allocation. The previous code used `.lines()` which reads the entire
+    // line into memory before parse_line's length check runs. Now we read
+    // into a fixed-capacity buffer and reject oversized lines before parsing.
+    //
+    // Buffer capacity: MAX_LINE_LENGTH + 1 for the newline + 1 to detect
+    // overflow (if we read MAX_LINE_LENGTH+2 bytes without a newline, the
+    // line is too long).
+    let cap = MAX_LINE_LENGTH + 2;
+    let mut buf = Vec::with_capacity(cap);
+    loop {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
 
-        let line = match line_result {
-            Ok(l) => l,
+        buf.clear();
+        // Read until newline or cap, whichever comes first.
+        match reader.by_ref().take(cap as u64).read_until(b'\n', &mut buf) {
+            Ok(0) => break, // EOF
+            Ok(_) => {}
             Err(e) => {
                 debug!("RPC read error from {}: {}", peer, e);
                 break;
             }
-        };
+        }
 
-        if line.is_empty() {
+        // Strip trailing newline/CR.
+        if buf.last() == Some(&b'\n') {
+            buf.pop();
+        }
+        if buf.last() == Some(&b'\r') {
+            buf.pop();
+        }
+
+        if buf.is_empty() {
             continue;
         }
 
-        let response = match parse_line(&line) {
-            Ok(req) => match handle_request(&req, &cmd_tx, &stored_mode) {
-                HandleResult::Ack(cmd) => format_ack(&cmd),
-                HandleResult::Error(cmd, msg) => format_error(&cmd, &msg),
-                HandleResult::ResponseJson(json) => json,
-            },
-            Err(err_json) => err_json,
+        // Reject oversized lines at the I/O layer (SEC-GM-03).
+        let response = if buf.len() > MAX_LINE_LENGTH {
+            // Drain any remaining bytes on this line (past our cap) so the
+            // next read starts at a fresh line boundary.
+            let mut drain = Vec::new();
+            let _ = reader.read_until(b'\n', &mut drain);
+            warn!("SEC-GM-03: rejected oversized line ({} bytes) from {}", buf.len(), peer);
+            format_line_too_long()
+        } else {
+            let line = match std::str::from_utf8(&buf) {
+                Ok(s) => s,
+                Err(_) => {
+                    debug!("RPC invalid UTF-8 from {}", peer);
+                    continue;
+                }
+            };
+            match parse_line(line) {
+                Ok(req) => match handle_request(&req, &cmd_tx, &stored_mode) {
+                    HandleResult::Ack(cmd) => format_ack(&cmd),
+                    HandleResult::Error(cmd, msg) => format_error(&cmd, &msg),
+                    HandleResult::ResponseJson(json) => json,
+                },
+                Err(err_json) => err_json,
+            }
         };
 
         let line_out = format!("{}\n", response);

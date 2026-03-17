@@ -445,9 +445,11 @@ fn main() {
 
     let args = Args::parse();
 
-    // Initialize logging.
-    std::env::set_var("RUST_LOG", &args.log_level);
-    env_logger::init();
+    // Initialize logging (SEC-GM-02: avoid std::env::set_var, unsafe in Rust 2024).
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or(&args.log_level),
+    )
+    .init();
 
     let listen_addr = parse_listen_addr(&args.listen).unwrap_or_else(|e| {
         eprintln!("Error: {}", e);
