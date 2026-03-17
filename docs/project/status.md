@@ -76,7 +76,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-056** (CANCELLED — D-040 2026-03-16): CamillaDSP abandoned. JACK backend migration no longer needed.
 - **US-057** (CANCELLED — D-040 2026-03-16): CamillaDSP abandoned. PW-native investigation no longer relevant.
 - **US-058** (**DONE** — owner-accepted 2026-03-16): PW filter-chain FIR benchmark. BM2-4 PASS: 1.70% q1024, 3.47% q256. Triggered D-040.
-- **US-059** (Phase: **IMPLEMENT, DoD 3/14** — owner-authorized 2026-03-16, D-040): GraphManager Core + Production Filter-Chain (Phase A). **GM-12 DJ stability: 11-hour overnight soak ZERO xruns** (USBStreamer ERR 0, convolver ERR 0, 72C stable). DoD: #1 GM-0 gate PASS, #2 filter-chain deployed+running on Pi, #6 statically validated. #3 further advanced (GraphManager ran on Pi), #7 partially advanced, #8 Mixxx definitively PASS (11h soak), Reaper pending. GM tasks: 11/15 done — GM-1 (`4e0b8dd`), GM-2 (`53c1008`), GM-3 (`d525bf0`), GM-4+5+6+9 (`9ac987e`), build infra (`2f1f296`), GM-11 (`664843b`), GM-10+GM-12 (DJ test session). GM-7/GM-8 deferred (WP needed for device mgmt). Issues found: PW convolver ignores `gain`, Mixxx port names, sub mono-sum routing, pw-cli volume runtime-only. TW preparing lab notes.
+- **US-059** (Phase: **IMPLEMENT, DoD 3/14** — owner-authorized 2026-03-16, D-040): GraphManager Core + Production Filter-Chain (Phase A). **GM-12 DJ stability: 11-hour overnight soak ZERO xruns** (USBStreamer ERR 0, convolver ERR 0, 72C stable). DoD: #1 GM-0 gate PASS, #2 filter-chain deployed+running on Pi, #6 statically validated. #3 further advanced (GraphManager ran on Pi), #7 partially advanced, #8 Mixxx definitively PASS (11h soak), Reaper pending. GM tasks: 11/15 done — GM-1 (`4e0b8dd`), GM-2 (`53c1008`), GM-3 (`d525bf0`), GM-4+5+6+9 (`9ac987e`), build infra (`2f1f296`), GM-11 (`664843b`), GM-10+GM-12 (DJ test session). GM-7/GM-8 deferred (WP needed for device mgmt). F-031 filed (Low: Mixxx UI sluggish at q1024, deferred). Issues found: PW convolver ignores `gain`, Mixxx port names, sub mono-sum routing, pw-cli volume runtime-only. TW preparing lab notes. **Next:** Reaper live-mode test at quantum 256 — covers DoD #8 Reaper half + DoD #9 latency measurement.
 - **US-060** (DRAFT — filed 2026-03-16): PipeWire Monitoring Replacement (Phase B). Replaces pycamilladsp collectors with native PW monitoring. Depends on US-059.
 - **US-061** (DRAFT — filed 2026-03-16): Measurement Pipeline Adaptation (Phase C). Adapts D-036 measurement daemon from CamillaDSP to PW filter-chain. Depends on US-059. Independent of US-060 (parallelizable).
 - **US-051** (DEFERRED — owner directive 2026-03-16): Was IMPLEMENT 2/4. SB-1-6 done, Playwright E2E written. Work preserved, resumes later.
@@ -277,6 +277,7 @@ See `docs/project/defects.md` for full details.
 | F-025 | Critical | Resolved | Speaker protection — TK-107 + TK-108 done (`ac0cbb8`) |
 | F-026 | High | Open | TK-114 (spectrum validation), TK-115 (JS FFT pipeline in progress) |
 | F-030 | High | Open | D-020 (web UI), US-029 (DJ UAT). Workaround: stop web UI service. |
+| F-031 | Low | Open | None (UI-only, audio unaffected). Investigation deferred per owner. |
 
 ### Resolved
 
