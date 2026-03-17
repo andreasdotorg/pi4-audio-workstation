@@ -216,41 +216,104 @@ observations.
 
 ---
 
-### Phase 7: O-012 Reveals FIFO Promotion Reverted
+### Phase 7: O-012 Fresh Observation (16:46 CET)
 
-**Finding:** O-012 discovered that the FIFO/80 promotion from C-007 has
-**reverted**. The `pw-REAPER` bridge thread is back at SCHED_OTHER with a
-new TID (11198), replacing the promoted TIDs (9709, 9710).
+**Time:** 2026-03-17, 16:46 CET
 
-**Cause:** The JACK bridge thread was recycled — likely the bridge
-reconnected or PipeWire respawned the client thread, creating a new thread
-at default (SCHED_OTHER) scheduling. Runtime `chrt` promotion only affects
-the specific thread it targets. When that thread is replaced by a new one,
-the promotion is lost.
+**Graph state:** Active (QUANT=256, RATE=48000, all nodes in R state).
 
-**ERR count at O-012:** 23 (unchanged from recent observations). Despite the
-FIFO reversion, no new xruns accumulated. This is significant because:
+| Node | B/Q | ERR | Notes |
+|------|-----|-----|-------|
+| USBStreamer | -- | 5 | |
+| pi4audio-convolver | -- | 15 | |
+| pi4audio-convolver-out | **0.10** | 0 | Down from 0.60 pre-fan |
+| REAPER | -- | 3 | |
+| **Total ERR** | | **23** | Unchanged since O-009 |
 
-1. The fan (O-008) reduced temperature from 74C to 51C
-2. The FIFO promotion has reverted, yet xruns stopped
-3. This suggests the fan's thermal improvement may also be a contributing
-   factor — lower temperatures reduce CPU power management overhead and
-   improve scheduling determinism
+**FIFO/80 promotion INTACT:** Both original pw-REAPER bridge threads (TIDs
+9709, 9710) are still alive at SCHED_FIFO/80. The C-007 promotion persisted.
+No thread recycling occurred.
 
-**Implications for the permanent fix:**
+**CORRECTION:** An earlier draft of this observation incorrectly reported FIFO
+reversion based on `pgrep -f` output. That command searches process command
+lines, not thread names — it found an unrelated process (PID 11351), not a
+replacement bridge thread. The correct method for enumerating PipeWire JACK
+bridge threads is `ps -T -p <PID>` or `/proc/<PID>/task/*/comm`, which
+confirms both original TIDs at FIFO/80. See Methodology Note below.
 
-The O-012 finding makes the F-033 launcher script fix even more critical
-than initially assessed. Runtime `chrt` is fundamentally unreliable because:
-- JACK bridge threads are recycled on reconnection
-- New threads inherit default scheduling (SCHED_OTHER)
-- There is no notification when threads are replaced
+**System state:**
 
-The launcher script approach (`exec chrt -f 70 pw-jack reaper`) promotes the
-entire process tree from the start, ensuring all threads — including
-replacements — inherit RT scheduling. However, this needs verification:
-`chrt` wraps the initial process, but dynamically spawned child threads may
-still default to SCHED_OTHER. The RT module's thread promotion is the correct
-mechanism, but it is broken on PREEMPT_RT (F-020/F-033).
+| Metric | Value |
+|--------|-------|
+| Temperature | 51.1C |
+| `vcgencmd get_throttled` | 0x0 |
+| convolver-out B/Q | 0.10 |
+| pw-REAPER TID 9709 | SCHED_FIFO/80 (unchanged) |
+| pw-REAPER TID 9710 | SCHED_FIFO/80 (unchanged) |
+
+### B/Q Improvement Trajectory
+
+The convolver-out B/Q ratio has steadily declined through the session:
+
+| Observation | Temperature | convolver-out B/Q | Reaper Scheduling |
+|-------------|-------------|-------------------|-------------------|
+| O-007 (pre-fan, pre-FIFO) | 74.0C | 0.60 | SCHED_OTHER |
+| O-009 (post-FIFO, warm) | ~63C | -- | SCHED_FIFO/80 |
+| O-011 (post-FIFO, cooling) | ~55C | 0.21-0.23 | SCHED_FIFO/80 |
+| **O-012 (post-FIFO, cool)** | **51.1C** | **0.10** | **SCHED_FIFO/80** |
+
+**Interpretation:** The steady B/Q decline (0.60 -> 0.21 -> 0.10) is the
+**combined effect of two interventions**: fan cooling (74C -> 51C) and FIFO
+promotion (SCHED_OTHER -> SCHED_FIFO/80). Both were applied between O-007
+and O-009. Since FIFO remained intact throughout O-009 to O-012, the
+contributions cannot be fully separated from this data alone. However, both
+factors are expected to reduce B/Q:
+- **Fan cooling** reduces CPU processing time (ARM cores are faster at lower
+  temperatures due to reduced thermal throttling margins and improved silicon
+  characteristics)
+- **FIFO scheduling** eliminates preemption by SCHED_OTHER processes
+  (Xwayland at 31%, system tasks), ensuring the convolver runs without
+  scheduling delays
+
+At B/Q = 0.10, the convolver has 90% of the quantum budget remaining (4.8ms
+of 5.3ms) — substantial margin for reliable q256 operation.
+
+### Status of F-033
+
+The C-007 runtime `chrt` promotion has persisted for this session. However,
+F-033 remains important for production use:
+- Runtime `chrt` must be re-applied after every Reaper restart
+- Thread recycling CAN occur on graph reconfiguration events (USB errors,
+  quantum changes, suspend/resume) — it did not happen in this session, but
+  it is a known PipeWire behavior
+- A launcher script (`exec chrt -f 70 pw-jack reaper`) provides persistent
+  FIFO scheduling across restarts without manual intervention
+
+**O-012 establishes the TP-006 soak baseline.** ERR=23 at 16:46 CET. O-013
+due in ~30 minutes to assess xrun accumulation rate at q256 with fan active
+and FIFO intact.
+
+### Methodology Note
+
+**`pgrep -f` is unreliable for finding PipeWire JACK bridge threads.** The
+`-f` flag searches process command lines, not thread names. PipeWire creates
+JACK bridge threads (named `pw-REAPER`) as threads within the `pw-jack`
+process — they do not appear as separate processes in `pgrep` output.
+
+Reliable methods for enumerating JACK bridge threads:
+
+```bash
+# Method 1: ps with thread display for a specific PID
+ps -T -p <reaper-pid> -o tid,cls,rtprio,comm
+
+# Method 2: /proc filesystem (most reliable)
+for tid in /proc/<reaper-pid>/task/*/; do
+  echo "$(basename $tid) $(cat $tid/comm) $(chrt -p $(basename $tid) 2>/dev/null)"
+done
+
+# Method 3: Full thread listing (used in C-007 Phase 4)
+ps -eLo pid,tid,cls,rtprio,ni,comm | grep pw-REAPER
+```
 
 ---
 
@@ -279,19 +342,48 @@ Follower nodes (including Reaper via pw-jack) must operate at the driver's
 quantum regardless of their `node.lock-quantum` setting. The quantum must
 be set at the graph level via `pw-metadata`.
 
+### Thread Recycling Risk (Architect Analysis)
+
+**Note:** No thread recycling was observed in this session. The C-007 FIFO
+promotion persisted from 16:23 to at least 16:46 CET (23+ minutes). The
+architect's analysis below describes the theoretical recycling risk that
+motivates the F-033 launcher script approach.
+
+PipeWire CAN recycle JACK bridge threads under certain conditions:
+- USB errors causing ALSA adapter error recovery and driver group reconfiguration
+- Graph reconfiguration events (quantum changes, node additions/removals)
+- Suspend/resume cycles
+
+Thread recycling is event-driven, not periodic. When it occurs, new threads
+are created at default scheduling (SCHED_OTHER), discarding any runtime
+`chrt` promotion. The USBStreamer accumulated 3 USB errors during this
+session (ERR 2 -> 5) without triggering thread recycling, suggesting that
+not all USB errors cause full graph reconfiguration.
+
+**Launcher script viability:** The proposed `exec chrt -f 70 pw-jack reaper`
+should work via POSIX thread scheduling inheritance (`PTHREAD_INHERIT_SCHED`).
+When a parent process runs at SCHED_FIFO, child threads inherit the
+scheduling policy and priority by default. This requires verification that
+PipeWire does not explicitly set `SCHED_OTHER` via
+`pthread_attr_setschedpolicy()` when creating JACK bridge threads.
+
+**Observation safety:** `pw-top` and other observation commands do not cause
+thread recycling or graph reconfiguration.
+
 ---
 
 ## Open Items
 
 | # | Item | Severity | Owner | Reference |
 |---|------|----------|-------|-----------|
-| 1 | F-033 persistent fix: launcher script `exec chrt -f 70 pw-jack reaper` | **Critical** | Worker | Phase 4, Phase 7 |
-| 2 | Same launcher pattern for Mixxx: `exec chrt -f 70 pw-jack mixxx` | **Critical** | Worker | F-033 |
-| 3 | ~~O-012 fresh observation~~ DONE — FIFO reverted, ERR stable at 23 | -- | -- | Phase 7 |
-| 4 | Investigate PW RT module PREEMPT_RT client thread promotion | Medium | Architect | F-020/F-033 |
-| 5 | TP-006 Reaper stability test with persistent FIFO (launcher script) | Medium | QE | Phase 7 |
-| 6 | Verify `chrt` wrapper promotes dynamically spawned child threads | Medium | Worker | Phase 7 |
-| 7 | Quantify fan contribution to xrun reduction (thermal vs scheduling) | Low | Worker | Phase 7 |
+| 1 | F-033 persistent fix: launcher script `exec chrt -f 70 pw-jack reaper` | **High** | Worker | Phase 4, Phase 7 |
+| 2 | Same launcher pattern for Mixxx: `exec chrt -f 70 pw-jack mixxx` | **High** | Worker | F-033 |
+| 3 | ~~O-012 fresh observation~~ DONE — TP-006 soak baseline established (ERR=23 at 16:46 CET), FIFO intact | -- | -- | Phase 7 |
+| 4 | O-013: 30-minute soak check (due ~17:16 CET) — assess xrun rate at q256 with fan + FIFO active | Medium | Worker | Phase 7 |
+| 5 | Investigate PW RT module PREEMPT_RT client thread promotion | Medium | Architect | F-020/F-033 |
+| 6 | TP-006 Reaper stability test with persistent FIFO (launcher script) | Medium | QE | Phase 7 |
+| 7 | Verify launcher script FIFO inheritance on Pi: confirm PipeWire does not set `PTHREAD_EXPLICIT_SCHED` with `SCHED_OTHER` on JACK bridge threads | Medium | Worker | Architect Analysis |
+| 8 | Quantify fan vs FIFO contribution to B/Q reduction (thermal vs scheduling) | Low | Worker | Phase 7 |
 
 ---
 
@@ -305,27 +397,33 @@ margin). This is the same class of bug as F-020 — PipeWire's RT module fails
 to promote client threads on PREEMPT_RT.
 
 **Fix applied:** `chrt -f 80` on both `pw-REAPER` bridge threads (TIDs 9709,
-9710). Runtime-only — resets on thread recycling (confirmed by O-012).
+9710). Promotion confirmed intact at O-012 (23+ minutes later).
 
-**FIFO promotion reverted (O-012):** The promoted threads were replaced by
-new threads at SCHED_OTHER (new TID 11198). Runtime `chrt` is fundamentally
-unreliable for JACK bridge threads because PipeWire recycles them. Despite
-reversion, ERR count stabilized at 23 — no new xruns. This raises the
-possibility that the fan's thermal improvement (74C -> 51C) is also a
-contributing factor.
+**Combined improvement (O-012):** convolver-out B/Q dropped from 0.60 to 0.10
+through the combined effect of fan cooling (74C -> 51C) and FIFO promotion
+(SCHED_OTHER -> FIFO/80). ERR count stabilized at 23 — no new xruns after
+the initial burst. At B/Q = 0.10, the convolver has 90% of the quantum
+budget remaining (4.8ms margin), providing substantial headroom for reliable
+q256 operation.
 
 **Thermal throttling ruled out:** `vcgencmd get_throttled` = 0x0 (no
-throttling ever). Fan reduced temperature from 74C to 51C. Xruns continued
-initially after fan installation but stopped after a combination of FIFO
-promotion + time. The relative contribution of thermal vs scheduling
-improvement is not yet isolated.
+throttling ever). Fan reduced temperature from 74C to 51C. The xruns stopped
+after the combination of FIFO promotion and fan cooling. The relative
+contribution of each factor is not yet isolated.
 
-**Permanent fix (F-033, elevated to Critical):** Launcher scripts MUST use
-`exec chrt -f 70 pw-jack <application>` for all JACK clients (Reaper, Mixxx).
-Runtime `chrt` on individual TIDs is not durable — O-012 proved that thread
-recycling reverts the promotion. The launcher script approach wraps the
-entire process tree. Verification needed: do dynamically spawned child
-threads inherit the RT scheduling class?
+**F-033 launcher script (High priority):** Launcher scripts using `exec chrt
+-f 70 pw-jack <application>` are recommended for all JACK clients (Reaper,
+Mixxx) to ensure FIFO scheduling persists across application restarts.
+Runtime `chrt` worked in this session but requires manual re-application
+after each restart. Thread recycling from graph reconfiguration events (USB
+errors, quantum changes) is a theoretical risk that would also revert runtime
+`chrt` — the launcher script approach is more robust.
+
+**Methodology correction:** An initial O-012 observation incorrectly reported
+FIFO reversion based on `pgrep -f` output, which searches process command
+lines rather than thread names. The corrected observation using `ps -T`
+confirmed both original TIDs at FIFO/80. See Phase 7 Methodology Note for
+reliable thread enumeration methods.
 
 ---
 
