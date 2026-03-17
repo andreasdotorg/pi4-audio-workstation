@@ -294,55 +294,74 @@ impl RoutingTable {
 
     /// Live mode: Reaper → convolver → USBStreamer (speakers + HP + IEM).
     ///
-    /// Reaper provides 8 channels via explicit per-track routing in its
-    /// mixer. Ch 0-3 through convolver (speakers), ch 4-5 direct to
-    /// USBStreamer (engineer HP), ch 6-7 direct to USBStreamer (singer
-    /// IEM, passthrough per D-011).
+    /// Reaper outputs 8 channels via pw-jack (verified on Pi):
+    ///   out1 = Master L, out2 = Master R,
+    ///   out3-out4 = unused (available but not routed),
+    ///   out5 = HP L, out6 = HP R,
+    ///   out7 = IEM L, out8 = IEM R.
     ///
-    /// Unlike Mixxx, Reaper can output discrete pre-summed sub feeds on
-    /// ch 2-3, so no fan-out mono-sum is needed here. The owner controls
-    /// Reaper's output routing explicitly.
+    /// Master L/R go 1:1 to convolver mains (AUX0-1) AND fan-out to
+    /// both sub convolver inputs (AUX2-3) for mono-sum, same pattern
+    /// as DJ mode. The -6 dB mono sum compensation is baked into the
+    /// sub FIR WAV coefficients (architect guidance).
     ///
-    /// TODO: Verify Reaper JACK port names on Pi (`pw-jack reaper`).
-    /// REAPER typically exposes `out1`..`outN` (1-indexed, no underscore)
-    /// under pw-jack, not `output_AUX0` format. These port names are
-    /// PLACEHOLDER and will need updating after Pi verification.
+    /// HP and IEM bypass the convolver and go directly to USBStreamer.
     fn live_links() -> Vec<DesiredLink> {
         let mut links = Vec::new();
-        let aux = ["AUX0", "AUX1", "AUX2", "AUX3"];
 
-        // Reaper → convolver (ch 0-3: speaker channels through FIR).
-        for ch_name in &aux {
+        // Reaper master → convolver mains (1:1).
+        // out1 (Master L) → playback_AUX0 (left wideband)
+        // out2 (Master R) → playback_AUX1 (right wideband)
+        for (out_ch, aux) in [(1, "AUX0"), (2, "AUX1")] {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
-                output_port: format!("output_{}", ch_name),
+                output_port: format!("out{}", out_ch),
                 input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
-                input_port: format!("playback_{}", ch_name),
+                input_port: format!("playback_{}", aux),
                 optional: false,
             });
+        }
+
+        // Reaper master → convolver subs (fan-out for L+R mono sum).
+        // Both Master L and Master R feed each sub input. PipeWire
+        // sums the two links at the input port.
+        for sub_aux in ["AUX2", "AUX3"] {
+            for out_ch in [1, 2] {
+                links.push(DesiredLink {
+                    output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
+                    output_port: format!("out{}", out_ch),
+                    input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                    input_port: format!("playback_{}", sub_aux),
+                    optional: false,
+                });
+            }
         }
 
         // Convolver → USBStreamer (ch 0-3: processed speakers).
         links.extend(Self::convolver_to_usbstreamer_links());
 
-        // Reaper → USBStreamer direct (ch 4-5: engineer headphones).
-        for ch in 4..6 {
+        // Reaper headphones → USBStreamer direct (bypass convolver).
+        // out5 (HP L) → USBStreamer playback_AUX4
+        // out6 (HP R) → USBStreamer playback_AUX5
+        for (out_ch, usb_aux) in [(5, "AUX4"), (6, "AUX5")] {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
-                output_port: format!("output_AUX{}", ch),
+                output_port: format!("out{}", out_ch),
                 input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                input_port: format!("playback_AUX{}", ch),
+                input_port: format!("playback_{}", usb_aux),
                 optional: false,
             });
         }
 
-        // Reaper → USBStreamer direct (ch 6-7: singer IEM, passthrough).
-        for ch in 6..8 {
+        // Reaper singer IEM → USBStreamer direct (passthrough per D-011).
+        // out7 (IEM L) → USBStreamer playback_AUX6
+        // out8 (IEM R) → USBStreamer playback_AUX7
+        for (out_ch, usb_aux) in [(7, "AUX6"), (8, "AUX7")] {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
-                output_port: format!("output_AUX{}", ch),
+                output_port: format!("out{}", out_ch),
                 input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                input_port: format!("playback_AUX{}", ch),
+                input_port: format!("playback_{}", usb_aux),
                 optional: true, // IEM is optional equipment
             });
         }
@@ -555,10 +574,12 @@ mod tests {
     }
 
     #[test]
-    fn live_has_12_links() {
-        // REAPER → convolver (4) + convolver → USBStreamer (4) + REAPER → USBStreamer HP (2) + REAPER → USBStreamer IEM (2).
+    fn live_has_14_links() {
+        // REAPER → convolver mains (2) + REAPER → convolver subs fan-out (4)
+        // + convolver → USBStreamer (4) + REAPER → USBStreamer HP (2)
+        // + REAPER → USBStreamer IEM (2) = 14.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Live).len(), 12);
+        assert_eq!(table.links_for(Mode::Live).len(), 14);
     }
 
     #[test]
@@ -572,10 +593,10 @@ mod tests {
     fn live_iem_links_are_optional() {
         let table = RoutingTable::production();
         let live_links = table.links_for(Mode::Live);
-        // ch 6-7 (IEM) should be optional.
+        // IEM links (out7, out8 → USBStreamer AUX6, AUX7) should be optional.
         let iem_links: Vec<_> = live_links
             .iter()
-            .filter(|l| l.output_port.contains('6') || l.output_port.contains('7'))
+            .filter(|l| l.output_port == "out7" || l.output_port == "out8")
             .collect();
         assert_eq!(iem_links.len(), 2);
         assert!(iem_links.iter().all(|l| l.optional));
@@ -797,7 +818,58 @@ mod tests {
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "REAPER"))
             .collect();
-        // 4 to convolver + 2 to USBStreamer HP + 2 to USBStreamer IEM = 8
-        assert_eq!(reaper_links.len(), 8);
+        // 2 mains + 4 sub fan-out + 2 HP + 2 IEM = 10
+        assert_eq!(reaper_links.len(), 10);
+    }
+
+    #[test]
+    fn live_sub_mono_sum_fan_out() {
+        // Each sub convolver input (AUX2, AUX3) receives links from BOTH
+        // Reaper Master L (out1) and Master R (out2) for mono sum.
+        let table = RoutingTable::production();
+        let live_links = table.links_for(Mode::Live);
+
+        for sub_aux in ["AUX2", "AUX3"] {
+            let sub_links: Vec<_> = live_links
+                .iter()
+                .filter(|l| {
+                    matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-convolver")
+                        && l.input_port == format!("playback_{}", sub_aux)
+                })
+                .collect();
+            assert_eq!(
+                sub_links.len(),
+                2,
+                "Sub input {} should have 2 fan-out links (L+R mono sum)",
+                sub_aux,
+            );
+            let ports: Vec<&str> = sub_links.iter().map(|l| l.output_port.as_str()).collect();
+            assert!(ports.contains(&"out1"), "Missing Master L for {}", sub_aux);
+            assert!(ports.contains(&"out2"), "Missing Master R for {}", sub_aux);
+        }
+    }
+
+    #[test]
+    fn live_reaper_port_names_use_out_prefix() {
+        // Reaper JACK ports are out1..out8 (1-based, no underscore, verified on Pi).
+        let table = RoutingTable::production();
+        let live_links = table.links_for(Mode::Live);
+        let reaper_links: Vec<_> = live_links
+            .iter()
+            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "REAPER"))
+            .collect();
+        for link in &reaper_links {
+            assert!(
+                link.output_port.starts_with("out"),
+                "Reaper port should use out prefix, got: {}",
+                link.output_port
+            );
+            // Should NOT contain underscore (Reaper uses out1 not out_1).
+            assert!(
+                !link.output_port.contains('_'),
+                "Reaper port should not contain underscore, got: {}",
+                link.output_port
+            );
+        }
     }
 }
