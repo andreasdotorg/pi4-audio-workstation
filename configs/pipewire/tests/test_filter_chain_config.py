@@ -93,13 +93,82 @@ class TestProductionFilterChainConfig(unittest.TestCase):
         self.assertIn("AUX3", self.config)
 
     def test_no_gain_nodes(self):
-        """Filter-chain must not contain separate gain/volume processing nodes.
-        Per-convolver config.gain (attenuation) is acceptable for deployment
-        safety; standalone gain/volume nodes are not."""
+        """Filter-chain must not use gain/volume/bq_lowshelf builtin labels.
+
+        PW 1.4.9's convolver silently ignores config.gain (Finding 4, GM-12).
+        Attenuation is instead applied via 'linear' builtin nodes chained after
+        each convolver: y = x * Mult + 0.0 (flat gain).  These are permitted
+        because they are attenuation-only (Mult <= 1.0) and documented in the
+        config header.  Standalone gain/volume nodes and biquad shelving are
+        still banned -- they would bypass the safety-reviewed gain staging."""
         lower = self.config.lower()
         self.assertNotIn("label = gain", lower)
+        self.assertNotIn("label  = gain", lower)
         self.assertNotIn("label = volume", lower)
+        self.assertNotIn("label  = volume", lower)
         self.assertNotIn("bq_lowshelf", lower)
+
+    def test_linear_gain_nodes_exist(self):
+        """Config must have exactly 4 linear builtin nodes (PW 1.4.9 workaround).
+
+        Each convolver output is chained through a linear node for persistent
+        attenuation: conv_X:Out -> gain_X:In.  The linear builtin computes
+        y = x * Mult + Add.  Mult must be <= 1.0 (attenuation only, D-009)
+        and Add must be 0.0 (no DC offset)."""
+        import re
+
+        # Count linear nodes.
+        linear_count = len(re.findall(r'label\s*=\s*linear', self.config))
+        self.assertEqual(linear_count, 4,
+                         f"Expected 4 linear gain nodes, found {linear_count}")
+
+        # Verify each linear node has Mult <= 1.0 (attenuation only).
+        mult_values = re.findall(r'"Mult"\s*=\s*([\d.]+)', self.config)
+        self.assertEqual(len(mult_values), 4,
+                         f"Expected 4 Mult values, found {len(mult_values)}")
+        for val_str in mult_values:
+            val = float(val_str)
+            self.assertLessEqual(val, 1.0,
+                                 f"D-009: Mult={val} exceeds 1.0 (would boost signal)")
+            self.assertGreater(val, 0.0,
+                               f"Mult={val} is zero or negative (would mute or invert)")
+
+        # Verify Add = 0.0 on all linear nodes (no DC offset).
+        add_values = re.findall(r'"Add"\s*=\s*([\d.]+)', self.config)
+        self.assertEqual(len(add_values), 4,
+                         f"Expected 4 Add values, found {len(add_values)}")
+        for val_str in add_values:
+            self.assertEqual(float(val_str), 0.0,
+                             f"Add must be 0.0, got {val_str}")
+
+    def test_linear_nodes_chained_after_convolvers(self):
+        """Each convolver output must chain into its corresponding linear node."""
+        expected_links = [
+            ('conv_left_hp:Out', 'gain_left_hp:In'),
+            ('conv_right_hp:Out', 'gain_right_hp:In'),
+            ('conv_sub1_lp:Out', 'gain_sub1_lp:In'),
+            ('conv_sub2_lp:Out', 'gain_sub2_lp:In'),
+        ]
+        for output, input_ in expected_links:
+            self.assertIn(output, self.config,
+                          f"Missing internal link output: {output}")
+            self.assertIn(input_, self.config,
+                          f"Missing internal link input: {input_}")
+
+    def test_outputs_are_linear_nodes(self):
+        """Filter-chain outputs must come from linear gain nodes, not convolvers.
+
+        This ensures all audio passes through the attenuation stage before
+        reaching the USBStreamer."""
+        expected_outputs = [
+            "gain_left_hp:Out",
+            "gain_right_hp:Out",
+            "gain_sub1_lp:Out",
+            "gain_sub2_lp:Out",
+        ]
+        for out in expected_outputs:
+            self.assertIn(out, self.config,
+                          f"Output {out} not found -- audio may bypass attenuation")
 
     def test_capture_is_audio_sink(self):
         self.assertIn("Audio/Sink", self.config)
