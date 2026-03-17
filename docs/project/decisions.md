@@ -920,3 +920,58 @@ hardware and software configuration.
 
 **Related:** GM-12 findings (Mixxx port name mismatch), US-059
 (GraphManager routing table), CLAUDE.md channel assignment table.
+
+---
+
+## D-042: q1024 default for all modes until q256 production-stable (2026-03-17)
+
+**Context:** The TP-006 Reaper stability soak at quantum 256 showed 1 xrun
+in 34 minutes under FIFO/80 — a 21x improvement over SCHED_OTHER (0.03/min
+vs 0.6/min) but not the zero-xrun target specified in TP-006 R-1. The owner
+conditionally accepted this for DoD #8 but determined that q256 is not yet
+reliable enough for production use. Meanwhile, q1024 has been proven stable
+in extended operation: 11-hour Mixxx DJ soak with zero xruns, and C-005
+Reaper session with zero xruns at q1024.
+
+**Decision:** Quantum 1024 is the default for all operating modes (DJ and
+Live) until q256 achieves production-grade stability (zero xruns in 30+
+minutes without conditional acceptance). D-011 dual quantum (1024 DJ / 256
+live) is paused — both modes run at q1024. q256 stability work continues
+as an improvement track, not a production requirement.
+
+**Consequences:**
+
+1. **No quantum switching on mode transition.** Both DJ and Live mode run
+   at q1024. This eliminates quantum management from mode transitions,
+   simplifying GraphManager mode swap logic.
+
+2. **Live mode PA latency increases.** At q1024, PA path latency is ~21ms
+   (vs ~6.3ms at q256). This still meets the D-011 25ms threshold but with
+   less margin. The singer's IEM path (~5ms via direct PW link) is unaffected.
+
+3. **Existing q256 soak data remains valid.** The Reaper q256 soak is a
+   stronger proof than q1024 (shorter deadline = higher scheduling pressure).
+   No re-soak at q1024 is needed.
+
+4. **F-033 fix priority reduced.** The Reaper JACK bridge FIFO promotion
+   issue (F-033) matters primarily at q256 where scheduling margin is tight.
+   At q1024, SCHED_OTHER may be sufficient (needs verification), but the
+   fix remains recommended for production robustness.
+
+5. **`pipewire-force-quantum.service` (TK-243) simplified.** Instead of
+   dynamic quantum management, a static q1024 setting suffices. The
+   compositor starvation issue (5.3ms wake cycle at q256 starving labwc)
+   is eliminated at q1024 (~21ms wake cycle).
+
+**Amends:** D-011 (live mode quantum 256). D-011 remains the target but
+is no longer the production default. D-042 is a temporary operational
+decision, not a permanent architectural change.
+
+**Rationale:** Owner directive: production reliability takes priority over
+latency optimization. q1024 is proven stable; q256 is not yet. The ~21ms
+PA path latency at q1024 is acceptable for live vocal performance (below
+the ~25ms slapback threshold).
+
+**Related:** D-011 (dual quantum), F-033 (Reaper JACK bridge RT), TK-243
+(force-quantum service), TP-006 (Reaper soak results), C-006 (latency
+characterization).
