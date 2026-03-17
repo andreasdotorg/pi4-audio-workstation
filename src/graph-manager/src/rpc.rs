@@ -294,20 +294,6 @@ pub enum GraphEvent {
     DeviceDisconnected { name: String },
 }
 
-// ---------------------------------------------------------------------------
-// Mode parsing
-// ---------------------------------------------------------------------------
-
-/// Parse a mode string into a Mode enum.
-fn parse_mode(s: &str) -> Result<Mode, String> {
-    match s {
-        "monitoring" => Ok(Mode::Monitoring),
-        "dj" => Ok(Mode::Dj),
-        "live" => Ok(Mode::Live),
-        "measurement" => Ok(Mode::Measurement),
-        _ => Err(format!("unknown mode: \"{}\"", s)),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Command handler
@@ -360,7 +346,7 @@ fn handle_set_mode(
         }
     };
 
-    let mode = match parse_mode(mode_str) {
+    let mode: Mode = match mode_str.parse() {
         Ok(m) => m,
         Err(e) => return HandleResult::Error("set_mode".to_string(), e),
     };
@@ -642,10 +628,11 @@ pub fn parse_line(line: &str) -> Result<RpcRequest, String> {
 // Stub PW-thread command handler
 // ---------------------------------------------------------------------------
 
-/// Placeholder handler for the PW main loop thread.
+/// Placeholder handler for the PW main loop thread (test-only).
 ///
 /// Processes `RpcCommand` messages from the RPC thread, returning default
-/// stub responses. Real data comes from GraphState when GM-3/GM-6 integrate.
+/// stub responses. Production code uses `dispatch_rpc_command` in main.rs.
+#[cfg(test)]
 pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
     match cmd {
         RpcCommand::SetMode { mode, reply } => {
@@ -992,7 +979,7 @@ mod tests {
     fn set_mode_valid_modes() {
         for mode_str in &["monitoring", "dj", "live", "measurement"] {
             assert!(
-                parse_mode(mode_str).is_ok(),
+                mode_str.parse::<Mode>().is_ok(),
                 "Expected valid mode: {}",
                 mode_str
             );
@@ -1001,7 +988,7 @@ mod tests {
 
     #[test]
     fn set_mode_invalid_mode() {
-        let err = parse_mode("foo").unwrap_err();
+        let err = "foo".parse::<Mode>().unwrap_err();
         assert!(err.contains("unknown mode"), "Error: {}", err);
         assert!(err.contains("foo"), "Error: {}", err);
     }

@@ -75,19 +75,6 @@ struct Args {
     log_level: String,
 }
 
-/// Parse the initial mode from the CLI string.
-fn parse_mode(s: &str) -> Result<Mode, String> {
-    match s {
-        "monitoring" => Ok(Mode::Monitoring),
-        "dj" => Ok(Mode::Dj),
-        "live" => Ok(Mode::Live),
-        "measurement" => Ok(Mode::Measurement),
-        _ => Err(format!(
-            "unknown mode '{}', expected: monitoring, dj, live, measurement",
-            s
-        )),
-    }
-}
 
 /// Parse and validate the listen address, stripping optional "tcp:" prefix.
 ///
@@ -455,7 +442,7 @@ fn main() {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     });
-    let initial_mode = parse_mode(&args.mode).unwrap_or_else(|e| {
+    let initial_mode: Mode = args.mode.parse().unwrap_or_else(|e: String| {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     });
@@ -516,16 +503,16 @@ mod tests {
 
     #[test]
     fn parse_mode_valid() {
-        assert_eq!(parse_mode("monitoring").unwrap(), Mode::Monitoring);
-        assert_eq!(parse_mode("dj").unwrap(), Mode::Dj);
-        assert_eq!(parse_mode("live").unwrap(), Mode::Live);
-        assert_eq!(parse_mode("measurement").unwrap(), Mode::Measurement);
+        assert_eq!("monitoring".parse::<Mode>().unwrap(), Mode::Monitoring);
+        assert_eq!("dj".parse::<Mode>().unwrap(), Mode::Dj);
+        assert_eq!("live".parse::<Mode>().unwrap(), Mode::Live);
+        assert_eq!("measurement".parse::<Mode>().unwrap(), Mode::Measurement);
     }
 
     #[test]
     fn parse_mode_invalid() {
-        assert!(parse_mode("unknown").is_err());
-        assert!(parse_mode("").is_err());
+        assert!("unknown".parse::<Mode>().is_err());
+        assert!("".parse::<Mode>().is_err());
     }
 
     #[test]

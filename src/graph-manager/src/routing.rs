@@ -31,6 +31,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +56,23 @@ impl fmt::Display for Mode {
             Mode::Dj => write!(f, "dj"),
             Mode::Live => write!(f, "live"),
             Mode::Measurement => write!(f, "measurement"),
+        }
+    }
+}
+
+impl FromStr for Mode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "monitoring" => Ok(Mode::Monitoring),
+            "dj" => Ok(Mode::Dj),
+            "live" => Ok(Mode::Live),
+            "measurement" => Ok(Mode::Measurement),
+            _ => Err(format!(
+                "unknown mode '{}', expected: monitoring, dj, live, measurement",
+                s
+            )),
         }
     }
 }
