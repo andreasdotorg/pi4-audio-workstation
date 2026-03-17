@@ -320,7 +320,330 @@ output ports.
 
 ---
 
-## 8. Cross-References
+## 8. Rollback Procedure: PW Filter-Chain to CamillaDSP
+
+If the PW filter-chain architecture (D-040) needs to be reverted to the
+previous CamillaDSP architecture, follow this procedure. The rollback
+restores the dual-graph architecture: PipeWire -> ALSA Loopback -> CamillaDSP
+-> USBStreamer.
+
+**Safety warning:** Restoring CamillaDSP involves restarting PipeWire and
+starting the CamillaDSP service. Both actions interrupt the USBStreamer audio
+stream and may produce full-scale transients through the amplifier chain.
+**Warn the owner and wait for confirmation that amplifiers are safe before
+proceeding.** See `docs/operations/safety.md` Section 1.
+
+### 8.1 Pre-Rollback Checklist
+
+| # | Check | How |
+|---|-------|-----|
+| 1 | Owner confirms amps safe | Verbal/written confirmation |
+| 2 | Note current git HEAD | `git rev-parse HEAD` (on dev machine) |
+| 3 | Note PW filter-chain state | `pw-cli ls Node` (for reference) |
+
+### 8.2 Rollback Steps (on Pi)
+
+**Step 1: Stop audio applications.**
+```bash
+# Stop Mixxx/Reaper if running
+pkill -x mixxx
+pkill -x reaper
+```
+
+**Step 2: Remove the PW filter-chain config.**
+```bash
+rm ~/.config/pipewire/pipewire.conf.d/30-filter-chain-convolver.conf
+```
+This removes the convolver and gain nodes from the PipeWire graph.
+
+**Step 3: Remove the USBStreamer playback adapter config.**
+```bash
+rm ~/.config/pipewire/pipewire.conf.d/21-usbstreamer-playback.conf
+```
+CamillaDSP accesses the USBStreamer playback direction directly via ALSA
+(`hw:USBStreamer,0`). The PW adapter conflicts with CamillaDSP's ALSA access.
+
+**Step 4: Restore the ALSA Loopback config (if removed).**
+```bash
+cp ~/mobile/gabriela-bogk/pi4-audio-workstation/configs/pipewire/25-loopback-8ch.conf \
+   ~/.config/pipewire/pipewire.conf.d/25-loopback-8ch.conf
+```
+The loopback sink (`hw:Loopback,0,0`) bridges PipeWire to CamillaDSP.
+
+**Step 5: Restart PipeWire.**
+```bash
+# SAFETY: Owner must confirm amps are safe before this step
+systemctl --user restart pipewire.service
+```
+
+**Step 6: Start CamillaDSP.**
+```bash
+systemctl --user start camilladsp.service
+# Verify it started at FIFO/80
+chrt -p $(pgrep -x camilladsp)
+```
+CamillaDSP reads from `hw:Loopback,1,0` (capture side of the ALSA Loopback)
+and writes to `hw:USBStreamer,0` (direct ALSA access, bypassing PipeWire).
+
+**Step 7: Verify the signal path.**
+```bash
+# Check CamillaDSP is running and processing
+systemctl --user status camilladsp.service
+
+# Check PipeWire sees the loopback sink
+pw-cli ls Node | grep loopback
+
+# Check no filter-chain nodes remain
+pw-cli ls Node | grep pi4audio-convolver
+# Should return nothing
+```
+
+**Step 8: Re-apply quantum settings (if needed).**
+
+CamillaDSP production configs use:
+- DJ mode: `dj-pa.yml` with chunksize 2048, PW quantum 1024
+- Live mode: `live.yml` with chunksize 256, PW quantum 256
+
+Set the PipeWire quantum to match the CamillaDSP chunksize:
+```bash
+# DJ mode
+pw-metadata -n settings 0 clock.force-quantum 1024
+
+# Live mode
+pw-metadata -n settings 0 clock.force-quantum 256
+```
+
+### 8.3 Rollback Verification
+
+| # | Check | Command | Expected |
+|---|-------|---------|----------|
+| 1 | CamillaDSP running | `systemctl --user status camilladsp` | active (running) |
+| 2 | CamillaDSP at FIFO/80 | `chrt -p $(pgrep -x camilladsp)` | SCHED_FIFO, priority 80 |
+| 3 | Loopback sink present | `pw-cli ls Node \| grep loopback` | `loopback-8ch-sink` |
+| 4 | No filter-chain nodes | `pw-cli ls Node \| grep pi4audio-convolver` | No output |
+| 5 | No PW USBStreamer adapter | `pw-cli ls Node \| grep USBStreamer` | No output (or only capture) |
+| 6 | Audio plays through speakers | Play test audio in Mixxx/Reaper | Audible output |
+
+### 8.4 Reverting the Rollback (Back to PW Filter-Chain)
+
+To return to the D-040 PW filter-chain architecture:
+
+```bash
+# Stop CamillaDSP
+systemctl --user stop camilladsp.service
+
+# Deploy PW configs from repo
+cp ~/mobile/gabriela-bogk/pi4-audio-workstation/configs/pipewire/21-usbstreamer-playback.conf \
+   ~/.config/pipewire/pipewire.conf.d/
+cp ~/mobile/gabriela-bogk/pi4-audio-workstation/configs/pipewire/30-filter-chain-convolver.conf \
+   ~/.config/pipewire/pipewire.conf.d/
+
+# Remove loopback config (optional -- harmless if left)
+rm ~/.config/pipewire/pipewire.conf.d/25-loopback-8ch.conf
+
+# SAFETY: Owner must confirm amps are safe
+systemctl --user restart pipewire.service
+
+# Verify convolver nodes appear
+pw-cli ls Node | grep pi4audio-convolver
+```
+
+### 8.5 Configuration Files Involved
+
+| File | D-040 (PW filter-chain) | Pre-D-040 (CamillaDSP) |
+|------|------------------------|----------------------|
+| `30-filter-chain-convolver.conf` | Present (convolver + gain nodes) | Absent |
+| `21-usbstreamer-playback.conf` | Present (PW owns USBStreamer playback) | Absent (CamillaDSP owns it) |
+| `25-loopback-8ch.conf` | Unused (can be absent) | Present (PW -> Loopback bridge) |
+| `20-usbstreamer.conf` | Present (ada8200-in capture) | Present (ada8200-in capture) |
+| `10-audio-settings.conf` | Present (quantum config) | Present (quantum config) |
+| CamillaDSP service | Stopped | Running at FIFO/80 |
+| CamillaDSP config | N/A | `dj-pa.yml` or `live.yml` via `/etc/camilladsp/active.yml` |
+
+### 8.6 Known Rollback Risks
+
+1. **USBStreamer transients:** Restarting PipeWire and starting CamillaDSP
+   both interrupt the USBStreamer audio stream. Amplifiers must be safe.
+
+2. **Latency regression:** CamillaDSP adds 2 chunks of internal buffering
+   plus the ALSA Loopback bridge. DJ-mode PA path increases from ~21ms to
+   ~109ms. Live-mode PA path increases from ~6.3ms to ~31ms (projected).
+
+3. **CPU regression:** CamillaDSP uses 3-5.6x more CPU than the PW
+   filter-chain convolver (5.23% vs 1.70% at comparable buffer sizes).
+
+4. **Gain staging difference:** PW filter-chain uses `linear` Mult nodes
+   for per-channel gain. CamillaDSP uses its own mixer/gain configuration
+   in the YAML config. The gain values are NOT equivalent -- CamillaDSP
+   configs have their own attenuation baked into the mixer section.
+
+5. **WirePlumber interaction:** WP's behavior with the ALSA Loopback sink
+   may differ from its behavior with the filter-chain convolver sink. The
+   `channelVolumes` interference (TK-246) may not apply, but other WP
+   auto-linking behavior may cause issues.
+
+---
+
+## 9. Routing Policy
+
+This section documents the complete PipeWire link topology per operating mode.
+All links are created by GraphManager (or manually via `pw-link` when
+GraphManager is not deployed). WirePlumber's auto-linking is suppressed for
+application nodes to prevent bypass links (GM-12 Finding 11).
+
+### 9.1 DJ Mode (Mixxx via `pw-jack`)
+
+Mixxx registers 6 JACK output ports (`out_0` through `out_5`). No JACK input
+ports are used in DJ mode. The routing topology was validated in GM-12.
+
+**Application -> Convolver (PA channels):**
+
+| Source Port | Destination Port | Content | Notes |
+|-------------|-----------------|---------|-------|
+| `Mixxx:out_0` | `pi4audio-convolver:playback_AUX0` | Left master | Stereo L to left main HP FIR |
+| `Mixxx:out_1` | `pi4audio-convolver:playback_AUX1` | Right master | Stereo R to right main HP FIR |
+| `Mixxx:out_0` | `pi4audio-convolver:playback_AUX2` | Left master (mono sum) | L component to sub1 LP FIR |
+| `Mixxx:out_1` | `pi4audio-convolver:playback_AUX2` | Right master (mono sum) | R component to sub1 LP FIR |
+| `Mixxx:out_0` | `pi4audio-convolver:playback_AUX3` | Left master (mono sum) | L component to sub2 LP FIR |
+| `Mixxx:out_1` | `pi4audio-convolver:playback_AUX3` | Right master (mono sum) | R component to sub2 LP FIR |
+
+**Convolver -> USBStreamer (PA output):**
+
+| Source Port | Destination Port | Content |
+|-------------|-----------------|---------|
+| `pi4audio-convolver-out:capture_AUX0` | `USBStreamer:playback_AUX0` | Left main (HP filtered) |
+| `pi4audio-convolver-out:capture_AUX1` | `USBStreamer:playback_AUX1` | Right main (HP filtered) |
+| `pi4audio-convolver-out:capture_AUX2` | `USBStreamer:playback_AUX2` | Sub 1 (LP filtered, mono sum) |
+| `pi4audio-convolver-out:capture_AUX3` | `USBStreamer:playback_AUX3` | Sub 2 (LP filtered, mono sum, phase-inverted) |
+
+**Direct bypass (headphones):**
+
+| Source Port | Destination Port | Content |
+|-------------|-----------------|---------|
+| `Mixxx:out_4` | `USBStreamer:playback_AUX4` | Engineer headphone L |
+| `Mixxx:out_5` | `USBStreamer:playback_AUX5` | Engineer headphone R |
+
+**Total DJ mode links:** 12 (6 app->convolver + 4 convolver->USBStreamer + 2 headphone bypass)
+
+**Mono sum mechanism:** PipeWire natively sums multiple inputs connected to the
+same port. Both `Mixxx:out_0` (L) and `Mixxx:out_1` (R) are linked to
+`pi4audio-convolver:playback_AUX2`, and PipeWire produces the arithmetic sum
+at the convolver input. No explicit mixer node is needed. This is documented
+in GM-12 Finding 5.
+
+**WirePlumber bypass hazard (GM-12 Finding 11):** WirePlumber auto-links JACK
+clients to the default sink. When Mixxx connects, WP may create direct links
+(`Mixxx:out_0-3 -> USBStreamer:playback_AUX0-3`) that bypass the convolver.
+This causes double-signal (processed + raw) on speakers -- garbled audio.
+These bypass links must be prevented (WP linking rule) or removed (`pw-link
+-d`). GraphManager's reconciler should detect and remove bypass links on
+speaker channels (AUX0-3).
+
+### 9.2 Live Mode (Reaper via `pw-jack`)
+
+Reaper registers JACK output ports for each track/bus output. The exact port
+names depend on the Reaper project configuration. Live mode uses the same PA
+routing as DJ mode (convolver channels AUX0-3) plus singer IEM on AUX6-7.
+
+**Application -> Convolver (PA channels):**
+
+Same structure as DJ mode. Reaper's master output ports are linked to the
+convolver inputs with identical mono-sum topology for subs.
+
+| Source Port | Destination Port | Content |
+|-------------|-----------------|---------|
+| `REAPER:out_0` | `pi4audio-convolver:playback_AUX0` | Left master |
+| `REAPER:out_1` | `pi4audio-convolver:playback_AUX1` | Right master |
+| `REAPER:out_0` | `pi4audio-convolver:playback_AUX2` | Left (mono sum for sub1) |
+| `REAPER:out_1` | `pi4audio-convolver:playback_AUX2` | Right (mono sum for sub1) |
+| `REAPER:out_0` | `pi4audio-convolver:playback_AUX3` | Left (mono sum for sub2) |
+| `REAPER:out_1` | `pi4audio-convolver:playback_AUX3` | Right (mono sum for sub2) |
+
+**Convolver -> USBStreamer:** Identical to DJ mode (4 links).
+
+**Direct bypass (headphones + IEM):**
+
+| Source Port | Destination Port | Content | Notes |
+|-------------|-----------------|---------|-------|
+| `REAPER:out_4` | `USBStreamer:playback_AUX4` | Engineer headphone L | Direct bypass |
+| `REAPER:out_5` | `USBStreamer:playback_AUX5` | Engineer headphone R | Direct bypass |
+| `REAPER:out_6` | `USBStreamer:playback_AUX6` | Singer IEM L | Direct bypass, live mode only |
+| `REAPER:out_7` | `USBStreamer:playback_AUX7` | Singer IEM R | Direct bypass, live mode only |
+
+**Capture links (when active):**
+
+| Source Port | Destination Port | Content |
+|-------------|-----------------|---------|
+| `ada8200-in:capture_AUX0` | `REAPER:in_0` | Vocal mic (ADA8200 ch 1) |
+| `ada8200-in:capture_AUX1` | `REAPER:in_1` | Spare mic/line (ADA8200 ch 2) |
+
+**Total live mode links:** Up to 22 as counted by `pw-link -l` (6 app->convolver
++ 4 convolver->USBStreamer + 4 headphone/IEM bypass + 2 capture + 4 filter-chain
+internal links + 2 ada8200 capture internal). The 22-link topology was validated
+in C-005 Finding 13 with zero compositor starvation after the `node.group` fix.
+
+**Singer IEM signal path:** The IEM channels (AUX6/AUX7) bypass the convolver
+entirely. The singer hears Reaper's direct mix output with no FIR processing
+-- only the ~5.3ms PipeWire graph latency at quantum 256. Post-D-040, IEM
+channels no longer route through any DSP engine. The singer also hears the PA
+acoustically; at quantum 256, the PA path (~6.3ms) is well below the ~25ms
+slapback threshold (C-006, D-011).
+
+### 9.3 Port Name Convention
+
+JACK clients (Mixxx, Reaper) use port names: `out_0`, `out_1`, ... `out_N`
+for outputs and `in_0`, `in_1`, ... `in_N` for inputs. These are the names
+visible in `pw-jack jack_lsp` and used by `pw-link`.
+
+PipeWire nodes use AUX-indexed port names:
+- Convolver capture: `pi4audio-convolver:playback_AUX0` through `playback_AUX3`
+- Convolver output: `pi4audio-convolver-out:capture_AUX0` through `capture_AUX3`
+- USBStreamer playback: `USBStreamer:playback_AUX0` through `playback_AUX7`
+- ada8200-in capture: `ada8200-in:capture_AUX0` through `capture_AUX7`
+
+**GraphManager port name issue (GM-12 Finding 7):** `routing.rs` generates
+port names as `output_AUX0`, but JACK clients use `out_0`. This mismatch
+blocks automated routing until the code is fixed.
+
+### 9.4 Link Lifecycle
+
+Links are managed by GraphManager (or manually when GM is not deployed):
+
+1. **Mode switch (DJ -> Live or vice versa):** GraphManager destroys all
+   existing application links, then creates new links matching the target
+   mode topology. The quantum is switched via `pw-metadata -n settings 0
+   clock.force-quantum <value>`.
+
+2. **Application reconnect (crash/restart):** When a JACK client reconnects,
+   PipeWire creates new node/port objects. GraphManager must detect the new
+   client and re-establish links. WirePlumber may race to create bypass links
+   first (Finding 11 hazard).
+
+3. **Convolver -> USBStreamer links:** These are persistent across mode
+   switches -- the convolver output always feeds USBStreamer AUX0-3 regardless
+   of which application is active.
+
+4. **Capture links:** Only active in live mode when Reaper needs mic input.
+   Not created in DJ mode.
+
+### 9.5 Forbidden Links
+
+The following link patterns must never exist simultaneously with the convolver
+routing:
+
+| Forbidden Pattern | Risk | Detection |
+|-------------------|------|-----------|
+| `Mixxx:out_0-3 -> USBStreamer:playback_AUX0-3` | Double-signal on speakers (processed + raw) | `pw-link -l \| grep -E "Mixxx.*USBStreamer.*AUX[0-3]"` |
+| `REAPER:out_0-3 -> USBStreamer:playback_AUX0-3` | Same double-signal risk | `pw-link -l \| grep -E "REAPER.*USBStreamer.*AUX[0-3]"` |
+| Any source -> `USBStreamer:playback_AUX0-3` (not from convolver-out) | Bypasses crossover + room correction | Audit `pw-link -l` for unexpected sources on AUX0-3 |
+
+GraphManager should detect and remove these as part of its reconciliation
+loop. Until GM is deployed, manual verification via `pw-link -l` is required
+after any application connect/reconnect event.
+
+---
+
+## 10. Cross-References
 
 | Document | Covers |
 |----------|--------|
