@@ -1,7 +1,8 @@
-"""Unit tests for MeasurementSession internals (TK-209, TK-210).
+"""Unit tests for MeasurementSession internals (TK-209, TK-210, US-061).
 
-Tests _build_measurement_config() and _check_recording_integrity() --
-pure/static methods that don't require async or audio hardware.
+Tests _check_recording_integrity() -- pure/static methods that don't require
+async or audio hardware. TK-209 (CamillaDSP config builder) tests removed
+by US-061: _build_measurement_config() deleted in D-040 adaptation.
 """
 
 import os
@@ -26,9 +27,7 @@ from app.measurement.session import (
     MeasurementSession,
     SessionConfig,
     _MEASUREMENT_ATTENUATION_DB,
-    _MEASUREMENT_MUTE_DB,
 )
-from app.mode_manager import MEASUREMENT_CONFIG_MARKER
 
 
 # ---------------------------------------------------------------------------
@@ -50,117 +49,6 @@ def _make_session(channels=None, **kwargs):
         pass
 
     return MeasurementSession(config=config, ws_broadcast=_noop_broadcast)
-
-
-# ===================================================================
-# TK-209: Tests for _build_measurement_config()
-# ===================================================================
-
-class TestBuildMeasurementConfig:
-    """Test the CamillaDSP measurement config builder."""
-
-    def setup_method(self):
-        self.session = _make_session()
-
-    def test_title_contains_marker(self):
-        """Config title must contain MEASUREMENT_CONFIG_MARKER."""
-        cfg = self.session._build_measurement_config(test_channel=0,
-                                                     mandatory_hpf_hz=80.0)
-        assert MEASUREMENT_CONFIG_MARKER in cfg["title"]
-
-    def test_mixer_channel_count(self):
-        """Mixer should have the correct number of in/out channels.
-
-        Default devices section has 8 playback and 8 capture channels,
-        so the mixer should be 8-in/8-out.
-        """
-        cfg = self.session._build_measurement_config(test_channel=0,
-                                                     mandatory_hpf_hz=80.0)
-        mixer = cfg["mixers"]["passthrough"]
-        assert mixer["channels"]["in"] == 8
-        assert mixer["channels"]["out"] == 8
-        assert len(mixer["mapping"]) == 8
-
-    def test_test_channel_gain(self):
-        """Test channel should have -20 dB gain (MEASUREMENT_ATTENUATION_DB)."""
-        cfg = self.session._build_measurement_config(test_channel=2,
-                                                     mandatory_hpf_hz=None)
-        gain_filter = cfg["filters"]["ch2_gain"]
-        assert gain_filter["type"] == "Gain"
-        assert gain_filter["parameters"]["gain"] == _MEASUREMENT_ATTENUATION_DB
-
-    def test_non_test_channels_muted(self):
-        """Non-test channels should have -100 dB mute (MEASUREMENT_MUTE_DB)."""
-        cfg = self.session._build_measurement_config(test_channel=1,
-                                                     mandatory_hpf_hz=80.0)
-        # Check a few non-test channels have mute filters
-        for ch in [0, 2, 3, 4, 5, 6, 7]:
-            mute_filter = cfg["filters"][f"ch{ch}_mute"]
-            assert mute_filter["type"] == "Gain"
-            assert mute_filter["parameters"]["gain"] == _MEASUREMENT_MUTE_DB
-        # Test channel should NOT have a mute filter
-        assert "ch1_mute" not in cfg["filters"]
-
-    def test_hpf_present_when_mandatory(self):
-        """When mandatory_hpf_hz is provided, HPF filter must be in config."""
-        cfg = self.session._build_measurement_config(test_channel=0,
-                                                     mandatory_hpf_hz=80.0)
-        hpf_filter = cfg["filters"]["ch0_hpf"]
-        assert hpf_filter["type"] == "BiquadCombo"
-        assert hpf_filter["parameters"]["type"] == "ButterworthHighpass"
-        assert hpf_filter["parameters"]["order"] == 4
-        assert hpf_filter["parameters"]["freq"] == 80.0
-
-    def test_no_hpf_when_none(self):
-        """When mandatory_hpf_hz is None, no HPF filter should be present."""
-        cfg = self.session._build_measurement_config(test_channel=0,
-                                                     mandatory_hpf_hz=None)
-        assert "ch0_hpf" not in cfg["filters"]
-
-    def test_pipeline_order_with_hpf(self):
-        """Pipeline: Mixer -> HPF -> gain -> mutes."""
-        cfg = self.session._build_measurement_config(test_channel=0,
-                                                     mandatory_hpf_hz=80.0)
-        pipeline = cfg["pipeline"]
-
-        # First element: Mixer
-        assert pipeline[0]["type"] == "Mixer"
-        assert pipeline[0]["name"] == "passthrough"
-
-        # Second element: HPF filter on test channel
-        assert pipeline[1]["type"] == "Filter"
-        assert pipeline[1]["channels"] == [0]
-        assert "ch0_hpf" in pipeline[1]["names"]
-
-        # Third element: gain filter on test channel
-        assert pipeline[2]["type"] == "Filter"
-        assert pipeline[2]["channels"] == [0]
-        assert "ch0_gain" in pipeline[2]["names"]
-
-        # Remaining: mute filters for non-test channels
-        mute_channels = [entry["channels"][0] for entry in pipeline[3:]]
-        for ch in range(1, 8):
-            assert ch in mute_channels
-
-    def test_pipeline_order_without_hpf(self):
-        """Pipeline without HPF: Mixer -> gain -> mutes (no HPF step)."""
-        cfg = self.session._build_measurement_config(test_channel=0,
-                                                     mandatory_hpf_hz=None)
-        pipeline = cfg["pipeline"]
-
-        # First: Mixer
-        assert pipeline[0]["type"] == "Mixer"
-
-        # Second: gain filter directly (no HPF)
-        assert pipeline[1]["type"] == "Filter"
-        assert pipeline[1]["channels"] == [0]
-        assert "ch0_gain" in pipeline[1]["names"]
-
-        # No HPF filter references in the pipeline
-        for entry in pipeline:
-            if entry["type"] == "Filter":
-                for name in entry.get("names", []):
-                    assert "hpf" not in name
 
 
 # ===================================================================

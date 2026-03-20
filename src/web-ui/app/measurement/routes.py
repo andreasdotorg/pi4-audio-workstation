@@ -127,8 +127,8 @@ async def start_measurement(body: StartRequest, request: Request):
                      "detail": "Already in measurement mode"},
         )
 
-    production_config_path = os.environ.get(
-        "PI4AUDIO_PRODUCTION_CONFIG", "/etc/camilladsp/active.yml")
+    gm_host = os.environ.get("PI4AUDIO_GM_HOST", "127.0.0.1")
+    gm_port = int(os.environ.get("PI4AUDIO_GM_PORT", "4002"))
 
     channel_configs = [
         ChannelConfig(
@@ -150,7 +150,8 @@ async def start_measurement(body: StartRequest, request: Request):
         umik_sensitivity_dbfs_to_spl=body.umik_sensitivity_dbfs_to_spl,
         calibration_file=body.calibration_file,
         output_dir=body.output_dir,
-        production_config_path=production_config_path,
+        gm_host=gm_host,
+        gm_port=gm_port,
         input_device_name=body.input_device_name,
         output_device_name=body.output_device_name,
     )

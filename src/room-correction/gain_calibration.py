@@ -8,7 +8,8 @@ the mic position.
 Safety architecture (5-layer defense-in-depth):
   Layer 1: Digital hard cap from thermal_ceiling module (never exceed thermal
            ceiling regardless of target SPL)
-  Layer 2: CamillaDSP measurement config attenuation (-20 dB)
+  Layer 2: GraphManager measurement mode routing (D-040) — signal-gen only
+           outputs on the test channel; all others are silent
   Layer 3: Mic input near-clipping detection (abort if peak >= -3.0 dBFS)
   Layer 4: Mic SPL gate (abort if measured SPL > hard_limit_spl_db)
   Layer 5: Slow ramp + operator presence (3 dB max step, 2s bursts)
@@ -81,7 +82,9 @@ MAX_OVERSHOOT_RETRIES = 3
 # Maximum xrun retries per burst before aborting (GC-02)
 MAX_XRUN_RETRIES = 2
 
-# Expected measurement attenuation in CamillaDSP measurement config (GC-07/11)
+# Expected measurement attenuation (GC-07/11). In D-040 architecture,
+# this is applied by the signal generator's output level, not by a DSP
+# config. Retained for the safety verification logic.
 EXPECTED_MEASUREMENT_ATTENUATION_DB = -20.0
 
 # Pink noise parameters (same as measure_nearfield.py)
@@ -292,53 +295,28 @@ def get_pipewire_xrun_count():
 
 
 # ---------------------------------------------------------------------------
-# CamillaDSP measurement config verification (GC-07/11)
+# GraphManager measurement mode verification (GC-07/11, D-040)
 # ---------------------------------------------------------------------------
 
-def verify_measurement_config(camilladsp_client):
-    """Verify CamillaDSP is running the measurement config with attenuation.
+def verify_measurement_mode(gm_client):
+    """Verify GraphManager is in measurement mode (D-040).
 
-    Checks that the active CamillaDSP config contains at least one filter
-    with gain <= EXPECTED_MEASUREMENT_ATTENUATION_DB, which indicates the
-    measurement config is active (not the production config).
+    In the D-040 architecture, measurement attenuation is handled by the
+    signal generator (only emitting on the test channel) rather than a
+    DSP config. This function verifies that the GraphManager has established
+    the measurement routing topology.
 
     Parameters
     ----------
-    camilladsp_client : CamillaClient or MockCamillaClient
-        Connected CamillaDSP client.
+    gm_client : GraphManagerClient or MockGraphManagerClient
+        Connected GraphManager client.
 
     Raises
     ------
     RuntimeError
-        If CamillaDSP is not in measurement configuration.
+        If GraphManager is not in measurement mode.
     """
-    active_config = camilladsp_client.config.active()
-    if active_config is None:
-        raise RuntimeError(
-            "CamillaDSP returned no active config. Cannot verify "
-            "measurement attenuation is active."
-        )
-
-    # Look for measurement attenuation in the filters section.
-    # The measurement config has Gain filters with gain = -20 dB on
-    # the test channel (and -100 dB mute on others).
-    filters = active_config.get("filters", {})
-    has_measurement_attenuation = False
-    for filt_name, filt_def in filters.items():
-        if filt_def.get("type") == "Gain":
-            gain = filt_def.get("parameters", {}).get("gain", 0.0)
-            if gain <= EXPECTED_MEASUREMENT_ATTENUATION_DB:
-                has_measurement_attenuation = True
-                break
-
-    if not has_measurement_attenuation:
-        raise RuntimeError(
-            "CamillaDSP is not in measurement configuration. "
-            f"No filter with gain <= {EXPECTED_MEASUREMENT_ATTENUATION_DB} dB "
-            "found in active config. The production config may be active, "
-            "which means output is 20 dB louder than expected. "
-            "Aborting for safety."
-        )
+    gm_client.verify_measurement_mode()
 
 
 # ---------------------------------------------------------------------------
@@ -479,7 +457,7 @@ def calibrate_channel(
     umik_sensitivity_dbfs_to_spl=121.4,
     thermal_ceiling_dbfs=-20.0,
     burst_duration_s=2.0,
-    camilladsp_client=None,
+    gm_client=None,
     ws_server=None,
     channel_name=None,
     measurement_attenuation_db=0.0,
@@ -511,11 +489,11 @@ def calibrate_channel(
         The ramp will never exceed this level (default -20.0).
     burst_duration_s : float
         Duration of each pink noise burst in seconds (default 2.0).
-    camilladsp_client : CamillaClient or MockCamillaClient or None
-        Connected CamillaDSP client for measurement config verification
-        (GC-07/11). If provided, the active config is checked for
-        measurement attenuation before calibration starts. If None,
-        the config check is skipped (backwards-compatible standalone mode).
+    gm_client : GraphManagerClient or MockGraphManagerClient or None
+        Connected GraphManager client for measurement mode verification
+        (GC-07/11, D-040). If provided, the GM mode is checked to verify
+        measurement routing is active before calibration starts. If None,
+        the mode check is skipped (backwards-compatible standalone mode).
     ws_server : MeasurementWSServer or None
         Optional WebSocket server for broadcasting gain_cal progress
         messages to connected clients. When provided, broadcasts after
@@ -524,12 +502,11 @@ def calibrate_channel(
         Human-readable channel name (e.g., "Sub1") for WS messages.
         Defaults to "ch{channel_index}" if not provided.
     measurement_attenuation_db : float
-        CamillaDSP measurement config attenuation in dB (default 0.0,
-        meaning no attenuation in standalone mode).  When called from
-        the measurement session, pass the actual CamillaDSP attenuation
-        (e.g. -20.0).  The ramp start level and SNR threshold are
-        adjusted to compensate so the speaker sees the originally-designed
-        levels.
+        Measurement attenuation in dB (default 0.0, meaning no
+        attenuation in standalone mode).  When called from the
+        measurement session, pass the expected attenuation (e.g. -20.0).
+        The ramp start level and SNR threshold are adjusted to
+        compensate so the speaker sees the originally-designed levels.
 
     Returns
     -------
@@ -541,7 +518,7 @@ def calibrate_channel(
     ValueError
         If target_spl_db >= hard_limit_spl_db (GC-05).
     RuntimeError
-        If CamillaDSP is not in measurement configuration (GC-07/11).
+        If GraphManager is not in measurement mode (GC-07/11).
     """
     # GC-05: Validate that target is below hard limit
     if target_spl_db >= hard_limit_spl_db:
@@ -549,13 +526,13 @@ def calibrate_channel(
             f"target_spl_db ({target_spl_db:.1f}) must be less than "
             f"hard_limit_spl_db ({hard_limit_spl_db:.1f})")
 
-    # GC-07/11: Verify CamillaDSP measurement config if client provided
-    if camilladsp_client is not None:
-        print("  Verifying CamillaDSP measurement configuration...")
-        verify_measurement_config(camilladsp_client)
-        print("  CamillaDSP measurement config verified (attenuation active)")
+    # GC-07/11: Verify GraphManager measurement mode if client provided
+    if gm_client is not None:
+        print("  Verifying GraphManager measurement mode...")
+        verify_measurement_mode(gm_client)
+        print("  GraphManager measurement mode verified (routing active)")
 
-    # Compensate for CamillaDSP measurement attenuation so the speaker sees
+    # Compensate for measurement attenuation so the speaker sees
     # the originally-designed levels.  E.g. with -20 dB attenuation, output
     # -40 dBFS → speaker -60 dBFS (the original START_LEVEL_DBFS intent).
     actual_start = START_LEVEL_DBFS - measurement_attenuation_db
@@ -701,7 +678,7 @@ def calibrate_channel(
 
             # TK-200: Check burst SNR against ambient baseline.
             # Only check when effective speaker level is above the design
-            # threshold (accounting for CamillaDSP measurement attenuation).
+            # threshold (accounting for measurement attenuation).
             if (burst_snr < BURST_SNR_MIN_DB
                     and current_level_dbfs > effective_snr_threshold):
                 reason = ("Speaker output not detected above ambient noise. "
@@ -911,6 +888,6 @@ def calibrate_channel(
         )
     finally:
         # GC-07/11: Ensure cleanup happens even on unexpected exceptions.
-        # The caller (measure_nearfield.py) handles CamillaDSP config
+        # The caller (measure_nearfield.py) handles GraphManager mode
         # restoration. This finally block is for local resource cleanup.
         print("  Calibration ramp finished.")
