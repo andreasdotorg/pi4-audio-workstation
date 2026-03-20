@@ -2,8 +2,13 @@
  * D-020 Web UI — System view module.
  *
  * Displays full system health: mode, audio config, CPU per core,
- * temperature, memory, CamillaDSP state, scheduling policy, and
- * per-process CPU breakdown. Data arrives via /ws/system at ~1 Hz.
+ * temperature, memory, filter-chain/GraphManager state, scheduling
+ * policy, and per-process CPU breakdown. Data arrives via /ws/system
+ * at ~1 Hz.
+ *
+ * D-040: CamillaDSP replaced by PipeWire filter-chain. The
+ * `camilladsp` JSON key is retained for wire-format compatibility,
+ * but data now comes from FilterChainCollector via GraphManager RPC.
  *
  * Event log: records state transitions and threshold crossings by
  * comparing consecutive WebSocket messages. All client-side logic,
@@ -160,11 +165,12 @@
 
         var prev = prevSystemData;
 
-        // CamillaDSP state change
+        // Filter-chain / GraphManager state change
         if (data.camilladsp.state !== prev.camilladsp.state) {
-            var sev = data.camilladsp.state.toLowerCase() === "running" ? null : "error";
+            var dspSt = data.camilladsp.state.toLowerCase();
+            var sev = dspSt === "running" ? null : dspSt === "degraded" ? "warning" : "error";
             pushEvent("system", sev,
-                "CamillaDSP: " + prev.camilladsp.state + " \u2192 " + data.camilladsp.state);
+                "Filter chain: " + prev.camilladsp.state + " \u2192 " + data.camilladsp.state);
         }
 
         // Mode change
@@ -294,7 +300,9 @@
         // Header strip
         PiAudio.setText("sys-mode", data.mode.toUpperCase());
         PiAudio.setText("sys-quantum", String(data.pipewire.quantum));
-        PiAudio.setText("sys-chunksize", String(data.camilladsp.chunksize));
+        // D-040: chunksize replaced by GM mode (dj/live/monitoring)
+        var gmMode = data.camilladsp.gm_mode || "--";
+        PiAudio.setText("sys-chunksize", gmMode.toUpperCase());
         PiAudio.setText("sys-rate", (data.pipewire.sample_rate / 1000) + " kHz");
 
         var temp = data.cpu.temperature;
@@ -312,15 +320,24 @@
             setCpuBar("sys-cpu-" + core, Math.min(100, pct), pct.toFixed(0) + "%");
         }
 
-        // CamillaDSP
+        // Filter Chain / GraphManager (D-040: replaces CamillaDSP)
         var cdsp = data.camilladsp;
-        var cdspRunning = cdsp.state.toLowerCase() === "running";
+        var cdspState = cdsp.state.toLowerCase();
+        var cdspOk = cdspState === "running";
+        var cdspWarn = cdspState === "degraded";
         PiAudio.setText("sys-cdsp-state", cdsp.state,
-            cdspRunning ? "c-green" : "c-red");
-        PiAudio.setText("sys-cdsp-load",
-            cdsp.processing_load.toFixed(1) + "%");
-        PiAudio.setText("sys-cdsp-buffer", String(cdsp.buffer_level));
-        PiAudio.setText("sys-cdsp-rate-adj", cdsp.rate_adjust.toFixed(6));
+            cdspOk ? "c-green" : cdspWarn ? "c-yellow" : "c-red");
+        // Links: desired/actual/missing (replaces processing_load)
+        var linksText = (cdsp.gm_links_actual != null)
+            ? cdsp.gm_links_actual + "/" + cdsp.gm_links_desired
+            : cdsp.processing_load.toFixed(1) + "%";
+        PiAudio.setText("sys-cdsp-load", linksText);
+        // Buffer = link health percentage
+        PiAudio.setText("sys-cdsp-buffer",
+            cdsp.buffer_level + "%");
+        // Convolver status (replaces rate_adjust)
+        var convText = cdsp.gm_convolver || cdsp.rate_adjust.toFixed(6);
+        PiAudio.setText("sys-cdsp-rate-adj", convText);
         PiAudio.setText("sys-cdsp-clipped", String(cdsp.clipped_samples),
             cdsp.clipped_samples > 0 ? "c-red" : "c-green");
         PiAudio.setText("sys-cdsp-xruns", String(cdsp.xruns),
@@ -331,6 +348,7 @@
         PiAudio.setText("sys-sched-pw",
             sched.pipewire_policy + "/" + sched.pipewire_priority,
             sched.pipewire_policy === "SCHED_FIFO" ? "c-green" : "c-red");
+        // D-040: Still reads camilladsp_policy from PipeWireCollector scheduling
         PiAudio.setText("sys-sched-cdsp",
             sched.camilladsp_policy + "/" + sched.camilladsp_priority,
             sched.camilladsp_policy === "SCHED_FIFO" ? "c-green" : "c-red");

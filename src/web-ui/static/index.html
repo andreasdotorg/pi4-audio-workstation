@@ -248,7 +248,7 @@
                 <span class="sys-header-value" id="sys-quantum">--</span>
             </div>
             <div class="sys-header-item">
-                <span class="sys-header-label">Chunksize</span>
+                <span class="sys-header-label">GM Mode</span>
                 <span class="sys-header-value" id="sys-chunksize">--</span>
             </div>
             <div class="sys-header-item">
@@ -267,14 +267,14 @@
             <div id="sys-cpu-bars"></div>
         </div>
 
-        <!-- CamillaDSP -->
+        <!-- Filter Chain / GraphManager (D-040: replaces CamillaDSP) -->
         <div class="sys-section">
-            <div class="sys-section-title">CamillaDSP</div>
+            <div class="sys-section-title">Filter Chain</div>
             <div class="kv-grid">
                 <div class="kv-item"><span class="kv-label">State</span><span class="kv-value" id="sys-cdsp-state">--</span></div>
-                <div class="kv-item"><span class="kv-label">Load</span><span class="kv-value" id="sys-cdsp-load">--</span></div>
-                <div class="kv-item"><span class="kv-label">Buffer</span><span class="kv-value" id="sys-cdsp-buffer">--</span></div>
-                <div class="kv-item"><span class="kv-label">Rate Adj</span><span class="kv-value" id="sys-cdsp-rate-adj">--</span></div>
+                <div class="kv-item"><span class="kv-label">Links</span><span class="kv-value" id="sys-cdsp-load">--</span></div>
+                <div class="kv-item"><span class="kv-label">Health</span><span class="kv-value" id="sys-cdsp-buffer">--</span></div>
+                <div class="kv-item"><span class="kv-label">Convolver</span><span class="kv-value" id="sys-cdsp-rate-adj">--</span></div>
                 <div class="kv-item"><span class="kv-label">Clipped</span><span class="kv-value" id="sys-cdsp-clipped">--</span></div>
                 <div class="kv-item"><span class="kv-label">Xruns</span><span class="kv-value" id="sys-cdsp-xruns">--</span></div>
             </div>
@@ -285,7 +285,7 @@
             <div class="sys-section-title">Scheduling</div>
             <div class="kv-grid">
                 <div class="kv-item"><span class="kv-label">PipeWire</span><span class="kv-value" id="sys-sched-pw">--</span></div>
-                <div class="kv-item"><span class="kv-label">CamillaDSP</span><span class="kv-value" id="sys-sched-cdsp">--</span></div>
+                <div class="kv-item"><span class="kv-label">GraphMgr</span><span class="kv-value" id="sys-sched-cdsp">--</span></div>
                 <div class="kv-item"><span class="kv-label">Graph</span><span class="kv-value" id="sys-sched-graph">--</span></div>
             </div>
         </div>
@@ -305,7 +305,7 @@
             <div class="proc-grid">
                 <div class="proc-item"><span class="proc-name">Mixxx</span><span class="proc-value" id="sys-proc-mixxx">--</span></div>
                 <div class="proc-item"><span class="proc-name">Reaper</span><span class="proc-value" id="sys-proc-reaper">--</span></div>
-                <div class="proc-item"><span class="proc-name">CamillaDSP</span><span class="proc-value" id="sys-proc-camilladsp">--</span></div>
+                <div class="proc-item"><span class="proc-name">GraphMgr</span><span class="proc-value" id="sys-proc-camilladsp">--</span></div>
                 <div class="proc-item"><span class="proc-name">PipeWire</span><span class="proc-value" id="sys-proc-pipewire">--</span></div>
                 <div class="proc-item"><span class="proc-name">labwc</span><span class="proc-value" id="sys-proc-labwc">--</span></div>
             </div>

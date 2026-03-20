@@ -73,7 +73,7 @@
     var animating = false;
     var startTime = performance.now();
 
-    // Track previous monitoring CamillaDSP for event detection
+    // Track previous monitoring DSP data for event detection
     var prevMonXruns = null;
     var prevMonClipped = null;
 
@@ -394,11 +394,13 @@
             }
         }
 
-        // Health bar: DSP section (from monitoring data, higher update rate)
+        // Health bar: DSP section (D-040: FilterChainCollector via GM RPC)
         var cdsp = data.camilladsp;
-        var dspRunning = cdsp.state.toLowerCase() === "running";
+        var dspState = cdsp.state.toLowerCase();
+        var dspOk = dspState === "running";
+        var dspWarn = dspState === "degraded";
         PiAudio.setText("hb-dsp-state", cdsp.state,
-            dspRunning ? "c-green" : "c-red");
+            dspOk ? "c-green" : dspWarn ? "c-yellow" : "c-red");
 
         // DSP Load gauge
         var dspLoadPct = cdsp.processing_load;
@@ -416,23 +418,22 @@
         // System health panel — DSP state
         var shDspDot = document.getElementById("sh-dsp-dot");
         if (shDspDot) {
-            shDspDot.style.backgroundColor = dspRunning ? "#79e25b" : "#e5453a";
+            shDspDot.style.backgroundColor = dspOk ? "#79e25b" : dspWarn ? "#e2c039" : "#e5453a";
         }
         PiAudio.setText("sh-dsp-state", cdsp.state,
-            dspRunning ? "c-green" : "c-red");
+            dspOk ? "c-green" : dspWarn ? "c-yellow" : "c-red");
 
         // System health panel — DSP load gauge
         setHealthGauge("sh-dsp-load", dspLoadPct,
             dspLoadPct.toFixed(1) + "%",
             dspLoadPct < 50 ? "#79e25b" : dspLoadPct < 80 ? "#e2c039" : "#e5453a");
 
-        // System health panel — Buffer level gauge
-        // buffer_level is in samples; show raw value (not a percentage)
-        var bufLevel = cdsp.buffer_level;
-        var bufPct = Math.min(100, Math.max(0, bufLevel));
-        setHealthGauge("sh-buffer", bufPct,
-            String(bufLevel),
-            bufPct > 50 ? "#79e25b" : bufPct > 20 ? "#e2c039" : "#e5453a");
+        // System health panel — Link health gauge
+        // D-040: buffer_level is now a percentage of actual/desired links (0-100)
+        var linkPct = Math.min(100, Math.max(0, cdsp.buffer_level));
+        setHealthGauge("sh-buffer", linkPct,
+            linkPct + "%",
+            linkPct >= 100 ? "#79e25b" : linkPct > 50 ? "#e2c039" : "#e5453a");
 
         // System health panel — Xruns
         var shXruns = document.getElementById("sh-xruns");

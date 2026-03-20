@@ -155,12 +155,14 @@
             }
         }
 
-        // DSP state
+        // DSP / filter-chain state (D-040: from FilterChainCollector via GM)
         var cdsp = data.camilladsp;
-        var dspRunning = cdsp.state.toLowerCase() === "running";
-        var dspText = dspRunning ? "Run" : cdsp.state;
+        var dspState = cdsp.state.toLowerCase();
+        var dspOk = dspState === "running";
+        var dspWarn = dspState === "degraded";
+        var dspText = dspOk ? "Run" : dspWarn ? "Deg" : cdsp.state;
         PiAudio.setText("sb-dsp-state", dspText,
-            dspRunning ? "c-green" : "c-red");
+            dspOk ? "c-green" : dspWarn ? "c-yellow" : "c-red");
 
         // Clip count
         PiAudio.setText("sb-clip", String(cdsp.clipped_samples),
