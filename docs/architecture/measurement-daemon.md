@@ -23,7 +23,7 @@ subprocess, proxying its websocket feed to the browser. This created
 problems:
 
 - **Two processes competing for system resources:** The measurement script
-  and the web UI backend both needed CamillaDSP access, PipeWire state,
+  and the web UI backend both needed DSP engine access, PipeWire state,
   and audio device handles. Coordinating ownership across process
   boundaries was fragile.
 - **Abort coordination:** Sending abort signals across a process boundary
@@ -37,9 +37,9 @@ problems:
 
 The FastAPI backend manages all system state directly:
 
-- CamillaDSP connections (via pycamilladsp)
+- GraphManager RPC client for mode switching and routing topology (D-040, US-061)
+- Signal generator RPC client for measurement audio playback/capture
 - PipeWire quantum and device state
-- Audio I/O (via `sounddevice` / `asyncio.to_thread()`)
 - Measurement session state machine
 - Safety enforcement (thermal ceiling, hard cap, HPF verification)
 
@@ -53,14 +53,14 @@ Browser (Measure tab)                FastAPI Daemon
        |                                    |
        |-- WS: start measurement ---------->|
        |                                    |-- acquire mode lock
-       |                                    |-- swap CamillaDSP config
-       |                                    |-- run audio I/O (threaded)
+       |                                    |-- GM: set_mode("measurement")
+       |                                    |-- signal-gen: play sweep (threaded)
        |<-- WS: state updates (5 Hz) -------|
        |<-- WS: sweep progress -------------|
        |<-- WS: per-sweep results ----------|
        |                                    |
        |-- WS: abort ---------------------->|
-       |                                    |-- sd.stop() + restore config
+       |                                    |-- signal-gen: stop + GM: restore_production_mode()
        |<-- WS: session aborted ------------|
 ```
 
@@ -72,8 +72,8 @@ The daemon operates in two mutually exclusive modes:
 
 | Mode | Purpose | Active Subsystems |
 |------|---------|-------------------|
-| MONITORING | Normal dashboard operation | All collectors running, CamillaDSP connection #1 active |
-| MEASUREMENT | Measurement wizard | Collectors paused (except pcm-bridge), measurement session owns audio I/O |
+| MONITORING | Normal dashboard operation | All collectors running, GraphManager in monitoring mode |
+| MEASUREMENT | Measurement wizard | Collectors paused (except pcm-bridge), GraphManager in measurement mode, signal-gen active |
 
 ### Mode Transitions
 
@@ -91,7 +91,7 @@ MONITORING ──── enter_measurement() ───> MEASUREMENT
 4. Transition UI to measurement wizard
 
 **`exit_measurement()`:**
-1. Restore CamillaDSP to production config (if swapped)
+1. GraphManager: `restore_production_mode()` (set_mode("monitoring"))
 2. Release mode lock
 3. Resume all collectors
 4. Transition UI back to dashboard
@@ -103,49 +103,63 @@ starting a new one.
 
 ### Collector Lifecycle
 
-Collectors (CamillaDSP health, PipeWire status, system stats) are paused
+Collectors (FilterChainCollector, PipeWire status, system stats) are paused
 during measurement to avoid interference. The pcm-bridge collector is the
-exception -- it uses a passive PipeWire monitor tap that cannot interfere
-with the audio pipeline (see Section 8).
+exception -- it uses a passive PipeWire client that cannot interfere with
+the audio pipeline (see Section 8).
 
 ---
 
-## 3. CamillaDSP Connection Model
+## 3. RPC Client Architecture (D-040, US-061)
 
-The daemon maintains two independent CamillaDSP connections to avoid
-contention between monitoring and measurement operations.
+Post-D-040, the daemon communicates with two RPC servers instead of a
+single CamillaDSP websocket connection. Both use JSON-over-TCP with
+newline-delimited messages.
 
-### Connection #1: Collector (Long-Lived)
+### GraphManager Client (`src/measurement/graph_manager_client.py`)
 
-- **Owner:** CamillaDSP health collector
-- **Purpose:** Level polling, state monitoring, health checks
-- **Lifetime:** Application startup to shutdown
-- **Operations:** Read-only queries (levels, state, config path, processing
-  load)
-- **During measurement:** Paused (collector suspended), connection kept
-  alive for fast resume
-
-### Connection #2: Measurement Session (Short-Lived)
-
-- **Owner:** Measurement session
-- **Purpose:** Config swaps, parameter changes, active control
+- **Server:** `127.0.0.1:4002` (GraphManager TCP RPC)
+- **Purpose:** Mode switching and routing topology verification
 - **Lifetime:** Created at measurement start, destroyed at measurement end
-- **Operations:** `set_config()`, `reload()`, filter parameter updates,
-  volume adjustments
-- **Safety:** try/finally pattern ensures production config is restored
-  even on abort or crash
+- **Key commands:**
+  - `set_mode("measurement")`: switches to measurement routing (signal-gen
+    to convolver, UMIK-1 capture active, all non-measurement links torn down)
+  - `set_mode("monitoring")`: restores production routing
+  - `get_state()`: returns `{mode, nodes[], links[], devices{}}`
+  - `get_mode()`: returns current mode string
+- **Safety:** `verify_measurement_mode()` confirms GM is in measurement
+  mode before any audio output. Raises `GraphManagerError` if not.
+- **Mock:** `MockGraphManagerClient` provides in-memory state tracking
+  for tests without a running GraphManager.
+- **Reconnection:** Exponential backoff (1s -> 2s -> ... -> 30s), max
+  5 attempts. Raises `ConnectionError` on failure.
 
-### Why Two Connections
+### Signal Generator Client (`src/measurement/signal_gen_client.py`)
 
-A single shared connection creates contention: the collector's periodic
-polling (every 500ms) interleaves with the measurement session's config
-swap commands. pycamilladsp's CamillaClient is not thread-safe for
-concurrent operations on a single connection. Two connections eliminate
-this entirely -- each owner has exclusive, uncontested access to its
-connection.
+- **Server:** `127.0.0.1:4001` (signal-gen TCP RPC)
+- **Purpose:** Sweep playback, capture control, per-channel level setting
+- **Lifetime:** Created at measurement start, destroyed at measurement end
+- **Key commands:** `play`, `stop`, `set_level`, `set_signal`, `set_channel`,
+  `capture_start`, `capture_stop`, `capture_read`
+- **Safety:** Hard output level cap of -20 dBFS enforced at signal-gen level
+  (immutable `--max-level-dbfs` CLI argument, SEC-D037-04)
 
-The CamillaDSP websocket server (`-a 127.0.0.1 -p 1234`) supports
-multiple simultaneous client connections.
+### Why Separate Clients (vs Previous Two-CamillaDSP Model)
+
+The pre-D-040 architecture used two pycamilladsp connections to avoid
+contention between monitoring polls and measurement config swaps on a
+single CamillaDSP websocket. Post-D-040, this contention does not exist:
+
+- **GraphManager** handles routing (mode switching) -- no polling needed
+  during measurement. The measurement session calls `set_mode()` once at
+  start and once at end.
+- **Signal generator** handles audio I/O -- the session sends play/stop/capture
+  commands. No shared state with the FilterChainCollector.
+- **FilterChainCollector** (monitoring) is paused during measurement, so
+  its GM RPC polls do not interleave with the session's GM calls.
+
+The two clients serve fundamentally different purposes (routing vs audio I/O)
+and connect to different servers, so there is no contention by design.
 
 ---
 
@@ -181,8 +195,8 @@ This keeps the event loop free for:
 If an abort command arrives while `sd.playrec()` is blocked in the thread
 pool, the event loop calls `sd.stop()` from the main thread. This
 interrupts the blocked `playrec()` call, which returns a truncated
-recording. The measurement session then enters its cleanup path (restore
-CamillaDSP config, release mode lock).
+recording. The measurement session then enters its cleanup path (GM
+`restore_production_mode()`, release mode lock).
 
 ---
 
@@ -206,7 +220,7 @@ IDLE ─> SETUP ─> GAIN_CAL ─> MEASURING ─> RESULTS ─> FILTER_GEN ─> D
 | MEASURING | Per-channel sweeps across mic positions | Confirm mic repositioning between positions |
 | RESULTS | Post-measurement summary, FR display | Review results |
 | FILTER_GEN | FIR filter generation (automated) | Wait for completion |
-| DEPLOY | Deploy filters to CamillaDSP | Approve deployment |
+| DEPLOY | Deploy filters to PW filter-chain | Approve deployment |
 | VERIFY | Post-deployment verification sweep | Review before/after comparison |
 
 ### State Persistence
@@ -228,7 +242,7 @@ correct step. No measurement data is lost on browser disconnect.
 Abort is valid from any state except IDLE. The abort path:
 
 1. Cancel current operation (see Section 6)
-2. Restore CamillaDSP to production config
+2. GraphManager: `restore_production_mode()` (set_mode("monitoring"))
 3. Transition to IDLE
 4. Broadcast abort confirmation to all connected browsers
 
@@ -244,13 +258,13 @@ This ensures each operation either completes fully or does not start.
 
 | ID | Location | Between | Cleanup Required |
 |----|----------|---------|------------------|
-| CP-1 | Before CamillaDSP config swap | SETUP and config swap | None (no state changed) |
-| CP-2 | After config swap, before gain cal | Config swap and audio | Restore CamillaDSP config |
-| CP-3 | Between gain cal blocks | Pink noise blocks | Restore CamillaDSP config |
-| CP-4 | Before each sweep | Previous sweep and next sweep | Restore CamillaDSP config |
-| CP-5 | Between sweeps (mic repositioning) | Operator confirmation wait | Restore CamillaDSP config |
-| CP-6 | Before filter deployment | FILTER_GEN and DEPLOY | Restore CamillaDSP config, delete temp filters |
-| CP-7 | Before verification sweep | DEPLOY and VERIFY | Restore CamillaDSP config (verification uses measurement config) |
+| CP-1 | Before GM mode switch | SETUP and mode switch | None (no state changed) |
+| CP-2 | After mode switch, before gain cal | Mode switch and audio | GM: restore_production_mode() |
+| CP-3 | Between gain cal blocks | Pink noise blocks | GM: restore_production_mode() |
+| CP-4 | Before each sweep | Previous sweep and next sweep | GM: restore_production_mode() |
+| CP-5 | Between sweeps (mic repositioning) | Operator confirmation wait | GM: restore_production_mode() |
+| CP-6 | Before filter deployment | FILTER_GEN and DEPLOY | GM: restore_production_mode(), delete temp filters |
+| CP-7 | Before verification sweep | DEPLOY and VERIFY | GM: restore_production_mode() (verification uses measurement mode) |
 
 ### Abort During Blocked Audio I/O
 
@@ -261,7 +275,7 @@ loop cannot reach a cancellation point. In this case:
 2. `playrec()` returns immediately with a truncated recording
 3. The measurement session detects the truncation and enters its cleanup
    path at the next cancellation point
-4. CamillaDSP config is restored
+4. GraphManager routing is restored to production mode
 
 This is an emergency mechanism. Normal abort waits for the current
 operation to complete (sweeps are 5-10 seconds, so the maximum wait is
@@ -272,22 +286,22 @@ bounded).
 ## 7. Safety Layers
 
 The daemon enforces multiple independent safety layers. These supplement
-the CamillaDSP-level protections (attenuation, HPF, channel muting)
+the signal-gen hard cap and GraphManager measurement mode isolation
 described in [`docs/operations/safety.md`](../operations/safety.md).
 
 ### 7.1 Startup Recovery Check
 
-On daemon startup, the daemon checks whether CamillaDSP is running a
-measurement config (orphaned from a prior crash or abort failure). If
-detected:
+On daemon startup, the daemon checks whether GraphManager is in measurement
+mode (orphaned from a prior crash or abort failure). If detected:
 
-1. Log a warning with the orphaned config path
-2. Restore CamillaDSP to production config
+1. Log a warning with the orphaned mode
+2. GraphManager: `restore_production_mode()` (set_mode("monitoring"))
 3. Report the recovery in the dashboard status
 
 This handles the edge case where the daemon crashes mid-measurement
-(power loss, OOM kill, unhandled exception) and restarts with CamillaDSP
-still in measurement mode.
+(power loss, OOM kill, unhandled exception) and restarts with GraphManager
+still in measurement mode. Implemented in `ModeManager.check_and_recover_gm_state()`
+(see `app/main.py` lifespan startup).
 
 ### 7.2 Two-Tier Watchdog
 
@@ -296,7 +310,7 @@ still in measurement mode.
 | Software | 10 seconds | asyncio task checks heartbeat from audio thread | Abort measurement, restore config |
 | systemd | 30 seconds | `WatchdogSec=30` in service unit | systemd kills and restarts daemon |
 
-The software watchdog detects hung audio I/O (e.g., `sd.playrec()` blocks
+The software watchdog detects hung audio I/O (e.g., signal-gen capture blocks
 indefinitely due to a device error). If the audio thread does not report
 progress within 10 seconds, the watchdog triggers an abort.
 
@@ -319,17 +333,22 @@ excursion limits. The measurement daemon enforces this ceiling:
 ### 7.4 Hard Cap
 
 The measurement daemon enforces a hard cap of -20 dBFS on all audio output.
-This is independent of CamillaDSP attenuation -- it is applied in the
-stimulus generation before the signal reaches `sounddevice`. Even if
-CamillaDSP's measurement config is misconfigured, the hard cap prevents
-excessive power delivery.
+This is independent of GraphManager routing -- it is enforced at the
+signal generator level via the immutable `--max-level-dbfs` CLI argument
+(SEC-D037-04). Even if the routing topology is misconfigured, the hard cap
+prevents excessive power delivery. The web UI's signal-gen proxy also
+enforces D-009 (hard cap at -0.5 dBFS) on all browser-originated commands.
 
 ### 7.5 HPF Verification
 
-Before the first sweep, the daemon verifies that the CamillaDSP
-measurement config includes an IIR HPF at or above the target speaker's
-`mandatory_hpf_hz`. If the HPF is missing or below the required frequency,
-the measurement is blocked with an error.
+Before the first sweep, the daemon verifies that GraphManager is in
+measurement mode via `gm_client.verify_measurement_mode()` (GC-07/11,
+D-040). In measurement mode, GraphManager establishes measurement-specific
+routing: only the test channel emits signal, all other channels are silent.
+This replaces the pre-D-040 CamillaDSP config swap that applied -20 dB
+attenuation and per-channel HPF via filter definitions. The HPF verification
+is deferred to signal-gen configuration (the signal generator does not
+produce subsonic content).
 
 ---
 
@@ -351,12 +370,13 @@ xruns in the entire audio graph (F-030).
 
 pcm-bridge is a Rust binary that:
 
-1. Connects to PipeWire as a **passive monitor port consumer** (not an
-   active graph node)
-2. Reads PCM samples from the monitor tap without participating in the
-   RT scheduling graph
-3. Computes RMS/peak levels and writes them to a shared memory segment
-   (or pipes them to the FastAPI daemon via stdout/Unix socket)
+1. Registers as a PipeWire client targeting a specific node (configured
+   via env files in `configs/pcm-bridge/`)
+2. Reads PCM samples into a lock-free ring buffer from the PW process
+   callback (SCHED_FIFO)
+3. Serves framed binary PCM over TCP to web UI clients
+4. Computes lock-free per-channel peak/RMS levels via atomic operations
+   (US060-3) and broadcasts JSON at 10 Hz to level metering clients
 
 Because the monitor tap is passive, pcm-bridge:
 
@@ -389,6 +409,8 @@ safe to run during measurement.
 |----|---------|-----------|
 | D-035 | Measurement safety rules | Safety constraints enforced by the daemon |
 | D-036 | Central daemon replaces subprocess model | This document |
+| D-037 | Signal generator safety | SEC-D037-01 loopback-only, SEC-D037-04 hard cap |
+| D-040 | CamillaDSP abandoned, pure PW filter-chain | Drives RPC client architecture change (Section 3) |
 
 ### User Stories
 
@@ -398,13 +420,15 @@ safe to run during measurement.
 | US-048 | Post-measurement visualization | Results display in RESULTS state |
 | US-049 | Real-time websocket feed | WS broadcast architecture |
 | US-012 | Gain calibration | GAIN_CAL state implementation |
+| US-061 | Measurement pipeline adaptation | D-040 migration (Section 3 RPC clients) |
+| US-052 | Signal generator D-040 adaptation | Managed mode, node.group, no loopback target |
 
 ### Architecture Documents
 
 | Document | Relationship |
 |----------|-------------|
 | `measurement-workflow-ux.md` | UX/wizard design. Section 10 (subprocess backend) is **superseded** by this document. |
-| `web-ui.md` | Web UI architecture. `PcmStreamCollector` is **superseded** by pcm-bridge (Section 8). |
+| `web-ui.md` | Web UI architecture. FilterChainCollector replaces CamillaDSPCollector (US060-1). pcm-bridge replaces JACK PCM collector. |
 | `web-ui-monitoring-plan.md` | SPL metering design. SPL collector integrates with pcm-bridge. |
 | `rt-audio-stack.md` | RT audio stack. Daemon operates within the scheduling hierarchy documented there. |
 

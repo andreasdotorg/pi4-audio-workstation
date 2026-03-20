@@ -9,34 +9,42 @@ This document defines the architecture for US-022 (Web UI Platform), US-023 (Eng
 
 ## 2. Design Constraints
 
-- Pi 4B: 4-core ARM Cortex-A72, 4 GB RAM. CamillaDSP + Reaper/Mixxx already consume 35-50% CPU in live mode.
+- Pi 4B: 4-core ARM Cortex-A72, 4 GB RAM. PW filter-chain convolver + Reaper/Mixxx consume ~40-50% CPU in live mode (D-040: convolver at 3.47% vs CamillaDSP's 19.25% at q256).
 - Owner directives: 30 fps spectrograph, browser GPU rendering, no audio compression, raw PCM, bandwidth cheaper than CPU.
-- CamillaDSP websocket (port 1234) bound to 127.0.0.1 -- never exposed to network (US-000a).
-- Python = control plane only. Python never touches the data plane. All DSP in CamillaDSP (C++), all visualization in the browser (JS).
-- No SD card I/O from the web server's hot path (Python disk writes can stall I/O scheduler, cascading to CamillaDSP xruns).
+- GraphManager RPC (port 4002) bound to 127.0.0.1 -- never exposed to network. Signal-gen RPC (port 4001) likewise loopback-only (SEC-D037-01).
+- Python = control plane only. Python never touches the data plane. All DSP in PipeWire filter-chain (FFTW3/NEON), all visualization in the browser (JS).
+- No SD card I/O from the web server's hot path (Python disk writes can stall I/O scheduler, cascading to PipeWire xruns).
 
 ## 3. Architecture Overview
 
 Single-process FastAPI server (one uvicorn worker, SCHED_OTHER priority, HTTPS
-via self-signed certificate -- see Section 12). Three WebSocket endpoints serve
+via self-signed certificate -- see Section 12). Six WebSocket endpoints serve
 all data, backed by four singleton collectors:
 
 ### WebSocket Endpoints
 
 | Endpoint | Transport | Payload | Consumer | Rate |
 |----------|-----------|---------|----------|------|
-| `/ws/monitoring` | JSON WebSocket | Levels (8ch capture RMS/peak + 8ch playback RMS/peak) + CamillaDSP status | Both roles | 10 Hz |
-| `/ws/system` | JSON WebSocket | CPU, temperature, memory, PipeWire graph state, CamillaDSP health, per-process CPU | Engineer only | 1 Hz |
-| `/ws/pcm` | Binary WebSocket | 3-channel interleaved float32 PCM (L main, R main, sub sum) | Engineer only | 48000 samples/s per ch |
+| `/ws/monitoring` | JSON WebSocket | Levels (8ch capture RMS/peak + 8ch playback RMS/peak) + filter-chain health | Both roles | 10 Hz |
+| `/ws/system` | JSON WebSocket | CPU, temperature, memory, PipeWire graph state, filter-chain health, per-process CPU | Engineer only | 1 Hz |
+| `/ws/pcm` | Binary WebSocket | Interleaved float32 PCM from pcm-bridge monitor instance (4ch convolver input) | Engineer only | 48000 samples/s per ch |
+| `/ws/pcm/{source}` | Binary WebSocket | Parameterized PCM from named pcm-bridge instance (PCM-MODE-2) | Engineer only | 48000 samples/s per ch |
+| `/ws/measurement` | JSON WebSocket | Real-time measurement session progress (WP-E) | Engineer only | 5 Hz |
+| `/ws/siggen` | JSON WebSocket | Signal generator bidirectional proxy (SG-11) | Engineer only | Event-driven |
 
 ### Backend Collectors
 
 | Collector | Source | Poll rate | Feeds endpoint |
 |-----------|--------|-----------|----------------|
-| CamillaDSPCollector | pycamilladsp `levels_since_last()` + status API (localhost:1234) | Levels: 20 Hz, Status: 2 Hz | `/ws/monitoring`, `/ws/system` |
-| PcmStreamCollector | JACK client ring buffer (3 ch from CamillaDSP monitor taps) | Continuous (JACK callback) | `/ws/pcm` |
+| FilterChainCollector | GraphManager RPC `get_links` + `get_state` (localhost:4002) | 2 Hz | `/ws/monitoring`, `/ws/system` |
+| PcmStreamCollector | pcm-bridge TCP relay (default `tcp:127.0.0.1:9090`) | Continuous (TCP read) | `/ws/pcm` |
 | SystemCollector | `/proc/stat`, `/proc/meminfo`, `/sys/class/thermal/`, `/proc/{pid}/stat` | 1 Hz | `/ws/system` |
 | PipeWireCollector | `pw-top -b -n 2` (async subprocess) | 1 Hz | `/ws/system` |
+
+**Level metering (US060-3):** Per-channel peak/RMS levels are provided by the
+pcm-bridge's lock-free level metering server (TCP JSON at 10 Hz, separate from
+the PCM stream). The FilterChainCollector provides link topology health (desired
+vs actual link counts) but not audio levels -- level data comes from pcm-bridge.
 
 In mock mode (`PI_AUDIO_MOCK=1`, default on macOS), real collectors are not
 started and MockDataGenerator provides synthetic data. On the Pi
@@ -54,125 +62,182 @@ Browser(s)
    v
 FastAPI (uvicorn, 1 worker, SCHED_OTHER, Nice=10)
    |
-   +---> CamillaDSPCollector ---> pycamilladsp (localhost:1234)
-   +---> PcmStreamCollector ----> JACK client (ring buffer) ---> PipeWire JACK bridge
+   +---> FilterChainCollector --> GraphManager RPC (localhost:4002)
+   +---> PcmStreamCollector ----> pcm-bridge TCP (localhost:9090)
    +---> SystemCollector -------> /proc, /sys
    +---> PipeWireCollector -----> pw-top (async subprocess)
+   +---> SignalGen WS proxy -----> signal-gen TCP RPC (localhost:4001)
    +---> python-osc (UDP) ------> Reaper OSC (Stage 4, not yet implemented)
 ```
 
-## 4. Streams 1-2: Level Meters (pycamilladsp)
+**Note on pcm-bridge:** The pcm-bridge is a Rust binary that registers as a
+PipeWire client, captures audio from a target node (configured via env files
+in `configs/pcm-bridge/`), and serves it over TCP. The `monitor` instance
+taps the convolver input (`TARGET=pi4audio-convolver`, 4 channels). The
+`capture-usb` instance reads the USBStreamer source node (8 channels). The
+web UI relays TCP data to WebSocket clients without processing -- no JACK
+client, no numpy, no Python audio code in the hot path.
 
-**Source:** CamillaDSP's built-in per-channel signal level API via pycamilladsp.
+## 4. Streams 1-2: Level Meters (pcm-bridge Level Server, US060-3)
 
-```python
-from camilladsp import CamillaClient
+**Source:** The pcm-bridge Rust binary provides lock-free per-channel peak and
+RMS level metering via a TCP JSON server (US060-3, commit `634b877`). The
+level metering runs inside the pcm-bridge `monitor` instance, which taps the
+convolver input node (`TARGET=pi4audio-convolver`, 4 channels).
 
-client = CamillaClient("127.0.0.1", 1234)
-client.connect()
+### Level Metering Architecture
 
-# One call returns all 4 arrays: capture_rms, capture_peak, playback_rms, playback_peak
-levels = client.levels.levels_since_last()
-# Returns dict with keys:
-#   "capture_rms":    List[float]  -- 8 values, dB, pre-DSP (from Loopback input)
-#   "capture_peak":   List[float]  -- 8 values, dB, pre-DSP
-#   "playback_rms":   List[float]  -- 8 values, dB, post-DSP (to USBStreamer output)
-#   "playback_peak":  List[float]  -- 8 values, dB, post-DSP
+The pcm-bridge processes audio in a PipeWire callback at RT priority. Level
+computation uses lock-free atomics to avoid blocking the RT thread:
+
+```
+PipeWire RT thread (SCHED_FIFO)       Levels server thread (SCHED_OTHER)
+    |                                        |
+    v                                        v
+  LevelTracker.process()                  LevelTracker.take_snapshot()
+    - atomic_max_f32(peak[ch])              - swap peak to 0.0, read accumulated
+    - atomic_add_f32(sum_sq[ch])            - swap sum_sq to 0.0, compute RMS
+    - no locks, no alloc, no syscalls       - format as JSON, broadcast at 10 Hz
+    |                                        |
+    v                                        v
+  AtomicU32 (f32 bits)                    TCP clients (web UI)
 ```
 
-This provides 16 meters total: 8 capture (pre-DSP) + 8 playback (post-DSP). Values are in dB, already computed by CamillaDSP's C++ engine. The `levels_since_last()` method returns levels accumulated since the previous call, ideal for polling.
+**Key properties:**
+- **Zero RT overhead:** The process callback uses only atomic compare-exchange
+  operations (CAS). No locks, no allocations, no syscalls. Single-writer
+  (PW callback) / single-reader (levels server) design.
+- **dBFS output:** `linear_to_dbfs()` converts peak and RMS to dBFS. Silence
+  returns -120.0 dBFS. Unity (1.0) returns 0.0 dBFS.
+- **Snapshot reset:** Each `take_snapshot()` atomically swaps accumulators to
+  zero and returns the accumulated values. This gives per-snapshot peak and
+  RMS without overlap between snapshots.
 
-**Channel mapping (playback = post-DSP, what reaches the speakers/IEMs):**
+**Level server wire format (newline-delimited JSON at 10 Hz):**
 
-| Ch | Playback output | Meter label |
+```json
+{"channels":4,"peak":[-3.1,-6.0,-12.5,-120.0],"rms":[-10.0,-15.7,-20.3,-120.0]}
+```
+
+The FilterChainCollector (Section 13) does NOT provide audio levels. It
+provides link topology health from GraphManager RPC (desired/actual/missing
+link counts, mode, device presence). Level metering and link health are
+independent data paths that feed different UI elements.
+
+**Channel mapping (convolver input = post-routing, pre-FIR):**
+
+| Ch | Convolver input | Meter label |
 |----|----------------|-------------|
-| 1 | Left wideband | L Main |
-| 2 | Right wideband | R Main |
-| 3 | Subwoofer 1 | Sub 1 |
-| 4 | Subwoofer 2 | Sub 2 |
-| 5 | Engineer HP L | Eng HP L |
-| 6 | Engineer HP R | Eng HP R |
-| 7 | Singer IEM L | IEM L |
-| 8 | Singer IEM R | IEM R |
+| 0 | playback_AUX0 (L main, highpass FIR) | L Main |
+| 1 | playback_AUX1 (R main, highpass FIR) | R Main |
+| 2 | playback_AUX2 (Sub 1, lowpass FIR) | Sub 1 |
+| 3 | playback_AUX3 (Sub 2, lowpass FIR) | Sub 2 |
 
-**Channel mapping (capture = pre-DSP, what enters CamillaDSP from Loopback):**
+**Post-D-040 note:** The convolver has 4 input channels (L, R, Sub1, Sub2).
+Headphone and IEM channels bypass the convolver entirely (direct PipeWire
+links to USBStreamer AUX4-7). To meter headphone/IEM levels, a separate
+pcm-bridge instance tapping USBStreamer output ports would be needed (future
+enhancement, US-035). The `capture-usb` pcm-bridge instance
+(`configs/pcm-bridge/capture-usb.env`, 8 channels, port 9091) is available
+for ADA8200 input metering.
 
-| Ch | Capture input | Meter label |
-|----|--------------|-------------|
-| 1 | Loopback ch 1 (from Reaper/Mixxx L) | In L |
-| 2 | Loopback ch 2 (from Reaper/Mixxx R) | In R |
-| 3-8 | Loopback ch 3-8 | In 3-8 |
-
-**ADA8200 input channels:** The ADA8200 has mic preamps on ch 1-2, but these are ADC inputs -- they feed INTO the USBStreamer's capture side, not into CamillaDSP's Loopback capture. CamillaDSP captures from the ALSA Loopback, not from the USBStreamer input. ADA8200 input monitoring requires a separate path (US-035 or future story). Channels 3-8 on the ADA8200 have no internal DAC-to-ADC loopback -- they show only noise floor.
+**ADA8200 input channels:** The ADA8200 has mic preamps on ch 1-2 (ADC inputs
+feeding the USBStreamer's capture side). These are accessible via the
+`capture-usb` pcm-bridge instance. Channels 3-8 on the ADA8200 have no
+internal DAC-to-ADC loopback -- they show only noise floor.
 
 **Meter visibility policy (updated 2026-03-11, TK-095):** All meters are always visible in fixed positions. Silent meters are dimmed (reduced opacity) rather than hidden. Auto-hide was rejected by owner/AE/AD consensus: spatial memory (knowing where each meter is by position) is more important than space savings in a live sound monitoring context. This overrides the original auto-show threshold design. The dashboard implementation dims meters below -60 dBFS but never removes them from the layout.
 
-**Poll rate:** 20 Hz (50ms interval). The asyncio loop calls `client.levels.levels_since_last()` every 50ms and broadcasts the JSON to subscribed clients.
-
-**Wire format (JSON):**
+**Monitoring snapshot wire format (JSON, `/ws/monitoring` at 10 Hz):**
 
 ```json
 {
-  "type": "levels",
-  "ts": 1709985600.123,
-  "capture_rms": [-24.1, -24.3, -96.0, -96.0, -96.0, -96.0, -96.0, -96.0],
-  "capture_peak": [-18.2, -18.5, -96.0, -96.0, -96.0, -96.0, -96.0, -96.0],
-  "playback_rms": [-27.3, -27.5, -30.1, -30.2, -24.1, -24.3, -28.0, -28.0],
-  "playback_peak": [-21.0, -21.2, -24.5, -24.7, -18.2, -18.5, -22.0, -22.0]
+  "timestamp": 1709985600.123,
+  "capture_rms": [-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0],
+  "capture_peak": [-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0],
+  "playback_rms": [-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0],
+  "playback_peak": [-120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0, -120.0],
+  "spectrum": {"bands": [-60.0, ...]},
+  "camilladsp": {
+    "state": "Running",
+    "gm_connected": true,
+    "gm_mode": "dj",
+    "gm_links_desired": 12,
+    "gm_links_actual": 12,
+    "gm_links_missing": 0,
+    "gm_convolver": "connected",
+    "buffer_level": 100,
+    "processing_load": 0.0,
+    "chunksize": 0
+  }
 }
 ```
 
-**CPU cost:** Negligible. One pycamilladsp websocket call per 50ms. CamillaDSP computes the levels internally as part of its normal processing -- the API just reads them. Estimated < 0.05% CPU on Pi.
+**Note:** The `camilladsp` key name is retained for wire-format compatibility
+with the existing frontend. The data now comes from GraphManager RPC (link
+health, mode, convolver status) rather than pycamilladsp. Fields like
+`processing_load`, `clipped_samples`, and `chunksize` are zeroed because
+GraphManager does not expose these metrics. New `gm_*` fields provide the
+actual health data.
 
-**Key advantage over JACK capture approach:** No JACK client needed for meters. No numpy RMS computation. No additional audio buffering. Stage 1 of the web UI delivers full 16-channel metering with zero JACK code.
+**CPU cost:** Negligible. The pcm-bridge level metering is computed in the RT
+callback as atomic operations (~50 ns overhead per quantum). The levels server
+broadcasts JSON at 10 Hz. The FilterChainCollector polls GraphManager at 2 Hz
+via TCP. Combined Pi CPU < 0.05%.
 
 ### Dual-Source Metering (Stage 2+)
 
-Once the spectrograph PCM stream is active (Stage 2), the browser has a second, independent source for level metering on the 3 spectrograph channels:
+Once the spectrograph PCM stream is active (Stage 2), the browser has a second, independent source for level metering on the spectrograph channels:
 
-**Source A (Pi-side, primary):** pycamilladsp `levels_since_last()`. Available from Stage 1. Covers all 16 channels (8 capture + 8 playback). Computed by CamillaDSP's C++ engine. Zero additional bandwidth.
+**Source A (Pi-side, primary):** pcm-bridge level metering server. Available from Stage 1. Covers 4 convolver input channels. Computed in Rust with atomic operations. Zero additional bandwidth beyond the 10 Hz JSON broadcast.
 
-**Source B (browser-side, supplementary):** JavaScript computes peak and RMS from the raw PCM stream already being received for the spectrum display. Covers only the 3 spectrograph channels (L main, R main, sub sum). Computed in the main JS thread alongside the FFT. Zero additional Pi CPU or bandwidth -- uses data already in flight.
+**Source B (browser-side, supplementary):** JavaScript computes peak and RMS from the raw PCM stream already being received for the spectrum display. Covers only the spectrograph channels. Computed in the main JS thread alongside the FFT. Zero additional Pi CPU or bandwidth -- uses data already in flight.
 
 **Source selection logic:**
-- **Stage 1 (no JACK):** Source A only. All 16 meters from pycamilladsp.
-- **Stage 2+ (JACK active, WebSocket connected):** Source A for all 16 meters. Source B available as a cross-check for the 3 spectrograph channels. The engineer dashboard may optionally display a "source health" indicator comparing A vs B for the overlapping channels -- a divergence > 3 dB sustained for > 2 seconds indicates a data path problem.
-- **Source A unavailable (CamillaDSP disconnect):** For the 3 spectrograph channels, fall back to Source B if the PCM stream is still active. Remaining 13 channels show stale/disconnected. This provides partial metering during a CamillaDSP API outage as long as the JACK capture path is still running.
-- **Source B unavailable (WebSocket disconnect or JACK failure):** No impact -- Source A is primary and independent of the PCM stream.
+- **Stage 1:** Source A only. Convolver input meters from pcm-bridge level server.
+- **Stage 2+ (PCM stream active):** Source A for all metered channels. Source B available as a cross-check for the spectrograph channels. A divergence > 3 dB sustained for > 2 seconds indicates a data path problem.
+- **Source A unavailable (pcm-bridge disconnect):** For spectrograph channels, fall back to Source B if the PCM stream is still active. This provides partial metering during a pcm-bridge outage.
+- **Source B unavailable (WebSocket disconnect):** No impact -- Source A is primary and independent of the PCM stream.
 
 **Implementation note:** Source B peak/RMS computation is trivial in the PCM accumulation loop -- iterate the float32 buffer per channel, track max absolute value (peak) and sum of squares (RMS). This runs in the same code path that feeds the FFT accumulator.
 
-**Why not replace Source A with Source B?** Source B only covers 3 of 16 channels. The remaining 13 channels (5 playback outputs + 8 capture inputs minus the 3 spectrograph channels) have no PCM stream to the browser. Source A is the only option for full-coverage metering.
-
 ## 5. Stream 3: Spectrum Display (Raw PCM Streaming + JS FFT)
 
-**Source:** JACK client registered via PipeWire's JACK bridge. Captures from CamillaDSP's PipeWire monitor taps (`CamillaDSP 8ch Input:monitor_AUX0`, `monitor_AUX1`, `monitor_AUX2`). These are pre-DSP signals -- the same audio entering CamillaDSP from the Loopback.
+**Source:** pcm-bridge Rust binary registered as a PipeWire client. The
+`monitor` instance captures from the filter-chain convolver input node
+(`TARGET=pi4audio-convolver`). These are post-routing, pre-FIR signals --
+the audio entering the convolver from Mixxx or Reaper.
 
-**Channels:** 3 channels only (not 8). Per audio engineer:
-- Ch 1: Left main (post-mix)
-- Ch 2: Right main (post-mix)
-- Ch 3: Mono sub sum (for low-frequency monitoring)
+**Channels:** 4 channels (convolver input ports `playback_AUX0` through
+`playback_AUX3`). Per audio engineer:
+- Ch 0: Left main (post-routing, pre-crossover)
+- Ch 1: Right main (post-routing, pre-crossover)
+- Ch 2: Subwoofer 1 (post-routing, pre-crossover)
+- Ch 3: Subwoofer 2 (post-routing, pre-crossover)
 
-The JACK client runs a `process` callback that writes float32 samples into a lock-free ring buffer. An asyncio task reads from the ring buffer and sends binary WebSocket frames.
+The pcm-bridge runs a PipeWire `process` callback that writes float32 samples
+into a lock-free ring buffer. A TCP server thread reads from the ring buffer
+and sends framed binary data to connected clients. The FastAPI web UI relays
+TCP data to WebSocket clients (see `_pcm_tcp_relay()` in `app/main.py`).
 
 **Lock-free ring buffer design:**
 
 ```
-JACK RT thread                    asyncio consumer
+PipeWire RT thread                TCP server thread
     |                                  |
     v                                  v
-[write ptr] --> ring buffer --> [read ptr]
+[write ptr] --> ring buffer --> [read ptr per client]
     |           (pre-allocated)        |
     |           (no malloc)            |
     v                                  v
   SCHED_FIFO                     SCHED_OTHER
-  (PipeWire RT)                  (uvicorn)
+  (PipeWire RT)                  (pcm-bridge server)
 ```
 
-- Ring buffer is pre-allocated at startup (e.g., 8192 frames x 3 channels x 4 bytes = 96 KB).
-- JACK callback writes; asyncio consumer reads. Single-producer, single-consumer -- no locks needed.
-- If the consumer falls behind, the write pointer overwrites old data (ring semantics). The consumer detects the gap and skips forward. No back-pressure to the audio thread.
-- The JACK callback must complete in < 500 us (constraint 9). It performs only a memcpy into the ring buffer -- no allocation, no syscall, no Python object creation in the callback itself.
+- Ring buffer is pre-allocated at startup (configurable, default 8192 frames x channels x 4 bytes).
+- PW callback writes; TCP server reads. Single-producer, per-client consumer -- no locks on the write path.
+- If a client falls behind, the write pointer overtakes the read position. The server detects the gap, logs a warning, and skips forward. No back-pressure to the audio thread.
+- The PW callback performs only a memcpy into the ring buffer -- no allocation, no syscall, no logging in the RT path.
 
 **Wire format (binary WebSocket):**
 
@@ -233,36 +298,63 @@ discontinuities.
 - Three-tier frequency grid (major: decade boundaries, medium: half-decades, minor: intermediate)
 - dB axis labels at 12 dB intervals with minor grid at 6 dB
 
-**CPU cost (Pi side):** ~0.07% -- memcpy in JACK callback + asyncio send. No FFT, no numpy, no analysis on the Pi. All FFT computation happens in the browser.
+**CPU cost (Pi side):** ~0.07% -- memcpy in PW callback + TCP send. No FFT, no numpy, no analysis on the Pi. All FFT computation happens in the browser.
 
 **Subscription model:** Only engineer clients receive PCM data. Singer clients never subscribe to this path.
 
 **No AudioContext required.** The JS FFT pipeline does not use the Web Audio API. No `AudioContext`, `AudioWorklet`, or `AnalyserNode` is created. This means no autoplay policy restrictions and no "click to start audio" overlay (removed in TK-125, commit `13e8c02`). The HTTPS requirement (D-032) remains for general security best practice (S6), but is no longer technically required by the spectrum display.
 
-## 6. Stream 4: DSP Health
+## 6. Stream 4: DSP / Link Health (FilterChainCollector via GraphManager RPC)
 
-**Sources (via pycamilladsp, polled at 2 Hz):**
-- CamillaDSP state: `client.general.state()`
-- Processing load: `client.status.processing_load()`
-- Buffer level: `client.status.buffer_level()`
-- Clipped samples: `client.status.clipped_samples()`
-- Rate adjust: `client.status.rate_adjust()`
-- Active config: `client.general.config_file_path()`
+**Source:** FilterChainCollector (`app/collectors/filterchain_collector.py`)
+polls the GraphManager's TCP RPC at `127.0.0.1:4002` every 500ms (2 Hz).
+Two RPC commands are used:
 
-**Wire format (JSON):**
+- `get_links`: returns `{mode, desired, actual, missing, links[]}` -- the
+  link topology health. `missing > 0` means the routing is degraded.
+- `get_state`: returns `{mode, nodes[], links[], devices{}}` -- full graph
+  snapshot including convolver presence.
+
+**Derived state mapping:**
+- `state = "Running"`: mode is not `monitoring` AND `missing == 0`
+- `state = "Idle"`: mode is `monitoring` (no production links)
+- `state = "Degraded"`: mode is not `monitoring` AND `missing > 0`
+- `state = "Disconnected"`: GraphManager unreachable
+- `buffer_level`: percentage of link health (`100 * actual / desired`)
+
+**Wire format (JSON, within `/ws/system` `camilladsp` key):**
 
 ```json
 {
-  "type": "dsp_health",
-  "ts": 1709985600.123,
-  "cdsp_state": "Running",
-  "cdsp_load": 19.2,
-  "cdsp_buffer": 8192,
-  "cdsp_clipped": 0,
-  "cdsp_rate_adj": 1.000000,
-  "cdsp_config": "/etc/camilladsp/active.yml"
+  "state": "Running",
+  "gm_connected": true,
+  "gm_mode": "dj",
+  "gm_links_desired": 12,
+  "gm_links_actual": 12,
+  "gm_links_missing": 0,
+  "gm_convolver": "connected",
+  "buffer_level": 100,
+  "processing_load": 0.0,
+  "capture_rate": 48000,
+  "playback_rate": 48000,
+  "chunksize": 0,
+  "rate_adjust": 1.0,
+  "clipped_samples": 0,
+  "xruns": 0
 }
 ```
+
+**Note:** The `camilladsp` key name and fields like `processing_load`,
+`chunksize`, and `xruns` are retained for wire-format compatibility with the
+existing frontend. These fields are zeroed because GraphManager does not
+expose per-node processing metrics (that data comes from `pw-top` via the
+PipeWireCollector). The `gm_*` fields carry the actual health data.
+
+**Historical (pre-D-040):** Previously, this stream came from pycamilladsp
+polling CamillaDSP's websocket API at `127.0.0.1:1234`. CamillaDSP provided
+`processing_load`, `buffer_level`, `clipped_samples`, `rate_adjust`, and
+`config_file_path` directly. These metrics were rich but CamillaDSP is no
+longer in the active audio path (D-040).
 
 ## 7. Stream 5: System Health
 
@@ -325,21 +417,23 @@ FastAPI runs a `python-osc` client that sends OSC messages to Reaper and receive
 ## 9. Authentication and Role-Based Access
 
 **Roles:**
-- `engineer`: Full access to all 6 streams + CamillaDSP parameter control (gain, mute)
-- `singer`: Output level meters (Streams 1-2 playback side only) + IEM control (Stream 6). No spectrograph, no input meters, no health, no CamillaDSP control.
+- `engineer`: Full access to all streams + signal generator control + measurement workflow
+- `singer`: Output level meters (Streams 1-2 playback side only) + IEM control (Stream 6). No spectrograph, no input meters, no health, no DSP control.
 
 **Auth flow:**
 1. Client sends role password via HTTPS POST `/auth/login` (or HTTP for LAN-only MVP)
-2. Server validates against pre-configured role passwords (stored in server config, not in CamillaDSP)
+2. Server validates against pre-configured role passwords (stored in server config)
 3. Server returns a session token (random, time-limited)
 4. Client includes token in WebSocket upgrade request
 5. Server validates token and assigns role for the WebSocket session
+
+**Note:** Auth configuration is stored in the server config, not in any DSP engine.
 
 **Security requirements (from security specialist review):**
 
 | # | Severity | Requirement |
 |---|----------|-------------|
-| S1 | Critical | CamillaDSP websocket (port 1234) never exposed to browsers -- FastAPI proxies all access. Binding to 127.0.0.1 enforced at CamillaDSP and firewall level. |
+| S1 | Critical | GraphManager RPC (port 4002) and signal-gen RPC (port 4001) never exposed to browsers -- FastAPI proxies all access. Binding to 127.0.0.1 enforced at application level (SEC-D037-01) and firewall. |
 | S2 | Critical | Role isolation enforced server-side -- singer WebSocket handler rejects subscription to engineer-only streams. Cannot be bypassed by client-side manipulation. |
 | S3 | Critical | IEM safety ceiling enforced server-side -- FastAPI clamps singer control values to [mute, 0 dB] before forwarding to Reaper OSC. Singer cannot boost above engineer's set point regardless of what the client sends. |
 | S4 | High | Session tokens are time-limited (8 hours -- covers a full gig). Generated with `secrets.token_urlsafe(32)`. |
@@ -398,25 +492,25 @@ Stage 1 (implemented, TK-093 + TK-095):
 
 **Abbreviated label legend (updated TK-095):**
 
-| Group | Label | Full name | CamillaDSP channel |
-|-------|-------|-----------|-------------------|
-| MAIN | ML | Main left | Capture ch 1 (Loopback from Reaper/Mixxx L) |
-| MAIN | MR | Main right | Capture ch 2 (Loopback from Reaper/Mixxx R) |
-| PA SENDS | SatL | Satellite left | Playback ch 1 (left wideband speaker) |
-| PA SENDS | SatR | Satellite right | Playback ch 2 (right wideband speaker) |
-| PA SENDS | S1 | Subwoofer 1 | Playback ch 3 |
-| PA SENDS | S2 | Subwoofer 2 | Playback ch 4 |
-| MON SENDS | EL | Engineer headphone left | Playback ch 5 |
-| MON SENDS | ER | Engineer headphone right | Playback ch 6 |
-| MON SENDS | IL | Singer IEM left | Playback ch 7 |
-| MON SENDS | IR | Singer IEM right | Playback ch 8 |
-| SOURCE | Src3-8 | Source channels 3-8 | Capture ch 3-8 (Loopback routing, often silent) |
+| Group | Label | Full name | PipeWire source |
+|-------|-------|-----------|-----------------|
+| MAIN | ML | Main left | Convolver input AUX0 (from Reaper/Mixxx L) |
+| MAIN | MR | Main right | Convolver input AUX1 (from Reaper/Mixxx R) |
+| PA SENDS | SatL | Satellite left | USBStreamer playback AUX0 (left wideband speaker) |
+| PA SENDS | SatR | Satellite right | USBStreamer playback AUX1 (right wideband speaker) |
+| PA SENDS | S1 | Subwoofer 1 | USBStreamer playback AUX2 |
+| PA SENDS | S2 | Subwoofer 2 | USBStreamer playback AUX3 |
+| MON SENDS | EL | Engineer headphone left | USBStreamer playback AUX4 |
+| MON SENDS | ER | Engineer headphone right | USBStreamer playback AUX5 |
+| MON SENDS | IL | Singer IEM left | USBStreamer playback AUX6 |
+| MON SENDS | IR | Singer IEM right | USBStreamer playback AUX7 |
+| SOURCE | Src3-8 | Source channels 3-8 | (future: USBStreamer capture via pcm-bridge) |
 
-**Note:** MAIN meters show capture channels 0-1 (the primary mix bus from Reaper/Mixxx). Both DJ and live modes capture from ALSA Loopback (`hw:Loopback,1,0`). ADA8200 physical inputs (vocal mic, spare) are separate -- metered via a future JACK client (US-035, TK-096).
+**Note:** MAIN meters show convolver input channels 0-1 (the primary mix bus from Reaper/Mixxx, post-routing, pre-FIR). Post-D-040, audio routes directly from Mixxx/Reaper through PipeWire links to the convolver input -- no ALSA Loopback. ADA8200 physical inputs (vocal mic, spare) are metered via the `capture-usb` pcm-bridge instance (US-035, TK-096).
 
 **Layout principles (updated TK-093 + TK-095):**
 - Meters follow signal-flow order in 4 functional groups: MAIN (capture ch 0-1, 48px wide, white/silver) | PA SENDS (playback ch 1-4, green/yellow/red) | MONITOR SENDS (playback ch 5-8, green/yellow/red) | SOURCE (capture ch 2-7, cyan #00BCD4, dimmed when silent).
-- MAIN meters are wider (48px vs 36px) and use a distinct white/silver color scheme to visually anchor the display. They represent the primary mix bus entering CamillaDSP.
+- MAIN meters are wider (48px vs 36px) and use a distinct white/silver color scheme to visually anchor the display. They represent the primary mix bus entering the convolver.
 - All meters always visible in fixed positions. Silent meters are dimmed, never hidden. Spatial memory is more important than space savings for live sound monitoring (owner/AE/AD consensus, TK-095).
 - 20px health bar above meters provides condensed system health with inline gauges (CPU, temp, memory, DSP load). Expandable to full System view for diagnostics.
 - SPL hero display (42px font) + LUFS readouts in 180px right panel. Stage 2 placeholder.
@@ -428,7 +522,7 @@ Stage 1 (implemented, TK-093 + TK-095):
 **Future extensibility:** When ADA8200 input monitoring is added (US-035, TK-096), a fifth group "INPUTS" appears to the left of MAIN. Signal-flow order becomes: INPUTS | MAIN | PA SENDS | MONITOR SENDS | SOURCE. This adds 2 meters (VOC = vocal mic, SPARE = spare mic/line) via a dedicated JACK client reading USBStreamer capture channels. Requires Pi + USBStreamer + ADA8200 hardware -- not pure software.
 
 **Interaction:**
-- Gain faders: slider per output channel (engineer only). Sends gain change to CamillaDSP via pycamilladsp.
+- Gain faders: slider per output channel (engineer only). Post-D-040, gain is applied via the filter-chain convolver's `linear` builtin Mult params (set in `30-filter-chain-convolver.conf`). Runtime gain changes require `pw-cli` or GraphManager RPC (future enhancement).
 - Mute toggles: per output channel. Visual indicator (red "M" badge on muted channel).
 - No drag-and-drop, no modal dialogs during performance. All controls are direct manipulation.
 
@@ -468,7 +562,7 @@ Stage 1 (implemented, TK-093 + TK-095):
 - Dark theme -- usable in dim stage lighting. High contrast text on dark background.
 - Mute toggle at bottom -- requires long-press (500ms) to activate/deactivate. Prevents accidental muting during performance.
 - Slider debounce: 50ms. Changes sent via WebSocket after debounce, server forwards to Reaper OSC.
-- IEM L/R meters at the bottom show current output level (from pycamilladsp playback ch 7-8). Read-only feedback so the singer sees the effect of her adjustments.
+- IEM L/R meters at the bottom show current output level (from pcm-bridge level metering, USBStreamer AUX6-7). Read-only feedback so the singer sees the effect of her adjustments.
 - No access to PA controls, no spectrograph, no system health. Singer sees ONLY what she needs.
 
 **Design tokens:**
@@ -525,13 +619,13 @@ Key behavior: on disconnect, the singer sees a clear "your mix is unchanged" mes
 
 ## 11. Operational Constraints
 
-1. **Single uvicorn worker.** No multiprocessing. The JACK client, pycamilladsp client, and OSC client all live in the same process. asyncio event loop handles concurrency.
+1. **Single uvicorn worker.** No multiprocessing. The FilterChainCollector, TCP relays, and OSC client all live in the same process. asyncio event loop handles concurrency.
 
-2. **SCHED_OTHER priority.** The web server runs at default scheduling priority. It must never compete with CamillaDSP (SCHED_FIFO 80) or PipeWire (SCHED_FIFO 83-88) for CPU time.
+2. **SCHED_OTHER priority.** The web server runs at default scheduling priority. It must never compete with PipeWire (SCHED_FIFO 83-88) or the PW filter-chain convolver for CPU time.
 
 3. **No disk I/O in hot paths.** Log to journald (already in memory on this system). No file writes from WebSocket handlers or polling loops.
 
-4. **Graceful degradation.** If CamillaDSP is unreachable, the web UI shows stale data with a "disconnected" indicator. It does not crash or spin-retry aggressively.
+4. **Graceful degradation.** If GraphManager is unreachable, the FilterChainCollector reports `state: "Disconnected"` and the web UI shows a disconnected indicator. Reconnection uses exponential backoff (1s -> 2s -> 4s -> 8s, capped at 15s). It does not crash or spin-retry aggressively.
 
 5. **Server-authoritative state.** On WebSocket reconnect, server pushes full state snapshot. Client never trusts cached values from a previous session.
 
@@ -539,9 +633,9 @@ Key behavior: on disconnect, the singer sees a clear "your mix is unchanged" mes
 
 7. **Font bundling.** All fonts bundled in the static assets. No Google Fonts or external font loading.
 
-8. **WebSocket send queue cap (AD residual risk).** Each WebSocket connection has a send queue capped at 32 frames. If the consumer (browser) falls behind (e.g., WiFi degradation), the server drops oldest frames rather than buffering unboundedly. This prevents memory growth on the Pi. The JACK ring buffer is independent -- audio capture continues regardless of WebSocket state.
+8. **WebSocket send queue cap (AD residual risk).** Each WebSocket connection has a send queue capped at 32 frames. If the consumer (browser) falls behind (e.g., WiFi degradation), the server drops oldest frames rather than buffering unboundedly. This prevents memory growth on the Pi. The pcm-bridge ring buffer is independent -- audio capture continues regardless of WebSocket state.
 
-9. **JACK callback benchmark (AD residual risk).** Before deploying the spectrograph (Stage 2), the JACK process callback must be benchmarked on the Pi to confirm it completes in < 500 microseconds. The callback performs only a memcpy into the ring buffer. If the benchmark fails (unlikely for a 3-channel memcpy of 3072 bytes), the spectrograph path must be redesigned. This is a gate for Stage 2, not Stage 1.
+9. **pcm-bridge RT callback (AD residual risk).** The pcm-bridge's PipeWire process callback must complete within the quantum period. The callback performs only a memcpy into the ring buffer and atomic level meter updates -- no allocation, no syscall, no logging. This is verified by the lock-free design in `levels.rs` and `ring_buffer.rs`.
 
 ## 12. HTTPS Requirement (D-032)
 
@@ -604,9 +698,9 @@ The systemd service sets the following environment:
 ### Priority and Resource Isolation
 
 The service runs at `Nice=10` (lower priority than default processes) to
-ensure it never competes with CamillaDSP (SCHED_FIFO 80) or PipeWire
-(SCHED_FIFO 83-88) for CPU time. This is in addition to the SCHED_OTHER
-scheduling class (constraint 2 in Section 11).
+ensure it never competes with PipeWire (SCHED_FIFO 83-88) or the filter-chain
+convolver for CPU time. This is in addition to the SCHED_OTHER scheduling
+class (constraint 2 in Section 11).
 
 ## 13. Backend Collector Architecture
 
@@ -616,54 +710,80 @@ Collectors are instantiated and started during FastAPI application startup
 asyncio polling loop and exposes a snapshot method for the WebSocket handlers
 to read.
 
-### CamillaDSPCollector (`app/collectors/camilladsp_collector.py`)
+### FilterChainCollector (`app/collectors/filterchain_collector.py`, US060-1)
 
-**Source:** pycamilladsp client connecting to CamillaDSP's websocket API at
-`127.0.0.1:1234`.
+**Source:** Async TCP client connecting to GraphManager's JSON-over-TCP RPC
+at `127.0.0.1:4002`. Replaces the CamillaDSPCollector (D-040, commits
+`07e6e0a`, `60953c4`).
 
-**Two polling loops:**
-- **Levels at 20 Hz (50ms):** Calls `client.levels.levels_since_last()` for
-  8-channel capture/playback RMS and peak values. Drives the `/ws/monitoring`
-  endpoint's level meter data.
-- **Status at 2 Hz (500ms):** Calls `client.general.state()`,
-  `client.status.processing_load()`, `client.status.buffer_level()`,
-  `client.status.clipped_samples()`, `client.status.rate_adjust()`, and
-  `client.rate.capture()`. Drives the DSP health section of both
-  `/ws/monitoring` and `/ws/system`.
+**Single polling loop at 2 Hz (500ms):**
+- `get_links`: returns `{mode, desired, actual, missing, links[]}`. Drives
+  the link health section of both `/ws/monitoring` and `/ws/system`.
+- `get_state`: returns `{mode, nodes[], links[], devices{}}`. Provides
+  convolver presence and device status.
 
-**Connection lifecycle:** Connect on startup. If CamillaDSP is unreachable,
-reconnect with exponential backoff (1s -> 2s -> 4s -> 8s, capped at 15s).
-During disconnection, snapshots include `cdsp_connected: false` and all
-levels default to -120 dB so the frontend shows a disconnected state with
-meters at minimum.
+**Derived health mapping:**
+- `state = "Running"`: non-monitoring mode, all links present (`missing == 0`)
+- `state = "Idle"`: monitoring mode (no production links active)
+- `state = "Degraded"`: non-monitoring mode, `missing > 0`
+- `state = "Disconnected"`: GraphManager unreachable
+- `buffer_level`: link health as percentage (`100 * actual / desired`)
 
-**Graceful degradation:** All 8 channels are zero-padded to 8 if CamillaDSP
-reports fewer (e.g., during config transitions).
+**Connection lifecycle:** Connect on startup via `asyncio.open_connection()`
+with a 5-second timeout. If GraphManager is unreachable, reconnect with
+exponential backoff (1s -> 2s -> 4s -> 8s, capped at 15s). During
+disconnection, snapshots include `gm_connected: false` and all levels
+default to -120 dB so the frontend shows a disconnected state.
+
+**Wire-format compatibility:** The `monitoring_snapshot()` and
+`dsp_health_snapshot()` methods return data shaped to match the original
+CamillaDSPCollector's wire format (key name `camilladsp`, fields like
+`processing_load`, `buffer_level`, etc.). This allows the existing frontend
+to consume the data without changes. New `gm_*` fields (`gm_mode`,
+`gm_links_desired`, `gm_links_actual`, `gm_links_missing`,
+`gm_convolver`) carry GraphManager-specific health data.
+
+**Note on levels:** The FilterChainCollector does NOT provide audio levels.
+Per-channel peak/RMS data comes from the pcm-bridge level metering server
+(US060-3). The FilterChainCollector focuses on link topology health and
+mode state.
 
 ### PcmStreamCollector (`app/collectors/pcm_collector.py`)
 
-**Source:** JACK client registered via PipeWire's JACK bridge. Captures from
-CamillaDSP's monitor taps (`CamillaDSP.*:monitor.*` port pattern).
+**Source:** TCP relay to pcm-bridge instances. The pcm-bridge is a Rust
+binary that registers as a PipeWire client, captures audio from a target
+node, and serves framed binary PCM over TCP. The web UI relays TCP data to
+WebSocket clients via `_pcm_tcp_relay()` in `app/main.py`.
 
-**Ring buffer:** Pre-allocated numpy array, 8192 frames x 3 channels x
-float32 = 96 KB. Single-producer (JACK RT callback), single-consumer
-(asyncio WebSocket sender). Lock-free: the JACK callback does only numpy
-slice assignment (C-level memcpy) and integer arithmetic. No logging, no
-malloc, no syscalls in the RT callback path.
+**PCM source mapping (PCM-MODE-2):** The `PI4AUDIO_PCM_SOURCES` environment
+variable maps source names to pcm-bridge TCP addresses:
 
-**Per-client streaming:** Each connected WebSocket client in `/ws/pcm` gets
-its own read position into the shared ring buffer. Multiple clients consume
-independently. If a client falls behind, the write pointer overwrites old
-data (ring semantics).
+```json
+{"monitor": "tcp:127.0.0.1:9090", "capture-usb": "tcp:127.0.0.1:9091"}
+```
 
-**Binary frame format:** 4-byte LE uint32 header (frame count, always 256) +
-interleaved float32 samples (256 frames x 3 channels x 4 bytes = 3072 bytes).
-Total frame size: 3076 bytes. At 48 kHz / 256 frames per chunk = 187.5
-chunks/sec = ~576 KB/s per client.
+Default: `{"monitor": "tcp:127.0.0.1:9090"}` (convolver input, 4 channels).
 
-**Platform guard:** On non-Linux platforms (`sys.platform != "linux"`), the
-JACK client is not started and PCM streaming is unavailable. The `/ws/pcm`
-endpoint returns close code 1008.
+**pcm-bridge ring buffer:** Pre-allocated in Rust, configurable size. The PW
+process callback writes interleaved float32 samples. Per-client TCP reader
+threads consume independently from the shared ring buffer. Lock-free: the PW
+callback does only a memcpy. No logging, no malloc, no syscalls in the RT
+callback path.
+
+**Binary frame format:** 4-byte LE uint32 header (frame count) + interleaved
+float32 samples. For the `monitor` instance (4 channels, quantum 256):
+256 frames x 4 channels x 4 bytes = 4096 bytes + 4 byte header = 4100 bytes.
+At 48 kHz / 256 frames per chunk = 187.5 chunks/sec = ~768 KB/s per client.
+
+**Platform guard:** On non-Linux platforms, the pcm-bridge is not available.
+Mock mode provides synthetic PCM data via `mock_pcm.py`. In production, the
+`/ws/pcm` endpoint delegates to the `monitor` pcm-bridge instance; if
+unavailable, returns close code 1008.
+
+**Legacy JACK collector fallback:** The `/ws/pcm` endpoint falls back to the
+legacy JACK-based PcmStreamCollector if no pcm-bridge `monitor` source is
+configured. This path is retained for backward compatibility but is expected
+to be removed once pcm-bridge is fully deployed.
 
 ### SystemCollector (`app/collectors/system_collector.py`)
 
@@ -676,7 +796,7 @@ endpoint returns close code 1008.
 - Per-core CPU usage: `/proc/stat` (delta between polls, idle vs total ticks)
 - Memory: `/proc/meminfo` (MemTotal, MemAvailable)
 - Per-process CPU: `/proc/{pid}/comm` + `/proc/{pid}/stat` for tracked
-  processes (mixxx, reaper, camilladsp, pipewire, labwc)
+  processes (mixxx, reaper, pi4audio-graph-manager, pipewire, labwc)
 
 **Platform fallback:** On non-Linux (macOS development), returns zero values
 for all metrics.
@@ -694,7 +814,7 @@ the second pass has real values.
 - Sample rate
 - Total xruns (ERR column)
 - Graph state (running/unknown)
-- Scheduling policy and RT priority for PipeWire and CamillaDSP processes
+- Scheduling policy and RT priority for PipeWire and GraphManager processes
   (read from `/proc/{pid}/stat` fields 38-39)
 
 **Platform fallback:** On non-Linux, returns defaults (quantum 256, rate
@@ -702,25 +822,25 @@ the second pass has real values.
 
 ## 14. Implementation Stages
 
-### Stage 1: Level Meters + System Health (no JACK, no OSC)
+### Stage 1: Level Meters + System Health (D-040 architecture)
 - FastAPI server with static file serving
-- pycamilladsp polling for level meters (Streams 1-2)
-- DSP health polling (Stream 4) and system health polling (Stream 5)
+- FilterChainCollector polling GraphManager RPC for link health (Stream 4)
+- pcm-bridge level metering for per-channel peak/RMS (Streams 1-2)
+- System health polling (Stream 5)
 - Authentication and role-based access
-- Engineer dashboard: 16 meters (8 capture + 8 playback) + health panel
-- Singer view: IEM L/R meters (read-only, playback ch 7-8)
-- **Gate:** Server runs for 1 hour alongside CamillaDSP + Reaper with 0 xruns and < 2% additional CPU.
+- Engineer dashboard: convolver input meters (4 ch) + health panel
+- Singer view: IEM L/R meters (read-only, from pcm-bridge)
+- **Gate:** Server runs for 1 hour alongside PW filter-chain + Reaper with 0 xruns and < 2% additional CPU.
 
-### Stage 2: Spectrograph (adds JACK)
-- JACK client with ring buffer for PCM capture
+### Stage 2: Spectrograph (adds pcm-bridge PCM streaming)
+- pcm-bridge TCP relay for binary PCM capture
 - Binary WebSocket streaming (Stream 3)
 - Browser JS FFT spectrum renderer (Blackman-Harris window + radix-2 FFT)
-- **Pre-gate:** JACK callback benchmark confirms < 500 us (constraint 9)
 - **Gate:** 30-minute test with spectrograph active -- 0 xruns, < 0.3% total web UI CPU.
 
-### Stage 3: CamillaDSP Control (adds write operations)
-- Engineer gain/mute controls via pycamilladsp write API
-- Configuration display (active config, filter files, mode)
+### Stage 3: GraphManager Control (adds write operations)
+- Engineer mode switching via GraphManager RPC (set_mode)
+- Configuration display (active mode, link topology, device status)
 - **Gate:** Security specialist review of write path isolation.
 
 ### Stage 4: IEM Control (adds Reaper OSC)
@@ -740,7 +860,7 @@ The Stage 1 dashboard underwent three review cycles after TK-093 (dense redesign
 
 **MAIN meters as primary visual anchor.** The AE clarified that capture channels 0-1 (the Loopback mix bus from Reaper/Mixxx) are the most-watched meters during operation. They were promoted from generic "In L / In R" labels to "ML / MR" (MAIN), placed first in the layout, rendered at 48px width (vs 36px for other meters), and given a distinct white/silver color scheme. This makes the primary mix bus immediately identifiable.
 
-**Signal path clarification.** Both DJ mode and live mode capture from the ALSA Loopback device (`hw:Loopback,1,0`). CamillaDSP does NOT capture from the USBStreamer input. The ADA8200's mic preamps on channels 1-2 are ADC inputs that feed the USBStreamer's capture side -- they are a separate signal path entirely. Dashboard meters for ADA8200 inputs require a dedicated JACK client reading USBStreamer capture channels (US-035, TK-096). This is not a Stage 1 feature.
+**Signal path clarification (updated D-040).** Post-D-040, audio routes directly from Mixxx/Reaper through PipeWire links to the convolver input -- no ALSA Loopback. GraphManager manages the link topology per mode (DJ: 12 links, Live: up to 22 links). The ADA8200's mic preamps on channels 1-2 are ADC inputs that feed the USBStreamer's capture side -- they are a separate signal path metered via the `capture-usb` pcm-bridge instance (US-035, TK-096).
 
 **SPL metering design.** The UMIK-1 measurement microphone provides continuous SPL data (dBA and dBC). The SPL hero display occupies the right panel with a 42px readout, above LUFS placeholders. The full SPL metering design (including A/C weighting filters, Leq computation, and UMIK-1 calibration pipeline) is documented in `docs/architecture/web-ui-monitoring-plan.md` Section 3.
 
