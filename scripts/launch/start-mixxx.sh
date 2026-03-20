@@ -28,6 +28,8 @@ attempt=0
 while [ "$attempt" -lt "$MAX_RETRIES" ]; do
     if pw-jack jack_lsp > /dev/null 2>&1; then
         echo "JACK bridge ready, launching Mixxx"
+        # Auto-connect suppressed via jack.conf rule (80-jack-no-autoconnect.conf).
+        # Routing script (pi4audio-dj-routing) creates all links (D-001).
         exec pw-jack mixxx "$@"
     fi
     attempt=$((attempt + 1))

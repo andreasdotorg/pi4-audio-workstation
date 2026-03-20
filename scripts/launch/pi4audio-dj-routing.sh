@@ -15,7 +15,7 @@ CONVOLVER_OUT="pi4audio-convolver-out"
 USBSTREAMER_PREFIX="alsa_output.usb-MiniDSP_USBStreamer"
 MIXXX_PREFIX="Mixxx"
 
-MAX_WAIT=30   # seconds
+MAX_WAIT=90   # seconds (Mixxx needs ~40s to register JACK ports on Pi4)
 
 # --- helpers ---
 
@@ -47,6 +47,22 @@ link() {
     pw-link "$src" "$dst" 2>/dev/null || true
 }
 
+# Disconnect all direct links from a Mixxx output port to USBStreamer input ports.
+# Mixxx auto-connect creates bypass links (Mixxx → USBStreamer) that skip the
+# convolver.  This function removes them.  pw-link -d silently succeeds if the
+# link doesn't exist.
+disconnect_mixxx_bypass() {
+    local mixxx="$1"
+    local usb="$2"
+    # Try all plausible auto-connect pairings.
+    # Mixxx exposes 6 JACK outputs (out_0..out_5: master, headphones, booth).
+    for out in 0 1 2 3 4 5 6 7; do
+        for ch in 0 1 2 3 4 5 6 7; do
+            pw-link -d "${mixxx}:out_${out}" "${usb}:playback_AUX${ch}" 2>/dev/null || true
+        done
+    done
+}
+
 # --- Phase 1: wait for infrastructure nodes ---
 
 echo "Waiting for convolver and USBStreamer..."
@@ -69,6 +85,13 @@ wait_for_port -o "$MIXXX_PREFIX"
 
 MIXXX_NODE=$(resolve_node -o "$MIXXX_PREFIX")
 echo "Mixxx node: $MIXXX_NODE"
+
+# --- Phase 2a: remove any auto-connected Mixxx links (D-001) ---
+# Mixxx (or WirePlumber) may auto-connect Mixxx outputs directly to the
+# USBStreamer, bypassing the convolver.  Remove all such links before
+# creating the correct topology.
+disconnect_mixxx_bypass "$MIXXX_NODE" "$USB_NODE"
+echo "Cleaned up any auto-connected Mixxx → USBStreamer bypass links"
 
 # Mixxx master → convolver mains (1:1)
 # Ch 1 (Master L) → convolver ch 1 (left wideband)
