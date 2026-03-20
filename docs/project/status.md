@@ -367,3 +367,4 @@ See `docs/project/defects.md` for full details.
 - D-040: Abandon CamillaDSP — pure PipeWire filter-chain pipeline. BM-2 PASS (1.70% CPU) triggered this. US-056/057 cancelled, US-059 unblocked (2026-03-16)
 - D-041: One-based channel and port indexing universally — owner directive. Audio world convention (ch 1-8, not ch 0-7). GraphManager maps app-specific port names to canonical one-based identities (2026-03-17)
 - D-042: q1024 default for all modes until q256 production-stable — owner directive. Amends D-011 dual quantum. Both DJ and Live at q1024. q256 improvement track continues but not production default (2026-03-17)
+- D-043: Amend D-039 — WirePlumber retained for device management, linking disabled. WP provides ALSA device enumeration/format negotiation/profile activation; linking scripts disabled via `90-no-auto-link.conf`. GraphManager is sole link manager, destroys JACK bypass links. Supersedes C-008 WP masking (2026-03-20)

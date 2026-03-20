@@ -975,3 +975,89 @@ the ~25ms slapback threshold).
 **Related:** D-011 (dual quantum), F-033 (Reaper JACK bridge RT), TK-243
 (force-quantum service), TP-006 (Reaper soak results), C-006 (latency
 characterization).
+
+---
+
+## D-043: Amend D-039 — WirePlumber retained for device management, linking disabled (2026-03-20)
+
+**Context:** D-039 (2026-03-16) stated "No WirePlumber — GraphManager is the
+sole PipeWire session manager." Implementation revealed that PipeWire ALSA
+adapter nodes require a session manager to negotiate formats and set
+`SPA_PARAM_PortConfig` before exposing ports. Without this, adapter nodes
+(USBStreamer, ada8200-in) exist in the graph but have zero ports — no audio
+routing is possible.
+
+This was first discovered during GM-12 (Finding 2: "ALL PipeWire nodes went
+to suspended state with 0 ports" after masking WirePlumber). It was
+rediscovered during US-062 D-001 reboot testing when a clean boot with WP
+masked produced the same failure. The C-008 masking had worked during O-015
+and O-017 soak tests only because WP had already activated the nodes in a
+prior session before being masked.
+
+A second issue emerged: JACK clients (Mixxx via `pw-jack`) internally call
+`jack_connect()` to physical ports on activation, creating bypass links that
+route raw audio directly to the USBStreamer alongside the intended convolver-
+routed path. This is independent of any session manager — it occurs inside
+PipeWire's `libjack-pw.so` JACK compatibility layer. Neither WP auto-linking
+suppression nor environment variables (`PIPEWIRE_PROPS`, `PIPEWIRE_AUTOCONNECT`,
+`jack.conf` rules) prevent this. The bypass links must be actively destroyed.
+
+**Decision:** Amend D-039 point 3. The revised architecture:
+
+1. **WirePlumber provides device-level services** — ALSA device enumeration,
+   format negotiation, `SPA_PARAM_PortConfig`, profile activation (pro-audio
+   8-channel mode for USBStreamer), and USB hot-plug lifecycle. WP's linking
+   scripts are disabled via `~/.config/wireplumber/wireplumber.conf.d/
+   90-no-auto-link.conf` (WP 0.5.8 profile component overrides).
+
+2. **GraphManager is the sole link manager.** No other component creates or
+   destroys application links. GraphManager's reconciler (Phase 2) actively
+   destroys links that are not in the desired set for the current mode,
+   including JACK client bypass links. This is the production solution for
+   the bypass link problem.
+
+3. **Three auto-connect mechanisms exist; all three are addressed:**
+   - **WP session-manager linking** (default sink policy): disabled via
+     `90-no-auto-link.conf`.
+   - **PipeWire stream `AUTOCONNECT` flag** (native PW clients): suppressed
+     via `node.autoconnect = false` on convolver and USBStreamer nodes
+     (already in static PipeWire configs).
+   - **JACK client `jack_connect()` to physical ports** (Mixxx, Reaper):
+     cannot be suppressed at the source. Handled by GraphManager reconciler
+     destroying the bypass links after they appear. Interim: routing script
+     `pw-link -d` cleanup.
+
+**Rationale:** WirePlumber's ALSA monitor is ~3000 lines of battle-tested
+code handling device enumeration, profile selection, format negotiation, and
+hot-plug lifecycle. Reimplementing this in GraphManager would cost 2-4 days
+of engineering for a less robust result, and would not solve the JACK client
+bypass link problem (which is independent of the session manager). The
+amended architecture preserves D-039's intent — no auto-linking conflicts —
+while using the right tool for each layer: WP for device management,
+GraphManager for link management.
+
+**Consequences:**
+
+1. WirePlumber is unmasked and starts with PipeWire (`systemctl --user
+   unmask wireplumber`).
+2. WP config `50-usbstreamer-disable-acp.conf` (`device.disabled = true`)
+   must be reviewed — it prevents WP from managing the USBStreamer device.
+   If static PipeWire adapter configs (`20-usbstreamer.conf`,
+   `21-usbstreamer-playback.conf`) are retained, WP must not create
+   duplicate nodes. If WP manages the adapters, the static configs must
+   be removed and WP `monitor.alsa.rules` must inject the required
+   properties (`node.group`, `node.driver`, `priority.driver`, etc.).
+3. Boot ordering: `pipewire.service` -> `wireplumber.service` ->
+   `pi4audio-graph-manager.service` -> `mixxx.service`. GM starts after
+   WP has activated ports. GM's convergent reconciler handles any
+   remaining timing gaps.
+4. US-059 DoD #5 ("WP removed — C-008: stopped+masked") is superseded.
+   WP is retained with linking disabled, not removed.
+5. D-039 points 1 and 2 (daemon subsystem, WHAT not HOW) are unchanged.
+
+**Amends:** D-039 point 3 only. D-039 points 1 and 2 remain in effect.
+Supersedes C-008 (WP masking). US-059 DoD #5 wording updated.
+
+**Related:** D-039 (original), GM-12 Finding 2 (no ports without WP),
+GM-12 Finding 11 (WP auto-linking bypass), US-062 D-001 (reboot test),
+C-008 (WP masking), F-033 (JACK bridge RT promotion).
