@@ -1,9 +1,9 @@
 //! pi4audio-signal-gen -- RT signal generator for measurement and test tooling.
 //!
-//! Maintains an always-on PipeWire playback stream (targeting the loopback sink
-//! that feeds CamillaDSP) and a capture stream (targeting the UMIK-1). Signal
-//! content is controlled via a JSON-over-TCP RPC interface without ever closing
-//! or reopening the audio streams.
+//! Maintains an always-on PipeWire playback stream and a capture stream
+//! (targeting the UMIK-1). In managed mode (D-040), GraphManager controls
+//! all link topology. Signal content is controlled via a JSON-over-TCP RPC
+//! interface without ever closing or reopening the audio streams.
 //!
 //! This eliminates TK-224's root cause: WirePlumber routing races caused by
 //! per-burst stream opening in the Python measurement pipeline.
@@ -54,8 +54,8 @@ use safety::SafetyLimits;
 #[derive(Parser, Debug)]
 #[command(name = "pi4audio-signal-gen", version)]
 struct Args {
-    /// PipeWire playback target node name.
-    #[arg(long, default_value = "loopback-8ch-sink")]
+    /// PipeWire playback target node name (unused in --managed mode).
+    #[arg(long, default_value = "")]
     target: String,
 
     /// PipeWire capture target node name (UMIK-1).
@@ -731,11 +731,12 @@ fn run_pipewire(
         "media.class" => "Stream/Output/Audio",
         "node.name" => "pi4audio-signal-gen",
         "node.description" => "RT Signal Generator",
+        "node.group" => "pi4audio.usbstreamer",
         "audio.channels" => &*channels_str,
         "audio.position" => "AUX0,AUX1,AUX2,AUX3,AUX4,AUX5,AUX6,AUX7",
         "node.always-process" => "true",
     };
-    if !args.managed {
+    if !args.managed && !args.target.is_empty() {
         playback_props.insert("target.object", &*args.target);
     }
 
@@ -868,6 +869,8 @@ fn run_pipewire(
 
     if args.managed {
         info!("PipeWire playback stream connected (managed mode, no AUTOCONNECT)");
+    } else if args.target.is_empty() {
+        info!("PipeWire playback stream connected (default routing)");
     } else {
         info!("PipeWire playback stream connected (target: {})", args.target);
     }
@@ -883,11 +886,12 @@ fn run_pipewire(
         "media.class" => "Stream/Input/Audio",
         "node.name" => "pi4audio-signal-gen-capture",
         "node.description" => "RT Signal Generator (UMIK-1 capture)",
+        "node.group" => "pi4audio.usbstreamer",
         "audio.channels" => "1",
         "audio.position" => "MONO",
         "node.always-process" => "true",
     };
-    if !args.managed {
+    if !args.managed && !args.capture_target.is_empty() {
         capture_props.insert("target.object", &*args.capture_target);
     }
 
@@ -1124,6 +1128,12 @@ fn run_rpc_server(
 }
 
 /// Handle a single RPC client connection.
+///
+/// Uses non-blocking I/O on the TCP stream (BUG-SG12-2 fix). The previous
+/// implementation used a 100ms read timeout, causing up to 100ms latency
+/// between data arrival and processing. Now the stream is non-blocking:
+/// we poll for data, state updates, and device events in a tight loop,
+/// sleeping only when idle (no work to do) to avoid busy-waiting.
 fn handle_client(
     stream: TcpStream,
     cmd_queue: &CommandQueue,
@@ -1135,8 +1145,8 @@ fn handle_client(
     max_level_dbfs: f64,
     latest_state: &mut StateSnapshot,
 ) {
-    if let Err(e) = stream.set_read_timeout(Some(Duration::from_millis(100))) {
-        warn!("Failed to set read timeout: {}", e);
+    if let Err(e) = stream.set_nonblocking(true) {
+        warn!("Failed to set non-blocking on client stream: {}", e);
     }
 
     let mut reader = BufReader::new(stream.try_clone().unwrap_or_else(|e| {
@@ -1152,6 +1162,8 @@ fn handle_client(
             break;
         }
 
+        let mut did_work = false;
+
         // Poll state queue for updates.
         while let Some(snap) = state_queue.pop() {
             *latest_state = snap;
@@ -1160,6 +1172,7 @@ fn handle_client(
             if write_line(&mut writer, &broadcast).is_err() {
                 return; // Client disconnected.
             }
+            did_work = true;
         }
 
         // Poll device event queue for hot-plug / xrun events.
@@ -1168,13 +1181,15 @@ fn handle_client(
             if write_line(&mut writer, &event_json).is_err() {
                 return; // Client disconnected.
             }
+            did_work = true;
         }
 
-        // Read a line from the client.
+        // Read a line from the client (non-blocking).
         line_buf.clear();
         match reader.read_line(&mut line_buf) {
             Ok(0) => return, // EOF — client disconnected.
             Ok(_) => {
+                did_work = true;
                 let line = line_buf.trim();
                 if line.is_empty() {
                     continue;
@@ -1213,16 +1228,20 @@ fn handle_client(
                     return;
                 }
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-                || e.kind() == std::io::ErrorKind::TimedOut =>
-            {
-                // Read timeout — go back to polling state queue.
-                continue;
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No data available — not an error, just nothing to read yet.
             }
             Err(e) => {
                 warn!("RPC read error: {}", e);
                 return;
             }
+        }
+
+        // Sleep briefly only when idle to avoid busy-waiting.
+        // When there is work (data, state updates, events), we loop
+        // immediately for minimal latency.
+        if !did_work {
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 }
@@ -1379,7 +1398,7 @@ mod tests {
 
     fn make_args(listen: &str, max_level_dbfs: f64) -> Args {
         Args {
-            target: "loopback-8ch-sink".into(),
+            target: "".into(),
             capture_target: "UMIK-1".into(),
             channels: 8,
             rate: 48000,
