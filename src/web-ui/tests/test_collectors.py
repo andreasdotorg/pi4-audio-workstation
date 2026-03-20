@@ -1,4 +1,4 @@
-"""Tests for backend collectors — pipewire, camilladsp, system, pcm.
+"""Tests for backend collectors — pipewire, camilladsp, filterchain, system, pcm.
 
 Covers:
     - PipeWireCollector._parse_pw_top() with captured output samples
@@ -6,10 +6,12 @@ Covers:
     - _build_system_snapshot() shape validation
     - _read_scheduling() field indexing with synthetic /proc data
     - CamillaDSPCollector monitoring_snapshot() 8-channel padding
-    - Fallback snapshots for all 4 collectors
+    - FilterChainCollector snapshot shapes and state derivation
+    - Fallback snapshots for all 5 collectors
 
-All tests run on macOS (no /proc, no pw-top, no JACK, no CamillaDSP).
-System calls are mocked via unittest.mock.
+All tests run on macOS (no /proc, no pw-top, no JACK, no CamillaDSP,
+no GraphManager).  System calls and connections are mocked via
+unittest.mock.
 
 Run:
     cd src/web-ui
@@ -23,6 +25,7 @@ import pytest
 
 from app.collectors.pipewire_collector import PipeWireCollector
 from app.collectors.camilladsp_collector import CamillaDSPCollector
+from app.collectors.filterchain_collector import FilterChainCollector
 from app.collectors.system_collector import SystemCollector
 from app.collectors.pcm_collector import PcmStreamCollector
 from app.mock.mock_data import MockDataGenerator
@@ -49,6 +52,11 @@ def sys_collector():
 @pytest.fixture
 def pcm_collector():
     return PcmStreamCollector()
+
+
+@pytest.fixture
+def fc_collector():
+    return FilterChainCollector()
 
 
 @pytest.fixture
@@ -627,3 +635,194 @@ class TestFallbackSnapshots:
         assert "spectrum" in snap
         assert "bands" in snap["spectrum"]
         assert len(snap["spectrum"]["bands"]) == 31
+
+    def test_filterchain_disconnected_snapshot(self, fc_collector):
+        """FilterChainCollector should return disconnected state initially."""
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["state"] == "Disconnected"
+        assert snap["processing_load"] == 0.0
+        assert snap["xruns"] == 0
+        assert snap["rate_adjust"] == 1.0
+        assert snap["buffer_level"] == 0
+        assert snap["chunksize"] == 0
+        assert snap["cdsp_connected"] is False
+
+    def test_filterchain_monitoring_fallback_has_spectrum(self, fc_collector):
+        """Disconnected FilterChainCollector monitoring should include spectrum."""
+        snap = fc_collector.monitoring_snapshot()
+        assert "spectrum" in snap
+        assert "bands" in snap["spectrum"]
+        assert len(snap["spectrum"]["bands"]) == 31
+
+
+# ── 7. FilterChainCollector state derivation ─────────────────
+
+class TestFilterChainStateDrivation:
+
+    def test_disconnected_when_no_links(self, fc_collector):
+        """Before any GM connection, state is Disconnected."""
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["state"] == "Disconnected"
+        assert snap.get("gm_connected") is None or snap["gm_connected"] is False
+
+    def test_running_when_all_links_ok(self, fc_collector):
+        """With all links present, state is Running."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "dj",
+            "desired": 12,
+            "actual": 12,
+            "missing": 0,
+            "links": [],
+        }
+        fc_collector._state = {
+            "ok": True,
+            "mode": "dj",
+            "devices": {"convolver": "present"},
+        }
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["state"] == "Running"
+        assert snap["gm_connected"] is True
+        assert snap["gm_links_desired"] == 12
+        assert snap["gm_links_actual"] == 12
+        assert snap["gm_links_missing"] == 0
+
+    def test_degraded_when_links_missing(self, fc_collector):
+        """With some links missing, state is Degraded."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "dj",
+            "desired": 12,
+            "actual": 10,
+            "missing": 2,
+            "links": [],
+        }
+        fc_collector._state = None
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["state"] == "Degraded"
+        assert snap["gm_links_missing"] == 2
+
+    def test_idle_in_monitoring_mode(self, fc_collector):
+        """In monitoring mode (no active routing), state is Idle."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "monitoring",
+            "desired": 0,
+            "actual": 0,
+            "missing": 0,
+            "links": [],
+        }
+        fc_collector._state = None
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["state"] == "Idle"
+        assert snap["gm_mode"] == "monitoring"
+
+    def test_buffer_level_percentage(self, fc_collector):
+        """buffer_level should be percentage of actual/desired links."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "dj",
+            "desired": 12,
+            "actual": 9,
+            "missing": 3,
+            "links": [],
+        }
+        fc_collector._state = None
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["buffer_level"] == 75  # 9/12 = 75%
+
+    def test_buffer_level_zero_when_no_desired(self, fc_collector):
+        """buffer_level=0 when desired=0 (monitoring mode)."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "monitoring",
+            "desired": 0,
+            "actual": 0,
+            "missing": 0,
+            "links": [],
+        }
+        fc_collector._state = None
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["buffer_level"] == 0
+
+    def test_convolver_status_from_devices(self, fc_collector):
+        """gm_convolver should reflect device status from get_state."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "dj",
+            "desired": 12,
+            "actual": 12,
+            "missing": 0,
+            "links": [],
+        }
+        fc_collector._state = {
+            "ok": True,
+            "devices": {"convolver": "present"},
+        }
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["gm_convolver"] == "present"
+
+    def test_convolver_unknown_without_state(self, fc_collector):
+        """gm_convolver defaults to 'unknown' without state data."""
+        fc_collector._connected = True
+        fc_collector._links = {
+            "ok": True,
+            "mode": "dj",
+            "desired": 12,
+            "actual": 12,
+            "missing": 0,
+            "links": [],
+        }
+        fc_collector._state = None
+        snap = fc_collector.dsp_health_snapshot()
+        assert snap["gm_convolver"] == "unknown"
+
+
+# ── 8. FilterChainCollector wire-format compat ───────────────
+
+class TestFilterChainWireFormat:
+
+    def test_monitoring_keys_match_cdsp(self, fc_collector, cdsp_collector):
+        """FilterChainCollector monitoring_snapshot() must have the same
+        top-level keys as CamillaDSPCollector for drop-in compatibility."""
+        cdsp_snap = cdsp_collector.monitoring_snapshot()
+        fc_snap = fc_collector.monitoring_snapshot()
+        for key in cdsp_snap:
+            assert key in fc_snap, (
+                f"Key '{key}' in CamillaDSP monitoring but missing "
+                f"from FilterChainCollector"
+            )
+
+    def test_monitoring_level_arrays_length_8(self, fc_collector):
+        """All level arrays must be length 8."""
+        snap = fc_collector.monitoring_snapshot()
+        for key in ("capture_rms", "capture_peak",
+                     "playback_rms", "playback_peak"):
+            assert len(snap[key]) == 8
+
+    def test_monitoring_camilladsp_section_has_required_keys(
+            self, fc_collector, mock_gen_a):
+        """camilladsp section must have all keys the mock produces."""
+        mock_cdsp = mock_gen_a.monitoring()["camilladsp"]
+        fc_cdsp = fc_collector.monitoring_snapshot()["camilladsp"]
+        for key in mock_cdsp:
+            assert key in fc_cdsp, (
+                f"Key 'camilladsp.{key}' in mock but missing from "
+                f"FilterChainCollector"
+            )
+
+    def test_dsp_health_has_required_keys(self, fc_collector, mock_gen_a):
+        """dsp_health_snapshot() must include all mock system camilladsp keys."""
+        mock_cdsp = mock_gen_a.system()["camilladsp"]
+        fc_health = fc_collector.dsp_health_snapshot()
+        for key in mock_cdsp:
+            assert key in fc_health, (
+                f"Key 'camilladsp.{key}' in mock system but missing "
+                f"from FilterChainCollector dsp_health_snapshot"
+            )
