@@ -88,6 +88,12 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-051** (ACTIVE — resumed per owner directive 2026-03-20): Persistent System Status Bar. UI structure done (SB-1-7), data source wiring blocked on US-060.
 - **US-052** (ACTIVE — resumed per owner directive 2026-03-20): RT Signal Generator. D-040 adaptation: 3 fixes committed (`4796a46`, sg-worker). sg-worker checking remaining DoD items. Graceful startup AC deferred as SG-13 (architect recommendation: systemd Restart=on-failure provides equivalent retry). gm-worker on flake.nix Playwright fix. Was IMPLEMENT 3/6 (6,183 lines, 193 tests).
 - **US-053** (ACTIVE — resumed per owner directive 2026-03-20): Manual Test Tool Page. TT-2 + PCM-MODE-3 code preserved. Blocked on US-052. Was IMPLEMENT 3/6.
+- **Rule 13 retrospective** (2026-03-20): 12 code commits (`487bc5d`..`02f44cf`) committed without pre-approval. Architect retrospective: ALL 8 code commits APPROVED. AD: no blockers, 2 test gaps. AE + TW: pending. **Tracked follow-up items:**
+  - TODO (low): Add u32 saturation comment to `LevelTracker::sample_count` (architect, US060-3)
+  - VERIFY (medium): Signal-gen per-channel selection RPC exists for measurement use case (US-061 dependency on US-052)
+  - T-1 (medium, blocks Pi deploy): Missing RPC integration tests for FilterChainCollector (AD, US-060)
+  - T-2 (medium, blocks Pi deploy): Missing measurement session GM integration tests (AD, US-061)
+  - Process: Commit hold lifted — new work requires architect pre-approval going forward. AE + TW retrospective reviews still pending.
 - **US-003** (DEFERRED — owner directive 2026-03-16): Was IMPLEMENT 3/4. T3a/b/e PASS. T3d and T4 pending. Work preserved.
 - **D-020** (Stage 1+2 deployed): Production dashboard with 4 real backend collectors, spectrum analyzer, HTTPS (D-032). PoC: 8/8 PASS (P8 marginal, optimization deferred to Stage 2). Lab notes: `D-020-poc-validation.md`, `webui-real-data-deployment.md`. Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **F-013** (partially resolved): wayvnc password auth added. TLS required before US-018.
