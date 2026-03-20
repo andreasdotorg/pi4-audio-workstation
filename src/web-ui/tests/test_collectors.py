@@ -664,10 +664,14 @@ async def _make_gm_server(responses, host="127.0.0.1"):
         arrives.  If a command is not in the map, the server sends
         ``{"type":"response","cmd":"...","ok":false,"error":"unknown"}``.
 
-    Returns ``(server, port)`` so the caller can create a collector
-    pointed at ``host:port``.
+    Returns ``(server, port, clients)`` so the caller can create a
+    collector pointed at ``host:port`` and close client connections
+    via ``clients`` (list of StreamWriter).
     """
+    clients = []
+
     async def handle_client(reader, writer):
+        clients.append(writer)
         try:
             while True:
                 line = await reader.readline()
@@ -692,7 +696,7 @@ async def _make_gm_server(responses, host="127.0.0.1"):
 
     server = await asyncio.start_server(handle_client, host, 0)
     port = server.sockets[0].getsockname()[1]
-    return server, port
+    return server, port, clients
 
 
 # Standard GM response fixtures
@@ -768,7 +772,7 @@ class TestFilterChainRPCIntegration:
     def test_poll_populates_links_and_state(self):
         """After one poll cycle, collector has links and state data."""
         async def _test():
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": _GM_LINKS_DJ,
                 "get_state": _GM_STATE_DJ,
             })
@@ -790,7 +794,7 @@ class TestFilterChainRPCIntegration:
     def test_snapshot_running_after_poll(self):
         """dsp_health_snapshot() reports Running with healthy links."""
         async def _test():
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": _GM_LINKS_DJ,
                 "get_state": _GM_STATE_DJ,
             })
@@ -815,7 +819,7 @@ class TestFilterChainRPCIntegration:
     def test_snapshot_degraded_with_missing_links(self):
         """State is Degraded when some links are missing."""
         async def _test():
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": _GM_LINKS_DEGRADED,
                 "get_state": _GM_STATE_DJ,
             })
@@ -835,7 +839,7 @@ class TestFilterChainRPCIntegration:
     def test_snapshot_idle_in_monitoring_mode(self):
         """State is Idle when GM reports monitoring mode."""
         async def _test():
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": _GM_LINKS_MONITORING,
                 "get_state": _GM_STATE_MONITORING,
             })
@@ -854,7 +858,7 @@ class TestFilterChainRPCIntegration:
     def test_monitoring_snapshot_has_level_arrays(self):
         """monitoring_snapshot() includes 8-element level arrays."""
         async def _test():
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": _GM_LINKS_DJ,
                 "get_state": _GM_STATE_DJ,
             })
@@ -888,35 +892,53 @@ class TestFilterChainRPCIntegration:
         _run_async(_test())
 
     def test_reconnect_after_server_disconnect(self):
-        """After GM disconnects, collector reconnects to new server."""
+        """After disconnect, collector reconnects and picks up new data."""
         async def _test():
-            # Phase 1: Start server, let collector connect and poll.
-            server1, port = await _make_gm_server({
+            # Use a mutable response map so we can switch responses
+            # mid-test without needing a new server.
+            responses = {
                 "get_links": _GM_LINKS_DJ,
                 "get_state": _GM_STATE_DJ,
-            })
-            fc = FilterChainCollector(host="127.0.0.1", port=port)
-            async with server1:
-                await fc.start()
-                await asyncio.sleep(1.0)
-                assert fc._links is not None
-                snap1 = fc.dsp_health_snapshot()
-                assert snap1["state"] == "Running"
-            # server1 is now closed; collector will detect disconnect.
+            }
 
-            # Phase 2: Start a new server on the SAME port.
-            server2 = await asyncio.start_server(
-                lambda r, w: _gm_handler(r, w, {
-                    "get_links": _GM_LINKS_MONITORING,
-                    "get_state": _GM_STATE_MONITORING,
-                }),
-                "127.0.0.1", port,
-            )
-            async with server2:
-                # Wait for reconnection (backoff starts at 1s).
-                await asyncio.sleep(3.0)
-                snap2 = fc.dsp_health_snapshot()
+            server, port, clients = await _make_gm_server(responses)
+            fc = FilterChainCollector(host="127.0.0.1", port=port)
+
+            # Phase 1: Connect, poll, verify Running state.
+            await fc.start()
+            await asyncio.sleep(1.0)
+            assert fc._links is not None
+            snap1 = fc.dsp_health_snapshot()
+            assert snap1["state"] == "Running"
+
+            # Simulate disconnect from the collector side (as if GM
+            # dropped the connection and the collector detected it).
+            fc._disconnect()
+
+            # Phase 2: Switch responses to monitoring mode.
+            responses["get_links"] = _GM_LINKS_MONITORING
+            responses["get_state"] = _GM_STATE_MONITORING
+
+            # Reset backoff so reconnection is fast.
+            fc._backoff = 0.1
+
+            # Wait for collector to reconnect and pick up new data.
+            for _ in range(30):
+                await asyncio.sleep(0.2)
+                if (fc._connected and fc._links is not None
+                        and fc._links.get("mode") == "monitoring"):
+                    break
+
+            snap2 = fc.dsp_health_snapshot()
+
+            # Stop collector first (cancels poll task).
             await fc.stop()
+
+            # Close all server-side client connections, then close server.
+            for w in clients:
+                w.close()
+            server.close()
+            await server.wait_closed()
 
             # After reconnection, should reflect the new server's data.
             assert snap2["gm_mode"] == "monitoring"
@@ -931,7 +953,7 @@ class TestFilterChainRPCIntegration:
                 "type": "response", "cmd": "get_links",
                 "ok": False, "error": "internal error",
             }
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": error_links,
                 "get_state": _GM_STATE_DJ,
             })
@@ -966,7 +988,7 @@ class TestFilterChainRPCIntegration:
     def test_backoff_resets_on_successful_connect(self):
         """Backoff resets to base after successful connection."""
         async def _test():
-            server, port = await _make_gm_server({
+            server, port, _ = await _make_gm_server({
                 "get_links": _GM_LINKS_DJ,
                 "get_state": _GM_STATE_DJ,
             })
