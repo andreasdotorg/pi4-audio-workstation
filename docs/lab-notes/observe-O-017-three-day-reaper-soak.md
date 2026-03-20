@@ -128,22 +128,29 @@ jitter) and fan cooling (reduced thermal throttling).
 
 ## 3. Journal Analysis
 
-The PipeWire journal logs reveal that xruns are NOT uniformly distributed
-across the 64-hour soak. The system ran clean for ~55 hours before xruns
-began, then xruns clustered in the final ~12 hours.
+The PipeWire journal (`journalctl _PID=9631`) reveals that xruns are NOT
+uniformly distributed across the 64-hour soak. The system ran clean for
+~55 hours from PW start before xruns began, then xruns clustered in roughly
+hourly bursts during the final ~12 hours.
 
 ### 3.1 Timeline
 
 | Time | Event |
 |------|-------|
-| Mar 17, 17:20 | Soak start (O-015 baseline captured) |
-| Mar 17, 17:20 -- Mar 19, 20:56 | **~55 hours xrun-free** |
+| Mar 17, 13:20 | PipeWire daemon start (PID 9631) |
+| Mar 17, 17:20 | O-015 soak baseline captured (4 hours after PW start) |
+| Mar 17, 13:20 -- Mar 19, 20:56 | **~55 hours xrun-free from PW start** |
 | Mar 19, 20:56:50 | First xrun logged |
-| Mar 19, 20:56 -- Mar 20, 08:00 | Xruns in hourly clusters (~12 hours) |
+| Mar 19, ~21:54 | Second cluster |
+| ... | Roughly hourly clusters continue |
+| Mar 20, ~07:07 | Late cluster |
 | Mar 20, 08:00:44 | Last xrun logged |
 | Mar 20, 08:58 | O-017 observation (pw-top, system health) |
 
-**Total journal xrun entries:** 77
+**Total journal xrun entries:** 77 logged entries. Actual xrun count is
+higher -- journal rate limiting suppresses repeated messages within short
+windows. The pw-top ERR delta of +128 over the period reflects the true
+hardware error count; the 77 journal entries are a lower bound.
 
 ### 3.2 Xrun Cascade Pattern
 
@@ -161,12 +168,13 @@ reports the resulting graph xrun.
 
 ### 3.3 Two-Phase Behavior
 
-**Phase 1 (hours 0-55): Clean.** Zero xruns. The system operated within
-its scheduling margins for over two days.
+**Phase 1 (hours 0-55 from PW start): Clean.** Zero xruns. The system
+operated within its scheduling margins for over two days. This window
+includes the O-015 baseline capture at hour 4.
 
-**Phase 2 (hours 55-67): Clustered xruns.** 77 journal entries in ~12
-hours, arriving in roughly hourly clusters. All 128 ERR delta accumulated
-in this window.
+**Phase 2 (hours 55-67 from PW start): Clustered xruns.** 77+ journal
+entries in ~12 hours, arriving in roughly hourly clusters (20:56, 21:54,
+..., 07:07, 08:00). All 128 ERR delta accumulated in this window.
 
 This two-phase pattern is inconsistent with the earlier hypothesis of a
 steady ~2/hr xrun rate from the start. The ERR counters (pw-top) show the
@@ -256,10 +264,11 @@ rescheduling it during audio operation would be the fix.
 **CORRECTION of initial analysis:** The xruns are NOT steady-state at
 ~2/hr. The journal reveals a two-phase pattern:
 
-- **Phase 1 (0-55 hr):** Zero xruns. The system ran clean for over two
-  days -- far exceeding any prior q256 soak duration.
-- **Phase 2 (55-67 hr):** 77 journal xrun entries in ~12 hours, arriving
-  in roughly hourly clusters. All 128 ERR delta accumulated here.
+- **Phase 1 (0-55 hr from PW start):** Zero xruns. The system ran clean
+  for over two days -- far exceeding any prior q256 soak duration.
+- **Phase 2 (55-67 hr from PW start):** 77+ journal xrun entries in ~12
+  hours, arriving in roughly hourly clusters. All 128 ERR delta
+  accumulated here.
 
 This is a fundamentally different picture from the ERR-delta-based analysis
 (which averaged the errors over the full 64 hours). The system does NOT
@@ -345,7 +354,7 @@ convolver and USBStreamer during Phase 2.
 | Xrun pattern | 3 bursts | -- | 55 hr clean, then clustered |
 | Xrun rate (naive avg) | ~0.6/min | ~0.029/min | ~0.033/min (misleading) |
 | Xrun rate (Phase 2 only) | -- | -- | ~0.18/min (~10.7/hr) |
-| Clean window | 0 (xruns from start) | -- | 55 hours |
+| Clean window | 0 (xruns from start) | -- | 55 hours (from PW start) |
 | convolver-out B/Q | 0.60 | -- | 0.30 |
 | USBStreamer W/Q | 0.71 | -- | 0.49 |
 | Temperature | 74.0C | -- | 71.1C |
