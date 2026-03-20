@@ -257,9 +257,10 @@ pre-flight checklists, and PREEMPT_RT as a safety requirement (D-013).
   reboot, `systemctl --user restart pipewire`, or any action that causes the USBStreamer
   to lose its audio stream. This applies to all team members — workers, CM, everyone.
   The owner decides when it is safe to proceed (e.g., after turning off amps).
-  **After PipeWire restart:** Re-apply the -30 dB convolver volume workaround
-  (`pw-cli s <node-id> Props '{ volume: 0.0316 }'` on convolver capture node).
-  See GM-12 Finding 4.
+  **Gain attenuation:** The filter-chain convolver config uses `linear` builtin
+  Mult params for gain (0.001 = -60 dB mains, 0.000631 = -64 dB subs). These
+  persist across PW restarts — no manual `pw-cli` workaround needed (verified
+  C-009). The old `config.gain` approach is silently ignored by PW 1.4.9 (TK-237).
 
 ## Key Documents
 

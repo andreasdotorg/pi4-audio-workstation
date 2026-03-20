@@ -3238,6 +3238,64 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 
 ---
 
+## US-062: Boot-to-DJ Mode (Minimum Viable Auto-Launch)
+
+**As** the DJ/operator,
+**I want** the Pi to boot straight into DJ mode with Mixxx open, routing active, and volume at a safe level,
+**so that** I can power on the system at a venue and start DJing without manual SSH commands or pw-link setup.
+
+**Status:** in-progress
+**Depends on:** US-059 IMPLEMENT COMPLETE (GraphManager + filter-chain operational), D-042 (q1024 default)
+**Blocks:** none
+**Decisions:** D-042 (q1024 default for all modes)
+
+**The problem:** After US-059, the audio stack works but requires manual
+steps after every boot: set quantum, apply convolver volume workaround,
+launch Mixxx, create pw-link routing. This is unacceptable for venue
+operation where the DJ expects power-on-and-go.
+
+**The solution:** Minimum viable auto-launch path without deploying
+GraphManager to the Pi. Four changes:
+
+1. **Quantum config to q1024** — static PipeWire config edit. D-042
+   already decided this. Trivial.
+2. **Mult gain verification (SAFETY GATE)** — verify that the PW
+   filter-chain `linear` Mult parameter (-30 dB, 0.0316) persists
+   across PW restart. If it does NOT persist, unattended boot sends
+   full-scale signal through the 4x450W amplifier chain. This MUST
+   be verified before any auto-launch is deployed. If Mult does not
+   persist, a startup script must re-apply it before routing is
+   established.
+3. **Mixxx auto-launch** — systemd user service that starts Mixxx
+   after PipeWire is ready (`pw-jack mixxx`).
+4. **pw-link routing script** — interim DJ routing script that creates
+   all required links (Mixxx -> convolver -> USBStreamer, headphone
+   bypass). Runs after Mixxx registers its PW node.
+
+**Safety constraint:** Change 2 (Mult verification) is a hard gate.
+Changes 3 and 4 MUST NOT be deployed until Change 2 confirms safe
+attenuation at boot. See `docs/operations/safety.md` Section 1
+(USBStreamer transient risk) and Section 7 (runtime gain safety).
+
+**Acceptance criteria:**
+- [ ] PipeWire quantum defaults to 1024 at boot without manual intervention
+- [ ] Convolver volume attenuation (-30 dB / Mult 0.0316) is verified to persist or be re-applied before any audio routes to the amplifier chain
+- [ ] Mixxx launches automatically after boot and connects to PipeWire JACK bridge
+- [ ] DJ routing (Mixxx -> convolver -> USBStreamer mains + subs, headphone bypass) is established automatically after Mixxx registers
+- [ ] System is ready for DJ playback within 60 seconds of boot completing
+- [ ] No manual SSH, pw-link, or pw-cli commands required for basic DJ operation
+
+**DoD:**
+- [ ] Quantum 1024 persisted in PipeWire static config
+- [ ] Mult persistence verified (or startup re-application script deployed and tested)
+- [ ] Mixxx systemd user service created and tested across reboot
+- [ ] pw-link routing script created and tested across reboot
+- [ ] End-to-end reboot test: power cycle -> DJ-ready within 60s
+- [ ] Safety review: attenuation confirmed active before first audio reaches amplifier chain
+- [ ] Owner acceptance: boots and works at venue without intervention
+
+---
+
 ## Process Gate: Measurement UI Development Cycle (owner directive 2026-03-14)
 
 **GATE:** US-047, US-048, and US-049 implementation is blocked until the
@@ -3350,4 +3408,5 @@ US-058 ──> US-059 (GraphManager Core + Production Filter-Chain, Phase A)
 US-059 ──> US-060 (PW Monitoring Replacement, Phase B)
 US-059 ──> US-061 (Measurement Pipeline Adaptation, Phase C)
 US-060 and US-061 are independent of each other (can be parallelized after US-059)
+US-059 ──> US-062 (Boot-to-DJ Mode, minimum viable auto-launch)
 ```

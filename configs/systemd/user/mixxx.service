@@ -1,0 +1,17 @@
+[Unit]
+Description=Mixxx DJ application (pw-jack)
+After=pipewire.service graphical-session.target
+Requires=pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/bin/start-mixxx
+Restart=on-failure
+RestartSec=5
+# Mixxx needs the Wayland display for GUI rendering (hardware V3D GL, D-022).
+# start-mixxx.sh inherits WAYLAND_DISPLAY from the user environment and
+# probes the JACK bridge before exec'ing pw-jack mixxx.
+
+[Install]
+WantedBy=graphical-session.target
