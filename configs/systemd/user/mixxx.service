@@ -1,6 +1,6 @@
 [Unit]
 Description=Mixxx DJ application (pw-jack)
-After=pipewire.service graphical-session.target
+After=pipewire.service graphical-session.target pi4audio-dj-routing.service
 Requires=pipewire.service
 PartOf=graphical-session.target
 

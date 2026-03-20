@@ -1,0 +1,19 @@
+[Unit]
+Description=DJ mode PipeWire link routing
+After=pipewire.service
+Requires=pipewire.service
+
+[Service]
+# Type=simple, not oneshot: the script blocks in Phase 2 waiting for Mixxx
+# ports to appear.  Mixxx and routing must launch concurrently — the
+# script's internal wait_for_port() handles synchronization.  systemd
+# considers the service "started" immediately, avoiding a deadlock where
+# Mixxx waits for routing and routing waits for Mixxx.
+Type=simple
+ExecStart=%h/bin/pi4audio-dj-routing
+# The script exits 0 after creating all links.  RemainAfterExit keeps the
+# unit in "active" state so systemctl status shows success.
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
