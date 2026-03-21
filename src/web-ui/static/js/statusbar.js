@@ -169,14 +169,7 @@
         PiAudio.setText("sb-dsp-state", dspText,
             dspOk ? "c-green" : dspWarn ? "c-yellow" : "c-red");
 
-        // DSP Load gauge (promoted from health bar)
-        var dspLoadPct = cdsp.processing_load;
-        PiAudio.setGauge("sb-dsp-load-gauge",
-            dspLoadPct,
-            dspLoadPct.toFixed(1) + "%",
-            dspLoadPct < 50 ? "#79e25b" : dspLoadPct < 75 ? "#e2c039" : "#e5453a");
-
-        // Buffer level (promoted from health bar)
+        // Buffer level (link health from GraphManager)
         PiAudio.setText("sb-buf", String(cdsp.buffer_level));
 
         // Clip count
@@ -214,9 +207,9 @@
         // FIFO status (promoted from health bar)
         var sched = data.pipewire.scheduling;
         var pwFifo = sched.pipewire_policy === "SCHED_FIFO";
-        var cdspFifo = sched.graphmgr_policy === "SCHED_FIFO";
+        var gmFifo = sched.graphmgr_policy === "SCHED_FIFO";
         var fifoText = sched.pipewire_priority + "/" + sched.graphmgr_priority;
-        var fifoColor = (pwFifo && cdspFifo) ? "c-green" : "c-red";
+        var fifoColor = pwFifo ? "c-green" : "c-red";
         PiAudio.setText("sb-fifo", fifoText, fifoColor);
 
         // Memory gauge
@@ -240,6 +233,13 @@
         var modeEl = document.getElementById("sb-mode");
         if (modeEl) {
             modeEl.textContent = data.mode.toUpperCase();
+            modeEl.classList.remove("c-grey");
+        }
+
+        // Sync mute state from server (F-040)
+        if (data.is_muted != null && data.is_muted !== isMuted && !isMeasuring) {
+            isMuted = data.is_muted;
+            updatePanicButton();
         }
     }
 
@@ -309,20 +309,28 @@
         }
     }
 
+    function flashPanicError() {
+        var btn = document.getElementById("sb-panic-btn");
+        if (!btn) return;
+        btn.classList.add("error");
+        setTimeout(function () { btn.classList.remove("error"); }, 1500);
+    }
+
     function onPanicClick() {
         if (isMeasuring) {
             // Abort measurement
             fetch("/api/v1/measurement/abort", { method: "POST" })
-                .catch(function () { /* best effort */ });
+                .catch(function () { flashPanicError(); });
         } else {
             // Toggle mute
             var endpoint = isMuted ? "/api/v1/audio/unmute" : "/api/v1/audio/mute";
             fetch(endpoint, { method: "POST" })
-                .then(function () {
+                .then(function (res) {
+                    if (!res.ok) { flashPanicError(); return; }
                     isMuted = !isMuted;
                     updatePanicButton();
                 })
-                .catch(function () { /* best effort */ });
+                .catch(function () { flashPanicError(); });
         }
     }
 

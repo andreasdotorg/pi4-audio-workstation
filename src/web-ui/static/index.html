@@ -43,33 +43,26 @@
                     width="47" height="24" title="PHYS IN (Mic-P8)"></canvas>
         </div>
         <span class="sb-item">
-            <span class="sb-label">DSP</span><span class="sb-value" id="sb-dsp-state">--</span>
+            <span class="sb-label">DSP</span><span class="sb-value c-grey" id="sb-dsp-state">--</span>
         </span>
         <span class="sb-item">
-            <span class="sb-label">Clip</span><span class="sb-value" id="sb-clip">0</span>
+            <span class="sb-label">Clip</span><span class="sb-value c-grey" id="sb-clip">--</span>
         </span>
         <span class="sb-item">
-            <span class="sb-label">Xr</span><span class="sb-value" id="sb-xruns">0</span>
+            <span class="sb-label">Xr</span><span class="sb-value c-grey" id="sb-xruns">--</span>
         </span>
     </div>
 
-    <!-- Pipeline group: DSP Load + Quantum + Buffer + FIFO -->
+    <!-- Pipeline group: Quantum + Links + FIFO -->
     <div class="sb-group sb-group-pipeline">
         <span class="sb-item">
-            <span class="sb-label">Load</span>
-            <span class="sb-gauge" id="sb-dsp-load-gauge">
-                <span class="sb-gauge-fill" id="sb-dsp-load-gauge-fill"></span>
-                <span class="sb-gauge-text" id="sb-dsp-load-gauge-text">--</span>
-            </span>
-        </span>
-        <span class="sb-item">
-            <span class="sb-label">Q</span><span class="sb-value" id="sb-quantum">--</span>
+            <span class="sb-label">Q</span><span class="sb-value c-grey" id="sb-quantum">--</span>
         </span>
         <span class="sb-item sb-collapse-narrow">
-            <span class="sb-label">Buf</span><span class="sb-value" id="sb-buf">--</span>
+            <span class="sb-label">Links</span><span class="sb-value c-grey" id="sb-buf">--</span>
         </span>
         <span class="sb-item sb-collapse-narrow">
-            <span class="sb-label">FIFO</span><span class="sb-value" id="sb-fifo">--</span>
+            <span class="sb-label">FIFO</span><span class="sb-value c-grey" id="sb-fifo">--</span>
         </span>
     </div>
 
@@ -88,32 +81,32 @@
             <span class="sb-label">CPU</span>
             <span class="sb-gauge" id="sb-cpu-gauge">
                 <span class="sb-gauge-fill" id="sb-cpu-gauge-fill"></span>
-                <span class="sb-gauge-text" id="sb-cpu-gauge-text">--</span>
+                <span class="sb-gauge-text c-grey" id="sb-cpu-gauge-text">--</span>
             </span>
         </span>
         <span class="sb-item">
             <span class="sb-label">Temp</span>
             <span class="sb-gauge" id="sb-temp-gauge">
                 <span class="sb-gauge-fill" id="sb-temp-gauge-fill"></span>
-                <span class="sb-gauge-text" id="sb-temp-gauge-text">--</span>
+                <span class="sb-gauge-text c-grey" id="sb-temp-gauge-text">--</span>
             </span>
         </span>
         <span class="sb-item sb-collapse-narrow">
             <span class="sb-label">Mem</span>
             <span class="sb-gauge" id="sb-mem-gauge">
                 <span class="sb-gauge-fill" id="sb-mem-gauge-fill"></span>
-                <span class="sb-gauge-text" id="sb-mem-gauge-text">--</span>
+                <span class="sb-gauge-text c-grey" id="sb-mem-gauge-text">--</span>
             </span>
         </span>
         <span class="sb-item sb-collapse-narrow">
-            <span class="sb-label">Up</span><span class="sb-value" id="sb-uptime">--</span>
+            <span class="sb-label">Up</span><span class="sb-value c-grey" id="sb-uptime">--</span>
         </span>
     </div>
 
     <!-- Anchor: panic button + mode badge -->
     <div class="sb-anchor">
         <button class="sb-panic-btn" id="sb-panic-btn" data-testid="panic-button">MUTE</button>
-        <span class="sb-mode-badge" id="sb-mode">--</span>
+        <span class="sb-mode-badge c-grey" id="sb-mode">--</span>
     </div>
 </div>
 
@@ -203,23 +196,23 @@
         <div class="sys-section sys-header-strip">
             <div class="sys-header-item">
                 <span class="sys-header-label">Mode</span>
-                <span class="sys-header-value" id="sys-mode">--</span>
+                <span class="sys-header-value c-grey" id="sys-mode">--</span>
             </div>
             <div class="sys-header-item">
                 <span class="sys-header-label">Quantum</span>
-                <span class="sys-header-value" id="sys-quantum">--</span>
+                <span class="sys-header-value c-grey" id="sys-quantum">--</span>
             </div>
             <div class="sys-header-item">
                 <span class="sys-header-label">GM Mode</span>
-                <span class="sys-header-value" id="sys-chunksize">--</span>
+                <span class="sys-header-value c-grey" id="sys-chunksize">--</span>
             </div>
             <div class="sys-header-item">
                 <span class="sys-header-label">Sample Rate</span>
-                <span class="sys-header-value" id="sys-rate">--</span>
+                <span class="sys-header-value c-grey" id="sys-rate">--</span>
             </div>
             <div class="sys-header-item">
                 <span class="sys-header-label">Temperature</span>
-                <span class="sys-header-value" id="sys-temp">--</span>
+                <span class="sys-header-value c-grey" id="sys-temp">--</span>
             </div>
         </div>
 
@@ -233,12 +226,12 @@
         <div class="sys-section">
             <div class="sys-section-title">Filter Chain</div>
             <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">State</span><span class="kv-value" id="sys-cdsp-state">--</span></div>
-                <div class="kv-item"><span class="kv-label">Links</span><span class="kv-value" id="sys-cdsp-load">--</span></div>
-                <div class="kv-item"><span class="kv-label">Health</span><span class="kv-value" id="sys-cdsp-buffer">--</span></div>
-                <div class="kv-item"><span class="kv-label">Convolver</span><span class="kv-value" id="sys-cdsp-rate-adj">--</span></div>
-                <div class="kv-item"><span class="kv-label">Clipped</span><span class="kv-value" id="sys-cdsp-clipped">--</span></div>
-                <div class="kv-item"><span class="kv-label">Xruns</span><span class="kv-value" id="sys-cdsp-xruns">--</span></div>
+                <div class="kv-item"><span class="kv-label">State</span><span class="kv-value c-grey" id="sys-cdsp-state">--</span></div>
+                <div class="kv-item"><span class="kv-label">Links</span><span class="kv-value c-grey" id="sys-cdsp-load">--</span></div>
+                <div class="kv-item"><span class="kv-label">Health</span><span class="kv-value c-grey" id="sys-cdsp-buffer">--</span></div>
+                <div class="kv-item"><span class="kv-label">Convolver</span><span class="kv-value c-grey" id="sys-cdsp-rate-adj">--</span></div>
+                <div class="kv-item"><span class="kv-label">Clipped</span><span class="kv-value c-grey" id="sys-cdsp-clipped">--</span></div>
+                <div class="kv-item"><span class="kv-label">Xruns</span><span class="kv-value c-grey" id="sys-cdsp-xruns">--</span></div>
             </div>
         </div>
 
@@ -246,9 +239,9 @@
         <div class="sys-section">
             <div class="sys-section-title">Scheduling</div>
             <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">PipeWire</span><span class="kv-value" id="sys-sched-pw">--</span></div>
-                <div class="kv-item"><span class="kv-label">GraphMgr</span><span class="kv-value" id="sys-sched-cdsp">--</span></div>
-                <div class="kv-item"><span class="kv-label">Graph</span><span class="kv-value" id="sys-sched-graph">--</span></div>
+                <div class="kv-item"><span class="kv-label">PipeWire</span><span class="kv-value c-grey" id="sys-sched-pw">--</span></div>
+                <div class="kv-item"><span class="kv-label">GraphMgr</span><span class="kv-value c-grey" id="sys-sched-cdsp">--</span></div>
+                <div class="kv-item"><span class="kv-label">Graph</span><span class="kv-value c-grey" id="sys-sched-graph">--</span></div>
             </div>
         </div>
 
@@ -256,8 +249,8 @@
         <div class="sys-section">
             <div class="sys-section-title">Memory</div>
             <div class="kv-grid">
-                <div class="kv-item"><span class="kv-label">Used</span><span class="kv-value" id="sys-mem-used">--</span></div>
-                <div class="kv-item"><span class="kv-label">Available</span><span class="kv-value" id="sys-mem-avail">--</span></div>
+                <div class="kv-item"><span class="kv-label">Used</span><span class="kv-value c-grey" id="sys-mem-used">--</span></div>
+                <div class="kv-item"><span class="kv-label">Available</span><span class="kv-value c-grey" id="sys-mem-avail">--</span></div>
             </div>
         </div>
 

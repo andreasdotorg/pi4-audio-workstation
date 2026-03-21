@@ -344,6 +344,17 @@ html, body {
     50% { opacity: 0.6; }
 }
 
+.sb-panic-btn.error {
+    background: var(--red);
+    color: #fff;
+    animation: flash-error 0.3s ease-in-out 3;
+}
+
+@keyframes flash-error {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
 /* -- Dashboard main area -------------------------------------------------- */
 
 .dashboard-main {
@@ -835,6 +846,7 @@ html, body {
 .c-blue { color: var(--blue) !important; }
 .c-cyan { color: var(--cyan) !important; }
 .c-amber { color: var(--amber) !important; }
+.c-grey { color: var(--text-dim) !important; }
 
 /* -- Reconnect overlay ---------------------------------------------------- */
 
@@ -967,9 +979,15 @@ html, body {
 .event-severity-warning {
     border-left-color: var(--yellow);
 }
+.event-severity-warning .event-message {
+    color: var(--yellow);
+}
 
 .event-severity-error {
     border-left-color: var(--red);
+}
+.event-severity-error .event-message {
+    color: var(--red);
 }
 
 .event-time {
