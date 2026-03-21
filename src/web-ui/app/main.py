@@ -43,6 +43,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .audio_mute import AudioMuteManager
 from .mode_manager import ModeManager
 from .measurement.routes import router as measurement_router, ws_broadcast, ws_measurement
 from .test_tool.routes import router as test_tool_router
@@ -105,6 +106,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.mode_manager = mode_manager
     app.state.measurement_task = None
+    app.state.audio_mute = AudioMuteManager()
 
     # 2. Startup recovery check (blocks until complete).
     if not MOCK_MODE:
@@ -226,6 +228,39 @@ async def index():
 async def list_pcm_sources():
     """List available PCM source names for /ws/pcm/{source}."""
     return {"sources": sorted(PCM_SOURCES.keys())}
+
+
+# -- Audio mute/unmute (F-040) --
+
+@app.post("/api/v1/audio/mute")
+async def audio_mute(request: Request):
+    """Mute all filter-chain outputs by setting gain nodes to Mult=0.0."""
+    mgr: AudioMuteManager = request.app.state.audio_mute
+    if MOCK_MODE:
+        mgr.is_muted = True
+        return JSONResponse({"ok": True})
+    result = await mgr.mute()
+    status = 200 if result.get("ok") else 502
+    return JSONResponse(result, status_code=status)
+
+
+@app.post("/api/v1/audio/unmute")
+async def audio_unmute(request: Request):
+    """Unmute: restore gain nodes to pre-mute Mult values."""
+    mgr: AudioMuteManager = request.app.state.audio_mute
+    if MOCK_MODE:
+        mgr.is_muted = False
+        return JSONResponse({"ok": True})
+    result = await mgr.unmute()
+    status = 200 if result.get("ok") else 502
+    return JSONResponse(result, status_code=status)
+
+
+@app.get("/api/v1/audio/mute-status")
+async def audio_mute_status(request: Request):
+    """Return current mute state."""
+    mgr: AudioMuteManager = request.app.state.audio_mute
+    return {"is_muted": mgr.is_muted}
 
 
 # -- WebSocket endpoints --

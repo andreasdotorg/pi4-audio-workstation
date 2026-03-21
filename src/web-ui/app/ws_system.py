@@ -32,6 +32,9 @@ async def ws_system(
     """Push system health data at ~1 Hz."""
     await ws.accept()
 
+    # Mute state from AudioMuteManager (F-040)
+    mute_mgr = getattr(ws.app.state, "audio_mute", None)
+
     if MOCK_MODE:
         from .mock.mock_data import MockDataGenerator
         gen = MockDataGenerator(scenario=scenario, freeze_time=freeze_time.lower() == "true")
@@ -39,6 +42,7 @@ async def ws_system(
         try:
             while True:
                 data = gen.system()
+                data["is_muted"] = mute_mgr.is_muted if mute_mgr else False
                 await ws.send_text(json.dumps(data))
                 await asyncio.sleep(1.0)
         except WebSocketDisconnect:
@@ -52,6 +56,7 @@ async def ws_system(
     try:
         while True:
             data = _build_system_snapshot(ws.app)
+            data["is_muted"] = mute_mgr.is_muted if mute_mgr else False
             await ws.send_text(json.dumps(data))
             await asyncio.sleep(1.0)
     except WebSocketDisconnect:
