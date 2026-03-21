@@ -1,22 +1,21 @@
 """
-Deploy generated filters to CamillaDSP.
+Deploy generated filters to PipeWire filter-chain.
 
-Handles copying filter WAV files to the CamillaDSP coefficients directory
-and optionally reloading the configuration via the pycamilladsp API.
+Handles copying filter WAV files to the PipeWire filter-chain coefficients
+directory.
 
 SAFETY: This module refuses to deploy filters that have not passed
 verification (run_all_checks). The deploy function requires explicit
 confirmation that verification passed.
 
-NOTE: On the Pi, restarting CamillaDSP will cause the USBStreamer to lose
+NOTE: On the Pi, restarting PipeWire will cause the USBStreamer to lose
 its audio stream, producing transients through the amp chain. The deploy
 function prints a warning. The caller (runner.py) should confirm with the
 user before proceeding.
 
-TK-166: Supports versioned (timestamped) filenames. CamillaDSP caches FIR
-coefficient files by filename, so config.reload() with the same filename
-silently keeps old data. Versioned filenames ensure each deployment uses
-unique paths, making config.reload() pick up the new coefficients.
+TK-166: Supports versioned (timestamped) filenames for deployment
+traceability. Each deployment uses unique paths so that deployed versions
+can be identified and rolled back if needed.
 """
 
 import glob
@@ -27,8 +26,8 @@ import shutil
 from .export import CHANNEL_FILENAMES, TIMESTAMP_FORMAT, versioned_filename
 
 
-# Default CamillaDSP coefficients directory on the Pi
-DEFAULT_COEFFS_DIR = "/etc/camilladsp/coeffs"
+# Default PipeWire filter-chain coefficients directory on the Pi (D-040)
+DEFAULT_COEFFS_DIR = "/etc/pi4audio/coeffs"
 
 # Regex to match versioned coefficient files: combined_{channel}_{YYYYMMDD_HHMMSS}.wav
 _VERSIONED_RE = re.compile(
@@ -44,14 +43,14 @@ def deploy_filters(
     timestamp=None,
 ):
     """
-    Deploy filter WAV files from output_dir to the CamillaDSP coefficients dir.
+    Deploy filter WAV files from output_dir to the PipeWire coefficients dir.
 
     Parameters
     ----------
     output_dir : str
         Directory containing the generated filter WAV files.
     coeffs_dir : str
-        CamillaDSP coefficients directory on the target system.
+        PipeWire filter-chain coefficients directory on the target system.
     verified : bool
         MUST be True. Deployment is refused if verification has not passed.
     dry_run : bool
