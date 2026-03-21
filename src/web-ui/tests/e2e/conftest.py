@@ -185,7 +185,10 @@ def page(browser, mock_server, request):
     pg.goto(mock_server)
     yield pg
     context.close()
-    assert not console_errors, f"JS console errors: {console_errors}"
+    # Filter out known-benign errors: siggen WS returns 403 when
+    # PI4AUDIO_SIGGEN is not set (always the case in mock/test mode).
+    real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+    assert not real_errors, f"JS console errors: {real_errors}"
 
 
 @pytest.fixture()
@@ -213,7 +216,8 @@ def frozen_page(browser, mock_server, request):
     )
     yield pg
     context.close()
-    assert not console_errors, f"JS console errors: {console_errors}"
+    real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+    assert not real_errors, f"JS console errors: {real_errors}"
 
 
 @pytest.fixture()

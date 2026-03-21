@@ -26,6 +26,10 @@ camilladsp-src/
 *.swo
 *~
 
+# MCP tooling artifacts
+.playwright-mcp/
+.serena/
+
 # Project-specific
 data/US-003/T3e/cyclictest_output.txt
 src/room-correction/output/

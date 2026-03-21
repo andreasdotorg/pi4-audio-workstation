@@ -885,6 +885,7 @@
             specPcmWs = null;
         }
         specPcmConnected = false;
+        updateMicStatus("disconnected", specCurrentSource);
         // Reset FFT state for clean source switch.
         specAccumPos = 0;
         specSmoothedDB = null;

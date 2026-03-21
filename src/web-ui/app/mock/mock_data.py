@@ -478,6 +478,7 @@ class MockDataGenerator:
                 "total_mb": s["memory_total_mb"],
                 "available_mb": s["memory_total_mb"] - memory_used,
             },
+            "uptime_seconds": self._elapsed() + 3600,
             "mode": s["mode"],
             "processes": {
                 "mixxx_cpu": self._proc_jitter(s["mixxx_cpu"], t),
