@@ -129,7 +129,11 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - US-064: `graph.js` view module implemented (worker-4), SVG layout working, mock mode. DoD 0/8 -> 3/8. **Blocked:** 600px responsive bug.
 - US-065: **code complete** (worker-1): `config.js`, `config_routes.py`, CSS, mock data, `main.py` router. DoD 0/10 -> 5/10. **Blocked:** F-040 uncommitted (shared `pw_helpers.py`).
 - UX visual verification gate: added to global DoD section, US-051 and US-053 DoD items updated
-- E2E test fixes committed (`3a1e6bb`): suite now passes 59/60 (was 54 pass, 5 fail, 23 error)
+- E2E test fixes committed (`3a1e6bb`, `bba1493`): 7 fixes total. Full suite green not yet confirmed — verification run needed next session
+- F-043, F-044, F-045 defects filed (all Low, owner UI review): GM SCHED_OTHER color, "Links 100" label, "Mode"/"GM Mode" duplicate
+- ENH-001 filed (Low, owner request): sample rate in status bar
+- pcm-bridge deploy (S-022): **INCOMPLETE.** Nix build started on Pi, outcome unknown. Worker-5 unresponsive. Session released. `monitor.env` committed locally but NOT deployed to Pi
+- Nix linux-builder: Pi now configured to use Mac as remote builder (adjacent session). Future nix builds on Pi should be much faster
 - Safety doc updated: new Section 8 (Config tab gain controls, D-009 hard cap), D-040 updates to Sections 1-2
 - TW memory entries: S-007 protocol violations, D-040 architecture knowledge (7 entries), security findings (F-036/F-037)
 - CHANGE sessions tracked: S-004 (reboot), S-005 (web UI), S-007 (quantum, 2 protocol violations), S-008 (F-038), S-015 (quantum revert), S-018 (PW collector), S-019 (metadata+status bar), S-020 (bugs 2-6)
@@ -138,6 +142,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - `56ef3f0` — LevelsCollector: PW-native level data for meters (US-060)
 - `2217bd2` — Port fix for LevelsCollector (US-060)
 - `3a1e6bb` — E2E test fixes: conftest.py health-check + stderr capture, test assertion fixes (F-041/F-042)
+- `bba1493` — E2E reliability + pcm-bridge config (commit #24)
 - F-040 audio_mute.py + pw_helpers.py + statusbar.js — **UNCOMMITTED** (worker-3, blocking)
 
 **Worker state at session close (machine handoff preparation):**
@@ -148,20 +153,23 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | worker-2 | F-041/F-042 E2E fixes | **Done**, committed `3a1e6bb` | Available for new work |
 | worker-3 | F-040 MUTE/UNMUTE | Code complete, **UNCOMMITTED** | Needs CM commit — **CRITICAL BLOCKER** for US-064 and US-065 |
 | worker-4 | US-064 Graph viz | Implementation in progress | 600px responsive bug needs fix before UX review |
-| worker-5 | pcm-bridge nix build | Running on Pi (CHANGE session S-022) | Build in progress |
-| worker-6 | linux-builder investigation | Background research | No blocker (background task) |
+| worker-5 | pcm-bridge nix build | **INCOMPLETE** — nix build started on Pi (S-022), outcome unknown. Worker unresponsive. Session released. | Next session: check build result, deploy binary + env, start service, verify port 9100 |
+| worker-6 | linux-builder for Pi | **Done** — Pi configured to use Mac as remote nix builder (adjacent session) | Available |
 
 **Critical path for next session:**
 1. **FIRST:** Commit F-040 (worker-3's `audio_mute.py` + `pw_helpers.py` + `statusbar.js`) — this unblocks US-065 and US-064 commits
 2. Commit US-065 Config tab (worker-1, blocked on F-040)
 3. Fix US-064 600px responsive bug (worker-4), then UX screenshot review
-4. Complete pcm-bridge nix build on Pi (worker-5, CHANGE session S-022 may still be active)
-5. US-060 DoD advancement: processing load (F-039) needs US-063 pw-top parsing
+4. pcm-bridge deploy (S-022 follow-up): check nix build result on Pi, deploy binary + `monitor.env`, start service, verify port 9100
+5. E2E verification run: confirm full suite green after `3a1e6bb` + `bba1493` fixes
+6. US-060 DoD advancement: processing load (F-039) needs US-063 pw-top parsing
 
 **Open at session close:**
-- F-040 `audio_mute.py` UNCOMMITTED — critical blocker
+- F-040 `audio_mute.py` UNCOMMITTED — critical blocker for US-065 and US-064
 - US-064 600px responsive bug — blocks UX review
-- pcm-bridge nix build (S-022) — may be in progress on Pi
+- pcm-bridge S-022: build started on Pi, outcome unknown. `monitor.env` committed locally, NOT deployed
+- E2E suite: 7 fixes committed, full green not confirmed
+- F-043, F-044, F-045, ENH-001: all Low, filed, none assigned
 - 44 decisions, 68 stories
 - Rule 13: 4 low-priority TODOs remaining
 - AE safety item: IIR HPF excursion protection documentation (D-031)
