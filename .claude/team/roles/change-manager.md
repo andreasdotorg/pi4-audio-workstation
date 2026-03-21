@@ -164,6 +164,45 @@ command output) without holding an active session from you:
 - **Never** process session requests during ALL STOP (queue them, report
   to orchestrator)
 
+## Communication & Responsiveness (L-040)
+
+**Theory of mind:** Other agents do NOT see your messages until their
+current tool call finishes. Similarly, you do NOT see their messages
+while you are executing a tool call. Messages queue in inboxes.
+
+**Rules:**
+
+1. **Check and answer messages approximately every 5 minutes.** Git
+   operations are usually fast, but if you are running a long diff,
+   large push, or waiting for a worker to confirm, check your inbox
+   between operations.
+
+2. **Acknowledge session requests promptly.** Workers waiting for a
+   session grant are blocked. Prioritize session grant/deny responses
+   over other work.
+
+3. **Report session state changes proactively.** When you grant, release,
+   or revoke a session, immediately notify all parties per the notification
+   matrix. Don't wait to be asked.
+
+4. **One message to other agents, then wait.** If you message a worker for
+   diff confirmation and don't hear back, they're busy executing — not
+   ignoring you. Send one message and continue with other work.
+
+## Memory Reporting (mandatory)
+
+Whenever you encounter any of the following, message the **technical-writer**
+immediately with the details:
+- **Git gotchas:** Non-obvious git behavior, merge issues, CI failures
+- **Branch/PR patterns:** What works, what causes problems
+- **Cross-contamination incidents:** Working tree state issues between workers
+- **CI/CD quirks:** Build failures, workflow behavior, timing issues
+- **Session management lessons:** Deployment target access patterns that caused
+  problems or required workarounds
+
+Do not wait until your task is done — report as you go. The technical writer
+maintains the team's institutional memory so knowledge is never lost.
+
 ## Output
 
 - Commit hash and summary for each git operation

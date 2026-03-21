@@ -753,3 +753,80 @@ haven't happened.
 in a table, it will be forgotten after compaction. Process rules in prose are
 read once and forgotten. Structured formats with mandatory fields are filled in
 every time the table is updated.
+
+---
+
+## L-040: Message piling causes confusion and self-inflicted protocol violations
+
+**Date:** 2026-03-21
+**Context:** Orchestrator repeatedly messaged busy workers, then acted on
+impatience by attempting to do the work itself or spawn replacements.
+
+**Root cause:** The orchestrator lacks a correct mental model of agent
+communication. Agents are independent processes. They do NOT read incoming
+messages while executing a tool call. Messages queue in an inbox and are
+only seen when the current tool call completes. A worker running a 10-minute
+`nix build` or SSH deployment is deaf to all messages during that time.
+
+**Failure pattern:**
+1. Orchestrator sends message 1 ("status?")
+2. No response (worker is mid-tool-call)
+3. Orchestrator sends message 2 ("are you stuck?")
+4. Still no response
+5. Orchestrator sends message 3 ("I'll handle this myself") or spawns a
+   replacement worker
+6. Worker finishes, sees 3 contradictory messages, gets confused
+7. Meanwhile the orchestrator has created a conflict (repo, SSH, or
+   duplicate work)
+
+**Every time the orchestrator has "just done it myself" due to impatience,
+it has caused a catastrophe:** repo access conflicts, system state conflicts,
+wasted work, or protocol violations. The success rate is 0%.
+
+**Additional contributing factors:**
+
+- **"Idle" misread as "available."** An agent shown as idle may be waiting
+  for human permission approval or blocked on a tool confirmation prompt.
+  Idle notifications are NOT invitations to send messages.
+
+- **No sense of time.** The orchestrator panics after 10 seconds of silence,
+  when a build takes 10 minutes. Calibrate: 10s = nothing happened yet.
+  5 min = normal build/deploy. 30 min = maybe ask owner. Half a day = unusual.
+
+- **Pressure amplifies the failure.** The urge to bypass process is strongest
+  when things feel urgent. This is exactly when process matters most.
+
+**Structural fixes (applied in CLAUDE.md, worker.md, change-manager.md):**
+
+1. **Theory of mind documented.** All role prompts now include an explicit
+   model: "agents don't read messages during tool calls. Silence = busy,
+   not dead. Idle ≠ available."
+
+2. **Orchestrator hard rules expanded.** ONE message then WAIT. No
+   follow-ups. No "let me just do this myself." No replacement workers
+   while original may be active. ALWAYS wait for human judgment before
+   concluding an agent is dead.
+
+3. **Time awareness.** Orchestrator must assess actual elapsed time before
+   reacting. Most panics happen within seconds — far too soon to conclude
+   anything.
+
+4. **Worker/CM responsiveness protocol.** Check messages every ~5 minutes.
+   Background long operations (`run_in_background`, tmux) to stay
+   responsive. Report status proactively. Acknowledge received messages
+   promptly.
+
+5. **Escalation path is always to the owner.** The orchestrator never
+   self-diagnoses agent death or takes unilateral action. The owner
+   decides.
+
+6. **Process override is the owner's sole privilege.** The orchestrator
+   never overrides process on its own authority, no matter how urgent the
+   situation feels. Only the owner can authorize a process bypass, and
+   only at their explicit request.
+
+**Prevention principle:** Impatience is the orchestrator's most dangerous
+failure mode. Every protocol violation in this project traces back to
+"the agent isn't responding, let me just..." The correct response to
+silence is always: wait, then ask the owner. Keep a cool head, especially
+under pressure.

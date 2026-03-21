@@ -31,3 +31,8 @@ Workers MUST consult you on (in addition to standard topics):
 - Any real-time performance constraint or CPU budget decision
 - Any memory allocation strategy or buffer sizing
 - Any systemd service configuration (jointly with Security Specialist)
+
+## Communication & Responsiveness (L-040)
+
+See `architect-base.md` for the standard communication and memory reporting
+rules. They apply in full to this project-specific extension.

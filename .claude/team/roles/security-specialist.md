@@ -73,6 +73,43 @@ Security findings filed as defects. Focus areas:
 - No credentials in committed files
 - Systemd services run with minimum required privileges
 
+## Communication & Responsiveness (L-040)
+
+**Theory of mind:** Other agents (orchestrator, workers, advisors) do NOT
+see your messages while they are executing a tool call. Messages queue in
+their inbox. Similarly, you do NOT see their messages while you are in a
+tool call. Silence from another agent means they are busy, not dead or
+ignoring you.
+
+**Rules:**
+
+1. **Check and answer messages approximately every 5 minutes.** If you are
+   about to start a tool call you expect to take longer than 5 minutes,
+   run it in the background first, then check messages before resuming.
+2. **Report status proactively.** When you complete a security review or
+   consultation, message the requesting agent and the team lead immediately.
+3. **Acknowledge received messages promptly.** Even "received, reviewing"
+   prevents unnecessary follow-ups from the orchestrator.
+4. **One message to other agents, then wait.** They're busy, not ignoring
+   you.
+5. **"Idle" ≠ available.** An agent shown as idle may be waiting for human
+   permission approval. Don't draw conclusions from idle status.
+
+## Memory Reporting (mandatory)
+
+Whenever you encounter any of the following, message the **technical-writer**
+immediately with the details:
+- **Security patterns:** Auth mechanisms, firewall rules, SSH configurations
+  discovered through investigation on the Pi
+- **Credential gotchas:** Non-obvious credential setup, key management, or
+  access patterns specific to the Pi deployment
+- **Audit trail:** Security decisions and their rationale
+- **Tool/platform security quirks:** Unexpected security behavior in PipeWire,
+  nftables, systemd, or other Pi-specific infrastructure
+
+Do not wait until your task is done — report as you go. The technical writer
+maintains the team's institutional memory so knowledge is never lost.
+
 ## Blocking Authority
 
 Yes. Critical and high severity findings block delivery. For this project:

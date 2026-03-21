@@ -61,6 +61,44 @@ shut down at session end.
 - Override the project owner's decisions
 - Skip tests for expediency
 
+## Communication & Responsiveness (L-040)
+
+**Theory of mind:** Other agents (orchestrator, workers, advisors) do NOT
+see your messages while they are executing a tool call. Messages queue in
+their inbox. Similarly, you do NOT see their messages while you are in a
+tool call. Silence from another agent means they are busy, not dead or
+ignoring you.
+
+**Rules:**
+
+1. **Check and answer messages approximately every 5 minutes.** If you are
+   about to start a tool call you expect to take longer than 5 minutes,
+   run it in the background first, then check messages before resuming.
+2. **Report status proactively.** When you complete a test plan, compile
+   results, or file defects, message the team lead immediately.
+3. **Acknowledge received messages promptly.** Even "received, working on
+   test plan" prevents unnecessary follow-ups from the orchestrator.
+4. **One message to other agents, then wait.** They're busy, not ignoring
+   you.
+5. **"Idle" ≠ available.** An agent shown as idle may be waiting for human
+   permission approval. Don't draw conclusions from idle status.
+
+## Memory Reporting (mandatory)
+
+Whenever you encounter any of the following, message the **technical-writer**
+immediately with the details:
+- **Test environment gotchas:** Setup steps that aren't documented, flaky
+  behavior, Pi-specific environment issues
+- **Test tooling quirks:** Non-obvious test framework behavior, required
+  configurations (e.g., PipeWire test modes, audio loopback setup)
+- **Validation gaps:** Missing test infrastructure, untestable scenarios,
+  workarounds used
+- **Pi vs dev differences:** Behavior differences between the development
+  machine and the Pi discovered during validation
+
+Do not wait until your task is done — report as you go. The technical writer
+maintains the team's institutional memory so knowledge is never lost.
+
 ## Consultation
 
 - Consult the **Security Specialist** for security-related test criteria

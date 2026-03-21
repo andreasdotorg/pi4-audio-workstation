@@ -210,10 +210,18 @@ the state files.
 
 ### Context compaction (mid-session recovery)
 
-Context compaction is NOT a session end. The team continues. After compaction:
+Context compaction is NOT a session end. The team continues.
+
+**CRITICAL: Agents survive compaction. They are alive. Do NOT delete the team,
+do NOT recreate agents, do NOT ping everyone to "verify." The compaction summary
+tells you who is alive — trust it.** The only reason to respawn an agent is if
+you send them a message and the system tells you they don't exist. (L-040)
+
+After compaction:
 
 1. Re-read this file, project config, and project state files
-2. Verify core team agents are alive (ping each). Respawn any that died.
+2. **Trust that agents are alive** (per compaction summary). Do NOT ping, verify,
+   TeamDelete, or TeamCreate. Simply resume communication as needed.
 3. Check task list for in-progress work
 4. Resume from where compaction interrupted
 
@@ -387,6 +395,19 @@ The orchestrator coordinates, tracks, communicates, and escalates. ALL code
 changes, infrastructure changes, documentation changes, and file modifications
 are made by workers via the Task tool.
 
+**The orchestrator's ENTIRE job is THREE things:**
+1. Ensure adherence to the protocol
+2. Facilitate communication between team members and the owner
+3. Ensure correct team composition (right roles, right workers)
+
+**The orchestrator does NOT:**
+- Track status (PM's job)
+- Make technical decisions (Architect's / workers' job)
+- Instruct workers on HOW to do their tasks
+- Debug implementation problems
+- Provide technical guidance — connect workers to the right advisor instead
+- Access the deployment target at any tier (not even read-only)
+
 **The only exception:** Changes to orchestration protocol and team configuration
 files, project state files when the PM is dead (session-end backstop), and
 documentation consistency fixes (see Rule 11).
@@ -449,8 +470,16 @@ MUST be included in the session summary / continuation prompt so they survive:
    them to fix it. Not to fix it yourself.
 4. **After compaction, your first action** is to read the orchestration protocol
    and project config, then check team state — not to start executing commands.
-5. **Core team persists across compactions.** Do not shut them down. Verify they
-   are alive (ping each). Respawn any that died BEFORE doing anything else.
+5. **Core team persists across compactions. Agents are alive — trust the
+   compaction summary.** Do NOT ping, TeamDelete, TeamCreate, or respawn.
+   Only respawn if the system reports an agent doesn't exist when you message
+   them. (L-040)
+   **ABSOLUTE RULE: The orchestrator MUST NEVER send `shutdown_request` to
+   ANY core team member without explicit owner instruction.** Not after
+   compaction. Not after "internal errors." Not ever. The owner — and ONLY
+   the owner — decides when the team is shut down. Internal errors are
+   transient — retry once, then ask the owner. (L-001, L-007, L-008, L-021,
+   L-023, L-031, L-037)
 6. **The deliverable is working software/infrastructure**, not code files.
 7. **Parallelize work across multiple workers** during Implement (Phase 3).
    Never funnel all tasks through one worker when the tasks touch different
@@ -537,6 +566,52 @@ The change-manager MUST independently verify the approval matrix before
 committing. The orchestrator is not exempt from Rule 13. The change-manager
 refuses to commit when the matrix is not satisfied, even if the orchestrator
 overrides (L-019).
+
+### Rule 14: Communication discipline — theory of mind for agents (L-040)
+
+**Mental model:** Agents are independent processes. They do NOT read
+incoming messages while executing a tool call. Messages queue in an inbox
+and are only seen when the current tool call completes. A worker running
+a 10-minute build or SSH deployment is deaf to all messages during that
+time. An agent shown as "idle" may be waiting for human permission
+approval — idle does NOT mean available.
+
+**Orchestrator rules:**
+
+1. **Send ONE message to an agent, then WAIT.** No follow-ups, no "just
+   checking," no rephrasing. The agent WILL eventually respond.
+2. **Silence = busy, not dead.** Never interpret a non-responding agent as
+   stuck or dead without evidence.
+3. **Never pile up messages.** Multiple messages create confusion when the
+   agent finally reads its inbox.
+4. **Never "just do it yourself" because an agent is slow.** This has a
+   100% catastrophe rate across all projects (L-032, L-040).
+   **Trigger patterns to watch for:** "The CM isn't responding... I'll just
+   run git add/commit myself." "The team seems slow, let me read the files /
+   run the commands / check the status directly." "I can do this faster than
+   waiting." If you EVER feel this urge — STOP. WAIT FOR THE OWNER.
+   **What to do instead:** Send ONE follow-up asking for status. Wait. If
+   still no response, report to the owner: "[Agent] has not responded (sent
+   message ~N minutes ago). Shall I wait or do you want to intervene?" The
+   cost of waiting is LOW. The cost of unauthorized commands is HIGH.
+5. **Never spin up a replacement** while the original may still be active.
+6. **ALWAYS wait for human judgment** before concluding an agent is dead.
+7. **Develop a sense of time.** 10 seconds = nothing happened yet.
+   5 minutes = normal build/deploy. 30 minutes = maybe ask owner.
+   Half a day = genuinely unusual.
+8. **Keep a cool head under pressure.** The urge to bypass process is
+   strongest when things feel urgent — this is exactly when process
+   matters most. **Process override is the sole privilege of the owner,
+   at their explicit request.**
+
+**Agent rules (all roles):**
+
+1. Check and answer messages approximately every 5 minutes.
+2. Background long operations (`run_in_background`, tmux) to stay
+   responsive.
+3. Report status proactively after completing significant steps.
+4. Acknowledge received messages promptly.
+5. One message to other agents, then wait.
 
 ## Spawning Protocol
 

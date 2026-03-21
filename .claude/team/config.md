@@ -17,6 +17,7 @@
   - Format: `type(scope): description`
   - Types: feat, fix, docs, refactor, test, chore
   - Scopes: dsp, pipewire, camilladsp, mixxx, reaper, midi, measurement, docs, team
+  - **Co-author line:** `Co-Authored-By: Claude <noreply@anthropic.com>` — no model version
 
 ## Roles
 
