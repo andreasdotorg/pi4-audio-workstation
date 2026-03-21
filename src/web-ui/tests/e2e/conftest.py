@@ -17,6 +17,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -79,6 +80,16 @@ def mock_server(request):
 
     web_ui_dir = Path(__file__).resolve().parent.parent.parent  # src/web-ui/
 
+    # Write server output to temp files instead of pipes to avoid the
+    # classic subprocess.PIPE deadlock: if nobody reads the pipe and the
+    # OS buffer fills (~64 KB), the server blocks on write and freezes.
+    # This was the root cause of F-041 — the server appeared alive
+    # (proc.poll() == None) but couldn't serve requests.
+    stderr_file = tempfile.NamedTemporaryFile(
+        mode="w+", prefix="mock_server_stderr_", suffix=".log", delete=False)
+    stdout_file = tempfile.NamedTemporaryFile(
+        mode="w+", prefix="mock_server_stdout_", suffix=".log", delete=False)
+
     proc = subprocess.Popen(
         [
             sys.executable, "-m", "uvicorn",
@@ -87,9 +98,17 @@ def mock_server(request):
             "--port", str(port),
         ],
         cwd=str(web_ui_dir),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=stdout_file,
+        stderr=stderr_file,
     )
+
+    def _read_stderr() -> str:
+        """Read captured stderr from the temp file."""
+        try:
+            stderr_file.seek(0)
+            return stderr_file.read()
+        except Exception:
+            return "<could not read stderr>"
 
     # Wait for the server to accept connections (10 s timeout)
     deadline = time.monotonic() + 10
@@ -100,23 +119,23 @@ def mock_server(request):
         except OSError:
             if proc.poll() is not None:
                 # Server exited during startup — dump stderr immediately.
-                stderr = proc.stderr.read().decode(errors="replace")
                 pytest.fail(
                     f"mock_server exited during startup (rc={proc.returncode})"
-                    f"\n--- stderr ---\n{stderr}"
+                    f"\n--- stderr ---\n{_read_stderr()}"
                 )
             time.sleep(0.1)
     else:
         proc.terminate()
         proc.wait(timeout=5)
-        stderr = proc.stderr.read().decode(errors="replace")
         pytest.fail(
             f"mock_server did not start within 10 s on port {port}"
-            f"\n--- stderr ---\n{stderr}"
+            f"\n--- stderr ---\n{_read_stderr()}"
         )
 
-    # Stash proc on the session so page fixture can check liveness.
+    # Stash proc and stderr reader on the session so the page fixture
+    # can check liveness and dump diagnostics.
     request.config._mock_server_proc = proc
+    request.config._mock_server_read_stderr = _read_stderr
 
     base_url = f"http://127.0.0.1:{port}"
     yield base_url
@@ -129,23 +148,31 @@ def mock_server(request):
         proc.wait(timeout=5)
 
     # Dump stderr if the server crashed during the session.
-    stderr = proc.stderr.read().decode(errors="replace")
     if proc.returncode not in (0, -15, None):
         # -15 = SIGTERM (normal teardown); anything else is a crash.
         print(
-            f"\n=== mock_server crashed (rc={proc.returncode}) ===\n{stderr}",
+            f"\n=== mock_server crashed (rc={proc.returncode}) ===\n"
+            f"{_read_stderr()}",
             file=sys.stderr,
         )
+
+    # Clean up temp files.
+    for f in (stderr_file, stdout_file):
+        try:
+            f.close()
+            os.unlink(f.name)
+        except OSError:
+            pass
 
 
 def _assert_server_alive(config):
     """Fail fast if the mock server process has died (F-041)."""
     proc = getattr(config, "_mock_server_proc", None)
     if proc is not None and proc.poll() is not None:
-        stderr = proc.stderr.read().decode(errors="replace")
+        read_stderr = getattr(config, "_mock_server_read_stderr", lambda: "")
         pytest.fail(
             f"mock_server crashed before this test (rc={proc.returncode})"
-            f"\n--- stderr ---\n{stderr}"
+            f"\n--- stderr ---\n{read_stderr()}"
         )
 
 
