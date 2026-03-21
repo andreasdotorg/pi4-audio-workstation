@@ -848,6 +848,35 @@ html, body {
 .c-amber { color: var(--amber) !important; }
 .c-grey { color: var(--text-dim) !important; }
 
+/* -- Keyboard focus indicators (F-047) ------------------------------------ */
+
+:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+}
+
+.nav-tab:focus-visible {
+    outline-offset: -2px;
+}
+
+.sb-panic-btn:focus-visible {
+    outline-color: var(--red);
+}
+
+.tt-signal-btn:focus-visible,
+.tt-channel-btn:focus-visible,
+.tt-play-btn:focus-visible,
+.tt-stop-btn:focus-visible,
+.cfg-quantum-btn:focus-visible,
+.cfg-apply-btn:focus-visible,
+.cfg-reset-btn:focus-visible,
+.mw-btn-hero:focus-visible,
+.event-filter-btn:focus-visible,
+.event-clear-btn:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+}
+
 /* -- Reconnect overlay ---------------------------------------------------- */
 
 .reconnect-overlay {
