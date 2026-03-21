@@ -44,6 +44,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .audio_mute import AudioMuteManager
+from .config_routes import router as config_router
 from .mode_manager import ModeManager
 from .measurement.routes import router as measurement_router, ws_broadcast, ws_measurement
 from .test_tool.routes import router as test_tool_router
@@ -212,6 +213,7 @@ async def recovery_guard(request: Request, call_next):
 
 app.include_router(measurement_router)
 app.include_router(test_tool_router)
+app.include_router(config_router)
 
 
 # -- Routes --
