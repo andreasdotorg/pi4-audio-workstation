@@ -5,8 +5,8 @@
  * consumer of WebSocket data rather than using view lifecycle hooks.
  *
  * Data sources (no new endpoints):
- *   /ws/monitoring  -> onMonitoring(): mini meters, DSP state, clip, xruns
- *   /ws/system      -> onSystem(): temp, CPU, quantum, mode
+ *   /ws/monitoring  -> onMonitoring(): mini meters, DSP state, clip
+ *   /ws/system      -> onSystem(): temp, CPU, quantum, xruns (PW), mode (GM)
  *   /ws/measurement -> onMeasurement(): progress bar, step label, ABORT visibility
  */
 
@@ -167,10 +167,6 @@
         // Clip count
         PiAudio.setText("sb-clip", String(cdsp.clipped_samples),
             cdsp.clipped_samples > 0 ? "c-red" : "c-green");
-
-        // Xrun count (from monitoring data -- higher update rate than system)
-        PiAudio.setText("sb-xruns", String(cdsp.xruns),
-            cdsp.xruns > 0 ? "c-red" : "c-green");
     }
 
     function onSystem(data) {
@@ -189,7 +185,13 @@
         // Quantum
         PiAudio.setText("sb-quantum", String(data.pipewire.quantum));
 
-        // Mode badge
+        // Xrun count (from PipeWireCollector via /ws/system — real pw-top data)
+        // Three-tier coloring per UX spec: green=0, yellow=1-5, red>5
+        var xruns = data.camilladsp.xruns || 0;
+        PiAudio.setText("sb-xruns", String(xruns),
+            xruns > 5 ? "c-red" : xruns > 0 ? "c-yellow" : "c-green");
+
+        // Mode badge (from GraphManager via FilterChainCollector)
         var modeEl = document.getElementById("sb-mode");
         if (modeEl) {
             modeEl.textContent = data.mode.toUpperCase();

@@ -74,6 +74,28 @@ def _build_system_snapshot(app) -> dict:
     pw_snap = pw_col.snapshot() if pw_col else {}
     cdsp_snap = cdsp_col.dsp_health_snapshot() if cdsp_col else {}
 
+    # Build camilladsp section, then override xruns with PipeWireCollector's
+    # real value.  FilterChainCollector hardcodes xruns=0 because GraphManager
+    # doesn't track xruns; PipeWireCollector reads them from pw-top.
+    dsp_section = cdsp_snap if cdsp_snap else {
+        "state": "Disconnected",
+        "processing_load": 0.0,
+        "capture_rate": 0,
+        "playback_rate": 0,
+        "rate_adjust": 1.0,
+        "buffer_level": 0,
+        "clipped_samples": 0,
+        "xruns": 0,
+        "chunksize": 0,
+        "gm_connected": False,
+        "gm_mode": "dj",
+        "gm_links_desired": 0,
+        "gm_links_actual": 0,
+        "gm_links_missing": 0,
+        "gm_convolver": "unknown",
+    }
+    dsp_section["xruns"] = pw_snap.get("xruns", 0)
+
     return {
         "timestamp": time.time(),
         "cpu": sys_snap.get("cpu", {
@@ -92,23 +114,13 @@ def _build_system_snapshot(app) -> dict:
                 "graphmgr_priority": 0,
             }),
         },
-        "camilladsp": cdsp_snap if cdsp_snap else {
-            "state": "Disconnected",
-            "processing_load": 0.0,
-            "capture_rate": 0,
-            "playback_rate": 0,
-            "rate_adjust": 1.0,
-            "buffer_level": 0,
-            "clipped_samples": 0,
-            "xruns": 0,
-            "chunksize": 0,
-        },
+        "camilladsp": dsp_section,
         "memory": sys_snap.get("memory", {
             "used_mb": 0,
             "total_mb": 0,
             "available_mb": 0,
         }),
-        "mode": "dj",  # determined by active config, not collector
+        "mode": cdsp_snap.get("gm_mode", "dj") if cdsp_snap else "dj",
         "processes": sys_snap.get("processes", {
             "mixxx_cpu": 0.0,
             "reaper_cpu": 0.0,

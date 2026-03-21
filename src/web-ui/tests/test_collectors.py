@@ -282,6 +282,45 @@ class TestBuildSystemSnapshot:
         for key in mock_data:
             assert key in real_data
 
+    def test_xruns_from_pipewire_collector(self):
+        """Xruns in camilladsp section come from PipeWireCollector, not
+        FilterChainCollector (which hardcodes 0)."""
+        app = MagicMock()
+        pw = PipeWireCollector()
+        fc = FilterChainCollector()
+        # Simulate PipeWireCollector reporting 7 xruns
+        pw._snapshot = pw._fallback_snapshot()
+        pw._snapshot["xruns"] = 7
+        # FilterChainCollector has xruns=0 by default
+        app.state.system_collector = None
+        app.state.pw = pw
+        app.state.cdsp = fc
+        data = _build_system_snapshot(app)
+        assert data["camilladsp"]["xruns"] == 7
+
+    def test_mode_from_filterchain_gm_mode(self):
+        """Mode field reads from FilterChainCollector's gm_mode, not hardcoded."""
+        app = MagicMock()
+        fc = FilterChainCollector()
+        # Simulate FC connected with gm_mode=live
+        fc._connected = True
+        fc._links = {"ok": True, "mode": "live", "desired": 8,
+                     "actual": 8, "missing": 0}
+        app.state.system_collector = None
+        app.state.pw = None
+        app.state.cdsp = fc
+        data = _build_system_snapshot(app)
+        assert data["mode"] == "live"
+
+    def test_mode_defaults_to_dj_when_no_collector(self):
+        """Mode defaults to 'dj' when FilterChainCollector is unavailable."""
+        app = MagicMock()
+        app.state.system_collector = None
+        app.state.pw = None
+        app.state.cdsp = None
+        data = _build_system_snapshot(app)
+        assert data["mode"] == "dj"
+
 
 # ── 3. _read_scheduling() field indexing ──────────────────────
 
