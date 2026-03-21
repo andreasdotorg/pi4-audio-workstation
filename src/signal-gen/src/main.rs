@@ -844,14 +844,14 @@ fn run_pipewire(
 
     let playback_flags = if args.managed {
         // Managed mode: GraphManager creates links. No AUTOCONNECT.
+        // No DRIVER — the USBStreamer is the group driver; signal-gen
+        // is a follower in the pi4audio.usbstreamer node.group.
         pipewire::stream::StreamFlags::MAP_BUFFERS
             | pipewire::stream::StreamFlags::RT_PROCESS
-            // DRIVER makes this stream self-clocking so PipeWire always
-            // invokes the process callback (BUG-SG12-6). Required in both
-            // modes — independent of AUTOCONNECT.
-            | pipewire::stream::StreamFlags::DRIVER
     } else {
         // Standalone mode: PipeWire auto-links to target.
+        // DRIVER makes this stream self-clocking (needed when no
+        // group driver exists).
         pipewire::stream::StreamFlags::AUTOCONNECT
             | pipewire::stream::StreamFlags::MAP_BUFFERS
             | pipewire::stream::StreamFlags::RT_PROCESS
