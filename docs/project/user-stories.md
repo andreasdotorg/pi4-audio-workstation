@@ -3106,7 +3106,7 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **I want** a GraphManager subsystem that is the sole authority over PipeWire application routing, and a production PW filter-chain configuration that replaces CamillaDSP for all FIR convolution,
 **so that** the entire audio pipeline runs as native PipeWire nodes with deterministic, centrally-managed routing -- eliminating the ALSA Loopback bridge, the CamillaDSP external process, and the class of integration bugs caused by distributed session management (BUG-SG12-1 through SG12-7, TK-224, TK-236).
 
-**Status:** in-review (REVIEW phase, fast-tracked 2026-03-21. QE approved DEPLOY/VERIFY fast-track: accumulated evidence — GM-12 40min DJ session, C-006 config deployment, D-001 6-iteration reboot test, O-018 13h39m soak, S-001/S-002 VERIFY sessions — exceeds single-session requirements. DoD 14/14. All 4 advisory sign-offs collected: architect, security specialist, AD, QE. Pending owner acceptance.)
+**Status:** done (owner-accepted 2026-03-21. Clean reboot demo PASS — S-004, 17/17 checks green. DoD 14/14. All 4 advisory sign-offs collected: architect, security specialist, AD, QE. Follow-ups: F-033, I-1 CI wiring, spectral verification AC 3141, D-042 lifting.)
 **Depends on:** US-058 PASS (D-040: PW filter-chain replaces CamillaDSP, giving GraphManager linkable PW ports natively). **SATISFIED.**
 **Blocks:** US-060 (PW monitoring replacement), US-061 (measurement pipeline adaptation)
 **Decisions:** D-039 (owner corrections 2026-03-16: daemon subsystem, WHAT not HOW, sole session manager). D-040 (abandon CamillaDSP for PW filter-chain). Supersedes the original WP Lua scripts approach.
