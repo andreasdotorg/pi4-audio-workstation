@@ -1,13 +1,15 @@
 # Results
 
-Test results for the Pi 4B audio workstation. All data collected on Raspberry Pi 4B
-running Debian 13 Trixie with stock PREEMPT kernel, CamillaDSP v3.0.1, and PipeWire.
+Test results for the Pi 4B audio workstation. All data below was collected
+pre-D-040 on Raspberry Pi 4B running Debian 13 Trixie with stock PREEMPT
+kernel, CamillaDSP v3.0.1, and PipeWire. For current architecture (PipeWire
+filter-chain convolver) benchmarks, see BM-2 lab notes.
 
 ## Directory Structure
 
 ```
 results/
-  benchmarks/    # T1a-T1e: CamillaDSP CPU and thermal measurements
+  benchmarks/    # T1a-T1e: CamillaDSP CPU and thermal measurements (pre-D-040)
   latency/       # T2a-T2b: End-to-end audio latency measurements
 ```
 

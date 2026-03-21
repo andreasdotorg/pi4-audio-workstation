@@ -21,21 +21,18 @@ The workstation serves two use cases on identical hardware:
 **DJ/PA mode** -- Psytrance events. Mixxx plays tracks through a 2+2
 speaker system (stereo mains + two independently corrected subwoofers).
 The system applies per-venue room correction using combined minimum-phase
-FIR filters that preserve kick drum transient fidelity. Buffer sizes
-prioritize CPU efficiency (PipeWire quantum 1024, CamillaDSP chunksize
-2048).
+FIR filters that preserve kick drum transient fidelity. PipeWire quantum
+1024 prioritizes CPU efficiency (~21ms PA path latency).
 
 **Live vocal mode** -- Cole Porter performances with a singer and backing
 tracks. Reaper plays pre-recorded accompaniment while the singer performs
 live. She wears in-ear monitors and also hears the PA acoustically. The
-system keeps the PA path delay under 21ms to prevent distracting slapback.
-Buffer sizes prioritize low latency (PipeWire quantum 256, CamillaDSP
-chunksize 256).
+system keeps the PA path delay to ~5.3ms to prevent distracting slapback.
+PipeWire quantum 256 prioritizes low latency.
 
-Both modes share the same audio processing pipeline. The only differences
-are the source application, the buffer sizes, and the CamillaDSP
-configuration (which controls both buffer sizing and channel routing
-between modes).
+Both modes share the same audio processing pipeline (PipeWire filter-chain
+convolver). The only differences are the source application and the PipeWire
+quantum (set at runtime via `pw-metadata`).
 
 ---
 
@@ -71,8 +68,7 @@ between modes).
 
 | Software | Role |
 |----------|------|
-| PipeWire | Audio server. Provides JACK bridge for applications, manages routing and graph scheduling. Runs at SCHED_FIFO/88. |
-| CamillaDSP 3.0.1 | Real-time DSP engine. Crossover, room correction (FIR convolution), channel routing. Runs at SCHED_FIFO/80. |
+| PipeWire 1.4.9 | Audio server, routing, AND DSP engine. Provides JACK bridge for applications, manages graph scheduling, and runs the filter-chain convolver (FFTW3/NEON) for all FIR processing. Runs at SCHED_FIFO/88. |
 | Mixxx 2.5.0 | DJ software (DJ/PA mode). Connects via `pw-jack`. |
 | Reaper 7.64 | Digital audio workstation (live vocal mode). |
 | Python 3 + scipy/numpy | Automated room correction pipeline (measurement, filter generation, deployment). |
@@ -88,17 +84,22 @@ Application (Mixxx or Reaper)
   v
 PipeWire (SCHED_FIFO/88)
   |
-  v
-ALSA Loopback (hw:Loopback,0,0 -> hw:Loopback,1,0)
+  |-- Speaker channels (1-4):
+  |     filter-chain convolver
+  |     - FIR convolution (16,384 taps per channel)
+  |     - Combined crossover + room correction
   |
-  v
-CamillaDSP (SCHED_FIFO/80)
-  |  - 8ch routing
-  |  - FIR convolution (16,384 taps, 4 speaker channels)
-  |  - Passthrough (4 monitor channels)
+  |-- Monitor channels (5-8):
+  |     Direct PipeWire links (bypass convolver)
+  |
   v
 USBStreamer -> ADA8200 -> Amplifiers -> Speakers
 ```
+
+Note: The system previously used CamillaDSP as an external DSP engine via
+ALSA Loopback (pre-D-040). PipeWire's built-in convolver replaced it,
+eliminating the loopback bridge and reducing DJ-mode latency from ~109ms
+to ~21ms.
 
 ---
 
@@ -123,7 +124,7 @@ Technical reference for how the system is built and configured.
 
 | Document | Description |
 |----------|-------------|
-| [RT Audio Stack](../architecture/rt-audio-stack.md) | PREEMPT_RT kernel, thread priorities, PipeWire/CamillaDSP RT scheduling, buffer sizing, verification commands |
+| [RT Audio Stack](../architecture/rt-audio-stack.md) | PREEMPT_RT kernel, thread priorities, PipeWire RT scheduling, filter-chain convolver, buffer sizing, verification commands |
 | [Web UI Architecture](../architecture/web-ui.md) | Monitoring web interface design |
 | [Web UI Monitoring Plan](../architecture/web-ui-monitoring-plan.md) | Implementation plan for the web monitoring dashboard |
 
@@ -149,7 +150,7 @@ Tracking documents for decisions, tasks, defects, and test protocols.
 | [Task Register](../project/tasks.md) | All tasks (TK-001 through TK-065+) with status, assignee, and dependencies. |
 | [User Stories](../project/user-stories.md) | User stories (US-000 through US-037+) with acceptance criteria. |
 | [Status](../project/status.md) | Current project status summary. |
-| [Assumption Register](../project/assumption-register.md) | Tracked assumptions (A1-A26) with confidence levels and validation status. |
+| [Assumption Register](../project/assumption-register.md) | Tracked assumptions (A1-A34) with confidence levels and validation status. |
 | [Test Protocols](../project/test-protocols/) | Formal test procedures (TP-001+). |
 
 ### Lab Notes
@@ -186,9 +187,9 @@ maps to a deployment path on the Pi.
 
 | Directory | Description | Pi Path |
 |-----------|-------------|---------|
-| [configs/camilladsp/production/](../../configs/camilladsp/production/) | DJ and live mode CamillaDSP configs | `/etc/camilladsp/` |
-| [configs/pipewire/](../../configs/pipewire/) | PipeWire quantum, Loopback, USBStreamer configs | `~/.config/pipewire/pipewire.conf.d/` |
-| [configs/systemd/](../../configs/systemd/) | systemd service overrides (CamillaDSP FIFO/80, PipeWire FIFO/88) | `/etc/systemd/system/` and `~/.config/systemd/user/` |
+| [configs/camilladsp/](../../configs/camilladsp/) | Historical CamillaDSP configs (pre-D-040, service stopped) | `/etc/camilladsp/` (no longer active) |
+| [configs/pipewire/](../../configs/pipewire/) | PipeWire quantum, filter-chain convolver, USBStreamer configs | `~/.config/pipewire/pipewire.conf.d/` |
+| [configs/systemd/](../../configs/systemd/) | systemd service units and overrides (PipeWire FIFO/88, labwc, graph-manager, etc.) | `/etc/systemd/system/` and `~/.config/systemd/user/` |
 | [configs/wireplumber/](../../configs/wireplumber/) | WirePlumber device routing rules | `~/.config/wireplumber/wireplumber.conf.d/` |
 | [configs/labwc/](../../configs/labwc/) | Wayland compositor config (autostart, window rules) | `~/.config/labwc/` |
 | [configs/mixxx/](../../configs/mixxx/) | Mixxx sound device config | `~/.mixxx/` |
@@ -245,7 +246,7 @@ at [docs/project/decisions.md](../project/decisions.md).
 | Decision | Summary |
 |----------|---------|
 | D-001 | Combined minimum-phase FIR filters (16,384 taps) instead of IIR crossover |
-| D-002 / D-011 | Dual buffer sizing: quantum 1024 / chunksize 2048 (DJ) vs quantum 256 / chunksize 256 (live) |
+| D-002 / D-011 / D-040 | Dual quantum: 1024 (DJ, ~21ms PA) vs 256 (live, ~5.3ms PA). Single PipeWire graph -- no separate DSP chunksize. |
 | D-009 | Cut-only correction filters with -0.5dB safety margin |
 | D-013 | PREEMPT_RT kernel mandatory for PA-connected operation (safety) |
 | D-022 | Hardware V3D GL on PREEMPT_RT (upstream fix in `6.12.62+rpt-rpi-v8-rt`) |

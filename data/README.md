@@ -3,7 +3,7 @@
 Raw test data organized by user story and test case.
 Each subdirectory contains unmodified output from the test scripts and tools.
 
-## US-003 -- CamillaDSP Stability Testing
+## US-003 -- Stability Testing (pre-D-040, CamillaDSP architecture)
 
 ### T3b -- Live Mode Stability (30 minutes)
 
@@ -70,4 +70,4 @@ system changes for rollback reference.
 
 - All three tests passed with 0 xruns.
 - Peak temperature across all tests was 75.0 C (T3e under PREEMPT_RT kernel).
-- The `stability_live.yml` config used across these tests runs CamillaDSP with chunksize 256, 2-channel output, and 16,384-tap FIR filters at 48 kHz.
+- The `stability_live.yml` config used across these tests runs CamillaDSP with chunksize 256, 2-channel output, and 16,384-tap FIR filters at 48 kHz. These tests predate D-040 (CamillaDSP replaced by PipeWire filter-chain). See BM-2 and GM-12 lab notes for current architecture benchmarks.

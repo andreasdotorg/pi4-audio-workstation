@@ -219,15 +219,15 @@ scripts/                     Automation scripts (see scripts/README.md)
   room-correction/           Automated room correction pipeline
   web-ui/                    Monitoring web UI application (FastAPI + JS)
 configs/                     All configuration files (see configs/README.md)
-  camilladsp/production/     Live, DJ, and Bose home CamillaDSP configs
-  camilladsp/test/           Benchmark and test CamillaDSP configs
+  camilladsp/production/     Historical CamillaDSP configs (pre-D-040, service stopped)
+  camilladsp/test/           Historical CamillaDSP benchmark configs (pre-D-040)
   pipewire/                  PipeWire audio server configuration
   wireplumber/               WirePlumber routing rules
   midi/                      MIDI controller mappings (APCmini mk2)
   mixxx/                     Mixxx DJ software config and controller mappings
   room-correction/           Room correction profiles and venue templates
   speakers/                  Speaker identity files and system profiles
-  systemd/                   systemd service overrides (CamillaDSP, labwc)
+  systemd/                   systemd service units and overrides (labwc, graph-manager, web UI, etc.)
   labwc/                     labwc Wayland compositor configuration
   wayvnc/                    wayvnc remote desktop configuration
   xdg-desktop-portal-wlr/   Screen share auto-approve for headless operation

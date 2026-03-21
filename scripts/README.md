@@ -13,14 +13,15 @@ workstation. All scripts run on the Pi unless noted otherwise.
 
 ## scripts/test/
 
-Test and benchmark scripts for validating CamillaDSP performance (US-001),
-latency (US-002), and audio subsystem health.
+Test and benchmark scripts for validating audio subsystem performance (US-001),
+latency (US-002), and health. The US-001 scripts target CamillaDSP (pre-D-040
+benchmarks); see BM-2 lab notes for PipeWire filter-chain benchmarks.
 
 ### Benchmark runners
 
 | Script | Test | Purpose | Requirements |
 |--------|------|---------|--------------|
-| `run_benchmarks.sh` | T1a--T1e | Run all CamillaDSP CPU benchmarks via the websocket API. | CamillaDSP running, venv with `pycamilladsp` |
+| `run_benchmarks.sh` | T1a--T1e | Run all CamillaDSP CPU benchmarks via the websocket API (pre-D-040). | CamillaDSP running, venv with `pycamilladsp` |
 | `run_t2a.sh` | T2a | Run the T2a latency test (wraps `measure_latency.py`). | venv with numpy/scipy/soundfile/pycamilladsp |
 
 **Usage:**
@@ -35,7 +36,7 @@ latency (US-002), and audio subsystem health.
 
 | Script | Test | Purpose | Requirements |
 |--------|------|---------|--------------|
-| `gen_configs.py` | T1a--T1e | Generate CamillaDSP YAML configs for each benchmark variant. | Python 3.13, venv |
+| `gen_configs.py` | T1a--T1e | Generate CamillaDSP YAML configs for each benchmark variant (pre-D-040). | Python 3.13, venv |
 | `gen_dirac.py` | T1a--T1e | Generate Dirac impulse WAV files used as benchmark filters. | Python 3.13, scipy |
 
 **Usage:**
@@ -72,14 +73,14 @@ python3 scripts/test/measure_latency_v2.py        # multi-iteration, JSON output
 
 ### Audio path testing
 
-Scripts for verifying the end-to-end audio path (JACK -> Loopback -> CamillaDSP
--> USBStreamer) without Reaper. Created for F-015 diagnosis and ongoing regression
-testing.
+Scripts for verifying the end-to-end audio path, originally created for F-015
+diagnosis (pre-D-040 JACK -> Loopback -> CamillaDSP -> USBStreamer path).
+The `monitor-camilladsp.py` script requires CamillaDSP running.
 
 | Script | Purpose | Requirements |
 |--------|---------|--------------|
 | `jack-tone-generator.py` | JACK callback-based tone/noise generator. Supports sine, white noise, pink noise, and log sweep waveforms. Registers 8 output ports, configurable channel selection (default ch 1+2). Detects JACK xruns and callback gaps. Auto-connects to `loopback-8ch-sink`. | venv with `numpy`, `jack` (JACK client library) |
-| `monitor-camilladsp.py` | CamillaDSP websocket state monitor. Polls state, processing load, buffer level, clipping, and rate adjust. Detects anomalies: frozen buffer (stalls), load > 85%, state changes, clipping. Outputs JSON summary. | venv with `pycamilladsp` |
+| `monitor-camilladsp.py` | CamillaDSP websocket state monitor (pre-D-040). Polls state, processing load, buffer level, clipping, and rate adjust. Detects anomalies: frozen buffer (stalls), load > 85%, state changes, clipping. Outputs JSON summary. | venv with `pycamilladsp`, CamillaDSP running |
 
 **Usage:**
 
@@ -113,7 +114,7 @@ Both scripts exit with code 0 on PASS, non-zero on FAIL.
 
 | Script | Purpose | Requirements |
 |--------|---------|--------------|
-| `tk039-audio-validation.sh` | End-to-end audio validation for TK-039. Validates that Mixxx (DJ mode) and Reaper (Live mode) produce correctly routed audio through CamillaDSP to the USBStreamer, with zero xruns and correct signal levels. | CamillaDSP + PipeWire running, deploy.sh completed |
+| `tk039-audio-validation.sh` | End-to-end audio validation for TK-039 (pre-D-040). Validates Mixxx/Reaper audio routing through CamillaDSP to USBStreamer. | CamillaDSP + PipeWire running, deploy.sh completed |
 
 **Usage:**
 
@@ -131,7 +132,7 @@ Both scripts exit with code 0 on PASS, non-zero on FAIL.
 | `test_i1b.py` | Early iteration benchmark test. |
 | `test_i2.py` | Early iteration benchmark test. |
 | `test_i3_jack.sh` | JACK-based exploratory test. |
-| `test_i5_queuelimit.py` | CamillaDSP queue limit testing. |
+| `test_i5_queuelimit.py` | CamillaDSP queue limit testing (pre-D-040). |
 
 These scripts document the evolution of the benchmark approach. They are not
 part of the current test plan.
@@ -146,9 +147,9 @@ Stability and monitoring scripts for US-003 long-duration tests.
 
 | Script | Test | Purpose | Requirements |
 |--------|------|---------|--------------|
-| `run-stability-t3b.sh` | T3b | 30-minute stability test in live mode. Monitors CPU, temperature, xruns, and CamillaDSP state. | CamillaDSP + PipeWire running |
-| `run-stability-t3c.sh` | T3c | Informational stability test. Contains an inline monitor (~70 lines, duplicated from `stability-monitor.sh`). | CamillaDSP + PipeWire running |
-| `run-audio-test.sh` | F-015 | Orchestrates `jack-tone-generator.py` + `monitor-camilladsp.py` in parallel. Tests the JACK -> Loopback -> CamillaDSP -> USBStreamer path without Reaper. Forces PipeWire quantum to 256. Reports combined PASS/FAIL. | CamillaDSP + PipeWire running, venv with `numpy`, `jack`, `pycamilladsp` |
+| `run-stability-t3b.sh` | T3b | 30-minute stability test in live mode (pre-D-040). Monitors CPU, temperature, xruns, and CamillaDSP state. | CamillaDSP + PipeWire running |
+| `run-stability-t3c.sh` | T3c | Informational stability test (pre-D-040). Contains an inline monitor (~70 lines, duplicated from `stability-monitor.sh`). | CamillaDSP + PipeWire running |
+| `run-audio-test.sh` | F-015 | Orchestrates `jack-tone-generator.py` + `monitor-camilladsp.py` in parallel (pre-D-040). Tests JACK -> Loopback -> CamillaDSP -> USBStreamer path. | CamillaDSP + PipeWire running, venv with `numpy`, `jack`, `pycamilladsp` |
 
 **Usage:**
 
@@ -168,7 +169,7 @@ Stability and monitoring scripts for US-003 long-duration tests.
 
 | Script | Purpose | Requirements |
 |--------|---------|--------------|
-| `stability-monitor.sh` | Reusable monitoring daemon: polls CPU usage, temperature, xrun count, and CamillaDSP state. Used by T3b and T3c. | CamillaDSP running |
+| `stability-monitor.sh` | Reusable monitoring daemon (pre-D-040): polls CPU usage, temperature, xrun count, and CamillaDSP state. Used by T3b and T3c. | CamillaDSP running |
 | `xrun-monitor.sh` | PipeWire xrun detection daemon. Watches for buffer underruns/overruns. Used by T3b and T3c. | PipeWire running |
 
 ### Deployment
@@ -223,13 +224,13 @@ See each directory's own README for details.
 
 | Test | User Story | What it validates |
 |------|-----------|-------------------|
-| T1a | US-001 | CamillaDSP CPU @ chunksize 2048, 16k taps |
-| T1b | US-001 | CamillaDSP CPU @ chunksize 512, 16k taps |
-| T1c | US-001 | CamillaDSP CPU @ chunksize 256, 16k taps |
-| T1d | US-001 | CamillaDSP CPU @ chunksize 512, 8k taps |
-| T1e | US-001 | CamillaDSP CPU @ chunksize 2048, 32k taps |
+| T1a | US-001 | CamillaDSP CPU @ chunksize 2048, 16k taps (pre-D-040; see BM-2 for PW filter-chain) |
+| T1b | US-001 | CamillaDSP CPU @ chunksize 512, 16k taps (pre-D-040) |
+| T1c | US-001 | CamillaDSP CPU @ chunksize 256, 16k taps (pre-D-040) |
+| T1d | US-001 | CamillaDSP CPU @ chunksize 512, 8k taps (pre-D-040) |
+| T1e | US-001 | CamillaDSP CPU @ chunksize 2048, 32k taps (pre-D-040) |
 | T2a | US-002 | End-to-end latency (loopback, no speakers) |
 | T2b | US-002 | End-to-end latency (through speakers) |
 | T3b | US-003 | 30-min stability, live mode |
 | T3c | US-003 | Informational stability (extended monitoring) |
-| F-015 | F-015 | JACK audio path test (xruns + CamillaDSP stall detection) |
+| F-015 | F-015 | JACK audio path test (xruns + CamillaDSP stall detection, pre-D-040) |

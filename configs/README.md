@@ -2,16 +2,20 @@
 
 Configuration files for the Pi4 audio workstation. Configs are split by
 subsystem and mirror the Pi's filesystem layout. Each directory maps to a
-deployment path on the Pi (documented per section below). CamillaDSP test
-configs are the exception — they are not deployed.
+deployment path on the Pi (documented per section below).
 
 ---
 
-## CamillaDSP
+## CamillaDSP (Historical — pre-D-040)
+
+**CamillaDSP service is stopped as of D-040 (2026-03-16).** PipeWire's
+built-in filter-chain convolver replaced CamillaDSP for all FIR processing.
+These configs are retained for historical reference and benchmark
+reproducibility.
 
 ### Production (`camilladsp/production/`)
 
-Deployed to the Pi at `/etc/camilladsp/`.
+Previously deployed to `/etc/camilladsp/`. **No longer in active signal path.**
 
 | File | Description |
 |------|-------------|
@@ -21,7 +25,7 @@ Deployed to the Pi at `/etc/camilladsp/`.
 
 ### Test (`camilladsp/test/`)
 
-Used for benchmarking and latency tests. **Not deployed to the Pi.**
+Used for US-001 benchmarking and US-002 latency tests. **Not deployed to the Pi.**
 
 #### US-001 benchmark configs
 
@@ -71,8 +75,8 @@ Deployed to the Pi at `~/.config/pipewire/pipewire.conf.d/` (user-level).
 | File | Description |
 |------|-------------|
 | `10-audio-settings.conf` | PipeWire quantum settings (256 for live, 1024 for DJ). |
-| `20-usbstreamer.conf` | PipeWire capture-only adapter for ADA8200 inputs via USBStreamer (`hw:USBStreamer,0`, 8ch S32LE capture). Node name: `ada8200-in`. Rewritten for F-015 split-access fix: `node.driver=false`, `priority.driver=0`, `priority.session=0` to prevent graph driver contention with CamillaDSP's exclusive playback. Requires `50-usbstreamer-disable-acp.conf` to suppress WirePlumber auto-detected duplex nodes. |
-| `25-loopback-8ch.conf` | PipeWire adapter for 8-channel ALSA Loopback sink (`hw:Loopback,0,0`). Node name: `loopback-8ch-sink`, description: "CamillaDSP 8ch Input". Hardened against suspension: `node.pause-on-idle=false`, `node.always-process=true`, `session.suspend-timeout-seconds=0`, `priority.driver=2000`. |
+| `20-usbstreamer.conf` | PipeWire capture-only adapter for ADA8200 inputs via USBStreamer (`hw:USBStreamer,0`, 8ch S32LE capture). Node name: `ada8200-in`. Rewritten for F-015 split-access fix: `node.driver=false`, `priority.driver=0`, `priority.session=0`. Requires `50-usbstreamer-disable-acp.conf` to suppress WirePlumber auto-detected duplex nodes. |
+| `25-loopback-8ch.conf` | Historical: PipeWire adapter for 8-channel ALSA Loopback sink (pre-D-040, used for CamillaDSP bridge). **May be unused in current PW filter-chain architecture.** |
 
 ### Workarounds (`pipewire/workarounds/`)
 
@@ -91,8 +95,8 @@ Deployed to the Pi at `~/.config/wireplumber/wireplumber.conf.d/` (user-level).
 
 | File | Description |
 |------|-------------|
-| `50-usbstreamer-disable-acp.conf` | Disables WirePlumber ACP for the USBStreamer. Prevents auto-detected duplex nodes from conflicting with CamillaDSP's exclusive playback access. Required companion to `20-usbstreamer.conf` capture-only adapter (F-015 fix). |
-| `51-loopback-disable-acp.conf` | Disables WirePlumber ACP (audio card profiles) for the loopback device. |
+| `50-usbstreamer-disable-acp.conf` | Disables WirePlumber ACP for the USBStreamer. Prevents auto-detected duplex nodes from conflicting with the filter-chain convolver's playback access. Required companion to `20-usbstreamer.conf` capture-only adapter (F-015 fix). |
+| `51-loopback-disable-acp.conf` | Historical: Disables WirePlumber ACP for the loopback device (pre-D-040, used for CamillaDSP bridge). |
 | `52-umik1-low-priority.conf` | Lowers UMIK-1 priority so WirePlumber does not select it as default audio source. |
 
 ---
@@ -101,11 +105,11 @@ Deployed to the Pi at `~/.config/wireplumber/wireplumber.conf.d/` (user-level).
 
 ### System services (`systemd/camilladsp.service.d/`)
 
-Deployed to the Pi at `/etc/systemd/system/`.
+Deployed to the Pi at `/etc/systemd/system/`. **CamillaDSP service is stopped (D-040).**
 
 | File | Description |
 |------|-------------|
-| `camilladsp.service.d/override.conf` | Drop-in override for CamillaDSP systemd service. Fixes ExecStart path to `/usr/local/bin/camilladsp` (manual install, not apt) and binds the websocket API to localhost only (`-a 127.0.0.1`). Also sets SCHED_FIFO 80 (F-018). |
+| `camilladsp.service.d/override.conf` | Historical: Drop-in override for CamillaDSP systemd service (pre-D-040, service stopped). Fixes ExecStart path and binds websocket API to localhost. |
 
 ### User services (`systemd/user/`)
 
@@ -189,7 +193,7 @@ Room correction profile templates and venue configuration.
 ## Speakers (`speakers/`)
 
 Speaker identity files (driver parameters, enclosure characteristics) and system
-profiles (complete speaker system configurations for CamillaDSP filter generation).
+profiles (complete speaker system configurations for filter generation).
 
 ### Identity files (`speakers/identities/`)
 
