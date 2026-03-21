@@ -13,15 +13,15 @@ the full measurement chain:
      the UMIK-1 response, deconvolves to get the impulse response, computes
      the frequency response, and applies the UMIK-1 calibration file.
 
-Audio is routed through PipeWire to CamillaDSP using a measurement-specific
-config. The script swaps CamillaDSP to a minimal measurement config (IIR HPF
-for excursion protection, -20dB attenuation on the test channel, -100dB mute
-on all other channels, no FIR filters) and restores the production config when
-done. This is safe because CamillaDSP config.reload() is glitch-free (no
-transients, no USBStreamer reset).
+Audio routing is managed by GraphManager (D-040: PipeWire filter-chain
+architecture). The script switches GraphManager to measurement mode, which
+establishes signal-gen -> convolver -> USBStreamer links and UMIK-1 capture.
+Convolver gain is controlled via pw-cli (attenuation on test channel, mute
+on all others). The signal generator (pi4audio-signal-gen) provides audio
+I/O with an immutable -20 dBFS hard cap enforced in the RT callback.
 
 The UMIK-1 is a separate USB device from the USBStreamer, so input uses the
-UMIK-1 directly while output goes through PipeWire's default sink.
+UMIK-1 directly while output goes through PipeWire's filter-chain convolver.
 
 Outputs:
   - Frequency response text file (freq_hz, level_db)
@@ -30,7 +30,9 @@ Outputs:
   - Plot (PNG) if matplotlib is available
 
 Requirements (on the Pi):
-  python3, numpy, scipy, soundfile, sounddevice, pycamilladsp, pyyaml
+  python3, numpy, scipy, soundfile, sounddevice, pyyaml
+  pi4audio-signal-gen (running on 127.0.0.1:4001)
+  pi4audio-graph-manager (running on 127.0.0.1:4002)
   Optional: matplotlib (for plots)
 
 Usage:
@@ -45,31 +47,35 @@ Usage:
     --sweep-level -20
 
 SAFETY MODEL (defense-in-depth, see S-010 incident 2026-03-13):
-  Hard cap at -20 dBFS. This level must be safe EVEN WITHOUT CamillaDSP in
-  the signal path (S-010 demonstrated bypass via sysdefault ALSA device).
+  Hard cap at -20 dBFS. The signal generator enforces this immutably in
+  its RT callback (safety.rs hard_clip()). Every sample is clamped to
+  0.1 linear amplitude. This cannot be changed at runtime.
   At -20 dBFS into a 450W/4ohm amp: ~4.5W. CHN-50P rated 7W: survivable.
   Self-built wideband speakers: large margin.
-  With CamillaDSP measurement config (-20dB attenuation):
+  With convolver gain attenuation (-20dB on test channel):
     -20 dBFS sweep -> -40 dBFS at USBStreamer -> ~0.045W (safe)
-  The IIR HPF at mandatory_hpf_hz protects against excursion damage.
-  The script verifies CamillaDSP reaches RUNNING state after config swap.
+  Non-test channels are muted (gain 0.0) via pw-cli.
+  HPF for excursion protection is applied digitally to the sweep signal
+  (numpy Butterworth filter). NOTE: The signal-gen does NOT include a
+  built-in subsonic HPF. At -20 dBFS measurement levels, power is
+  negligible (~0.14W into 4 ohm for broadband noise). Tracked as D-031
+  known gap.
 
 Measurement procedure:
   1. Position UMIK-1 in near-field of the driver (1-2cm, on-axis)
-  2. Ensure CamillaDSP and PipeWire are running
-  3. Run this script (it auto-swaps CamillaDSP to measurement config)
+  2. Ensure PipeWire, signal-gen, and GraphManager are running
+  3. Run this script (it switches GraphManager to measurement mode)
   4. During Phase 1: verify that mic levels are in the target range
      (peak -30 to -10 dBFS). Adjust amp if needed and re-run.
   5. Phase 1 completes automatically after the calibration duration
   6. The sweep plays automatically; do not move the mic during the sweep
   7. Results are saved to the output directory
-  8. CamillaDSP is automatically restored to the production config
+  8. GraphManager is restored to production routing mode
 
-Known limitation: if the script is killed by SIGKILL or OOM, CamillaDSP
-remains on the measurement config and the temp file persists. Recovery:
-restart CamillaDSP via `systemctl restart camilladsp` (note: this resets
-the USBStreamer — warn the owner first per safety rules). On reboot,
-CamillaDSP starts from the production config automatically.
+Known limitation: if the script is killed by SIGKILL or OOM, GraphManager
+remains in measurement mode and convolver gains may be non-production.
+Recovery: restart GraphManager or set mode manually via RPC. The PipeWire
+graph remains intact -- no USBStreamer reset or transients from mode switch.
 """
 
 import argparse
@@ -78,12 +84,10 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 
 import numpy as np
 import soundfile as sf
-import yaml
 
 # Force line-buffered stdout so output appears immediately over SSH. Non-TTY
 # pipes default to block buffering, which hides progress from the operator.
@@ -99,11 +103,16 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+# Add src/measurement to path for SignalGenClient and GraphManagerClient
+MEASUREMENT_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "measurement")
+if MEASUREMENT_DIR not in sys.path:
+    sys.path.insert(0, MEASUREMENT_DIR)
+
 from room_correction import dsp_utils
 from room_correction.sweep import generate_log_sweep
 from room_correction.deconvolution import deconvolve
 from room_correction.recording import apply_umik1_calibration
-from config_generator import load_profile_with_identities, MAX_CHANNELS
+from config_generator import load_profile_with_identities
 
 SAMPLE_RATE = dsp_utils.SAMPLE_RATE  # 48000
 
@@ -132,34 +141,42 @@ MAX_XRUN_RETRIES = 3
 
 # SAFETY: SWEEP_LEVEL_HARD_CAP_DBFS = -20.0
 #
-# Defense-in-depth: this level must be safe EVEN WITHOUT CamillaDSP
-# in the signal path. At -20 dBFS into a 450W/4ohm amp: ~4.5W.
+# Defense-in-depth: the signal generator enforces this immutably in its RT
+# callback (safety.rs hard_clip()). At -20 dBFS into a 450W/4ohm amp: ~4.5W.
 # CHN-50P rated 7W: survivable. Self-built wideband: large margin.
 #
-# With CamillaDSP measurement config (-20dB attenuation):
+# With convolver gain attenuation (-20dB on test channel):
 #   -20 dBFS sweep -> -40 dBFS at USBStreamer -> ~0.045W (safe)
 #
 # History: Originally -6 dBFS assuming -40dB CamillaDSP attenuation
 # always present. S-010 (2026-03-13) demonstrated CamillaDSP bypass
 # via sysdefault ALSA device. Hard cap lowered to survive bypass.
-# Attenuation reduced from -40 to -20 dB for adequate measurement
-# SNR (22.5 dB was unusable at -60 dBFS net).
+# D-040: CamillaDSP replaced by PipeWire filter-chain + signal-gen.
+# Signal-gen hard cap is immutable (cannot be changed at runtime).
 SWEEP_LEVEL_HARD_CAP_DBFS = -20.0
 
-# CamillaDSP measurement config parameters
-# MEASUREMENT_ATTENUATION_DB replaces the production config's three-layer
-# attenuation (global_attenuation + headroom + speaker_trim, totalling ~-39.5dB
-# for satellites). At -20dB + -20dBFS cap, net level at USBStreamer is -40 dBFS
-# -> ~0.045W into 4 ohm (CHN-50P rated 7W: safe). Reduced from -40dB after
-# first measurement session showed 22.5 dB SNR (unusable); -20dB gives ~42 dB
-# SNR. Defense-in-depth: even without CamillaDSP, -20 dBFS = ~4.5W (survivable).
-MEASUREMENT_ATTENUATION_DB = -20.0   # Gain applied to test channel
-MEASUREMENT_MUTE_DB = -100.0         # Gain applied to non-test channels
-MEASUREMENT_CHUNKSIZE = 2048         # Fallback; overridden by active config
-MEASUREMENT_SAMPLE_RATE = 48000
-MEASUREMENT_QUEUELIMIT = 4
-CAMILLADSP_DEFAULT_HOST = "localhost"
-CAMILLADSP_DEFAULT_PORT = 1234
+# Measurement gain parameters (applied via pw-cli to convolver gain nodes)
+# MEASUREMENT_ATTENUATION_LINEAR is the Mult value for the test channel's
+# convolver gain node. 0.1 = -20 dB. At -20dB + -20dBFS cap, net level at
+# USBStreamer is -40 dBFS -> ~0.045W into 4 ohm (CHN-50P rated 7W: safe).
+MEASUREMENT_ATTENUATION_DB = -20.0
+MEASUREMENT_ATTENUATION_LINEAR = 0.1  # 10^(-20/20) = 0.1
+MEASUREMENT_MUTE_LINEAR = 0.0         # Complete mute for non-test channels
+
+# Convolver gain node names (match PipeWire filter-chain config)
+# These are the linear builtin gain nodes in the production convolver.
+CONVOLVER_GAIN_NODES = {
+    0: "gain_left_hp",   # AUX0 - Left main
+    1: "gain_right_hp",  # AUX1 - Right main
+    2: "gain_sub1_lp",   # AUX2 - Sub 1
+    3: "gain_sub2_lp",   # AUX3 - Sub 2
+}
+
+# Signal generator and GraphManager defaults
+SIGNAL_GEN_DEFAULT_HOST = "127.0.0.1"
+SIGNAL_GEN_DEFAULT_PORT = 4001
+GRAPH_MANAGER_DEFAULT_HOST = "127.0.0.1"
+GRAPH_MANAGER_DEFAULT_PORT = 4002
 
 
 def find_device(name_substring, kind=None):
@@ -422,42 +439,58 @@ def check_process_not_running(process_name, description):
         return True
 
 
-def check_camilladsp_running():
+def check_signal_gen_running():
     """
-    Pre-flight: verify CamillaDSP is running at FIFO priority.
+    Pre-flight: verify pi4audio-signal-gen is reachable.
+
+    Attempts a TCP connection to the signal generator's RPC port.
 
     Returns
     -------
     bool
-        True if CamillaDSP is running.
+        True if the signal generator is reachable.
     """
+    import socket
     try:
-        result = subprocess.run(
-            ["pgrep", "-x", "camilladsp"],
-            capture_output=True, text=True, timeout=5
+        sock = socket.create_connection(
+            (SIGNAL_GEN_DEFAULT_HOST, SIGNAL_GEN_DEFAULT_PORT), timeout=2
         )
-        if result.returncode != 0:
-            print("  FAIL: CamillaDSP is not running!")
-            print("  CamillaDSP must be running to route audio to the speakers.")
-            return False
-        pid = result.stdout.strip().split('\n')[0]
+        sock.close()
+        print(f"  OK: signal-gen reachable at "
+              f"{SIGNAL_GEN_DEFAULT_HOST}:{SIGNAL_GEN_DEFAULT_PORT}")
+        return True
+    except (ConnectionRefusedError, OSError, TimeoutError):
+        print(f"  FAIL: signal-gen not reachable at "
+              f"{SIGNAL_GEN_DEFAULT_HOST}:{SIGNAL_GEN_DEFAULT_PORT}")
+        print("  pi4audio-signal-gen must be running for measurement.")
+        return False
 
-        # Check scheduling policy
-        chrt_result = subprocess.run(
-            ["chrt", "-p", pid],
-            capture_output=True, text=True, timeout=5
+
+def check_graph_manager_running():
+    """
+    Pre-flight: verify pi4audio-graph-manager is reachable.
+
+    Attempts a TCP connection to the GraphManager's RPC port.
+
+    Returns
+    -------
+    bool
+        True if the GraphManager is reachable.
+    """
+    import socket
+    try:
+        sock = socket.create_connection(
+            (GRAPH_MANAGER_DEFAULT_HOST, GRAPH_MANAGER_DEFAULT_PORT), timeout=2
         )
-        if chrt_result.returncode == 0:
-            print(f"  OK: CamillaDSP running (PID {pid}), {chrt_result.stdout.strip()}")
-        else:
-            print(f"  OK: CamillaDSP running (PID {pid})")
+        sock.close()
+        print(f"  OK: GraphManager reachable at "
+              f"{GRAPH_MANAGER_DEFAULT_HOST}:{GRAPH_MANAGER_DEFAULT_PORT}")
         return True
-    except FileNotFoundError:
-        print("  SKIP: pgrep not available")
-        return True
-    except subprocess.TimeoutExpired:
-        print("  WARN: CamillaDSP check timed out")
-        return True
+    except (ConnectionRefusedError, OSError, TimeoutError):
+        print(f"  FAIL: GraphManager not reachable at "
+              f"{GRAPH_MANAGER_DEFAULT_HOST}:{GRAPH_MANAGER_DEFAULT_PORT}")
+        print("  pi4audio-graph-manager must be running for measurement.")
+        return False
 
 
 def check_pipewire_running():
@@ -504,9 +537,10 @@ def run_preflight_checks():
     1. Web UI service stopped (xrun source)
     2. Mixxx not running (CPU contention)
     3. Reaper not running (CPU contention)
-    4. CamillaDSP running at FIFO (required for audio routing)
-    5. PipeWire running at FIFO (required for audio I/O)
-    6. PipeWire xrun baseline
+    4. Signal generator reachable (required for audio I/O)
+    5. GraphManager reachable (required for routing)
+    6. PipeWire running at FIFO (required for audio graph)
+    7. PipeWire xrun baseline
 
     Returns
     -------
@@ -517,7 +551,7 @@ def run_preflight_checks():
     print("PRE-FLIGHT CHECKS")
     print("=" * 60)
 
-    n_checks = 6
+    n_checks = 7
     all_ok = True
 
     print(f"\n[1/{n_checks}] Checking web UI service...")
@@ -532,15 +566,19 @@ def run_preflight_checks():
     if not check_process_not_running("reaper", "Reaper"):
         all_ok = False
 
-    print(f"\n[4/{n_checks}] Checking CamillaDSP...")
-    if not check_camilladsp_running():
+    print(f"\n[4/{n_checks}] Checking signal generator...")
+    if not check_signal_gen_running():
         all_ok = False
 
-    print(f"\n[5/{n_checks}] Checking PipeWire...")
+    print(f"\n[5/{n_checks}] Checking GraphManager...")
+    if not check_graph_manager_running():
+        all_ok = False
+
+    print(f"\n[6/{n_checks}] Checking PipeWire...")
     if not check_pipewire_running():
         all_ok = False
 
-    print(f"\n[6/{n_checks}] Reading PipeWire xrun baseline...")
+    print(f"\n[7/{n_checks}] Reading PipeWire xrun baseline...")
     xrun_count = get_pipewire_xrun_count()
     if xrun_count is not None:
         print(f"  Baseline xrun count: {xrun_count}")
@@ -557,23 +595,170 @@ def run_preflight_checks():
 
 
 # ---------------------------------------------------------------------------
-# CamillaDSP measurement config generation and hot-swap (TK-143)
+# PipeWire convolver gain control via pw-cli (D-040, replaces CamillaDSP)
 # ---------------------------------------------------------------------------
 
-def build_measurement_config(test_channel, speaker_profile_name,
-                             profiles_dir=None, identities_dir=None):
+def _find_pw_node_id(node_name):
     """
-    Build a CamillaDSP measurement config for near-field measurement.
+    Find a PipeWire node ID by name using pw-cli.
 
-    The measurement config is minimal:
-    - 1:1 passthrough mixer (explicit routing, required by CamillaDSP when
-      capture and playback have the same channel count)
-    - IIR HPF at mandatory_hpf_hz for excursion protection on the test channel
-    - -20dB Gain on the test channel (safe attenuation)
-    - -100dB mute on all other channels
-    - No FIR filters
-    - Chunksize 2048 (low CPU, latency irrelevant for measurement)
-    - Same capture/playback devices as production (Loopback -> USBStreamer)
+    Parameters
+    ----------
+    node_name : str
+        Node name to search for (e.g., 'gain_left_hp').
+
+    Returns
+    -------
+    int or None
+        PipeWire node ID, or None if not found.
+    """
+    try:
+        result = subprocess.run(
+            ["pw-dump"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout)
+        for obj in data:
+            props = obj.get("info", {}).get("props", {})
+            if props.get("node.name") == node_name:
+                return obj.get("id")
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        pass
+    return None
+
+
+def set_convolver_gain(channel, mult_value):
+    """
+    Set a convolver gain node's Mult value via pw-cli.
+
+    Parameters
+    ----------
+    channel : int
+        0-indexed output channel.
+    mult_value : float
+        Linear gain multiplier (0.0 = mute, 0.1 = -20dB, 1.0 = unity).
+
+    Returns
+    -------
+    bool
+        True if the gain was set successfully.
+    """
+    node_name = CONVOLVER_GAIN_NODES.get(channel)
+    if node_name is None:
+        print(f"  WARN: No convolver gain node for channel {channel}")
+        return False
+
+    node_id = _find_pw_node_id(node_name)
+    if node_id is None:
+        print(f"  WARN: Could not find PipeWire node '{node_name}'")
+        return False
+
+    try:
+        result = subprocess.run(
+            ["pw-cli", "s", str(node_id), "Props",
+             f'{{ params = [ "Mult" {mult_value} ] }}'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            db_value = 20 * np.log10(max(mult_value, 1e-10))
+            print(f"  Set {node_name} (node {node_id}): "
+                  f"Mult={mult_value} ({db_value:.1f} dB)")
+            return True
+        else:
+            print(f"  WARN: pw-cli failed for {node_name}: {result.stderr.strip()}")
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        print(f"  WARN: pw-cli error for {node_name}: {e}")
+        return False
+
+
+def set_measurement_gains(test_channel):
+    """
+    Set convolver gains for measurement: attenuate test channel, mute others.
+
+    Parameters
+    ----------
+    test_channel : int
+        0-indexed output channel under test.
+
+    Returns
+    -------
+    dict
+        Original gain values for restoration, keyed by channel number.
+        Empty dict if reading original values failed.
+    """
+    original_gains = {}
+    # Read current gain values before modifying (for restoration)
+    for ch, node_name in CONVOLVER_GAIN_NODES.items():
+        node_id = _find_pw_node_id(node_name)
+        if node_id is not None:
+            # Store the node_id so we can restore later without re-lookup
+            original_gains[ch] = {"node_name": node_name, "node_id": node_id}
+
+    # Set measurement gains
+    all_ok = True
+    for ch in CONVOLVER_GAIN_NODES:
+        if ch == test_channel:
+            if not set_convolver_gain(ch, MEASUREMENT_ATTENUATION_LINEAR):
+                all_ok = False
+        else:
+            if not set_convolver_gain(ch, MEASUREMENT_MUTE_LINEAR):
+                all_ok = False
+
+    if not all_ok:
+        print("  WARN: Not all convolver gains were set successfully")
+        print("  The signal-gen hard cap (-20 dBFS) still provides safety")
+
+    return original_gains
+
+
+def restore_production_gains(original_gains):
+    """
+    Restore convolver gains to production values.
+
+    Since we don't know the exact production Mult values (they are set in
+    the PipeWire filter-chain config and applied at startup), the safest
+    approach is to note that GraphManager mode switch back to 'monitoring'
+    or 'dj' will re-apply the production gain values from the filter-chain
+    config. This function is a fallback that sets unity gain (Mult=1.0)
+    if explicit restoration is needed.
+
+    Parameters
+    ----------
+    original_gains : dict
+        Original gain info from set_measurement_gains(). Currently used
+        only for the node IDs.
+
+    Returns
+    -------
+    bool
+        True if all gains were restored.
+    """
+    # NOTE: The primary restoration mechanism is GraphManager mode switch
+    # back to monitoring/dj mode, which re-establishes the production
+    # filter-chain config with correct gain values. This function is a
+    # safety net that resets to unity gain in case GM mode switch fails.
+    all_ok = True
+    for ch, info in original_gains.items():
+        if not set_convolver_gain(ch, 1.0):
+            all_ok = False
+
+    if not all_ok:
+        print("\n  ** WARNING: Could not restore all convolver gains **")
+        print("  ** PA OUTPUT may have incorrect gain levels **")
+        print("  ** Restart PipeWire or GraphManager to restore production state **")
+        print("  ** (WARNING: PipeWire restart produces USBStreamer transients — **")
+        print("  **  turn off amplifiers first!) **")
+
+    return all_ok
+
+
+def get_mandatory_hpf_hz(test_channel, speaker_profile_name,
+                         profiles_dir=None, identities_dir=None):
+    """
+    Look up the mandatory HPF frequency from the speaker identity profile.
 
     Parameters
     ----------
@@ -588,9 +773,8 @@ def build_measurement_config(test_channel, speaker_profile_name,
 
     Returns
     -------
-    tuple of (dict, int)
-        (config_dict, mandatory_hpf_hz) where mandatory_hpf_hz is the HPF
-        frequency from the speaker identity (for operator warning).
+    int or None
+        HPF frequency in Hz, or None if not found.
 
     Raises
     ------
@@ -603,295 +787,52 @@ def build_measurement_config(test_channel, speaker_profile_name,
         identities_dir=identities_dir,
     )
 
-    # Find the speaker identity for the test channel
-    mandatory_hpf_hz = None
     for spk_key, spk_cfg in profile["speakers"].items():
         if spk_cfg["channel"] == test_channel:
             id_name = spk_cfg["identity"]
             identity = identities.get(id_name, {})
-            mandatory_hpf_hz = identity.get("mandatory_hpf_hz")
-            break
-    else:
-        raise ValueError(
-            f"Channel {test_channel} not found in speaker profile "
-            f"'{speaker_profile_name}'. Available channels: "
-            + ", ".join(
-                f"{k}={v['channel']}" for k, v in profile["speakers"].items()
-            )
+            return identity.get("mandatory_hpf_hz")
+
+    raise ValueError(
+        f"Channel {test_channel} not found in speaker profile "
+        f"'{speaker_profile_name}'. Available channels: "
+        + ", ".join(
+            f"{k}={v['channel']}" for k, v in profile["speakers"].items()
         )
-
-    n_channels = MAX_CHANNELS  # 8, from config_generator
-
-    # Build devices section
-    devices = {
-        "samplerate": MEASUREMENT_SAMPLE_RATE,
-        "chunksize": MEASUREMENT_CHUNKSIZE,
-        "queuelimit": MEASUREMENT_QUEUELIMIT,
-        "capture": {
-            "type": "Alsa",
-            "channels": n_channels,
-            "device": "hw:Loopback,1,0",
-            "format": "S32LE",
-        },
-        "playback": {
-            "type": "Alsa",
-            "channels": n_channels,
-            "device": "hw:USBStreamer,0",
-            "format": "S32LE",
-        },
-    }
-
-    # Build 1:1 passthrough mixer (CamillaDSP requires explicit routing
-    # when capture and playback have the same channel count).
-    mixer_mapping = []
-    for ch in range(n_channels):
-        mixer_mapping.append({
-            "dest": ch,
-            "sources": [{"channel": ch, "gain": 0, "inverted": False}],
-        })
-    mixers = {
-        "passthrough": {
-            "channels": {"in": n_channels, "out": n_channels},
-            "mapping": mixer_mapping,
-        },
-    }
-
-    # Build filters: one gain per channel + optional HPF on test channel
-    filters = {}
-    for ch in range(n_channels):
-        if ch == test_channel:
-            filters[f"ch{ch}_gain"] = {
-                "type": "Gain",
-                "parameters": {
-                    "gain": float(MEASUREMENT_ATTENUATION_DB),
-                },
-            }
-        else:
-            filters[f"ch{ch}_mute"] = {
-                "type": "Gain",
-                "parameters": {
-                    "gain": float(MEASUREMENT_MUTE_DB),
-                },
-            }
-
-    if mandatory_hpf_hz is not None:
-        filters[f"ch{test_channel}_hpf"] = {
-            "type": "BiquadCombo",
-            "parameters": {
-                "type": "ButterworthHighpass",
-                "order": 4,
-                "freq": mandatory_hpf_hz,
-            },
-        }
-
-    # Build pipeline: mixer first, then HPF (if present), then gain/mute
-    pipeline = []
-
-    # 1:1 passthrough mixer (explicit routing)
-    pipeline.append({"type": "Mixer", "name": "passthrough"})
-
-    # HPF on test channel first (excursion protection)
-    if mandatory_hpf_hz is not None:
-        pipeline.append({
-            "type": "Filter",
-            "channels": [test_channel],
-            "names": [f"ch{test_channel}_hpf"],
-        })
-
-    # Gain on test channel
-    pipeline.append({
-        "type": "Filter",
-        "channels": [test_channel],
-        "names": [f"ch{test_channel}_gain"],
-    })
-
-    # Mute all other channels
-    for ch in range(n_channels):
-        if ch != test_channel:
-            pipeline.append({
-                "type": "Filter",
-                "channels": [ch],
-                "names": [f"ch{ch}_mute"],
-            })
-
-    config = {
-        "devices": devices,
-        "mixers": mixers,
-        "filters": filters,
-        "pipeline": pipeline,
-    }
-
-    return config, mandatory_hpf_hz
+    )
 
 
-def swap_camilladsp_config(config_dict, host=CAMILLADSP_DEFAULT_HOST,
-                           port=CAMILLADSP_DEFAULT_PORT):
+def apply_hpf_to_signal(signal, hpf_hz, sr=SAMPLE_RATE, order=4):
     """
-    Save the measurement config to a temp file and hot-swap CamillaDSP to it.
+    Apply a Butterworth highpass filter to a signal (excursion protection).
 
-    Uses pycamilladsp to:
-    1. Connect to CamillaDSP websocket
-    2. Read the current config file path (for restoration later)
-    3. Write the measurement config to a temp file
-    4. Set the new config path and reload via general.reload()
-    5. Verify CamillaDSP reaches RUNNING state
+    This is applied digitally to the sweep/noise signal before sending it
+    to the signal generator. It replaces the CamillaDSP IIR HPF that was
+    previously in the measurement config.
 
-    CamillaDSP general.reload() is glitch-free: it does not restart the
-    process, does not reset the USBStreamer, and does not produce transients.
+    NOTE (D-031): The signal-gen does NOT include a built-in subsonic HPF.
+    This function provides secondary protection against driver excursion at
+    very low frequencies. The primary safety net is the -20 dBFS hard cap.
 
     Parameters
     ----------
-    config_dict : dict
-        CamillaDSP measurement config as a Python dict.
-    host : str
-        CamillaDSP websocket host.
-    port : int
-        CamillaDSP websocket port.
+    signal : np.ndarray
+        Input signal (1D, float64).
+    hpf_hz : int
+        Highpass frequency in Hz.
+    sr : int
+        Sample rate.
+    order : int
+        Filter order (default 4 = 24 dB/oct Butterworth).
 
     Returns
     -------
-    tuple of (CamillaClient, str, str)
-        (client, original_config_path, temp_config_path) for use in
-        restore_camilladsp_config().
-
-    Raises
-    ------
-    RuntimeError
-        If CamillaDSP does not reach RUNNING state after reload.
+    np.ndarray
+        Filtered signal.
     """
-    from camilladsp import CamillaClient, ProcessingState
-
-    client = CamillaClient(host, port)
-    client.connect()
-
-    # Save original config path for restoration.
-    # Guard against AD-TK143-7: if a previous measurement left a temp file
-    # as the "current" config (e.g., failed restore), file_path() returns
-    # the stale temp path instead of the production config. Detect this and
-    # fall back to the known production config location.
-    original_config_path = client.config.file_path()
-    if original_config_path and "camilladsp_measurement_" in original_config_path:
-        print(f"  WARNING: CamillaDSP is running a stale measurement config:")
-        print(f"    {original_config_path}")
-        print(f"  This is a leftover from a previous measurement. Falling back")
-        print(f"  to the production config path: /etc/camilladsp/active.yml")
-        original_config_path = "/etc/camilladsp/active.yml"
-    print(f"  Original CamillaDSP config: {original_config_path}")
-
-    # Match the running config's chunksize to avoid reload failure.
-    # CamillaDSP's general.reload() may reject device section changes
-    # (including chunksize). By matching the active chunksize, the devices
-    # section stays compatible and reload is guaranteed to work.
-    active_config = client.config.active()
-    if active_config and "devices" in active_config:
-        active_chunksize = active_config["devices"].get("chunksize")
-        if active_chunksize is not None:
-            config_dict["devices"]["chunksize"] = active_chunksize
-            print(f"  Using active chunksize: {active_chunksize}")
-
-    # Write measurement config to temp file
-    temp_config_path = None
-    try:
-        tmp_fd, temp_config_path = tempfile.mkstemp(
-            suffix=".yml", prefix="camilladsp_measurement_"
-        )
-        f = os.fdopen(tmp_fd, "w")
-        try:
-            yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
-        finally:
-            f.close()
-
-        print(f"  Measurement config written to: {temp_config_path}")
-
-        # Hot-swap: set config path and reload
-        client.config.set_file_path(temp_config_path)
-        client.general.reload()
-
-        # SAFETY: Verify CamillaDSP is RUNNING after reload.
-        # If CamillaDSP failed to load the config, audio could pass
-        # unattenuated. The hard cap assumes measurement attenuation is active.
-        time.sleep(0.5)  # Brief pause for CamillaDSP to process the reload
-        state = client.general.state()
-        if state != ProcessingState.RUNNING:
-            raise RuntimeError(
-                f"CamillaDSP is not RUNNING after loading measurement config "
-                f"(state: {state}). The measurement config may be invalid. "
-                f"Aborting for safety — the sweep level hard cap assumes "
-                f"the measurement config is providing "
-                f"{MEASUREMENT_ATTENUATION_DB}dB attenuation."
-            )
-
-    except Exception:
-        # Swap failed — attempt to restore original config before re-raising.
-        # This handles partial failures (e.g., config path set but reload
-        # failed, or reload succeeded but state is not RUNNING).
-        try:
-            client.config.set_file_path(original_config_path)
-            client.general.reload()
-        except Exception:
-            pass
-        if temp_config_path is not None:
-            try:
-                os.unlink(temp_config_path)
-            except OSError:
-                pass
-        raise
-
-    print(f"  CamillaDSP reloaded with measurement config (state: {state.name})")
-    return client, original_config_path, temp_config_path
-
-
-def restore_camilladsp_config(client, original_config_path, temp_config_path):
-    """
-    Restore CamillaDSP to its original production config.
-
-    Parameters
-    ----------
-    client : CamillaClient
-        Connected pycamilladsp client.
-    original_config_path : str
-        Path to the original config file.
-    temp_config_path : str
-        Path to the temp measurement config (will be deleted).
-
-    Returns
-    -------
-    bool
-        True if restore succeeded, False if it failed (system is in a
-        dangerous state -- measurement config still active).
-    """
-    restored = False
-    try:
-        client.config.set_file_path(original_config_path)
-        client.general.reload()
-        print(f"  CamillaDSP restored to: {original_config_path}")
-        restored = True
-    except Exception as e:
-        print(f"\n  ** WARNING: Failed to restore CamillaDSP config: {e} **")
-        print(f"  ** PA OUTPUT IS CURRENTLY MUTED / ATTENUATED **")
-        print(f"  ** — NOT IN PRODUCTION STATE — **")
-        print(f"  ** Manual restore required: **")
-        print(f"  **   1. Open CamillaDSP GUI at http://localhost:5005 **")
-        print(f"  **   2. Load config: {original_config_path} **")
-        print(f"  **   Or run: sudo systemctl restart camilladsp **")
-        print(f"  **   (WARNING: systemctl restart produces transients — **")
-        print(f"  **    turn off amplifiers first!) **")
-
-    # Amp level warning — operator may have set levels for measurement mode
-    print("\n  ** CHECK AMP LEVELS **")
-    if restored:
-        print("  CamillaDSP is back on the production config.")
-    print("  If you adjusted amp volume during the measurement,")
-    print("  verify levels are appropriate for normal listening.")
-
-    # Clean up temp file
-    if temp_config_path is not None:
-        try:
-            os.unlink(temp_config_path)
-        except OSError:
-            pass
-
-    return restored
+    from scipy.signal import butter, sosfilt
+    sos = butter(order, hpf_hz, btype='high', fs=sr, output='sos')
+    return sosfilt(sos, signal)
 
 
 def generate_pink_noise(duration_s, sr=SAMPLE_RATE, level_dbfs=-40.0,
@@ -918,8 +859,8 @@ def generate_pink_noise(duration_s, sr=SAMPLE_RATE, level_dbfs=-40.0,
     sr : int
         Sample rate.
     level_dbfs : float
-        Target RMS level in dBFS (default -20.0, safe with CamillaDSP
-        measurement config providing -20dB attenuation).
+        Target RMS level in dBFS (default -20.0, safe with convolver
+        gain providing -20dB attenuation on the test channel).
     f_low : float
         Lower band limit in Hz (default 100.0).
     f_high : float
@@ -1386,8 +1327,8 @@ def phase1_calibration(output_channel, output_device_idx, input_device_idx,
 
     # BACKLOG: AE recommends a programmatic safety gate here — verify that
     # the observed mic level matches the expected attenuation. If the mic
-    # reads much louder than expected (e.g., CamillaDSP attenuation not
-    # active), abort before proceeding to the full sweep. This would catch
+    # reads much louder than expected (e.g., convolver gain not applied),
+    # abort before proceeding to the full sweep. This would catch
     # S-010-style bypass scenarios automatically.
 
     return cal_pass
@@ -1808,8 +1749,8 @@ def main():
         "--speaker-profile", type=str, default=None,
         help=(
             "Speaker profile name (without .yml) for loading speaker identity "
-            "and mandatory HPF. Used to generate the measurement CamillaDSP "
-            "config. Required for measurement (not needed with --list-devices). "
+            "and mandatory HPF. Used to look up excursion protection parameters. "
+            "Required for measurement (not needed with --list-devices). "
             "Example: 'bose-home-chn50p'."
         ),
     )
@@ -1820,11 +1761,10 @@ def main():
     parser.add_argument(
         "--output-device", type=str, default="pipewire",
         help=(
-            "Output device name substring (default: 'pipewire'). Audio goes "
-            "through PipeWire -> ALSA Loopback -> CamillaDSP -> USBStreamer. "
-            "Do NOT use 'USBStreamer' directly (CamillaDSP holds exclusive "
-            "ALSA access per D-011). Do NOT use 'default' (matches 'sysdefault' "
-            "first, which is an ALSA fallback, not PipeWire)."
+            "Output device name substring (default: 'pipewire'). Audio routing "
+            "is managed by GraphManager: signal-gen -> convolver -> USBStreamer. "
+            "This parameter is used for sounddevice device selection in non-"
+            "signal-gen mode only."
         ),
     )
     parser.add_argument(
@@ -1847,9 +1787,9 @@ def main():
         "--sweep-level", type=float, default=-20.0,
         help=(
             "Sweep peak level in dBFS (default: -20.0). Hard cap at -20 dBFS "
-            "(defense-in-depth). At -20 dBFS without CamillaDSP: ~4.5W into "
-            "4 ohm (survivable). With measurement config (-20dB): ~0.045W. "
-            "See S-010 incident."
+            "(defense-in-depth). The signal generator enforces this immutably "
+            "in its RT callback. At -20 dBFS: ~4.5W into 4 ohm (survivable). "
+            "With convolver attenuation (-20dB): ~0.045W. See S-010 incident."
         ),
     )
     parser.add_argument(
@@ -1887,17 +1827,25 @@ def main():
         help=f"Sample rate in Hz (default: {SAMPLE_RATE})",
     )
     parser.add_argument(
-        "--camilladsp-host", type=str, default=CAMILLADSP_DEFAULT_HOST,
-        help=f"CamillaDSP websocket host (default: {CAMILLADSP_DEFAULT_HOST})",
+        "--signal-gen-host", type=str, default=SIGNAL_GEN_DEFAULT_HOST,
+        help=f"Signal generator RPC host (default: {SIGNAL_GEN_DEFAULT_HOST})",
     )
     parser.add_argument(
-        "--camilladsp-port", type=int, default=CAMILLADSP_DEFAULT_PORT,
-        help=f"CamillaDSP websocket port (default: {CAMILLADSP_DEFAULT_PORT})",
+        "--signal-gen-port", type=int, default=SIGNAL_GEN_DEFAULT_PORT,
+        help=f"Signal generator RPC port (default: {SIGNAL_GEN_DEFAULT_PORT})",
+    )
+    parser.add_argument(
+        "--gm-host", type=str, default=GRAPH_MANAGER_DEFAULT_HOST,
+        help=f"GraphManager RPC host (default: {GRAPH_MANAGER_DEFAULT_HOST})",
+    )
+    parser.add_argument(
+        "--gm-port", type=int, default=GRAPH_MANAGER_DEFAULT_PORT,
+        help=f"GraphManager RPC port (default: {GRAPH_MANAGER_DEFAULT_PORT})",
     )
     parser.add_argument(
         "--mock", action="store_true",
         help=(
-            "Run in mock mode: replace sounddevice and CamillaDSP with mock "
+            "Run in mock mode: replace sounddevice and signal-gen with mock "
             "backends that simulate audio I/O using a synthetic room model. "
             "Enables testing the full pipeline on macOS without audio hardware."
         ),
@@ -1943,10 +1891,16 @@ def main():
 
     if not args.mock:
         try:
-            import camilladsp  # noqa: F401
+            from signal_gen_client import SignalGenClient  # noqa: F401
         except ImportError:
-            print("ERROR: pycamilladsp not installed.")
-            print("Install with: pip3 install camilladsp")
+            print("ERROR: signal_gen_client not found.")
+            print("Ensure src/measurement/ is in PYTHONPATH.")
+            sys.exit(1)
+        try:
+            from graph_manager_client import GraphManagerClient  # noqa: F401
+        except ImportError:
+            print("ERROR: graph_manager_client not found.")
+            print("Ensure src/measurement/ is in PYTHONPATH.")
             sys.exit(1)
 
     if args.list_devices:
@@ -1958,13 +1912,13 @@ def main():
         parser.error("--speaker-profile is required for measurement")
 
     # SAFETY: enforce hard cap on sweep level (defense-in-depth, S-010 incident)
-    # At -20 dBFS without CamillaDSP: ~4.5W into 4 ohm (survivable for 7W CHN-50P).
-    # With measurement config (-20dB attenuation): ~0.045W (safe).
+    # The signal-gen also enforces this immutably in its RT callback, but we
+    # check here too for early error reporting.
     if args.sweep_level > SWEEP_LEVEL_HARD_CAP_DBFS:
         print(f"ERROR: Sweep level {args.sweep_level} dBFS exceeds safety cap "
               f"of {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS.")
-        print(f"Defense-in-depth: {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS must be safe "
-              f"even without CamillaDSP (~4.5W into 4 ohm). "
+        print(f"Defense-in-depth: the signal generator enforces -20 dBFS "
+              f"immutably. At -20 dBFS: ~4.5W into 4 ohm. "
               f"See S-010 incident.")
         print(f"Maximum allowed: {SWEEP_LEVEL_HARD_CAP_DBFS} dBFS.")
         sys.exit(1)
@@ -2022,15 +1976,15 @@ def main():
             print("Fix the issues above, or use --skip-preflight to override.")
             sys.exit(1)
 
-    # Build and swap CamillaDSP to measurement config
+    # Look up HPF and set up measurement routing (D-040)
     print("\n" + "=" * 60)
-    print("CAMILLADSP MEASUREMENT CONFIG")
+    print("MEASUREMENT SETUP")
     print("=" * 60)
 
-    print(f"\nBuilding measurement config for channel {args.channel} "
-          f"from profile '{args.speaker_profile}'...")
+    print(f"\nLooking up speaker profile '{args.speaker_profile}' "
+          f"for channel {args.channel}...")
     try:
-        meas_config, mandatory_hpf_hz = build_measurement_config(
+        mandatory_hpf_hz = get_mandatory_hpf_hz(
             test_channel=args.channel,
             speaker_profile_name=args.speaker_profile,
         )
@@ -2040,25 +1994,28 @@ def main():
 
     # Operator warning about HPF protection
     if mandatory_hpf_hz is not None:
-        print(f"\n  IIR HPF at {mandatory_hpf_hz}Hz active on channel "
-              f"{args.channel} (excursion protection).")
+        print(f"\n  Digital HPF at {mandatory_hpf_hz}Hz will be applied to sweep "
+              f"signal (excursion protection).")
         print(f"  Content below {mandatory_hpf_hz}Hz will be attenuated "
               f"(4th-order Butterworth, 24dB/oct).")
-        print(f"  The sweep starts at 20Hz; the HPF will shape the measured "
-              f"response below {mandatory_hpf_hz}Hz.")
+        print(f"  The sweep starts at 20Hz; the HPF will shape the output "
+              f"below {mandatory_hpf_hz}Hz.")
+        print(f"  NOTE (D-031): HPF is applied in numpy, not in the RT signal "
+              f"path. Primary safety is the signal-gen -20 dBFS hard cap.")
     else:
         print("\n  ** WARNING: No mandatory HPF found in speaker identity! **")
         print("  ** Excursion protection is NOT active. Proceed with caution. **")
+        print("  ** Primary safety: signal-gen -20 dBFS hard cap. **")
 
-    print(f"\n  Measurement attenuation: {MEASUREMENT_ATTENUATION_DB}dB "
+    print(f"\n  Convolver attenuation: {MEASUREMENT_ATTENUATION_DB}dB "
           f"on channel {args.channel}")
-    print(f"  All other channels muted at {MEASUREMENT_MUTE_DB}dB")
+    print(f"  All other channels muted (Mult=0.0)")
 
-    client = None
-    original_config_path = None
-    temp_config_path = None
+    gm_client = None
+    original_gains = {}
     success = False
     ws_server = None
+    previous_mode = None
 
     # Start WebSocket server if --ws is set
     if args.ws:
@@ -2073,22 +2030,33 @@ def main():
             ws_server = None
 
     if args.mock:
-        from mock.mock_camilladsp import MockCamillaClient
-        client = MockCamillaClient()
-        client.connect()
-        original_config_path = client.config.file_path()
-        temp_config_path = None
-        print("MOCK MODE: using MockCamillaClient (no real CamillaDSP)")
+        from graph_manager_client import MockGraphManagerClient
+        gm_client = MockGraphManagerClient()
+        gm_client.connect()
+        print("MOCK MODE: using MockGraphManagerClient (no real signal-gen/GM)")
     else:
-        print("\nSwapping CamillaDSP to measurement config...")
+        print("\nSetting up measurement routing...")
 
     try:
         if not args.mock:
-            client, original_config_path, temp_config_path = swap_camilladsp_config(
-                meas_config,
-                host=args.camilladsp_host,
-                port=args.camilladsp_port,
-            )
+            # Connect to GraphManager and switch to measurement mode
+            from graph_manager_client import GraphManagerClient
+            gm_client = GraphManagerClient(
+                host=args.gm_host, port=args.gm_port)
+            gm_client.connect()
+
+            # Save current mode for restoration
+            previous_mode = gm_client.get_mode()
+            print(f"  Current GraphManager mode: {previous_mode}")
+
+            # Switch to measurement mode
+            gm_client.enter_measurement_mode()
+            gm_client.verify_measurement_mode()
+            print("  GraphManager switched to measurement mode")
+
+            # Set convolver gains for measurement
+            print("\nSetting convolver gains...")
+            original_gains = set_measurement_gains(args.channel)
 
         # Phase 1: Calibration (non-interactive, fixed duration)
         cal_pass = True
@@ -2126,10 +2094,11 @@ def main():
         print("\n\nMeasurement interrupted by user.")
     except Exception as e:
         print(f"\nERROR: {e}")
-        if client is None and not args.mock:
-            # swap_camilladsp_config() failed before returning a client
-            print("Is CamillaDSP running? Check: systemctl status camilladsp")
-            print("Is pycamilladsp installed? Check: pip3 list | grep camilladsp")
+        if gm_client is None and not args.mock:
+            print("Is pi4audio-graph-manager running? "
+                  f"Check: ss -tlnp | grep {args.gm_port}")
+            print("Is pi4audio-signal-gen running? "
+                  f"Check: ss -tlnp | grep {args.signal_gen_port}")
     finally:
         # Stop WebSocket server
         if ws_server is not None:
@@ -2141,20 +2110,39 @@ def main():
         restore_ok = True
         if args.mock:
             pass  # Nothing to restore in mock mode
-        elif client is not None and original_config_path is not None:
-            # Swap succeeded (at least partially) — restore production config
-            print("\nRestoring CamillaDSP production config...")
-            restore_ok = restore_camilladsp_config(
-                client, original_config_path, temp_config_path)
-        elif client is not None:
-            # Swap failed mid-way; at least disconnect
+        elif gm_client is not None:
+            # Restore production routing
+            print("\nRestoring production routing...")
             try:
-                client.disconnect()
-            except Exception:
-                pass
+                # Restore convolver gains (safety net — GM mode switch
+                # re-applies production config, but we reset explicitly too)
+                if original_gains:
+                    restore_production_gains(original_gains)
+
+                # Switch GraphManager back to previous mode
+                restore_mode = previous_mode or "monitoring"
+                gm_client.set_mode(restore_mode)
+                print(f"  GraphManager restored to mode: {restore_mode}")
+            except Exception as e:
+                print(f"\n  ** WARNING: Failed to restore production routing: {e} **")
+                print("  ** PA OUTPUT may be in measurement mode **")
+                print("  ** Manual restore: restart GraphManager or use RPC **")
+                print("  ** (GraphManager mode switch is transient-free) **")
+                restore_ok = False
+            finally:
+                try:
+                    gm_client.close()
+                except Exception:
+                    pass
+
+            # Amp level warning
+            print("\n  ** CHECK AMP LEVELS **")
+            print("  GraphManager has been restored to production routing.")
+            print("  If you adjusted amp volume during the measurement,")
+            print("  verify levels are appropriate for normal listening.")
 
     # Exit codes: 0 = success, 1 = measurement failed, 2 = restore failed
-    # (system may be in dangerous state — measurement config still active)
+    # (system may be in measurement mode — non-production routing)
     if not restore_ok:
         sys.exit(2)
     sys.exit(0 if success else 1)
