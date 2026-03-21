@@ -1029,10 +1029,10 @@ that PipeWire does not override with `PTHREAD_EXPLICIT_SCHED`.
 
 ---
 
-## F-034: Signal generator --max-level-dbfs negative value fails clap parsing in systemd service (OPEN)
+## F-034: Signal generator --max-level-dbfs negative value fails clap parsing in systemd service (RESOLVED)
 
 **Severity:** High (service cannot start without workaround)
-**Status:** Open (workaround applied on Pi)
+**Status:** Resolved (`33b5577` — `=` syntax in service file + `allow_hyphen_values = true` in Rust source)
 **Found in:** VERIFY phase S-001 for US-052, 2026-03-21
 **Affects:** US-052 (signal generator deployment), pi4audio-signal-gen.service startup
 **Found by:** worker-verify (Pi VERIFY session)
@@ -1070,10 +1070,10 @@ the entire token is consumed as the option's value.
 
 ---
 
-## F-035: Seccomp SystemCallFilter kills signal generator on PipeWire client init (OPEN)
+## F-035: Seccomp SystemCallFilter kills signal generator on PipeWire client init (RESOLVED)
 
 **Severity:** High
-**Status:** Open (workaround available)
+**Status:** Resolved (`33b5577` — SEC-PW-CLIENT standardized profile applied to signal-gen, pcm-bridge, and graph-manager service files)
 **Found in:** VERIFY phase S-001 for US-052, 2026-03-21
 **Affects:** US-052 (signal generator deployment), pi4audio-signal-gen.service startup
 **Found by:** worker-verify (Pi VERIFY session)
