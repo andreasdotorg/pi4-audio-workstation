@@ -1,6 +1,10 @@
-"""Unit tests for pw_wiring module.
+"""Unit tests for pw_wiring module (D-040 adapted).
 
 Mocks subprocess.run and shutil.which so no PipeWire is needed.
+
+D-040 adaptation: CamillaDSP replaced by PW filter-chain convolver.
+Link count changed from 17 (8+8+1) to 9 (4+4+1) to match the
+4-channel production convolver topology.
 """
 
 import subprocess
@@ -54,26 +58,26 @@ def _fail_result(stderr="error"):
 class TestExpectedLinks:
     def test_total_link_count(self):
         links = pw_wiring._expected_links()
-        # 8 (siggen→cdsp) + 8 (cdsp→room) + 1 (room→siggen-capture) = 17
-        assert len(links) == 17
+        # 4 (siggen->convolver) + 4 (convolver->room) + 1 (room->siggen-capture) = 9
+        assert len(links) == 9
 
-    def test_siggen_to_cdsp_links(self):
+    def test_siggen_to_convolver_links(self):
         links = pw_wiring._expected_links()
-        siggen_cdsp = links[:8]
-        for ch, (src, dst) in enumerate(siggen_cdsp):
+        siggen_conv = links[:4]
+        for ch, (src, dst) in enumerate(siggen_conv):
             assert src == f"pi4audio-signal-gen:output_{ch}"
-            assert dst == f"pi4audio-e2e-cdsp-capture:input_{ch}"
+            assert dst == f"pi4audio-e2e-convolver:input_{ch}"
 
-    def test_cdsp_to_room_links(self):
+    def test_convolver_to_room_links(self):
         links = pw_wiring._expected_links()
-        cdsp_room = links[8:16]
-        for ch, (src, dst) in enumerate(cdsp_room):
-            assert src == f"pi4audio-e2e-cdsp-playback:output_{ch}"
+        conv_room = links[4:8]
+        for ch, (src, dst) in enumerate(conv_room):
+            assert src == f"pi4audio-e2e-convolver-out:output_{ch}"
             assert dst == f"pi4audio-e2e-room-sim-capture:input_{ch}"
 
     def test_room_to_siggen_capture_link(self):
         links = pw_wiring._expected_links()
-        src, dst = links[16]
+        src, dst = links[8]
         assert src == "pi4audio-e2e-room-sim-playback:output_0"
         assert dst == "pi4audio-signal-gen-capture:input_0"
 
@@ -104,26 +108,26 @@ class TestPort:
 class TestWireE2EGraph:
     @mock.patch("shutil.which", side_effect=_mock_which)
     @mock.patch("subprocess.run", return_value=_ok_result())
-    def test_creates_all_17_links(self, mock_run, mock_which):
+    def test_creates_all_9_links(self, mock_run, mock_which):
         pw_wiring.wire_e2e_graph()
-        assert mock_run.call_count == 17
+        assert mock_run.call_count == 9
 
     @mock.patch("shutil.which", side_effect=_mock_which)
     @mock.patch("subprocess.run", return_value=_ok_result())
     def test_pw_link_called_with_correct_args(self, mock_run, mock_which):
         pw_wiring.wire_e2e_graph()
 
-        # First call: siggen output_0 → cdsp input_0
+        # First call: siggen output_0 -> convolver input_0
         first_call = mock_run.call_args_list[0]
         cmd = first_call[0][0]  # positional arg
         assert cmd == [
             "/usr/bin/pw-link",
             "pi4audio-signal-gen:output_0",
-            "pi4audio-e2e-cdsp-capture:input_0",
+            "pi4audio-e2e-convolver:input_0",
         ]
 
-        # Last call: room-sim playback output_0 → siggen-capture input_0
-        last_call = mock_run.call_args_list[16]
+        # Last call: room-sim playback output_0 -> siggen-capture input_0
+        last_call = mock_run.call_args_list[8]
         cmd = last_call[0][0]
         assert cmd == [
             "/usr/bin/pw-link",
@@ -133,25 +137,25 @@ class TestWireE2EGraph:
 
     @mock.patch("shutil.which", side_effect=_mock_which)
     @mock.patch("subprocess.run", return_value=_ok_result())
-    def test_link_order_siggen_then_cdsp_then_room(self, mock_run, mock_which):
+    def test_link_order_siggen_then_convolver_then_room(self, mock_run, mock_which):
         pw_wiring.wire_e2e_graph()
         calls = mock_run.call_args_list
 
         # Verify the three groups appear in order
-        # Group 1: calls 0-7 contain "pi4audio-signal-gen:output"
-        for i in range(8):
+        # Group 1: calls 0-3 contain "pi4audio-signal-gen:output"
+        for i in range(4):
             cmd = calls[i][0][0]
             assert "pi4audio-signal-gen:output" in cmd[1]
-            assert "pi4audio-e2e-cdsp-capture:input" in cmd[2]
+            assert "pi4audio-e2e-convolver:input" in cmd[2]
 
-        # Group 2: calls 8-15 contain "pi4audio-e2e-cdsp-playback:output"
-        for i in range(8, 16):
+        # Group 2: calls 4-7 contain "pi4audio-e2e-convolver-out:output"
+        for i in range(4, 8):
             cmd = calls[i][0][0]
-            assert "pi4audio-e2e-cdsp-playback:output" in cmd[1]
+            assert "pi4audio-e2e-convolver-out:output" in cmd[1]
             assert "pi4audio-e2e-room-sim-capture:input" in cmd[2]
 
-        # Group 3: call 16 contains "pi4audio-e2e-room-sim-playback:output"
-        cmd = calls[16][0][0]
+        # Group 3: call 8 contains "pi4audio-e2e-room-sim-playback:output"
+        cmd = calls[8][0][0]
         assert "pi4audio-e2e-room-sim-playback:output" in cmd[1]
         assert "pi4audio-signal-gen-capture:input" in cmd[2]
 
@@ -178,13 +182,13 @@ class TestVerifyWiring:
         mock_run.return_value = _ok_result(stdout=fake_output)
 
         result = pw_wiring.verify_wiring()
-        assert len(result) == 17
+        assert len(result) == 9
         assert all(result.values())
 
     @mock.patch("shutil.which", side_effect=_mock_which)
     @mock.patch("subprocess.run")
     def test_missing_link_detected(self, mock_run, mock_which):
-        # Output that contains most ports but not the room→siggen link
+        # Output that contains most ports but not the room->siggen link
         links = pw_wiring._expected_links()
         all_ports = []
         for src, dst in links[:-1]:  # exclude last link
@@ -195,13 +199,13 @@ class TestVerifyWiring:
         result = pw_wiring.verify_wiring()
         # Last link should be missing
         last_key = (
-            "pi4audio-e2e-room-sim-playback:output_0 → "
+            "pi4audio-e2e-room-sim-playback:output_0 -> "
             "pi4audio-signal-gen-capture:input_0"
         )
         assert result[last_key] is False
         # Other links should be present
         connected = [k for k, v in result.items() if v]
-        assert len(connected) == 16
+        assert len(connected) == 8
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +215,9 @@ class TestVerifyWiring:
 class TestTeardownWiring:
     @mock.patch("shutil.which", side_effect=_mock_which)
     @mock.patch("subprocess.run", return_value=_ok_result())
-    def test_disconnects_all_17_links(self, mock_run, mock_which):
+    def test_disconnects_all_9_links(self, mock_run, mock_which):
         pw_wiring.teardown_wiring()
-        assert mock_run.call_count == 17
+        assert mock_run.call_count == 9
 
     @mock.patch("shutil.which", side_effect=_mock_which)
     @mock.patch("subprocess.run", return_value=_ok_result())
@@ -228,7 +232,7 @@ class TestTeardownWiring:
     def test_tolerates_errors(self, mock_run, mock_which):
         # Should not raise even when pw-link fails
         pw_wiring.teardown_wiring()
-        assert mock_run.call_count == 17
+        assert mock_run.call_count == 9
 
 
 # ---------------------------------------------------------------------------

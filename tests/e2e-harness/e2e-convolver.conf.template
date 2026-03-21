@@ -1,0 +1,131 @@
+# PipeWire filter-chain convolver for E2E testing (US-050, D-040).
+#
+# Replaces camilladsp-e2e.yml.  Mirrors the production convolver
+# (30-filter-chain-convolver.conf) with E2E-specific changes:
+#   - E2E-prefixed node names to avoid collisions with production
+#   - Dirac IR files (passthrough) so the room simulator is the ONLY
+#     acoustic mock in the test graph
+#   - Unity gain (Mult=1.0) -- no attenuation in test mode
+#
+# 4-channel convolver matching production topology:
+#   AUX0 = Left main    (ch 0)
+#   AUX1 = Right main   (ch 1)
+#   AUX2 = Subwoofer 1  (ch 2)
+#   AUX3 = Subwoofer 2  (ch 3)
+#
+# Audio graph:
+#   signal-gen (4ch) -> [capture: pi4audio-e2e-convolver]
+#     -> 4x convolver (dirac passthrough)
+#     -> 4x linear gain (unity)
+#     -> [playback: pi4audio-e2e-convolver-out] -> room-sim (4ch)
+#
+# IR files are substituted at runtime by the conftest fixture:
+#   @IR_DIR@/dirac_ch0.wav .. @IR_DIR@/dirac_ch3.wav
+
+context.modules = [
+{
+    name = libpipewire-module-filter-chain
+    args = {
+        node.description = "E2E FIR Convolver (4ch passthrough)"
+        media.name       = "E2E FIR Convolver"
+
+        filter.graph = {
+            nodes = [
+                {
+                    type   = builtin
+                    name   = conv_ch0
+                    label  = convolver
+                    config = { filename = "@IR_DIR@/dirac_ch0.wav" }
+                }
+                {
+                    type   = builtin
+                    name   = conv_ch1
+                    label  = convolver
+                    config = { filename = "@IR_DIR@/dirac_ch1.wav" }
+                }
+                {
+                    type   = builtin
+                    name   = conv_ch2
+                    label  = convolver
+                    config = { filename = "@IR_DIR@/dirac_ch2.wav" }
+                }
+                {
+                    type   = builtin
+                    name   = conv_ch3
+                    label  = convolver
+                    config = { filename = "@IR_DIR@/dirac_ch3.wav" }
+                }
+                # Unity gain nodes (Mult=1.0): passthrough, matching
+                # production topology where linear nodes provide
+                # per-channel attenuation.
+                {
+                    type    = builtin
+                    name    = gain_ch0
+                    label   = linear
+                    control = { "Mult" = 1.0 "Add" = 0.0 }
+                }
+                {
+                    type    = builtin
+                    name    = gain_ch1
+                    label   = linear
+                    control = { "Mult" = 1.0 "Add" = 0.0 }
+                }
+                {
+                    type    = builtin
+                    name    = gain_ch2
+                    label   = linear
+                    control = { "Mult" = 1.0 "Add" = 0.0 }
+                }
+                {
+                    type    = builtin
+                    name    = gain_ch3
+                    label   = linear
+                    control = { "Mult" = 1.0 "Add" = 0.0 }
+                }
+            ]
+
+            links = [
+                { output = "conv_ch0:Out"  input = "gain_ch0:In" }
+                { output = "conv_ch1:Out"  input = "gain_ch1:In" }
+                { output = "conv_ch2:Out"  input = "gain_ch2:In" }
+                { output = "conv_ch3:Out"  input = "gain_ch3:In" }
+            ]
+
+            inputs  = [
+                "conv_ch0:In"
+                "conv_ch1:In"
+                "conv_ch2:In"
+                "conv_ch3:In"
+            ]
+            outputs = [
+                "gain_ch0:Out"
+                "gain_ch1:Out"
+                "gain_ch2:Out"
+                "gain_ch3:Out"
+            ]
+        }
+
+        capture.props = {
+            node.name                       = "pi4audio-e2e-convolver"
+            node.description                = "E2E FIR Convolver (4ch)"
+            media.class                     = Audio/Sink
+            audio.channels                  = 4
+            audio.position                  = [ AUX0 AUX1 AUX2 AUX3 ]
+            node.autoconnect                = false
+            session.suspend-timeout-seconds = 0
+            node.pause-on-idle              = false
+        }
+
+        playback.props = {
+            node.name                       = "pi4audio-e2e-convolver-out"
+            node.description                = "E2E FIR Convolver Output"
+            node.passive                    = true
+            audio.channels                  = 4
+            audio.position                  = [ AUX0 AUX1 AUX2 AUX3 ]
+            node.autoconnect                = false
+            session.suspend-timeout-seconds = 0
+            node.pause-on-idle              = false
+        }
+    }
+}
+]

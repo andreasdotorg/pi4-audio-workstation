@@ -111,6 +111,8 @@ class TestMockDataGenerator:
             "state", "processing_load", "buffer_level",
             "clipped_samples", "xruns", "rate_adjust",
             "capture_rate", "playback_rate", "chunksize",
+            "gm_connected", "gm_mode", "gm_links_desired",
+            "gm_links_actual", "gm_links_missing", "gm_convolver",
         }
         assert set(cdsp.keys()) == expected_keys
 

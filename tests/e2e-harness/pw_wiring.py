@@ -2,12 +2,15 @@
 
 Uses ``pw-link`` to connect the E2E audio graph:
 
-    signal-gen (playback, 8ch)
-        ──→ CamillaDSP capture (8ch)
-                ──→ CamillaDSP playback (8ch)
-                        ──→ room-simulator input (8ch)
-                                ──→ room-simulator output (1ch, mono)
-                                        ──→ signal-gen capture (1ch)
+    signal-gen (playback, 4ch)
+        --> PW convolver capture (4ch)
+                --> PW convolver playback (4ch)
+                        --> room-simulator input (4 of 8ch active)
+                                --> room-simulator output (1ch, mono)
+                                        --> signal-gen capture (1ch)
+
+D-040 adaptation: CamillaDSP replaced by PW filter-chain convolver.
+The convolver is 4-channel (AUX0-AUX3), matching the production topology.
 
 All node names use the ``pi4audio-e2e-`` prefix to avoid collisions
 with production PipeWire nodes.
@@ -22,16 +25,17 @@ import subprocess
 
 log = logging.getLogger(__name__)
 
-# -- Node names (must match EH-2, EH-3, and signal-gen D-037) ----------------
+# -- Node names (must match e2e-convolver.conf.template and EH-2) -----------
 
 SIGGEN_PLAYBACK = "pi4audio-signal-gen"
 SIGGEN_CAPTURE = "pi4audio-signal-gen-capture"
-CDSP_CAPTURE = "pi4audio-e2e-cdsp-capture"
-CDSP_PLAYBACK = "pi4audio-e2e-cdsp-playback"
+CONVOLVER_CAPTURE = "pi4audio-e2e-convolver"
+CONVOLVER_PLAYBACK = "pi4audio-e2e-convolver-out"
 ROOM_SIM_CAPTURE = "pi4audio-e2e-room-sim-capture"
 ROOM_SIM_PLAYBACK = "pi4audio-e2e-room-sim-playback"
 
-NUM_CHANNELS = 8
+# 4-channel convolver matching production topology (AUX0-AUX3).
+NUM_CONVOLVER_CHANNELS = 4
 
 
 class WiringError(Exception):
@@ -65,30 +69,27 @@ def _port(node, direction, channel):
 def _expected_links():
     """Return the full list of (source_port, sink_port) tuples.
 
-    Order: signal-gen→CamillaDSP (8), CamillaDSP→room-sim (8),
-    room-sim→signal-gen-capture (1).  Total: 17 links.
+    Order: signal-gen -> convolver (4), convolver -> room-sim (4),
+    room-sim -> signal-gen-capture (1).  Total: 9 links.
     """
     links = []
 
-    # 1. Signal-gen playback → CamillaDSP capture (8 channels)
-    for ch in range(NUM_CHANNELS):
+    # 1. Signal-gen playback -> convolver capture (4 channels)
+    for ch in range(NUM_CONVOLVER_CHANNELS):
         links.append((
             _port(SIGGEN_PLAYBACK, "output", ch),
-            _port(CDSP_CAPTURE, "input", ch),
+            _port(CONVOLVER_CAPTURE, "input", ch),
         ))
 
-    # 2. CamillaDSP playback → room simulator capture sink (8 channels)
-    #    The pw-filter-chain room sim exposes a capture node (Audio/Sink)
-    #    named "pi4audio-e2e-room-sim-capture" with 8 input ports.
-    for ch in range(NUM_CHANNELS):
+    # 2. Convolver playback -> room simulator capture sink (4 channels)
+    #    The room sim has 8 input ports but only ch 0-3 are active.
+    for ch in range(NUM_CONVOLVER_CHANNELS):
         links.append((
-            _port(CDSP_PLAYBACK, "output", ch),
+            _port(CONVOLVER_PLAYBACK, "output", ch),
             _port(ROOM_SIM_CAPTURE, "input", ch),
         ))
 
-    # 3. Room simulator playback output → signal-gen capture (1 channel, mono)
-    #    The pw-filter-chain room sim exposes a playback node
-    #    named "pi4audio-e2e-room-sim-playback" with 1 output port.
+    # 3. Room simulator playback output -> signal-gen capture (1 channel, mono)
     links.append((
         _port(ROOM_SIM_PLAYBACK, "output", 0),
         _port(SIGGEN_CAPTURE, "input", 0),
@@ -143,7 +144,7 @@ def wire_e2e_graph():
     log.info("Wiring E2E graph: %d links", len(links))
 
     for source, sink in links:
-        log.debug("Linking %s → %s", source, sink)
+        log.debug("Linking %s -> %s", source, sink)
         _run_pw_link([source, sink])
 
     log.info("E2E graph wired successfully (%d links)", len(links))
@@ -158,20 +159,17 @@ def verify_wiring():
     Returns
     -------
     dict[str, bool]
-        Maps ``"source → sink"`` to True (connected) or False (missing).
+        Maps ``"source -> sink"`` to True (connected) or False (missing).
     """
     result = _run_pw_link(["--links"], check=False)
     link_output = result.stdout
 
     status = {}
     for source, sink in _expected_links():
-        key = f"{source} → {sink}"
+        key = f"{source} -> {sink}"
         # pw-link --links shows output ports indented under their node,
         # with connected inputs indented further.  We check both the
         # source and sink port names appear in proximity.
-        # A more robust check: use pw-link -l which lists "source -> sink"
-        # pairs, but the format varies by PipeWire version.  Checking
-        # both port names in the output is sufficient for verification.
         status[key] = (source in link_output and sink in link_output)
 
     return status
@@ -180,13 +178,13 @@ def verify_wiring():
 def teardown_wiring():
     """Disconnect all links created by ``wire_e2e_graph()``.
 
-    Tolerates errors — processes may already be gone.
+    Tolerates errors -- processes may already be gone.
     """
     links = _expected_links()
     log.info("Tearing down E2E graph: %d links", len(links))
 
     for source, sink in links:
-        log.debug("Unlinking %s → %s", source, sink)
+        log.debug("Unlinking %s -> %s", source, sink)
         _run_pw_link(["--disconnect", source, sink], check=False)
 
     log.info("E2E graph teardown complete")

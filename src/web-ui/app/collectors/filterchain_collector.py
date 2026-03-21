@@ -128,6 +128,12 @@ class FilterChainCollector:
                 "playback_rate": 0,
                 "chunksize": 0,
                 "cdsp_connected": False,
+                "gm_connected": False,
+                "gm_mode": "dj",
+                "gm_links_desired": 0,
+                "gm_links_actual": 0,
+                "gm_links_missing": 0,
+                "gm_convolver": "unknown",
             }
 
         mode = links.get("mode", "monitoring")

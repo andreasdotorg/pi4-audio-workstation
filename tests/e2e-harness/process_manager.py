@@ -1,8 +1,13 @@
 """E2E harness process manager — subprocess lifecycle for integration tests.
 
-Manages PipeWire, CamillaDSP, pw-filter-chain (room simulator), and the RT
-signal generator as subprocesses.  Starts in dependency order, tears down in
-reverse.  Uses SIGTERM with a timeout, falling back to SIGKILL.
+Manages PipeWire, PW filter-chain convolver, GraphManager, pw-filter-chain
+(room simulator), and the RT signal generator as subprocesses.  Starts in
+dependency order, tears down in reverse.  Uses SIGTERM with a timeout,
+falling back to SIGKILL.
+
+D-040 adaptation: CamillaDSP replaced by PW filter-chain convolver +
+GraphManager.  The convolver is a PipeWire module loaded by pw-filter-chain.
+GraphManager manages link topology and mode state via TCP RPC.
 
 Designed for the US-050 E2E test harness.  All processes run in a private
 PipeWire instance (not the user session) so tests are isolated.
@@ -10,11 +15,10 @@ PipeWire instance (not the user session) so tests are isolated.
 Usage::
 
     pm = ProcessManager(
-        pipewire_bin="pipewire",
-        camilladsp_bin="camilladsp",
-        camilladsp_config="tests/e2e-harness/camilladsp-e2e.yml",
+        convolver_config="tests/e2e-harness/e2e-convolver.conf",
+        graphmgr_bin="pi4audio-graph-manager",
         room_sim_script="tests/e2e-harness/start-room-sim.sh",
-        siggen_bin="pi4-audio-siggen",
+        siggen_bin="pi4audio-signal-gen",
     )
     pm.start_all()
     try:
@@ -23,10 +27,12 @@ Usage::
         pm.stop_all()
 """
 
+import json
 import logging
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import time
 
@@ -34,7 +40,8 @@ log = logging.getLogger(__name__)
 
 # Startup timeouts (seconds)
 PIPEWIRE_STARTUP_TIMEOUT = 5.0
-CAMILLADSP_STARTUP_TIMEOUT = 5.0
+CONVOLVER_STARTUP_TIMEOUT = 5.0
+GRAPHMGR_STARTUP_TIMEOUT = 5.0
 ROOM_SIM_STARTUP_TIMEOUT = 3.0
 SIGGEN_STARTUP_TIMEOUT = 5.0
 
@@ -42,9 +49,9 @@ SIGGEN_STARTUP_TIMEOUT = 5.0
 SIGTERM_TIMEOUT = 3.0
 SIGKILL_TIMEOUT = 2.0
 
-# CamillaDSP default WebSocket port for E2E harness
-CAMILLADSP_E2E_PORT = 11235
-CAMILLADSP_E2E_HOST = "127.0.0.1"
+# GraphManager default RPC port for E2E harness (distinct from production 4002)
+GRAPHMGR_E2E_PORT = 14002
+GRAPHMGR_E2E_HOST = "127.0.0.1"
 
 
 class ProcessError(Exception):
@@ -155,15 +162,34 @@ class ManagedProcess:
             return "", ""
 
 
-def _check_camilladsp_ws(host, port):
-    """Health check: CamillaDSP WebSocket is accepting connections."""
+def _check_pw_node_exists(node_name):
+    """Health check: a PipeWire node with the given name is registered."""
     def check():
-        from camilladsp import CamillaClient
-        client = CamillaClient(host, port)
-        client.connect()
-        client.general.state()
-        client.disconnect()
-        return True
+        result = subprocess.run(
+            ["pw-cli", "ls", "Node"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return node_name in result.stdout
+    return check
+
+
+def _check_graphmgr_rpc(host, port):
+    """Health check: GraphManager TCP RPC responds to ping."""
+    def check():
+        sock = socket.create_connection((host, port), timeout=2.0)
+        try:
+            sock.settimeout(2.0)
+            sock.sendall(b'{"cmd":"ping"}\n')
+            data = b""
+            while b"\n" not in data:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    return False
+                data += chunk
+            resp = json.loads(data.split(b"\n")[0])
+            return resp.get("ok", False)
+        finally:
+            sock.close()
     return check
 
 
@@ -177,20 +203,21 @@ def _check_process_alive(proc_ref):
 class ProcessManager:
     """Manages E2E harness subprocesses in dependency order.
 
-    Start order: PipeWire -> CamillaDSP -> room simulator -> signal gen.
-    Stop order:  signal gen -> room simulator -> CamillaDSP -> PipeWire.
+    Start order: PipeWire -> PW convolver -> GraphManager -> room sim -> signal gen.
+    Stop order:  signal gen -> room sim -> GraphManager -> PW convolver -> PipeWire.
 
     Parameters
     ----------
-    pipewire_bin : str
+    pipewire_bin : str or None
         Path to ``pipewire`` binary.  If None, PipeWire management is
         skipped (assumes an external PipeWire instance is running).
-    camilladsp_bin : str
-        Path to ``camilladsp`` binary.
-    camilladsp_config : str
-        Path to the CamillaDSP YAML config file.
-    camilladsp_port : int
-        WebSocket port for CamillaDSP.
+    convolver_config : str
+        Path to the PW filter-chain convolver config file (e2e-convolver.conf).
+    graphmgr_bin : str or None
+        Path to the ``pi4audio-graph-manager`` binary.  If None, GraphManager
+        management is skipped.
+    graphmgr_port : int
+        TCP RPC port for GraphManager.
     room_sim_script : str or None
         Path to the room simulator start script (EH-2).  If None,
         room simulator management is skipped.
@@ -210,9 +237,9 @@ class ProcessManager:
     def __init__(
         self,
         pipewire_bin=None,
-        camilladsp_bin="camilladsp",
-        camilladsp_config="tests/e2e-harness/camilladsp-e2e.yml",
-        camilladsp_port=CAMILLADSP_E2E_PORT,
+        convolver_config="tests/e2e-harness/e2e-convolver.conf",
+        graphmgr_bin=None,
+        graphmgr_port=GRAPHMGR_E2E_PORT,
         room_sim_script=None,
         room_sim_ir_dir=None,
         siggen_bin=None,
@@ -221,9 +248,9 @@ class ProcessManager:
     ):
         self._env = {**os.environ, **(env_overrides or {})}
         self._processes = []  # ordered list for teardown
-        self._camilladsp_port = camilladsp_port
+        self._graphmgr_port = graphmgr_port
 
-        # 1. PipeWire (optional — skip if using external instance)
+        # 1. PipeWire (optional -- skip if using external instance)
         if pipewire_bin:
             pw = ManagedProcess(
                 name="pipewire",
@@ -233,27 +260,41 @@ class ProcessManager:
             )
             self._processes.append(pw)
 
-        # 2. CamillaDSP
-        if not os.path.isfile(camilladsp_config):
-            raise FileNotFoundError(
-                f"CamillaDSP config not found: {camilladsp_config}"
+        # 2. PW filter-chain convolver
+        pw_filter_chain_bin = shutil.which("pw-filter-chain") or "pw-filter-chain"
+        if os.path.isfile(convolver_config):
+            convolver = ManagedProcess(
+                name="convolver",
+                args=[
+                    pw_filter_chain_bin,
+                    "--properties={ log.level = 2 }",
+                    convolver_config,
+                ],
+                env=self._env,
+                health_check=_check_pw_node_exists("pi4audio-e2e-convolver"),
+                startup_timeout=CONVOLVER_STARTUP_TIMEOUT,
             )
-        cdsp = ManagedProcess(
-            name="camilladsp",
-            args=[
-                camilladsp_bin,
-                "-p", str(camilladsp_port),
-                camilladsp_config,
-            ],
-            env=self._env,
-            health_check=_check_camilladsp_ws(
-                CAMILLADSP_E2E_HOST, camilladsp_port,
-            ),
-            startup_timeout=CAMILLADSP_STARTUP_TIMEOUT,
-        )
-        self._processes.append(cdsp)
+            self._processes.append(convolver)
 
-        # 3. Room simulator (optional — EH-2)
+        # 3. GraphManager (optional)
+        if graphmgr_bin:
+            gm = ManagedProcess(
+                name="graph-manager",
+                args=[
+                    graphmgr_bin,
+                    "--mode", "monitoring",
+                    "--listen", f"tcp:{GRAPHMGR_E2E_HOST}:{graphmgr_port}",
+                    "--log-level", "debug",
+                ],
+                env=self._env,
+                health_check=_check_graphmgr_rpc(
+                    GRAPHMGR_E2E_HOST, graphmgr_port,
+                ),
+                startup_timeout=GRAPHMGR_STARTUP_TIMEOUT,
+            )
+            self._processes.append(gm)
+
+        # 4. Room simulator (optional -- EH-2)
         if room_sim_script:
             room_args = [room_sim_script]
             if room_sim_ir_dir:
@@ -266,7 +307,7 @@ class ProcessManager:
             )
             self._processes.append(room)
 
-        # 4. Signal generator (optional)
+        # 5. Signal generator (optional)
         if siggen_bin:
             sg = ManagedProcess(
                 name="signal-gen",
@@ -280,8 +321,8 @@ class ProcessManager:
             self._processes.append(sg)
 
     @property
-    def camilladsp_port(self):
-        return self._camilladsp_port
+    def graphmgr_port(self):
+        return self._graphmgr_port
 
     def start_all(self):
         """Start all managed processes in dependency order.

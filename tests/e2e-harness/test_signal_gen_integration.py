@@ -1,17 +1,21 @@
-"""Tier 1 signal generator integration tests (EH-7).
+"""Tier 1 signal generator integration tests (EH-7, D-040 adapted).
 
-Tests the RT signal generator through the real PipeWire + CamillaDSP +
-room-simulator graph.  All tests require Linux with PipeWire and are
-auto-skipped on macOS.
+Tests the RT signal generator through the real PipeWire + PW filter-chain
+convolver + room-simulator graph.  All tests require Linux with PipeWire
+and are auto-skipped on macOS.
+
+D-040 adaptation: CamillaDSP replaced by PW filter-chain convolver.
+The convolver uses dirac IRs (passthrough) so only the room simulator
+provides acoustic simulation.
 
 Uses the ``e2e_harness`` session fixture from conftest.py (EH-6) which
 starts all processes and wires the audio graph before the first test.
 
 Tests
 -----
-1. test_sine_through_camilladsp -- play 1kHz sine, verify capture level
-2. test_sweep_playrec_deconvolve -- sweep + deconvolve → verify IR peak
-3. test_level_above_cap_rejected -- request > -20 dBFS → expect error
+1. test_sine_through_convolver -- play 1kHz sine, verify capture level
+2. test_sweep_playrec_deconvolve -- sweep + deconvolve -> verify IR peak
+3. test_level_above_cap_rejected -- request > -20 dBFS -> expect error
 4. test_emergency_stop -- play continuous, stop, verify silence
 """
 
@@ -23,8 +27,8 @@ import pytest
 
 # Add module paths for signal_gen_client (SG-9) and room-correction
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-sys.path.insert(0, os.path.join(_PROJECT_ROOT, "scripts", "measurement"))
-sys.path.insert(0, os.path.join(_PROJECT_ROOT, "scripts", "room-correction"))
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, "src", "measurement"))
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, "src", "room-correction"))
 
 from signal_gen_client import SignalGenClient, SignalGenError
 
@@ -48,18 +52,18 @@ def siggen(e2e_harness):
     client.close()
 
 
-# -- Test 1: Sine through CamillaDSP -----------------------------------------
+# -- Test 1: Sine through PW convolver ----------------------------------------
 
-def test_sine_through_camilladsp(siggen):
-    """Play a 1kHz sine on channel 1 and verify the capture picks up signal.
+def test_sine_through_convolver(siggen):
+    """Play a 1kHz sine on channel 0 and verify the capture picks up signal.
 
     The signal path is:
-      signal-gen → CamillaDSP (-20 dB atten on ch0) → room-sim → capture.
-    A 1kHz sine at -20 dBFS after -20 dB attenuation = -40 dBFS at the
-    room-sim input.  The room-sim convolves with the room IR (peak-normalized
-    to 1.0), so capture level should be roughly -40 dBFS or above (room
-    gain can boost it).  We check that capture_level peak is above -60 dBFS
-    (well above the noise floor) to confirm signal is flowing.
+      signal-gen -> PW convolver (dirac passthrough) -> room-sim -> capture.
+    A 1kHz sine at -20 dBFS passes through the convolver unmodified (dirac
+    IR = unity gain), then the room-sim convolves with the room IR
+    (peak-normalized to 1.0).  Capture level should be roughly -20 dBFS
+    or above.  We check that capture peak is above -60 dBFS (well above
+    the noise floor) to confirm signal is flowing.
     """
     siggen.play(
         signal="sine",
@@ -79,7 +83,7 @@ def test_sine_through_camilladsp(siggen):
 
     assert peak_dbfs > -60.0, (
         f"Capture peak {peak_dbfs:.1f} dBFS is below -60 dBFS -- "
-        f"signal not reaching the capture through CamillaDSP + room-sim"
+        f"signal not reaching the capture through convolver + room-sim"
     )
 
 
@@ -97,8 +101,8 @@ def test_sweep_playrec_deconvolve(siggen, e2e_harness):
     # Generate a 2-second log sweep
     test_sweep = sweep.generate_log_sweep(duration=2.0, sr=SAMPLE_RATE)
 
-    # Build 8-channel output buffer (active on ch0 = main_left)
-    n_channels = 8
+    # Build 4-channel output buffer (active on ch0 = main_left)
+    n_channels = 4
     output_buffer = np.zeros((len(test_sweep), n_channels), dtype=np.float32)
     output_buffer[:, 0] = test_sweep.astype(np.float32)
 

@@ -1,10 +1,14 @@
-"""Tier 2 measurement workflow tests (EH-8).
+"""Tier 2 measurement workflow tests (EH-8, D-040 adapted).
 
 Full measurement cycle and abort test through the real measurement daemon
-(FastAPI web-ui) with a real CamillaDSP instance provided by the E2E
-harness.  The room simulator replaces speakers + room + mic; the
+(FastAPI web-ui) with a PW filter-chain convolver and GraphManager provided
+by the E2E harness.  The room simulator replaces speakers + room + mic; the
 measurement session runs in mock audio mode (MockSoundDevice for playrec)
-but connects to the real CamillaDSP for config swap and state monitoring.
+but connects to the real GraphManager for mode switching and state monitoring.
+
+D-040 adaptation: CamillaDSP replaced by GraphManager for mode management.
+The measurement daemon uses ModeManager -> GraphManagerClient for
+entering/exiting measurement routing mode.
 
 Tests
 -----
@@ -29,16 +33,20 @@ pytestmark = pytest.mark.pw_integration
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
-_WEB_UI_DIR = os.path.join(_PROJECT_ROOT, "scripts", "web-ui")
-_RC_DIR = os.path.join(_PROJECT_ROOT, "scripts", "room-correction")
+_WEB_UI_DIR = os.path.join(_PROJECT_ROOT, "src", "web-ui")
+_MEAS_DIR = os.path.join(_PROJECT_ROOT, "src", "measurement")
+_RC_DIR = os.path.join(_PROJECT_ROOT, "src", "room-correction")
 _MOCK_DIR = os.path.join(_RC_DIR, "mock")
 
-for d in (_WEB_UI_DIR, _RC_DIR, _MOCK_DIR):
+for d in (_WEB_UI_DIR, _MEAS_DIR, _RC_DIR, _MOCK_DIR):
     if d not in sys.path:
         sys.path.insert(0, d)
 
 # Set mock mode for sounddevice (no real UMIK-1 in E2E harness).
 os.environ["PI_AUDIO_MOCK"] = "1"
+
+# Point to the measurement client modules directory.
+os.environ["PI4AUDIO_MEAS_DIR"] = _MEAS_DIR
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -112,14 +120,15 @@ def daemon_client(e2e_harness):
     """Create a FastAPI TestClient for the measurement daemon.
 
     The web-ui app runs in-process (TestClient) with PI_AUDIO_MOCK=1.
-    On Linux with the e2e_harness, the MeasurementSession connects to
-    the real CamillaDSP instance via pycamilladsp.
+    On Linux with the e2e_harness, the ModeManager connects to the real
+    GraphManager instance via GraphManagerClient for mode switching.
     """
+    # Configure the GM port for the E2E harness instance
+    os.environ["PI4AUDIO_GM_PORT"] = str(e2e_harness.gm_port)
+
     from starlette.testclient import TestClient
-    from app.measurement.routes import measurement_clients
     from app.main import app
 
-    measurement_clients.clear()
     with TestClient(app) as c:
         c.post("/api/v1/measurement/reset")
         yield c
