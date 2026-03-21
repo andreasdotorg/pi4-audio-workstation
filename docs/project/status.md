@@ -352,6 +352,7 @@ See `docs/project/defects.md` for full details.
 | F-037 | High | Open | Web UI on port 8080 has no authentication. Signal generator controllable by unauthenticated network clients. Tracked for venue deployment, not blocking current work. |
 | F-038 | Medium | Open | Dashboard tab has duplicate status bar — not consolidated into persistent bar (US-051). Owner wants ONE unified bar. |
 | F-039 | Medium | Open | DSP load gauge shows 0% — FilterChainCollector hardcodes processing_load. Needs pw-top BUSY parsing (US-060 AC #3). |
+| F-040 | High | Open | Panic MUTE/UNMUTE backend endpoints missing — button silently fails (safety). US-051 frontend calls `/api/v1/audio/mute` which returns 404. |
 | TK-249 | Medium | Open | PW `linear` Mult verified functional (owner confirmed during C-005). Downgraded from CRITICAL to calibration investigation — absolute SPL doesn't match theory, but gain mechanism works. Not a safety blocker. |
 
 ### Resolved
