@@ -269,7 +269,11 @@
             qBtns[i].addEventListener("click", function () {
                 var q = parseInt(this.getAttribute("data-q"), 10);
                 if (q !== currentQuantum) {
-                    setQuantum(q);
+                    var msg = "Change quantum from " + currentQuantum + " to " + q +
+                        "? This affects all active audio paths and may cause audible glitches.";
+                    if (window.confirm(msg)) {
+                        setQuantum(q);
+                    }
                 }
             });
         }
