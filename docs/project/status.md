@@ -360,7 +360,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **TK-248** (MEDIUM): Per-channel gain required for mixed speaker systems (CHN-50P 7W vs Bose PS28 III 62W thermal limits). Thermal safety calculations needed. Related: D-029 (per-speaker boost budget), TK-155 (hardware config schema).
 - **TK-249** (MEDIUM, calibration investigation): PW `linear` Mult parameter IS functional — owner verified during C-005 (heard volume changes at Mult 0.0316 → 0.001 → 0.000631). **Downgraded from CRITICAL.** Remaining question: absolute SPL doesn't match theoretical predictions. Calibration accuracy issue, not a safety blocker. AD Finding #2 RESOLVED, Finding #9 partially resolved (gain mechanism works, absolute margin TBD).
 - **TK-250** (MEDIUM): ada8200-in driver grouping via `node.group` — fix for USB device scheduling. The ada8200-in capture adapter needs `node.group` property to be scheduled with the USBStreamer playback device, preventing ALSA contention. Needs PipeWire conf rule and documentation.
-- **F-032 / SEC-GM-01** (HIGH, MUST-FIX before deployment): GraphManager JSON-RPC loopback binding validation. Security specialist finding. SEC-GM-02 and SEC-GM-03 are SHOULD-FIX (lower priority).
+- ~~**F-032 / SEC-GM-01**~~ **RESOLVED.** `parse_listen_addr()` in `main.rs:87-106` enforces loopback-only binding (127.0.0.1, ::1, localhost) with 8 unit tests. Service file has SEC-PW-CLIENT hardening. SEC-GM-02 and SEC-GM-03 remain SHOULD-FIX (lower priority).
 - **TK-251** (MEDIUM, QE G-4): Stale `test_no_gain_nodes` regression test. QE recommends Option A: update test to validate the 4 `linear` gain nodes exist with Mult <= 1.0 assertion. Quick code fix, blocks DoD #13 QE sign-off. US-059 scope.
 - ~~**TK-055**~~ **DONE (PASS).** Upstream V3D RT fix confirmed in `6.12.62+rpt-rpi-v8-rt`. 37+ min stable with hardware GL on RT. D-022 filed. F-012/F-017 RESOLVED.
 - ~~**TK-054**~~ **wont-do.** Hardware GL available on RT (D-022). Software rendering DJ-A stability test no longer necessary.
@@ -394,7 +394,7 @@ See `docs/project/defects.md` for full details.
 | F-030 | High | Open | D-020 (web UI), US-029 (DJ UAT). Workaround: stop web UI service. |
 | F-031 | Low | Open | None (UI-only, audio unaffected). Investigation deferred per owner. |
 | S-012 | High | Open | Safety incident: unauthorized +30dB gain while owner listening. TK-242. |
-| F-032 | High | Open | SEC-GM-01: GraphManager JSON-RPC loopback binding validation. MUST-FIX before deployment. Security specialist finding. |
+| F-032 | High | Resolved | SEC-GM-01: GraphManager JSON-RPC loopback binding validation. Already implemented: `parse_listen_addr()` in `main.rs:87-106` + 8 unit tests + SEC-PW-CLIENT service hardening. |
 | TK-243 | High | Open | pipewire-force-quantum.service causes compositor starvation / mouse freezes |
 | F-034 | High | Resolved | US-052: clap negative value parsing. Repo fix: `=` syntax + `allow_hyphen_values` (`33b5577`). |
 | F-035 | High | Resolved | US-052: seccomp SIGSYS. Repo fix: SEC-PW-CLIENT profile applied to all 3 service files (`33b5577`). |
@@ -410,6 +410,8 @@ See `docs/project/defects.md` for full details.
 | F-045 | Low | Open | "Mode" vs "GM Mode" in System tab — both show mode, duplicate or unclear. One should be removed or labels clarified. |
 | ENH-001 | Low | Open | Owner requests sample rate in persistent status bar. Data already in `/ws/system`. Small addition. |
 | TK-249 | Medium | Open | PW `linear` Mult verified functional (owner confirmed during C-005). Downgraded from CRITICAL to calibration investigation — absolute SPL doesn't match theory, but gain mechanism works. Not a safety blocker. |
+| F-046 | High | Open | Config tab quantum buttons fire immediately with no confirmation dialog. Safety-relevant during live performance — accidental quantum change causes audible glitches. UX specialist P1 finding. Affects US-065. |
+| F-047 | Low | Open | No visible keyboard focus indicators in web UI. Accessibility/usability. UX specialist P3 finding. |
 
 ### Resolved
 
@@ -426,6 +428,7 @@ See `docs/project/defects.md` for full details.
 | F-027 | Medium | Resolved | DSP load `* 100` double multiplication (`d742fdf`) |
 | F-028 | High | Resolved | ALSA period-size mismatch in loopback (`b06d0e5`) |
 | F-029 | Medium | Resolved | Level bar RMS vs Peak alignment (`d742fdf`) |
+| F-032 | High | Resolved | SEC-GM-01: `parse_listen_addr()` loopback enforcement + 8 unit tests (`main.rs:87-106`) |
 
 ## External Dependencies
 

@@ -1660,3 +1660,125 @@ via `/ws/system`.
 - `src/web-ui/static/js/statusbar.js` (add `onSystem` line for sample rate)
 
 **Related:** US-051 (status bar), US-060 (PW monitoring data sources).
+
+---
+
+## F-032: GraphManager JSON-RPC loopback binding validation (RESOLVED)
+
+**Severity:** High (MUST-FIX before deployment — SEC-GM-01)
+**Status:** Resolved (code already implements loopback enforcement with 8 unit tests)
+**Found in:** Security specialist review (2026-03-21)
+**Affects:** GraphManager deployment security, US-059
+**Found by:** Security specialist
+
+**Description:** The GraphManager's JSON-RPC interface must only bind to
+loopback addresses (127.0.0.1, ::1, localhost). Binding to 0.0.0.0 or a
+LAN IP would expose the unauthenticated RPC interface to the venue network,
+allowing anyone on the LAN to change operating modes, create/destroy
+PipeWire links, and disrupt a live performance.
+
+**Resolution (verified 2026-03-21):** Already implemented in code.
+`src/graph-manager/src/main.rs:87-106` contains `parse_listen_addr()` which:
+- Accepts only `127.0.0.1`, `::1`, and `localhost` as host addresses
+- Rejects `0.0.0.0`, LAN IPs, `[::]`, and bare wildcards with explicit
+  `SEC-GM-01` error message
+- Called at line 445 with `unwrap_or_else` — process exits on non-loopback
+- Default listen address is `tcp:127.0.0.1:4002` (line 66)
+- **8 unit tests** (lines 523-582): 4 accept tests (loopback variants) +
+  4 reject tests (non-loopback variants)
+
+The systemd service file (`configs/systemd/user/pi4audio-graph-manager.service`)
+also has SEC-PW-CLIENT hardening profile (line 29): `SystemCallFilter`,
+`ProtectSystem=full`.
+
+**Related:** US-059 (GraphManager Core), SEC-GM-02 and SEC-GM-03 (SHOULD-FIX,
+lower priority — separate from this MUST-FIX item).
+
+---
+
+## F-046: Config tab quantum buttons fire immediately with no confirmation dialog (OPEN)
+
+**Severity:** High (safety-relevant — quantum change during live performance causes audible glitches)
+**Status:** Open
+**Found in:** UX specialist initial review of Config tab (2026-03-21)
+**Affects:** US-065 (Configuration Tab), live performance safety
+**Found by:** UX specialist (P1 finding)
+
+**Description:** The Config tab's quantum selector buttons (256, 512, 1024)
+fire immediately on click with no confirmation step. Changing the PipeWire
+quantum during a live performance causes the entire audio graph to
+reconfigure, producing audible glitches across all audio paths (mains,
+subs, headphones, IEM). An accidental tap or misclick on a quantum button
+during a show disrupts the performance.
+
+**Root cause:** The quantum buttons were implemented as direct-action
+controls without a confirmation dialog. The UX design did not include a
+confirmation gate for this destructive operation.
+
+**Impact:** During a live show, an accidental quantum change causes:
+- Audible glitches/dropouts on all speaker channels
+- Potential xruns if the new quantum is too small for the current CPU load
+  (e.g., switching from 1024 to 256 under Mixxx DJ load)
+- Recovery requires waiting for the graph to stabilize or manually
+  reverting the quantum
+
+This is a safety-relevant UX defect — the quantum selector is a
+system-wide audio parameter that should not be changeable with a single
+unconfirmed click.
+
+**Fix required:** Add a confirmation dialog before executing quantum
+changes: "Change quantum to 256? This affects all audio. [CONFIRM] [CANCEL]".
+The confirmation should clearly state the consequence (all audio paths
+affected) and require an explicit second action to proceed.
+
+**UX recommendation:** Consider also adding a "lock" toggle to the Config
+tab that prevents accidental changes to critical parameters (quantum, gain)
+during live performance. When locked, controls are visually dimmed and
+require unlocking first.
+
+**Files:**
+- `src/web-ui/static/js/config.js` (quantum button click handlers)
+- `src/web-ui/app/config_routes.py` (quantum change endpoint)
+
+**Related:** US-065 (Config tab), D-042 (q1024 default for all modes),
+TK-243 (quantum service compositor starvation — demonstrates real-world
+impact of wrong quantum setting).
+
+---
+
+## F-047: Web UI has no visible keyboard focus indicators (OPEN)
+
+**Severity:** Low (accessibility / usability, no functional impact)
+**Status:** Open
+**Found in:** UX specialist initial review (2026-03-21)
+**Affects:** Web UI generally (all tabs)
+**Found by:** UX specialist (P3 finding)
+
+**Description:** The web UI has no visible focus indicators for keyboard
+navigation. When tabbing through interactive elements (buttons, controls,
+tabs), there is no visual feedback showing which element currently has
+keyboard focus. This makes the UI effectively unusable via keyboard-only
+interaction.
+
+**Root cause:** No `:focus-visible` or `:focus` CSS styles have been
+defined for interactive elements. The browser's default focus ring may be
+suppressed by the existing CSS reset or global styles.
+
+**Impact:** Low — the primary interaction mode is mouse/touch via the
+browser. Keyboard navigation is not a primary use case for a live audio
+workstation UI. However, it affects:
+- Accessibility for keyboard-only users
+- Tab-based navigation when mouse is inconvenient (e.g., VNC session)
+- General web UI quality standard
+
+**Fix required:** Add `:focus-visible` styles to all interactive elements
+(buttons, links, tab selectors, form controls). Use a visible outline or
+highlight that contrasts with the existing dark theme. The
+`:focus-visible` pseudo-class ensures the focus ring only appears for
+keyboard navigation, not mouse clicks.
+
+**Files:**
+- `src/web-ui/static/css/style.css` (add global `:focus-visible` rules)
+
+**Related:** D-020 (web UI architecture), US-051 (status bar — has
+interactive elements like MUTE button that should be keyboard-accessible).
