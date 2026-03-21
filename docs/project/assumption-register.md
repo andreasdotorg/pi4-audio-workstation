@@ -364,6 +364,106 @@ test with a portable router and no Internet uplink.
 
 ---
 
+## D-040 Architecture Assumptions (A29-A34) — from team triage 2026-03-21
+
+### A29 [MEDIUM]: PW filter-chain stability for multi-hour gigs
+
+**Description:** GM-12 validated PipeWire filter-chain convolver stability for
+40 minutes (zero xruns, 58% idle, 71C). Production psytrance gigs run 3-6 hours
+— 4.5x to 9x longer. Long-duration failure modes (memory leaks, thermal
+throttling, PipeWire graph renegotiation under sustained load) have not been
+tested.
+
+**Confidence:** MEDIUM — 40-minute validation is encouraging but insufficient
+for production confidence at multi-hour scale.
+**Validation:** T3d (30-min soak on PREEMPT_RT), then full-length rehearsal.
+**Affects:** D-040, US-003, every gig
+**Status:** open
+
+---
+
+### A30 [LOW]: PW filter-chain coefficient hot-swap requires PipeWire restart
+
+**Description:** The room correction pipeline must deploy new FIR coefficient
+WAV files after measurement. It is unknown whether PipeWire filter-chain can
+reload coefficients at runtime (e.g., via `pw-cli` module parameter changes)
+or whether a full PipeWire restart is required. A restart triggers USBStreamer
+re-enumeration, which produces transients through the amplifier chain — a
+speaker safety risk (see `docs/operations/safety.md`).
+
+**Confidence:** LOW — not investigated.
+**Validation:** Test pw-cli module parameter reload or PW restart with gain
+nodes attenuated.
+**Affects:** Room correction pipeline deployment step, safety rules (USBStreamer transient)
+**Status:** open
+
+---
+
+### A31 [MEDIUM]: PW 1.4.9 config.gain silently ignored / future stacking risk
+
+**Description:** PipeWire 1.4.9 silently ignores `config.gain` in filter-chain
+node definitions. The project works around this using `pw-cli` runtime volume
+commands and `linear` builtin Mult params. If a future PipeWire update fixes
+`config.gain` handling, both gain mechanisms could stack, producing unexpected
+volume levels — potentially dangerous for speakers and hearing.
+
+**Confidence:** MEDIUM — stable workaround for PW 1.4.9 but fragile across
+upgrades. The silent-ignore behavior is undocumented and could change without
+notice.
+**Validation:** Test on each PW upgrade. Add to pre-flight checklist.
+**Affects:** Safety (gain staging), every PW upgrade
+**Status:** open
+
+---
+
+### A32 [HIGH]: pw-cli runtime gain control works glitch-free under audio load
+
+**Description:** The system uses `pw-cli` to set volume/gain at runtime (e.g.,
+-30 dB attenuation after PipeWire restart, measurement gain presets). C-009
+verified initial gain application works. It has not been formally tested whether
+changing gain via `pw-cli` while audio is actively playing causes clicks, pops,
+or dropouts.
+
+**Confidence:** HIGH — C-009 verified initial set; formal load test pending.
+**Validation:** Test pw-cli gain change while audio is playing. Verify no
+click/pop/dropout.
+**Affects:** Measurement workflow, mode switching gain presets
+**Status:** open
+
+---
+
+### A33 [HIGH]: FFTW3/NEON performance dependency
+
+**Description:** BM-2 benchmark numbers (1.70% CPU at quantum 1024, 3.47% at
+quantum 256) implicitly depend on FFTW3 using ARM NEON SIMD instructions. The
+numbers are impossible without SIMD acceleration. However, the NEON codepath
+has not been explicitly verified — if the Debian package were compiled without
+NEON support, or if an apt upgrade replaced the library with a non-NEON build,
+convolver performance would degrade dramatically.
+
+**Confidence:** HIGH — BM-2 numbers empirically confirm NEON active (impossible
+without SIMD). Implicit dependency, not explicitly verified.
+**Validation:** `readelf -A /usr/lib/aarch64-linux-gnu/libfftw3f.so.3 | grep NEON`.
+Verify after any apt upgrade.
+**Affects:** D-040 rationale, BM-2 validity
+**Status:** open
+
+---
+
+### A34 [LOW]: GraphManager link reconciler production-ready for unattended mode transitions
+
+**Description:** The GraphManager (US-059) manages PipeWire link topology and
+mode transitions. Known reconciler bugs required manual `pw-link` workaround
+for GM-12. Includes assumption that WirePlumber (device management only, linking
+disabled per D-043) does not interfere with GraphManager link reconciliation.
+
+**Confidence:** LOW — known bugs, manual pw-link workaround used for GM-12.
+**Validation:** US-059 completion + automated mode transition soak test.
+**Affects:** US-059, US-021, measurement workflow
+**Status:** open
+
+---
+
 ## Cross-Reference: Blocking Findings by Story
 
 | Story | Blocking Assumptions | Notes |
@@ -374,7 +474,10 @@ test with a portable router and no Internet uplink.
 | US-017 | ~~A11~~ (superseded by D-040) | CamillaDSP routing constraint eliminated — PipeWire handles all routing natively |
 | US-021 | ~~A13~~ (superseded by D-040), ~~A16~~ (superseded by D-022), ~~A19~~ (superseded by D-040) | All three blockers superseded by D-040/D-022 architecture changes |
 | US-022 | A20 (web server CPU), A21 (Reaper OSC) | CPU budget must account for web server |
-| US-003 | A4 (thermals, LOW confidence — D-012 active cooling mandatory), A18 (force_turbo), A23 (USB hub), ~~A27~~ (superseded by D-022) | T3b: 74.5C open-air. Active cooling required per D-012. T4 validates. A27 superseded — PREEMPT_RT is production kernel. |
+| US-003 | A4 (thermals, LOW confidence — D-012 active cooling mandatory), A18 (force_turbo), A23 (USB hub), ~~A27~~ (superseded by D-022), A29 (multi-hour stability), A33 (FFTW3/NEON) | T3b: 74.5C open-air. Active cooling required per D-012. T4 validates. A27 superseded — PREEMPT_RT is production kernel. A29: 40min validated, multi-hour pending. |
+| US-021 (contd.) | A34 (GraphManager reconciler) | Known bugs block automated mode transitions |
+| US-059 | A34 (GraphManager reconciler) | Manual pw-link workaround for GM-12; reconciler bugs block automation |
+| Room correction | A30 (coefficient hot-swap), A31 (config.gain stacking), A32 (pw-cli gain glitch) | Deployment step safety and gain staging |
 
 ---
 
@@ -400,12 +503,13 @@ test with a portable router and no Internet uplink.
 
 ## Summary
 
-This register contains 28 formal assumptions (A1-A28). The original AD audit
+This register contains 34 formal assumptions (A1-A34). The original AD audit
 identified 30 findings total; the additional 4 were meta-findings (C1, H1, M4, L2)
 that were resolved by decisions D-007 through D-010 and are tracked in the
 "Assumptions Resolved by Recent Decisions" table above rather than as numbered
 assumptions. A27 was added post-audit based on D-015/F-012 findings.
 A28 was added based on D-017 (now WITHDRAWN, replaced by US-034).
+A29-A34 were added based on D-040 architecture review (team triage, 2026-03-21).
 
 D-040 (CamillaDSP abandoned, PipeWire filter-chain) superseded 5 assumptions
 (A11, A12, A13, A17, A19). D-022 (labwc Wayland, hardware V3D GL, PREEMPT_RT
@@ -417,8 +521,10 @@ previously open or invalidated are now VALIDATED (A3, A6, A7).
 | VALIDATED | 6 | A1, A2, A3, A6, A7, A10 |
 | Superseded | 10 | A11, A12, A13 (D-040); A14 (D-019); A15, A16 (D-022); A17, A19 (D-040); A24 (D-018); A27 (D-022) |
 | Partially-resolved | 1 | A9 |
-| Open | 11 | A4, A5, A8, A18, A20, A21, A22, A23, A25, A26, A28 |
-| **Total** | **28** | |
+| Open | 17 | A4, A5, A8, A18, A20, A21, A22, A23, A25, A26, A28, A29, A30, A31, A32, A33, A34 |
+| **Total** | **34** | |
 
 Note: A4 (LOW confidence, D-012 mitigation pending T4), A5 (MEDIUM), A8 (UNKNOWN)
-from the original set remain open pending hardware validation.
+from the original set remain open pending hardware validation. A29-A34 are new
+D-040-era assumptions covering PW filter-chain stability, coefficient deployment,
+gain staging safety, FFTW3/NEON dependency, and GraphManager readiness.
