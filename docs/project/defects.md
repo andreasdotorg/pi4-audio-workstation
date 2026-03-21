@@ -1130,3 +1130,135 @@ D-037 (signal generator design). The security specialist should be consulted on 
 revised hardening profile. The GraphManager's relaxed profile (lines 29-37) should be
 the baseline for all PipeWire client services until syscall profiling (`strace
 --seccomp-bpf`) determines the minimum viable filter.
+
+---
+
+## F-036: VNC RFB password auth insufficient for guest device access (OPEN)
+
+**Severity:** Medium (becomes High when US-018 guest devices are deployed)
+**Status:** Open
+**Found in:** Assumption register security review (2026-03-21)
+**Affects:** US-018 (singer phone access), US-000a (platform security), A28 (venue network)
+**Found by:** Security specialist
+**Related:** F-013 (wayvnc unencrypted session — partially resolved with password auth)
+
+**Description:** wayvnc uses VNC RFB password authentication (DES-based
+challenge-response with 56-bit effective key). The RFB protocol truncates
+passwords to 8 characters regardless of what the user sets. This means:
+
+- Maximum password entropy is ~52 bits (printable ASCII, 8 chars)
+- The challenge-response uses DES with the password as the key — a 1990s-era
+  scheme with known cryptographic weaknesses
+- On a shared venue WiFi network, an attacker can passively capture the
+  challenge-response exchange and brute-force the password offline
+- A successful attack gives full desktop control: access to Mixxx/Reaper,
+  PipeWire configuration, terminal sessions — effectively full system control
+
+**Current mitigation:** F-013 added password auth (TK-047) and the service
+file shows TLS is configured (`--ssl-keyfile`, `--ssl-certfile` on the web UI
+but wayvnc TLS status is separate). The nftables firewall limits exposure to
+the local network segment.
+
+**Risk assessment per threat model:**
+- **Current use (operator-only, controlled network):** MEDIUM. The operator
+  controls the network and no untrusted devices connect. Password auth is
+  a speed bump against casual snoopers, which matches the threat model.
+- **With US-018 (singer's phone on network):** HIGH. Guest devices on the
+  same network segment can sniff VNC traffic. The singer's phone may be
+  compromised or on a shared WiFi. The 8-char password becomes the sole
+  barrier to full system control.
+- **With A28 Pi-as-AP mode:** HIGH. The Pi's WiFi SSID is visible to
+  everyone in the venue. If WPA is cracked or a guest is given the WiFi
+  password, VNC password auth is the last line of defense.
+
+**Required fix (before US-018 deployment):**
+1. Enable TLS on wayvnc to encrypt the session and prevent passive sniffing
+   of the challenge-response (this was already identified as remaining work
+   in F-013)
+2. Verify wayvnc TLS works on Pi 4B ARM with the PREEMPT_RT kernel
+3. Consider restricting the nftables port 5900 rule to a specific source
+   subnet or IP if the network topology allows it (e.g., operator VLAN on
+   a portable router)
+
+**Acceptable for now:** Yes, for operator-only access on a controlled network.
+The current severity is Medium. This MUST be resolved before US-018 deploys
+guest device access — at that point it becomes a blocking High.
+
+---
+
+## F-037: Web UI on port 8080 has no authentication (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** Assumption register security review (2026-03-21)
+**Affects:** US-022 (web UI), US-000a (platform security), A28 (venue network)
+**Found by:** Security specialist
+
+**Description:** The FastAPI web UI (`src/web-ui/app/main.py`) binds on
+`0.0.0.0:8080` (all interfaces) with no authentication middleware. Any device
+on the local network can:
+
+1. **View the monitoring dashboard** — system status, audio levels, DSP load,
+   PipeWire graph state. Information disclosure of the full audio system
+   configuration.
+
+2. **Control the signal generator** via `/ws/siggen` — the WebSocket endpoint
+   proxies bidirectional commands to the signal generator's TCP RPC interface
+   (127.0.0.1:4001). An attacker can start/stop test tones, change signal
+   parameters, and potentially drive output levels. The code at line 376
+   references "D-009: hard level cap enforced server-side" which provides
+   some protection against dangerous output levels, but the signal generator
+   should not be controllable by unauthenticated network clients at all.
+
+3. **Access PCM audio streams** via `/ws/pcm/{source}` and `/ws/pcm` —
+   raw PCM audio data from pcm-bridge instances. Depending on source
+   configuration, this could include live microphone audio (UMIK-1 capture).
+
+4. **Access measurement endpoints** — `/ws/measurement` and associated
+   routes in `app/measurement/routes.py`. The measurement system controls
+   sweep generation and capture — unauthenticated access could trigger
+   unexpected audio output through the PA system during a live performance.
+
+**Why High severity:** This is not just information disclosure. The signal
+generator control and measurement endpoints can produce audio output through
+the amplifier chain. During a live performance, an attacker on the venue
+network could:
+- Trigger a test tone through the PA (disrupting the performance)
+- Start a measurement sweep during a song
+- Manipulate signal generator parameters
+
+This directly threatens **availability during a live gig** — the primary
+security objective for this project per the threat model.
+
+**Mitigating factors:**
+- The nftables firewall limits access to the local network segment
+- D-009 hard level cap limits maximum output level from the signal generator
+- TLS is configured on the uvicorn server (`--ssl-keyfile`, `--ssl-certfile`),
+  which prevents passive eavesdropping but does NOT provide authentication
+- The signal generator feature is gated by `PI4AUDIO_SIGGEN=1` environment
+  variable — but this is enabled by default in the service file
+
+**Required fix:**
+1. Add authentication to the web UI. Options (in order of preference for this
+   threat model):
+   a. **HTTP Basic Auth over TLS** — simplest, sufficient for the threat model.
+      FastAPI supports this natively via `fastapi.security.HTTPBasic`. Single
+      shared password, configured via environment variable. TLS is already
+      configured.
+   b. **API key in header or query param** — slightly more complex, works
+      better for WebSocket endpoints where Basic Auth is awkward.
+   c. **Session-based auth with login page** — most user-friendly but
+      heaviest to implement. Overkill for this threat model.
+2. At minimum, the control endpoints (`/ws/siggen`, `/ws/measurement`,
+   measurement routes) MUST require authentication. Read-only monitoring
+   endpoints could optionally remain unauthenticated if the owner prefers
+   easy dashboard access — but this is a policy decision for the owner.
+3. Ensure the authentication mechanism works with WebSocket upgrade requests
+   (Basic Auth in the initial HTTP upgrade, or token in query param).
+
+**Files:**
+- `src/web-ui/app/main.py` (no auth middleware, all endpoints open)
+- `configs/systemd/user/pi4-audio-webui.service` (binds 0.0.0.0:8080)
+
+**Related:** US-022 (web UI), US-000a (platform security), F-013 (wayvnc
+encryption), A28 (venue network self-sufficiency)

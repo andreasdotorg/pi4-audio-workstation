@@ -338,7 +338,7 @@ project relies on, tracked in a structured format,
 **so that** hidden risks are surfaced early and can be validated before they
 cause problems during implementation or live performance.
 
-**Status:** in-review (4/4 DoD — assumption register A1-A28, cross-references documented, CLAUDE.md updated, blocking findings addressed. A27 gap resolved. Pending owner acceptance.)
+**Status:** done (owner-accepted 2026-03-21. 4/4 DoD — assumption register A1-A28, cross-references documented, CLAUDE.md updated, blocking findings addressed.)
 **Depends on:** none
 **Blocks:** none directly, but informs prioritization of all other stories
 
