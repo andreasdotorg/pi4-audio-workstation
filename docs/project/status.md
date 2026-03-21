@@ -81,27 +81,61 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-058** (**DONE** — owner-accepted 2026-03-16): PW filter-chain FIR benchmark. BM2-4 PASS: 1.70% q1024, 3.47% q256. Triggered D-040.
 - **US-059** (Phase: **IMPLEMENT COMPLETE, DoD 14/14** — owner-authorized 2026-03-16, D-040): GraphManager Core + Production Filter-Chain (Phase A). **DoD: 14/14 — ALL ITEMS SATISFIED.** #1 GM-0 PASS, #2 filter-chain on Pi, #3 GM written+integrated (GM-13/GM-14 reconciler fix, 142 tests), #4 dual-mode support (signal-gen + pcm-bridge), #5 WP removed (C-008: stopped+masked, graph intact), #6 statically validated, #7 regression tests (QE approved S-1-S-4 + I-1 `92b5120`), #8 stability PASS (conditional — Mixxx 11h+44m + Reaper 1 xrun in 34 min at q256 FIFO/80, owner accepted), #9 latency documented (C-006: PA ~6.3ms PASS), #10 Architect APPROVED, #11 Security APPROVED, #12 AD CLOSED, #13 QE SIGNED OFF (unconditional, 168 tests + I-1 green, all 4 gaps resolved), #14 lab note complete (5/5 topics). **Tracked follow-ups:** F-033 (Reaper JACK bridge RT), I-1 CI wiring, spectral verification (AC line 3141), D-042 lifting (q256 stability). GM tasks: 14/15 (GM-8 CamillaDSP removal tracked separately). HEAD: `8a7a736`. **Next phase: TEST** (L-022 phase gate: DECOMPOSE -> PLAN -> IMPLEMENT -> **TEST** -> DEPLOY -> VERIFY -> REVIEW).
 - **US-062** (**DONE** — owner-accepted 2026-03-20): Boot-to-DJ Mode (minimum viable auto-launch). **DoD: 7/7 — ALL ITEMS SATISFIED.** #1 q1024 static config (D-042), #2 Mult persistence verified (C-009), #3 Mixxx systemd service (`5bb87b1`), #4 DJ routing script + service (`5bb87b1`+`487bc5d`), #5 reboot test PASS (D-001: 6 iterations, 12 links, zero bypass, q1024, ERR=0), #6 safety review SAFE (architect), #7 owner accepted (sound playing, levels OK). D-001 deployment findings: CamillaDSP system service disabled, WirePlumber unmasked with auto-link suppression (D-039 amendment needed), Mixxx JACK bypass cleanup handled by routing script.
-- **GraphManager deployment** (in-progress — 2026-03-20): GM-7 DONE (`eaf28ae`). GM systemd service committed (`f9473b0`). pcm-bridge env retargeting committed (`0611394`). GM Pi deployment ready — pending owner go-ahead for reboot (USBStreamer transient risk).
+- **O-018 overnight soak** (2026-03-21): 13h 39m uptime, **zero xruns** after 7-min startup settling. 66.7C, 0x0 throttle, 1.0 GiB memory, zero swap. All services healthy. Strong pre-deployment baseline for GM deployment. Validates US-062 boot-to-DJ stability over extended unattended operation.
+- **GraphManager deployment / D-002 DEPLOY session** (in-progress — 2026-03-21): GM-7 DONE (`eaf28ae`). GM systemd service committed (`f9473b0`). pcm-bridge env retargeting committed (`0611394`). **D-002 DEPLOY session granted to gm-worker** for US-052/US-060/US-061 deployment to Pi. Owner authorized ("PA is off and safe"). **Deployment status: UNKNOWN** — gm-worker was busy, no results received before session wrap-up. O-018 confirms pre-deployment baseline is clean. Next session must check D-002 outcome first.
 - **US-060** (Phase: **IMPLEMENT, DoD 1/7** — owner-authorized 2026-03-20): PipeWire Monitoring Replacement (Phase B). Architect scoped into 6 tasks (US060-1 through US060-6). US060-2 (pcm-bridge retarget) DONE (`0611394`). Track A: US060-1, US060-3 parallelizable. Track B: US060-4, US060-5 sequential after A. Track C: US060-6 cleanup last. Blocks US-050 and US-051.
 - **US-061** (Phase: **IMPLEMENT, DoD 0/8** — owner-authorized 2026-03-20): Measurement Pipeline Adaptation (Phase C). Adapts D-036 measurement daemon from CamillaDSP to PW filter-chain. Independent of US-060 (parallelizable).
 - **US-050** (ACTIVE — resumed per owner directive 2026-03-20): Measurement Pipeline Mock Backend. CI tier done, E2E tier needs D-040 adaptation. Blocked on US-060.
 - **US-051** (ACTIVE — resumed per owner directive 2026-03-20): Persistent System Status Bar. UI structure done (SB-1-7), data source wiring blocked on US-060.
 - **US-052** (ACTIVE — resumed per owner directive 2026-03-20): RT Signal Generator. D-040 adaptation: 3 fixes committed (`4796a46`, sg-worker). sg-worker checking remaining DoD items. Graceful startup AC deferred as SG-13 (architect recommendation: systemd Restart=on-failure provides equivalent retry). gm-worker on flake.nix Playwright fix. Was IMPLEMENT 3/6 (6,183 lines, 193 tests).
 - **US-053** (ACTIVE — resumed per owner directive 2026-03-20): Manual Test Tool Page. TT-2 + PCM-MODE-3 code preserved. Blocked on US-052. Was IMPLEMENT 3/6.
-- **Rule 13 retrospective** (2026-03-20): 12 code commits (`487bc5d`..`02f44cf`) committed without pre-approval. Architect: **12/12 APPROVED.** AE: **4/4 APPROVED.** AD: no blockers, 2 test gaps. TW: documentation in progress. **Tracked follow-up items (6):**
-  - TODO (low): Add u32 saturation comment to `LevelTracker::sample_count` (architect, US060-3)
+- **Rule 13 retrospective** (2026-03-20): 12 code commits (`487bc5d`..`02f44cf`) committed without pre-approval. Architect: **12/12 APPROVED.** AE: **4/4 APPROVED.** AD: no blockers. TW: documentation in progress. All high/medium items resolved. **Resolved items:**
+  - ~~TODO (low): u32 saturation comment on `LevelTracker::sample_count`~~ DONE (sg-worker, awaiting commit)
+  - ~~VERIFY (medium): Signal-gen per-channel selection RPC~~ CONFIRMED (gm-worker: `set_channel` RPC fully implemented across Rust command/RPC/RT + Python client. US-061 dependency satisfied.)
+  - ~~TODO (medium): IIR HPF excursion protection~~ tracked separately (safety.md update, US-061/D-031 scope)
+  - ~~T-1 (medium): FilterChainCollector RPC integration tests~~ resolved
+  - ~~T-2 (medium): Measurement session GM integration tests~~ resolved
+  **Remaining items (4, all low priority):**
   - TODO (low): Document `RegistryHandle` raw-pointer layout dependency on pipewire-rs 0.8 — check on any crate version upgrade (architect)
-  - TODO (medium, before production measurement): Measurement pipeline lost independent IIR HPF excursion protection — now depends on convolver having production FIR filters (not dirac). Document in safety.md + consider pre-measurement WAV file validation check (AE, US-061/D-031)
-  - VERIFY (medium): Signal-gen per-channel selection RPC exists for measurement use case (US-061 dependency on US-052)
-  - T-1 (medium, blocks Pi deploy): Missing RPC integration tests for FilterChainCollector (AD, US-060)
-  - T-2 (medium, blocks Pi deploy): Missing measurement session GM integration tests (AD, US-061)
-  - Process: Commit hold lifted — new work requires architect pre-approval going forward. TW documentation in progress.
+  - TODO (low): README.md stale CamillaDSP references cleanup
+  - TODO (low): HTML element IDs cosmetic rename
+  - TODO (low): Consider GM timeout/slow-response tests
+  - Process: Commit hold lifted — new work requires architect pre-approval going forward.
 - **US-003** (DEFERRED — owner directive 2026-03-16): Was IMPLEMENT 3/4. T3a/b/e PASS. T3d and T4 pending. Work preserved.
 - **D-020** (Stage 1+2 deployed): Production dashboard with 4 real backend collectors, spectrum analyzer, HTTPS (D-032). PoC: 8/8 PASS (P8 marginal, optimization deferred to Stage 2). Lab notes: `D-020-poc-validation.md`, `webui-real-data-deployment.md`. Architecture doc: `docs/architecture/web-ui.md`. A21 (Reaper OSC on ARM) gates Stage 4.
 - **F-013** (partially resolved): wayvnc password auth added. TLS required before US-018.
 - **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
 - **US-004** (in-review): Assumption register (A1-A26). Gap: A27 not in register. Pending DoD sign-off.
 - **US-000a** (in-review): 4/4 DoD -- F-002 and F-011 both resolved, verified across reboot
+
+### Session Wrap-Up (2026-03-21)
+
+**Accomplishments this session (2026-03-20 to 2026-03-21):**
+- US-062 Boot-to-DJ: completed 0/7 -> **7/7 DONE** (owner accepted). Pi boots into DJ mode.
+- D-043 filed: WirePlumber retained for device management, linking disabled (D-039 amendment)
+- US-050/051/052/053: un-deferred per owner directive, all active
+- US-060/061: activated per owner directive, architect scoped US-060 into 6 tasks
+- US-052 D-040 adaptation: 3 fixes committed (`4796a46`), SG-13 deferred
+- US-060: US060-1 (`07e6e0a`), US060-2 (`0611394`), US060-3 (`634b877`), US060-4 (`60953c4`) committed
+- US-061: measurement pipeline adaptation committed (`02f44cf`)
+- O-018 overnight soak: 13h 39m, zero steady-state xruns, 66.7C
+- Rule 13 retrospective: 12/12 architect approved, 4/4 AE approved, 4 low TODOs remain
+- L-040: Communication & Responsiveness rules added to all role prompts (global + local)
+- Role prompt reconciliation: global -> local sync (Memory Reporting, protocol violation detection, access tier classification)
+- config.md updated: co-author line `Co-Authored-By: Claude <noreply@anthropic.com>` (no model version)
+- Co-author history rewrite: requested from CM, **status unknown** (CM comms issue)
+
+**Open at session close:**
+- D-002 DEPLOY session: granted to gm-worker, **deployment status UNKNOWN** (check first next session)
+- Rule 13: 4 low-priority TODOs remaining
+- AE safety item: IIR HPF excursion protection documentation (D-031, before production measurement)
+- 43 decisions, 66 stories, 168+ tests
+
+**Next session priorities:**
+1. Check D-002 deployment outcome (gm-worker)
+2. Check co-author history rewrite status (CM)
+3. Continue US-052/US-060/US-061 implementation
+4. TW documentation for D-043, US-060, US-061, US-052 D-040 adaptation, D-001
 
 ### Key Findings from Brain Dump (2026-03-09)
 - **CamillaDSP levels API correction:** pycamilladsp `client.levels.levels_since_last()` provides per-channel peak+RMS for both capture and playback (8+8 channels). This informs D-020 metering design.
