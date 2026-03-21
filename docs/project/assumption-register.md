@@ -16,13 +16,13 @@ affected decisions/stories, and current status.
 
 | ID | Assumption | Confidence | Validation | Affects | Status |
 |----|-----------|------------|------------|---------|--------|
-| A1 | 16k taps @ chunksize 2048 fits in Pi 4 CPU budget alongside Mixxx | VALIDATED | T1a (US-001): 5.23% processing load | D-003, US-001 | validated — well within budget |
-| A2 | 16k taps @ chunksize 512 fits in Pi 4 CPU budget alongside Reaper | VALIDATED | T1b (US-001): 10.42% at chunksize 512; T1c: 19.25% at chunksize 256 (D-011 target). Both within budget. | D-003, D-011, US-001 | validated — chunksize now 256 per D-011, 19.25% processing load |
-| A3 | End-to-end PA latency in live mode < 25ms | INVALIDATED | T2b (US-002): 30.3ms measured at chunksize 512. Bone-to-IEM measured ~22ms. D-011 targets chunksize 256 (~20ms projected PA path, not yet measured). | D-002, D-011, US-002 | invalidated at 512; D-011 supersedes with chunksize 256, re-measurement pending |
-| A4 | Pi 4 thermals stay below 75C in flight case under sustained load | HIGH-RISK | T4 (US-003), D-012 | D-003, D-012, flight case design | open — active cooling mandatory per D-012 |
+| A1 | 16k taps @ quantum 1024 fits in Pi 4 CPU budget alongside Mixxx | VALIDATED | BM-2 (D-040): 1.70% CPU with PW filter-chain convolver at quantum 1024. GM-12: 58% idle with Mixxx + convolver. Previous: T1a (US-001) 5.23% via CamillaDSP at chunksize 2048. | D-003, D-040, US-001 | validated — dramatically improved by D-040 architecture |
+| A2 | 16k taps @ quantum 256 fits in Pi 4 CPU budget alongside Reaper | VALIDATED | BM-2 (D-040): 3.47% CPU with PW filter-chain convolver at quantum 256. Previous: T1b (US-001) 10.42% at chunksize 512, T1c 19.25% at chunksize 256 via CamillaDSP. | D-003, D-040, D-011, US-001 | validated — dramatically improved by D-040 architecture |
+| A3 | End-to-end PA latency in live mode < 25ms | VALIDATED | D-040: ~5.3ms theoretical at quantum 256 with PW filter-chain (convolver in-graph, no loopback). Previous: T2b (US-002) 30.3ms at chunksize 512 (CamillaDSP/loopback, pre-D-040). Formal measurement pending but architecture guarantees sub-25ms. | D-002, D-011, D-040, US-002 | validated — D-040 architecture exceeds target by 4x |
+| A4 | Pi 4 thermals stay below 75C in flight case under sustained load | LOW | T4 (US-003), D-012. D-012 mitigation designed but T4 validation pending. | D-003, D-012, flight case design | open — active cooling mandatory per D-012 |
 | A5 | 16k-tap FIR actually provides effective correction at 20Hz | MEDIUM | T5 (US-013) | D-003, US-013 | open |
-| A6 | Hercules DJControl Mix Ultra presents as USB-MIDI on Linux | UNKNOWN | Manual test (US-005) | US-005, US-006 | open |
-| A7 | Mixxx runs adequately on Pi 4 with OpenGL ES via Xvfb/V3D | MEDIUM | Manual test (US-006) | US-006, A16 | open |
+| A6 | Hercules DJControl Mix Ultra presents as USB-MIDI on Linux | VALIDATED | US-005 DONE. Owner actively DJs with the Hercules over USB-MIDI (GM-12 session). | US-005, US-006 | validated |
+| A7 | Mixxx runs adequately on Pi 4 with labwc Wayland and hardware V3D GL | VALIDATED | US-006 DONE. Hardware V3D GL on PREEMPT_RT (D-022), ~85% CPU. GM-12: 40+ min DJ session, zero xruns, 58% idle. | US-006, D-022 | validated |
 | A8 | APCmini mk2 Mixxx mapping exists or can be created | UNKNOWN | Research (US-007) | US-007 | open |
 
 ---
@@ -61,7 +61,7 @@ directory references must be updated. PipeWire runs as a user session under
 
 ---
 
-### A11 [HIGH]: All 8 channels must route through CamillaDSP
+### A11 [HIGH]: All 8 channels must route through CamillaDSP — SUPERSEDED
 
 **Description:** Originally documented as "IEM channels 5-8 bypass CamillaDSP
 and route directly via PipeWire to the USBStreamer." D-011 discovered that
@@ -73,12 +73,11 @@ processing). This changes the routing architecture fundamentally.
 **Validation:** Already validated. CamillaDSP configs must be updated to 8-channel
 output with passthrough on channels 5-8.
 **Affects:** D-011 (supersedes D-002), US-017 (IEM routing), SETUP-MANUAL.md (all signal flow diagrams)
-**Status:** partially-resolved — D-011 documents the new architecture, but
-SETUP-MANUAL.md and CamillaDSP config files still reflect the old 4-channel model
+**Status:** superseded — Superseded by D-040: CamillaDSP abandoned in favor of PipeWire filter-chain. PipeWire natively manages all channel routing without exclusive ALSA access constraints. IEM channels route via direct PipeWire links to USBStreamer output ports.
 
 ---
 
-### A12 [HIGH]: CamillaDSP websocket API coefficient hot-swap capability unknown
+### A12 [HIGH]: CamillaDSP websocket API coefficient hot-swap capability unknown — SUPERSEDED
 
 **Description:** CLAUDE.md open questions asks "can we update coefficients
 without restarting the service?" US-012 says "restarts CamillaDSP or
@@ -91,11 +90,11 @@ gap during room correction deployment.
 **Validation:** Research CamillaDSP v3 API documentation for coefficient reload.
 Test with pycamilladsp. Add to US-000 DoD.
 **Affects:** US-012 (automation script), US-023 (engineer dashboard)
-**Status:** open
+**Status:** superseded — Superseded by D-040: CamillaDSP abandoned in favor of PipeWire filter-chain. Filter coefficient deployment is now via PipeWire filter-chain config reload, not CamillaDSP websocket API.
 
 ---
 
-### A13 [HIGH]: PipeWire quantum vs CamillaDSP chunksize alignment
+### A13 [HIGH]: PipeWire quantum vs CamillaDSP chunksize alignment — SUPERSEDED
 
 **Description:** PipeWire config allows dynamic quantum range 128-1024. If
 PipeWire quantum exceeds CamillaDSP chunksize, buffer underruns occur. D-011
@@ -109,7 +108,7 @@ behavior is not fully characterized
 **Validation:** Pin PipeWire quantum per mode. Verify PipeWire does not
 dynamically override. Test mode switching atomicity.
 **Affects:** D-002, D-011, US-002, US-003, US-021
-**Status:** partially-resolved — D-011 specifies target values, implementation pending
+**Status:** superseded — Superseded by D-040: CamillaDSP abandoned in favor of PipeWire filter-chain. The quantum/chunksize alignment problem no longer exists — the convolver runs in the PipeWire graph at the graph quantum. Only PipeWire quantum needs to be set per mode (1024 DJ, 256 live) via `pw-metadata`.
 
 ---
 
@@ -128,7 +127,7 @@ US-005 must complete before Bluetooth disable is applied.
 
 ---
 
-### A15 [MEDIUM]: Xvfb systemd unit has a bug preventing headless Mixxx
+### A15 [MEDIUM]: Xvfb systemd unit has a bug preventing headless Mixxx — SUPERSEDED
 
 **Description:** SETUP-MANUAL.md line 1757 uses
 `ExecStartPre=/usr/bin/Xvfb :99 -screen 0 1024x768x24 &` — the trailing
@@ -140,11 +139,11 @@ completes, and Mixxx will fail to find DISPLAY=:99.
 **Validation:** Fix Xvfb startup: use a separate systemd service for Xvfb,
 use Type=forking, or use the `xvfb-run` wrapper.
 **Affects:** US-006 (Mixxx feasibility), US-021 (mode switching)
-**Status:** open — defect in SETUP-MANUAL.md
+**Status:** superseded — Superseded by D-022: Xvfb replaced by labwc Wayland compositor with hardware V3D GL. Mixxx runs natively under labwc, no Xvfb needed.
 
 ---
 
-### A16 [MEDIUM]: gpu_mem=16 conflicts with Mixxx gpu_mem=128 requirement
+### A16 [MEDIUM]: gpu_mem=16 conflicts with Mixxx gpu_mem=128 requirement — SUPERSEDED
 
 **Description:** SETUP-MANUAL.md section 3.2 sets `gpu_mem=16` for headless
 audio. Section 7.1 says "Keep gpu_mem=128 if running Mixxx." Both cannot be
@@ -156,11 +155,11 @@ editing config.txt and rebooting, which is not documented.
 Test Mixxx with gpu_mem=16 via Xvfb (may not need GPU rendering if headless).
 Alternatively, set gpu_mem=128 permanently (sufficient for audio too).
 **Affects:** US-006 (Mixxx feasibility), US-021 (mode switching), A7
-**Status:** open
+**Status:** superseded — Superseded by D-022: hardware V3D GL compositor resolves the gpu_mem conflict. With labwc Wayland and hardware V3D GL, a single gpu_mem value works for both modes.
 
 ---
 
-### A17 [MEDIUM]: CamillaDSP pre-built binary uses ALSA backend only
+### A17 [MEDIUM]: CamillaDSP pre-built binary uses ALSA backend only — SUPERSEDED
 
 **Description:** Pre-built CamillaDSP aarch64 binary includes only ALSA
 backend, not JACK or PulseAudio. The current architecture uses ALSA loopback,
@@ -172,7 +171,7 @@ flags would be required.
 **Validation:** Document in US-000 that ALSA-only binary is sufficient for the
 loopback architecture. Flag as a constraint if architecture changes.
 **Affects:** US-000
-**Status:** open — informational, no action needed unless architecture changes
+**Status:** superseded — Superseded by D-040: CamillaDSP abandoned in favor of PipeWire filter-chain. CamillaDSP binary backend choice is no longer relevant.
 
 ---
 
@@ -193,7 +192,7 @@ stability for audio.
 
 ---
 
-### A19 [MEDIUM]: ALSA loopback 4ch config with DJ mode 2ch capture
+### A19 [MEDIUM]: ALSA loopback 4ch config with DJ mode 2ch capture — SUPERSEDED
 
 **Description:** `snd-aloop` configured with `channels=4`. DJ mode CamillaDSP
 captures only 2 channels. PipeWire writes stereo to a 4-channel loopback
@@ -207,17 +206,17 @@ loopback channel count may also need updating depending on final routing.
 **Validation:** Test DJ mode stereo routing through 4-channel loopback. Verify
 silent channels. Update loopback config if D-011 routing requires it.
 **Affects:** US-021, DJ mode audio routing
-**Status:** open — may need revision based on D-011 routing architecture
+**Status:** superseded — Superseded by D-040: CamillaDSP abandoned in favor of PipeWire filter-chain. ALSA loopback device is no longer used. PipeWire handles all routing natively via graph links.
 
 ---
 
 ### A20 [MEDIUM]: FastAPI web server adds CPU load to constrained Pi
 
 **Description:** US-022 targets "< 5% idle, < 10% active" CPU for the web
-server. FastAPI on Python with WebSocket connections, CamillaDSP state
-polling, and Reaper OSC proxying is nontrivial. Python's GIL may interfere
-with real-time audio scheduling. The CPU budget tables in SETUP-MANUAL.md
-do NOT include the web server.
+server. FastAPI on Python with WebSocket connections, GraphManager RPC /
+FilterChainCollector polling, and Reaper OSC proxying is nontrivial. Python's
+GIL may interfere with real-time audio scheduling. The CPU budget tables in
+SETUP-MANUAL.md do NOT include the web server.
 
 **Confidence:** MEDIUM
 **Validation:** Add web server to CPU budget estimates. Test with audio
@@ -296,6 +295,7 @@ dangerous volume if worn during troubleshooting.
 **Validation:** Add warning to documentation. Use `-c 2` for initial testing.
 Document channel-by-channel test approach.
 **Affects:** Troubleshooting safety, SETUP-MANUAL.md
+**Mitigation:** Partially mitigated by US-053 (test tool page) which provides channel-by-channel testing with safe defaults.
 **Status:** open
 
 ---
@@ -314,7 +314,7 @@ relief in flight case design.
 
 ---
 
-### A27 [MEDIUM]: Stock PREEMPT kernel provides adequate scheduling latency for production use
+### A27 [MEDIUM]: Stock PREEMPT kernel provides adequate scheduling latency for production use — SUPERSEDED
 
 **Description:** The system currently runs the stock PREEMPT kernel (D-015)
 as an interim measure due to F-012 (Reaper lockup on PREEMPT_RT). D-013
@@ -333,7 +333,7 @@ scheduling latency is empirically adequate but theoretically unbounded.
 (not yet run). Compare worst-case latency to 5.33ms deadline. If stock
 worst-case exceeds ~2ms, production use on stock PREEMPT is risky.
 **Affects:** D-013 (PREEMPT_RT mandatory), D-015 (stock PREEMPT interim), US-003, F-012
-**Status:** open
+**Status:** superseded — Superseded by D-022: PREEMPT_RT is now the production kernel (`6.12.62+rpt-rpi-v8-rt`). Upstream V3D deadlock fix resolved F-012. Stock PREEMPT scheduling latency question is moot.
 
 ---
 
@@ -359,6 +359,7 @@ network the Pi itself creates or joins.
 phone connect to Pi's AP, web UI and wayvnc work. Alternatively,
 test with a portable router and no Internet uplink.
 **Affects:** US-034 (offline venue operation), US-000a (wayvnc + SSH remote access), US-022 (bundled assets), US-018 (singer phone), US-031 (offline rehearsal)
+**Security note:** Security review required if Pi-as-AP is chosen (hostapd config, WPA3, client isolation).
 **Status:** open
 
 ---
@@ -367,13 +368,13 @@ test with a portable router and no Internet uplink.
 
 | Story | Blocking Assumptions | Notes |
 |-------|---------------------|-------|
-| US-000 | ~~A9~~ (resolved in US-000b), ~~A10~~ (resolved in US-000), A17 (ALSA-only binary — informational) | A9, A10 resolved; A17 is a constraint, not a blocker |
-| US-005 | ~~A14~~ (superseded by D-019) | BT scrapped — USB-MIDI only, no fallback |
-| US-006 | A15 (Xvfb systemd bug), A16 (gpu_mem conflict) | Headless Mixxx will not work as documented |
-| US-017 | A11 (8ch CamillaDSP routing) | D-011 resolved the architecture but configs need updating |
-| US-021 | A13 (quantum/chunksize alignment), A16 (gpu_mem), A19 (loopback channels) | Mode switching must be atomic |
+| US-000 | ~~A9~~ (resolved in US-000b), ~~A10~~ (resolved in US-000), ~~A17~~ (superseded by D-040) | A9, A10 resolved; A17 superseded — CamillaDSP binary no longer relevant |
+| US-005 | ~~A14~~ (superseded by D-019) | BT scrapped — USB-MIDI only, no fallback. A6 now VALIDATED. |
+| US-006 | ~~A15~~ (superseded by D-022), ~~A16~~ (superseded by D-022) | Both resolved by labwc Wayland + hardware V3D GL. A7 now VALIDATED. |
+| US-017 | ~~A11~~ (superseded by D-040) | CamillaDSP routing constraint eliminated — PipeWire handles all routing natively |
+| US-021 | ~~A13~~ (superseded by D-040), ~~A16~~ (superseded by D-022), ~~A19~~ (superseded by D-040) | All three blockers superseded by D-040/D-022 architecture changes |
 | US-022 | A20 (web server CPU), A21 (Reaper OSC) | CPU budget must account for web server |
-| US-003 | A4 (thermals, HIGH-RISK — D-012 active cooling mandatory), A18 (force_turbo), A23 (USB hub), A27 (stock PREEMPT scheduling latency) | T3b: 74.5C open-air. Active cooling required per D-012. T4 validates. A27: stock kernel interim per D-015/F-012. |
+| US-003 | A4 (thermals, LOW confidence — D-012 active cooling mandatory), A18 (force_turbo), A23 (USB hub), ~~A27~~ (superseded by D-022) | T3b: 74.5C open-air. Active cooling required per D-012. T4 validates. A27 superseded — PREEMPT_RT is production kernel. |
 
 ---
 
@@ -382,8 +383,15 @@ test with a portable router and no Internet uplink.
 | Finding | Resolution | Decision |
 |---------|-----------|----------|
 | C1 (binding decisions conditional) | Formalized as conditional | D-007 |
-| A3 (latency < 25ms) | Invalidated at 512; new target chunksize 256 | D-011 |
-| A11 (IEM bypass CamillaDSP) | Confirmed impossible; 8ch passthrough | D-011 |
+| A3 (latency < 25ms) | Validated: ~5.3ms at quantum 256 with PW filter-chain | D-040 (supersedes D-011) |
+| A11 (IEM bypass CamillaDSP) | Superseded: PipeWire handles all routing natively | D-040 (supersedes D-011) |
+| A12 (CamillaDSP hot-swap) | Superseded: CamillaDSP abandoned | D-040 |
+| A13 (quantum/chunksize alignment) | Superseded: single PW quantum, no chunksize | D-040 |
+| A15 (Xvfb systemd bug) | Superseded: labwc Wayland replaces Xvfb | D-022 |
+| A16 (gpu_mem conflict) | Superseded: hardware V3D GL resolves | D-022 |
+| A17 (CamillaDSP ALSA-only binary) | Superseded: CamillaDSP abandoned | D-040 |
+| A19 (ALSA loopback channels) | Superseded: ALSA loopback eliminated | D-040 |
+| A27 (stock PREEMPT scheduling) | Superseded: PREEMPT_RT is production kernel | D-022 |
 | M4 (no filter versioning) | Per-venue regeneration; filters are ephemeral | D-008 |
 | L2 (crossover slope undecided) | Configurable via speaker profiles | D-010 |
 | +12dB boost concern | Cut-only with -0.5dB margin | D-009 |
@@ -399,13 +407,18 @@ that were resolved by decisions D-007 through D-010 and are tracked in the
 assumptions. A27 was added post-audit based on D-015/F-012 findings.
 A28 was added based on D-017 (now WITHDRAWN, replaced by US-034).
 
-| Severity | Entries (A1-A28) | Open | Resolved/Validated |
-|----------|-----------------|------|--------------------|
-| HIGH (A1-A3, A9-A13) | 9 | 3 (A4-equivalent: A12, A13 partially; A9 partially) | 6 (A1, A2 validated; A3 invalidated/superseded; A9, A10 resolved; A11 partially-resolved) |
-| MEDIUM (A14-A22, A27) | 10 | 9 | 1 (A14 superseded by D-019) |
-| LOW (A23-A26, A28) | 5 | 4 | 1 (A24 superseded by D-018) |
-| UNKNOWN (A6, A8) | 2 | 2 | 0 |
-| **Total** | **28** | **18** | **10** |
+D-040 (CamillaDSP abandoned, PipeWire filter-chain) superseded 5 assumptions
+(A11, A12, A13, A17, A19). D-022 (labwc Wayland, hardware V3D GL, PREEMPT_RT
+production kernel) superseded 3 assumptions (A15, A16, A27). Three assumptions
+previously open or invalidated are now VALIDATED (A3, A6, A7).
 
-Note: A4 (LOW), A5 (MEDIUM), A6 (UNKNOWN), A7 (MEDIUM), A8 (UNKNOWN) from the
-original set remain open pending hardware validation.
+| Status | Count | Entries |
+|--------|-------|---------|
+| VALIDATED | 6 | A1, A2, A3, A6, A7, A10 |
+| Superseded | 10 | A11, A12, A13 (D-040); A14 (D-019); A15, A16 (D-022); A17, A19 (D-040); A24 (D-018); A27 (D-022) |
+| Partially-resolved | 1 | A9 |
+| Open | 11 | A4, A5, A8, A18, A20, A21, A22, A23, A25, A26, A28 |
+| **Total** | **28** | |
+
+Note: A4 (LOW confidence, D-012 mitigation pending T4), A5 (MEDIUM), A8 (UNKNOWN)
+from the original set remain open pending hardware validation.
