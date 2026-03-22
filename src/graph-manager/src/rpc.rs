@@ -103,6 +103,20 @@ pub struct LinksResponse {
     pub links: Vec<LinkDetail>,
 }
 
+/// Graph info response (quantum, sample rate, xruns).
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphInfoResponse {
+    pub r#type: &'static str,
+    pub cmd: &'static str,
+    pub ok: bool,
+    pub quantum: u32,
+    pub force_quantum: u32,
+    pub sample_rate: u32,
+    pub xruns: u64,
+    pub driver_node: String,
+    pub graph_state: String,
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot types (sent from PW thread to RPC thread)
 // ---------------------------------------------------------------------------
@@ -210,6 +224,34 @@ impl LinkSnapshot {
     }
 }
 
+/// Cached PipeWire graph info (quantum, sample rate, xruns).
+///
+/// Updated by a 1s timer on the PW main loop thread via `pw-metadata`
+/// subprocess. The RPC handler returns the cached values — zero latency.
+#[derive(Debug, Clone)]
+pub struct GraphInfoSnapshot {
+    pub quantum: u32,
+    pub force_quantum: u32,
+    pub sample_rate: u32,
+    pub xruns: u64,
+    pub driver_node: String,
+    pub graph_state: String,
+}
+
+impl GraphInfoSnapshot {
+    /// Default snapshot before first update.
+    pub fn empty() -> Self {
+        Self {
+            quantum: 0,
+            force_quantum: 0,
+            sample_rate: 0,
+            xruns: 0,
+            driver_node: String::new(),
+            graph_state: "unknown".to_string(),
+        }
+    }
+}
+
 /// Individual link detail for `get_links` responses.
 #[derive(Debug, Clone, Serialize)]
 pub struct LinkDetail {
@@ -267,6 +309,11 @@ pub enum RpcCommand {
     /// Request the current gain integrity check status.
     GainIntegrityStatus {
         reply: mpsc::Sender<crate::gain_integrity::GainIntegrityStatus>,
+    },
+
+    /// Request cached PipeWire graph info (quantum, rate, xruns).
+    GetGraphInfo {
+        reply: mpsc::Sender<GraphInfoSnapshot>,
     },
 }
 
@@ -367,6 +414,7 @@ pub fn handle_request(
         "watchdog_status" => handle_watchdog_status(cmd_tx),
         "watchdog_unlatch" => handle_watchdog_unlatch(cmd_tx),
         "gain_integrity_status" => handle_gain_integrity_status(cmd_tx),
+        "get_graph_info" => handle_get_graph_info(cmd_tx),
         other => HandleResult::Error(
             other.to_string(),
             format!("unknown command: \"{}\"", other),
@@ -713,6 +761,64 @@ fn handle_gain_integrity_status(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResu
             }))
             .unwrap_or_default(),
         ),
+    }
+}
+
+fn handle_get_graph_info(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::GetGraphInfo { reply: reply_tx })
+        .is_err()
+    {
+        let snap = GraphInfoSnapshot::empty();
+        return HandleResult::ResponseJson(
+            serde_json::to_string(&GraphInfoResponse {
+                r#type: "response",
+                cmd: "get_graph_info",
+                ok: true,
+                quantum: snap.quantum,
+                force_quantum: snap.force_quantum,
+                sample_rate: snap.sample_rate,
+                xruns: snap.xruns,
+                driver_node: snap.driver_node,
+                graph_state: snap.graph_state,
+            })
+            .unwrap_or_default(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(snap) => HandleResult::ResponseJson(
+            serde_json::to_string(&GraphInfoResponse {
+                r#type: "response",
+                cmd: "get_graph_info",
+                ok: true,
+                quantum: snap.quantum,
+                force_quantum: snap.force_quantum,
+                sample_rate: snap.sample_rate,
+                xruns: snap.xruns,
+                driver_node: snap.driver_node,
+                graph_state: snap.graph_state,
+            })
+            .unwrap_or_default(),
+        ),
+        Err(_) => {
+            let snap = GraphInfoSnapshot::empty();
+            HandleResult::ResponseJson(
+                serde_json::to_string(&GraphInfoResponse {
+                    r#type: "response",
+                    cmd: "get_graph_info",
+                    ok: true,
+                    quantum: snap.quantum,
+                    force_quantum: snap.force_quantum,
+                    sample_rate: snap.sample_rate,
+                    xruns: snap.xruns,
+                    driver_node: snap.driver_node,
+                    graph_state: snap.graph_state,
+                })
+                .unwrap_or_default(),
+            )
+        }
     }
 }
 

@@ -180,6 +180,11 @@ fn run_pipewire(
     let gain_integrity_state = Rc::new(RefCell::new(GainIntegrityCheck::new()));
     info!("Gain integrity check initialized (checking {} gain nodes)", watchdog::GAIN_NODE_NAMES.len());
 
+    // Graph info cache — quantum, sample rate, xruns (Phase 2a).
+    // Updated by a 1s timer via pw-metadata subprocess. RPC returns cached values.
+    let graph_info_cache = Rc::new(RefCell::new(rpc::GraphInfoSnapshot::empty()));
+    info!("Graph info cache initialized");
+
     // Created link proxies — must be kept alive for links to persist.
     // Keyed by (output_port_id, input_port_id).
     let link_proxies: Rc<RefCell<std::collections::HashMap<(u32, u32), pipewire::link::Link>>> =
@@ -249,6 +254,7 @@ fn run_pipewire(
         let reg_handle = reg_handle.clone();
         let watchdog_state = watchdog_state.clone();
         let gain_integrity_state = gain_integrity_state.clone();
+        let graph_info_cache = graph_info_cache.clone();
         move |_expirations| {
             // Drain all pending commands.
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -270,6 +276,7 @@ fn run_pipewire(
                     &component_registry,
                     &watchdog_state,
                     &gain_integrity_state,
+                    &graph_info_cache,
                 );
             }
         }
@@ -311,11 +318,32 @@ fn run_pipewire(
         .expect("Failed to arm gain integrity timer");
     info!("Gain integrity timer armed (30s polling)");
 
+    // Graph info timer: every 1s, run pw-metadata to cache quantum/rate,
+    // and scan the graph state for driver node xruns (Phase 2a).
+    // This moves subprocess calls from the Python web-UI event loop
+    // to the GM PW thread, freeing the uvicorn asyncio loop.
+    let _graph_info_timer = mainloop.loop_().add_timer({
+        let graph_info_cache = graph_info_cache.clone();
+        let graph = graph.clone();
+        move |_expirations| {
+            update_graph_info_cache(&graph_info_cache, &graph);
+        }
+    });
+    _graph_info_timer
+        .update_timer(
+            Some(Duration::from_secs(1)),
+            Some(Duration::from_secs(1)),
+        )
+        .into_result()
+        .expect("Failed to arm graph info timer");
+    info!("Graph info timer armed (1s polling)");
+
     info!("PipeWire main loop starting");
     mainloop.run();
     info!("PipeWire main loop exited");
 
     // Drop PipeWire objects in reverse order BEFORE calling deinit().
+    drop(_graph_info_timer);
     drop(_gain_timer);
     drop(_rpc_timer);
     drop(_shutdown_timer);
@@ -349,6 +377,7 @@ fn dispatch_rpc_command(
     component_registry: &std::rc::Rc<std::cell::RefCell<lifecycle::ComponentRegistry>>,
     watchdog_state: &std::rc::Rc<std::cell::RefCell<watchdog::Watchdog>>,
     gain_integrity_state: &std::rc::Rc<std::cell::RefCell<gain_integrity::GainIntegrityCheck>>,
+    graph_info_cache: &std::rc::Rc<std::cell::RefCell<rpc::GraphInfoSnapshot>>,
 ) {
     use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
@@ -478,6 +507,11 @@ fn dispatch_rpc_command(
         rpc::RpcCommand::GainIntegrityStatus { reply } => {
             let gi = gain_integrity_state.borrow();
             let _ = reply.send(gi.status());
+        }
+
+        rpc::RpcCommand::GetGraphInfo { reply } => {
+            let snap = graph_info_cache.borrow().clone();
+            let _ = reply.send(snap);
         }
     }
 }
