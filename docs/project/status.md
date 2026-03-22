@@ -69,7 +69,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-059 | done | **14/14** | **done** (owner-accepted 2026-03-21). GraphManager Core + Production Filter-Chain (Phase A). Clean reboot demo PASS (S-004, 17/17 checks). Pi boots into working DJ mode on pure PW filter-chain pipeline (D-040/D-043). Follow-ups: F-033, I-1 CI wiring, spectral verification (AC 3141), D-042 lifting. |
 | US-060 | VERIFY | 3/7 | **VERIFY PASS** (S-002 2026-03-21). FilterChainCollector running, GM RPC working, 0 xruns. `56ef3f0` LevelsCollector adds PW-native level data for meters. DoD #1 (collectors replaced) advancing. Known gaps: AC #3 (processing load, F-039), AC #7 (xrun counter from PW metadata, needs US-063). |
 | US-061 | VERIFY | 1/8 | **VERIFY PASS** (S-002 2026-03-21). Client files deployed, imports OK on Pi. Known gaps resolved: deploy.py path fixed (`3dcccc2`), measure_nearfield.py pycamilladsp removed (`d368c76`). |
-| US-064 | IMPLEMENT | 4/8 | **committed** (`23a57c1` + `5dad57e`). `graph.js` view module (#2), SVG layout (#3), mock mode (#6), E2E test (#5, `5dad57e`). 600px responsive fixed. Remaining: GM RPC extension (#1), unit tests (#4), architect review (#7), UX review (#8). |
+| US-064 | **DESIGN** | **0/8** | **REWORK REQUIRED (F-059).** Owner directive: hardcoded SVG templates must be replaced with real PipeWire topology from `pw-dump`. Previous commits (`23a57c1`, `5dad57e`) superseded. DoD reset — all items must be redone against new design. Architect review (#7) must precede implementation. |
 | US-065 | IMPLEMENT | 6/10 | **committed** (`965f501` + `5dad57e`). Config Tab + E2E test (#6, `5dad57e`). F-046 quantum confirm dialog committed (`30a25e1`). Remaining: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10). |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
@@ -92,13 +92,13 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-051** (Phase: **TEST, DoD 4/4** — advanced 2026-03-21): Persistent System Status Bar. QE test plan delivered: T-051-1 (Playwright E2E, 20+ tests in `test_status_bar.py`), T-051-2 (CI regression), T-051-3 (D-040 inspection — QE reviewing), T-051-4 (Pi hardware — deferred to VERIFY per QE recommendation). TP-003 protocol exists. Committed `8975b5b`. T-051-1/2 need worker execution.
 - **US-053** (Phase: **IMPLEMENT, DoD 4/6** — code complete 2026-03-21): Manual Test Tool Page. Code committed (`94103c3`): 7 UX spec fixes, signal-gen env var. Remaining DoD: #3 integration test (Pi), #4 hot-plug test (Pi), #5 AD sign-off (safety controls), #6 AE sign-off (signal quality). All remaining items need Pi access.
 - **US-065** (Phase: **IMPLEMENT, DoD 6/10** — committed `965f501` + `5dad57e` + `30a25e1`): Configuration Tab. Code + E2E test + F-046 quantum confirm dialog all committed. Remaining DoD: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10).
-- **US-064** (Phase: **IMPLEMENT, DoD 4/8** — committed `23a57c1` + `5dad57e`): PW Graph Visualization Tab. `graph.js` + CSS + HTML + E2E test committed. 600px responsive fixed. Remaining: GM RPC port info extension (#1, Rust ~20 lines), unit tests (#4), architect review (#7), UX review (#8).
+- **US-064** (Phase: **DESIGN, DoD 0/8** — **REWORK, F-059**): PW Graph Visualization Tab. Owner directive: current hardcoded SVG template approach (`23a57c1`) must be completely replaced with real PipeWire topology from `pw-dump`. Story returned to DESIGN phase. Architect review (#7) must happen BEFORE re-implementation. All previous DoD items (SVG layout, mock mode, E2E test, responsive) must be redone against new design. F-054/F-055 fixes superseded.
 - **US-066** (Phase: **IMPLEMENT** — T-066-1/2/3 complete): Spectrum and Meter Polish. Phase 1 complete: F-026 spectrum clock drift fix (`784c408`), T-066-2 D-040 label updates (APP→CONV, DSP→OUT, pending commit), T-066-3 PHYS IN group inactive state (pending commit). Phase 2: pcm-bridge deployment + TK-112 validation needs Pi CHANGE session.
 - **US-044** (Phase: **IMPLEMENT** — T-044-4 complete, T-044-1/2 in progress): CamillaDSP Bypass Protection (rewritten for D-040). T-044-4 watchdog implemented (native PW API, <21ms mute, pending commit). T-044-1 (ALSA lockout) and T-044-2 (WP hardening) in progress. T-044-3/5 blocked on earlier tasks. T-044-6/7/8 pending.
 - **F-049** (RESOLVED, pending commit): Measurement wizard mock session state isolation fixed (task #24).
 - **F-050** (**RESOLVED** — `1b527d8` 2026-03-22): Dashboard brightness increased for spectrum grid lines, meter labels, meter outlines. Owner UX feedback addressed same session. **Follow-ups from deployment review:** F-051 (spectrum bg too bright), F-052 (meters still bad), F-053 (PHYS IN too subtle).
-- **F-056** (OPEN, HIGH): Quantum change not reflected in status bar/system tab after Config tab change. Xrun counters also not updating during visible Mixxx underruns. Monitoring gap — operator cannot confirm system state.
-- **F-057** (OPEN, HIGH): Config tab gain controls show -INF and are not editable. Gain feature completely non-functional. Likely backend data issue or mock data gap.
+- **F-056** (PARTIAL FIX, HIGH): Quantum display fix confirmed on Pi. **Xrun counters still OPEN** — `pw-dump` and `pw-cli info` don't expose xrun counts. Need to investigate `pw-top`, `/proc`, PipeWire profiler as alternative sources.
+- **F-057** (IN PROGRESS, HIGH): Previous fix `e75b73a` based on incorrect assumption that gain nodes are separate PW nodes. Pi OBSERVE session S-004 revealed they're **params on the convolver node** (`pi4audio-convolver`, id 43). Full `pw_helpers.py` rewrite needed. Validates L-042.
 - **F-051/F-052/F-053** (**RESOLVED** — `774c2ee`): Contrast follow-ups from F-050. Spectrum bg restored to black, meter contrast improved, PHYS IN opacity increased.
 - **F-054/F-055** (**RESOLVED** — `93567db`): Graph view HP bypass arc z-order fixed, four gain nodes added.
 - **F-058** (OPEN, Medium): E2E screenshot tests write to read-only Nix store path — 6+ false failures in pure sandbox. Task #49 pending.
@@ -506,13 +506,14 @@ See `docs/project/defects.md` for full details.
 | F-051 | Medium | Resolved | Spectrum background restored to black (`774c2ee`). |
 | F-052 | Medium | Resolved | Meter contrast improved (`774c2ee`). |
 | F-053 | Low | Resolved | PHYS IN inactive opacity increased (`774c2ee`). |
-| F-054 | Low | Resolved | Graph HP bypass arc z-order fixed (`93567db`). |
-| F-055 | Medium | Resolved | Graph gain nodes added (`93567db`). |
-| F-056 | High | Open | Quantum change not reflected in status bar/system tab. Xrun counters not updating. |
-| F-057 | High | Open | Config tab gain controls show -INF and are not editable. Non-functional. |
+| F-054 | Low | Superseded | Graph HP bypass arc z-order fixed (`93567db`). **Superseded by F-059** (full graph rework). |
+| F-055 | Medium | Superseded | Graph gain nodes added (`93567db`). **Superseded by F-059** (full graph rework). |
+| F-056 | High | Partial fix | Quantum display fixed on Pi. Xrun counters OPEN — no viable data source via pw-dump/pw-cli. |
+| F-057 | High | In progress | Gain nodes are params on convolver node, not separate PW nodes. Full pw_helpers.py rewrite. |
 | ENH-002 | Low | Open | Tooltips for all dashboard elements (what, good/bad values, relevance). |
 | ENH-003 | Medium | Open | Sticky "problems occurred" latching health indicator with manual clear. |
 | F-058 | Medium | Open | E2E screenshot tests write to read-only Nix store path — 6+ false failures in pure sandbox. |
+| F-059 | High | Open | Graph view uses hardcoded SVG templates instead of real PW topology. US-064 returned to DESIGN. |
 
 ### Resolved
 

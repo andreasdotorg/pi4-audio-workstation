@@ -2070,10 +2070,10 @@ nodes), D-009 (gain staging — these enforce the hard cap).
 
 ---
 
-## F-056: Quantum change not reflected in status bar or system tab (OPEN)
+## F-056: Quantum change not reflected in status bar or system tab (PARTIAL FIX — xrun portion OPEN)
 
 **Severity:** High (monitoring gap — operator cannot confirm quantum state)
-**Status:** Open
+**Status:** Partially resolved — quantum display fixed, xrun counters still OPEN
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Status bar (`statusbar.js`), System tab (`system.js`), Config tab (`config.js`)
 **Found by:** Owner
@@ -2089,12 +2089,19 @@ change, the xrun counters in the UI did not reflect these. The xrun data
 source may not be updating or the UI may not be polling frequently enough.
 
 **Fix required:**
-1. Ensure the `/ws/system` WebSocket payload includes the current quantum
-   value from PipeWire metadata (not just the configured default).
-2. Ensure `statusbar.js` and `system.js` update their quantum display from
-   the live WebSocket data.
-3. Investigate xrun counter data source — verify it reads from PipeWire
-   metadata or `pw-top` and updates in real-time.
+1. ~~Ensure the `/ws/system` WebSocket payload includes the current quantum
+   value from PipeWire metadata (not just the configured default).~~ DONE
+2. ~~Ensure `statusbar.js` and `system.js` update their quantum display from
+   the live WebSocket data.~~ DONE
+3. Investigate xrun counter data source — `pw-dump` and `pw-cli info` do NOT
+   expose xrun counts. Need to investigate alternative sources: `pw-top`,
+   `/proc`, PipeWire profiler module. **Still OPEN.**
+
+**Update (2026-03-22, Pi OBSERVE session):** Quantum force-quantum parsing
+confirmed correct on Pi — the quantum display fix works. However, xrun
+counters have NO viable data source via the current `pw-dump`/`pw-cli info`
+approach. This is a deeper issue requiring investigation of alternative
+PipeWire introspection methods.
 
 **Files:**
 - Backend: collector that reads PW quantum metadata
@@ -2106,37 +2113,45 @@ dialog), US-060 (PW monitoring — xrun counter is AC #7).
 
 ---
 
-## F-057: Config tab gain controls show -INF and are not editable (OPEN)
+## F-057: Config tab gain controls show -INF and are not editable (REVISED — IN PROGRESS)
 
 **Severity:** High (non-functional feature — gain controls unusable)
-**Status:** Open
+**Status:** In progress — previous fix `e75b73a` based on incorrect assumption, full rewrite needed
 **Found in:** Owner deployment review (2026-03-22)
-**Affects:** Config tab (`config.js`, `config_routes.py`), US-065
+**Affects:** Config tab (`config.js`, `config_routes.py`, `pw_helpers.py`), US-065
 **Found by:** Owner
 
 **Description:** The gain sliders and input fields in the Config tab display
 "-INF" and cannot be changed by the operator. The gain control feature is
-completely non-functional. This likely means the backend GET endpoint
-(`/api/v1/config/gains`) is returning unexpected data (possibly null/NaN
-gain values that render as -INF), or the frontend is not correctly parsing
-the response.
+completely non-functional.
 
-On Pi, the gain values should come from querying the four `linear` builtin
-nodes via `pw-cli`. In mock mode, the mock data may not be providing
-realistic gain values.
+**Root cause (confirmed via Pi OBSERVE session S-004):** The previous fix
+(`e75b73a`) assumed gain nodes are separate PipeWire nodes. Pi evidence
+reveals they are **params on the convolver node** (`pi4audio-convolver`,
+node id 43). The `linear` builtin Mult params live as properties on the
+single convolver filter-chain node, not as independent PW nodes. This
+means the entire `pw_helpers.py` gain-querying logic needs a full rewrite
+to query params from the convolver node rather than searching for separate
+gain nodes.
+
+This validates L-042's principle — implementations that haven't been
+verified against real hardware cannot be trusted.
 
 **Fix required:**
-1. Investigate why gains show -INF — check backend response and mock data
-2. Ensure gain sliders are interactive (not disabled/readonly)
-3. Verify the PUT endpoint (`/api/v1/config/gains`) correctly sets values
-   via `pw-cli` on Pi
+1. ~~Investigate why gains show -INF~~ ROOT CAUSE IDENTIFIED: wrong node model
+2. Full `pw_helpers.py` rewrite to query gain Mult params from the convolver
+   node (`pi4audio-convolver`, id 43) instead of searching for separate nodes
+3. Update `config_routes.py` GET/PUT endpoints accordingly
+4. Verify gain read and write against real Pi hardware
 
 **Files:**
-- `src/web-ui/static/js/config.js` (frontend gain controls)
+- `src/web-ui/app/pw_helpers.py` (full rewrite — gain query logic)
 - `src/web-ui/app/config_routes.py` (backend gain endpoints)
+- `src/web-ui/static/js/config.js` (frontend gain controls)
 - `src/web-ui/app/mock/mock_data.py` (mock gain values)
 
-**Related:** US-065 (Config tab), D-009 (gain staging hard cap).
+**Related:** US-065 (Config tab), D-009 (gain staging hard cap), L-042
+(verify against real hardware).
 
 ---
 
@@ -2250,3 +2265,52 @@ fails in any read-only or sandboxed environment.
 
 **Related:** F-048 (E2E test reliability), US-050 (TEST phase needs green
 suite in CI).
+
+---
+
+## F-059: Graph view uses hardcoded SVG templates instead of real PipeWire topology (OPEN)
+
+**Severity:** High (feature fundamentally incorrect — owner directive to rework)
+**Status:** Open — US-064 returned to DESIGN phase
+**Found in:** Owner review of deployed graph tab (2026-03-22)
+**Affects:** Graph tab (`graph.js`), US-064
+**Found by:** Owner
+
+**Description:** The current graph visualization (US-064, committed `23a57c1`)
+uses hardcoded SVG templates representing an idealized audio pipeline. It does
+not display the actual PipeWire graph topology. The owner requires the graph
+view to show **real nodes, real links, and real topology** as reported by
+`pw-dump` — not a stylized/made-up representation.
+
+This is a fundamental design flaw, not a bug fix. The entire graph view
+feature needs to return to the design phase and be rebuilt to:
+
+1. Parse actual `pw-dump` JSON output (or equivalent PipeWire introspection)
+2. Display real PipeWire nodes with their actual names, IDs, and states
+3. Show real PipeWire links between actual ports
+4. Update dynamically as the graph topology changes
+
+The existing `graph.js` code (~400+ lines of hardcoded SVG layout with
+predefined node positions, bypass arcs, and fixed topology) must be replaced.
+F-054 and F-055 fixes to the hardcoded layout are also superseded.
+
+**Impact on US-064 DoD:**
+- DoD score reset from 4/8 to 0/8 — all previously completed items (#2 SVG
+  layout, #3 mock mode, #5 E2E test, #6 responsive) were built against the
+  wrong design and must be redone after the rework
+- The story returns to DESIGN phase (from IMPLEMENT)
+- Architect review (#7) must happen BEFORE implementation this time
+
+**Fix required:**
+1. Architect designs new graph rendering approach based on `pw-dump` data
+2. Implement dynamic graph layout from real PipeWire topology
+3. Rebuild E2E tests against real/mock `pw-dump` data
+4. Verify on Pi against actual running graph
+
+**Files:**
+- `src/web-ui/static/js/graph.js` (full rewrite)
+- `src/web-ui/app/graph_routes.py` or equivalent backend (may need new endpoint)
+- `src/web-ui/app/mock/mock_data.py` (mock pw-dump data)
+
+**Related:** US-064 (PW graph visualization), F-054 (superseded), F-055
+(superseded).
