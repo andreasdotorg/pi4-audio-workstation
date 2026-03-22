@@ -1899,10 +1899,10 @@ needs green suite).
 
 ---
 
-## F-050: Dashboard brightness too low — spectrum grid, meter labels, meter outlines barely visible (OPEN)
+## F-050: Dashboard brightness too low — spectrum grid, meter labels, meter outlines barely visible (RESOLVED)
 
 **Severity:** Medium (usability — operator cannot read dashboard elements at normal viewing distance)
-**Status:** Open (worker-brightness assigned to task #37)
+**Status:** Resolved (`1b527d8`, 2026-03-22)
 **Found in:** Owner UX review (2026-03-22)
 **Affects:** Dashboard tab (`dashboard.js`, `style.css`), D-020 (web UI)
 **Found by:** Owner
@@ -1944,3 +1944,309 @@ sufficient contrast for venue use. Test at arm's length on a real display.
 
 **Related:** D-020 (web UI dashboard), US-066 (spectrum and meter polish),
 TK-112 (spectrum color approach).
+
+---
+
+## F-051: Spectrum background should be black — F-050 accidentally brightened it (OPEN)
+
+**Severity:** Medium (usability regression from F-050 fix)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Dashboard tab (spectrum display), D-020
+**Found by:** Owner
+
+**Description:** The F-050 brightness fix (`1b527d8`) accidentally brightened
+the spectrum display background in addition to the grid lines and labels. The
+goal was increased *contrast* — the background should have stayed black or
+near-black while grid lines and labels got brighter. Instead, the background
+also became lighter, reducing the contrast improvement.
+
+**Fix required:** Restore spectrum background to black/near-black while
+keeping the brightened grid lines and labels from F-050.
+
+**Files:** `src/web-ui/static/js/dashboard.js` or `spectrum.js` (canvas
+background color), `src/web-ui/static/style.css` (container background).
+
+**Related:** F-050 (parent fix that introduced this regression).
+
+---
+
+## F-052: Meter contrast still insufficient after F-050 (OPEN)
+
+**Severity:** Medium (usability — meters hard to read)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Dashboard tab (level meters), D-020
+**Found by:** Owner
+
+**Description:** Despite the F-050 brightness fix, the meter labels and
+outlines are still hard to read. The owner reports no noticeable improvement
+in meter contrast. The meter elements need further brightness/contrast
+increases beyond what F-050 delivered.
+
+**Fix required:** Significantly increase brightness of meter labels (text
+color) and meter outlines (border color). Test at arm's length on real
+display.
+
+**Files:** `src/web-ui/static/js/dashboard.js` (meter canvas rendering),
+`src/web-ui/static/style.css` (meter CSS styles).
+
+**Related:** F-050 (initial brightness fix, insufficient for meters).
+
+---
+
+## F-053: PHYS IN inactive state too low contrast — 30% opacity invisible (OPEN)
+
+**Severity:** Low (usability — feature exists but not discoverable)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Dashboard tab (PHYS IN group), T-066-3
+**Found by:** Owner
+
+**Description:** The PHYS IN group inactive state (T-066-3, `c021fca`) uses
+30% opacity, which is too subtle. The owner couldn't see the inactive state
+unless they already knew it was there. The feature is effectively invisible
+at normal viewing distance.
+
+**Fix required:** Increase the inactive state visibility — either raise
+opacity significantly (e.g., 50-60%) or use a different visual treatment
+(dimmed but clearly visible, perhaps with a "no signal" label or icon).
+
+**Files:** `src/web-ui/static/js/dashboard.js` or `style.css` (PHYS IN
+group opacity/styling).
+
+**Related:** T-066-3 (PHYS IN inactive state feature), US-066 (meter polish).
+
+---
+
+## F-054: Graph view — HP connection lines render behind Convolver node (OPEN)
+
+**Severity:** Low (cosmetic — visual layering issue)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Graph tab (`graph.js`), US-064
+**Found by:** Owner
+
+**Description:** In the PipeWire graph visualization tab, the highpass
+connection lines render behind (underneath) the Convolver node SVG element.
+They should render on top of nodes or be routed around them for a cleaner
+visualization where connection paths are always visible.
+
+**Fix required:** Adjust SVG rendering order so connection lines (links)
+render on top of nodes, or implement path routing that avoids node overlap.
+In SVG, later elements render on top — move link `<line>` or `<path>`
+elements after node `<rect>/<g>` elements in the DOM order.
+
+**Files:** `src/web-ui/static/js/graph.js` (SVG element ordering).
+
+**Related:** US-064 (graph visualization tab).
+
+---
+
+## F-055: Graph view missing four gain nodes (OPEN)
+
+**Severity:** Medium (incomplete visualization — safety-relevant nodes not shown)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Graph tab (`graph.js`), US-064
+**Found by:** Owner
+
+**Description:** The PipeWire graph visualization does not show the four
+`linear` builtin gain nodes (gain_left_hp, gain_right_hp, gain_sub1_lp,
+gain_sub2_lp) that sit between the convolvers and the USBStreamer output
+ports. These gain nodes are the mechanism for runtime level control and
+panic mute (F-040) — they are safety-relevant components that should be
+visible in the graph.
+
+**Fix required:** Add the four gain nodes to all relevant graph mode
+templates (DJ, Live, Monitoring). Position them between the convolver
+outputs and the USBStreamer sink inputs. Show their current Mult value
+if available from the WebSocket data.
+
+**Files:** `src/web-ui/static/js/graph.js` (SVG templates for each mode).
+
+**Related:** US-064 (graph visualization), F-040 (panic mute uses these
+nodes), D-009 (gain staging — these enforce the hard cap).
+
+---
+
+## F-056: Quantum change not reflected in status bar or system tab (OPEN)
+
+**Severity:** High (monitoring gap — operator cannot confirm quantum state)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Status bar (`statusbar.js`), System tab (`system.js`), Config tab (`config.js`)
+**Found by:** Owner
+
+**Description:** When the operator changes the quantum via the Config tab
+(which correctly uses `pw-metadata`), the quantum value displayed in the
+status bar and system tab does not update to reflect the new value. The
+operator cannot confirm the quantum change took effect without using
+external tools (`pw-metadata -n settings`).
+
+Additionally, when Mixxx was visibly experiencing underruns after a quantum
+change, the xrun counters in the UI did not reflect these. The xrun data
+source may not be updating or the UI may not be polling frequently enough.
+
+**Fix required:**
+1. Ensure the `/ws/system` WebSocket payload includes the current quantum
+   value from PipeWire metadata (not just the configured default).
+2. Ensure `statusbar.js` and `system.js` update their quantum display from
+   the live WebSocket data.
+3. Investigate xrun counter data source — verify it reads from PipeWire
+   metadata or `pw-top` and updates in real-time.
+
+**Files:**
+- Backend: collector that reads PW quantum metadata
+- `src/web-ui/static/js/statusbar.js` (quantum display)
+- `src/web-ui/static/js/system.js` (quantum + xrun display)
+
+**Related:** US-065 (Config tab quantum controls), F-046 (quantum confirm
+dialog), US-060 (PW monitoring — xrun counter is AC #7).
+
+---
+
+## F-057: Config tab gain controls show -INF and are not editable (OPEN)
+
+**Severity:** High (non-functional feature — gain controls unusable)
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Config tab (`config.js`, `config_routes.py`), US-065
+**Found by:** Owner
+
+**Description:** The gain sliders and input fields in the Config tab display
+"-INF" and cannot be changed by the operator. The gain control feature is
+completely non-functional. This likely means the backend GET endpoint
+(`/api/v1/config/gains`) is returning unexpected data (possibly null/NaN
+gain values that render as -INF), or the frontend is not correctly parsing
+the response.
+
+On Pi, the gain values should come from querying the four `linear` builtin
+nodes via `pw-cli`. In mock mode, the mock data may not be providing
+realistic gain values.
+
+**Fix required:**
+1. Investigate why gains show -INF — check backend response and mock data
+2. Ensure gain sliders are interactive (not disabled/readonly)
+3. Verify the PUT endpoint (`/api/v1/config/gains`) correctly sets values
+   via `pw-cli` on Pi
+
+**Files:**
+- `src/web-ui/static/js/config.js` (frontend gain controls)
+- `src/web-ui/app/config_routes.py` (backend gain endpoints)
+- `src/web-ui/app/mock/mock_data.py` (mock gain values)
+
+**Related:** US-065 (Config tab), D-009 (gain staging hard cap).
+
+---
+
+## ENH-002: Tooltips for all dashboard elements (OPEN)
+
+**Type:** Enhancement (owner request)
+**Priority:** Low
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** All web UI tabs
+**Requested by:** Owner
+
+**Description:** Owner wants tooltips on every visible element in the
+dashboard and other tabs. Each tooltip should explain:
+1. What the element is (name/purpose)
+2. What good vs bad values look like
+3. Why it's relevant to the operator
+
+This is a comprehensive UX enhancement that would make the web UI
+self-documenting — an operator unfamiliar with the system could hover
+over any element to understand it.
+
+**Scope:** All dashboard meters, spectrum display, status bar indicators,
+system tab values, graph nodes/links, config controls. Likely 50+ tooltip
+definitions needed.
+
+**Files:** All JS view modules, `index.html` (title attributes or custom
+tooltip elements), possibly a new tooltip component.
+
+**Related:** D-020 (web UI), all dashboard-related stories.
+
+---
+
+## ENH-003: Sticky "problems occurred" health indicator with manual clear (OPEN)
+
+**Type:** Enhancement (owner request)
+**Priority:** Medium
+**Status:** Open
+**Found in:** Owner deployment review (2026-03-22)
+**Affects:** Status bar (`statusbar.js`), D-020
+**Requested by:** Owner
+
+**Description:** The current green health dot (top right of status bar)
+shows live system health state — it's green when everything is OK and
+changes color when problems occur. The owner likes this but wants an
+additional *sticky* (latching) indicator that:
+
+1. Turns on when any problem occurs (xrun, thermal warning, service
+   failure, link loss, etc.)
+2. Stays on even after the problem resolves (latching behavior)
+3. Must be manually cleared/acknowledged by the operator (click to reset)
+4. Provides a way to see what problems occurred since last clear
+
+This is analogous to an industrial alarm panel: the live indicator shows
+current state, the latching indicator shows "something happened since you
+last checked." The operator can glance at the dashboard and immediately
+know whether the system has been clean since they last acknowledged.
+
+**Implementation approach:**
+- Add a second indicator next to the existing health dot (e.g., orange
+  triangle with "!" when problems have occurred, hidden when clear)
+- Click to show a summary of events since last clear, then dismiss
+- Persist latch state in the frontend (sessionStorage or in-memory)
+- Events to latch on: xruns, thermal throttle, service restart, link
+  count drop, gain change, quantum change
+
+**Files:**
+- `src/web-ui/static/js/statusbar.js` (latching logic + UI element)
+- `src/web-ui/static/index.html` (new indicator element)
+- `src/web-ui/static/style.css` (indicator styling)
+
+**Related:** US-051 (persistent status bar), S-012 (unauthorized gain
+incident — a latching indicator would have caught this).
+
+---
+
+## F-058: E2E screenshot tests write to read-only Nix store path (OPEN)
+
+**Severity:** Medium (test infrastructure — causes 6+ false failures in every pure sandbox run)
+**Status:** Open
+**Found in:** Nix pure sandbox E2E test run (2026-03-22)
+**Affects:** E2E test suite (`test_status_bar.py`, `test_visual_regression.py`, `test_config_tab.py`)
+**Found by:** Team (CI/sandbox test execution)
+
+**Description:** Screenshot-based E2E tests write PNG files to the source
+tree `screenshots/` directory (e.g., `src/web-ui/tests/e2e/screenshots/`).
+In the Nix pure sandbox, the source tree is mounted from `/nix/store/`
+which is read-only. All screenshot write operations fail with
+`PermissionError`, causing 6+ tests to fail in every pure sandbox run.
+
+These false failures mask real test issues and make the E2E suite unreliable
+as a deployment gate when run under Nix.
+
+**Root cause:** Screenshot paths are hardcoded relative to the source tree
+rather than using a writable output directory. The tests assume they can
+write to their own source directory, which works in a mutable checkout but
+fails in any read-only or sandboxed environment.
+
+**Fix required:** Change screenshot output paths to use a writable directory:
+- Use `pytest`'s `tmp_path` fixture for ephemeral screenshots
+- Or use an environment variable (e.g., `SCREENSHOT_DIR`) defaulting to
+  `tmp_path` but overridable for local development
+- Baseline screenshots for comparison can remain in the source tree
+  (read-only), but newly captured screenshots must go to a writable path
+
+**Files:**
+- `src/web-ui/tests/e2e/test_status_bar.py`
+- `src/web-ui/tests/e2e/test_visual_regression.py`
+- `src/web-ui/tests/e2e/test_config_tab.py`
+- Possibly `src/web-ui/tests/e2e/conftest.py` (shared screenshot fixture)
+
+**Related:** F-048 (E2E test reliability), US-050 (TEST phase needs green
+suite in CI).

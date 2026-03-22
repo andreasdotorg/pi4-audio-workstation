@@ -96,7 +96,13 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-066** (Phase: **IMPLEMENT** — T-066-1/2/3 complete): Spectrum and Meter Polish. Phase 1 complete: F-026 spectrum clock drift fix (`784c408`), T-066-2 D-040 label updates (APP→CONV, DSP→OUT, pending commit), T-066-3 PHYS IN group inactive state (pending commit). Phase 2: pcm-bridge deployment + TK-112 validation needs Pi CHANGE session.
 - **US-044** (Phase: **IMPLEMENT** — T-044-4 complete, T-044-1/2 in progress): CamillaDSP Bypass Protection (rewritten for D-040). T-044-4 watchdog implemented (native PW API, <21ms mute, pending commit). T-044-1 (ALSA lockout) and T-044-2 (WP hardening) in progress. T-044-3/5 blocked on earlier tasks. T-044-6/7/8 pending.
 - **F-049** (RESOLVED, pending commit): Measurement wizard mock session state isolation fixed (task #24).
-- **F-050** (OPEN, Medium): Dashboard brightness too low — spectrum grid lines, meter labels, meter outlines barely visible. Owner UX feedback 2026-03-22. worker-brightness assigned (task #37).
+- **F-050** (**RESOLVED** — `1b527d8` 2026-03-22): Dashboard brightness increased for spectrum grid lines, meter labels, meter outlines. Owner UX feedback addressed same session. **Follow-ups from deployment review:** F-051 (spectrum bg too bright), F-052 (meters still bad), F-053 (PHYS IN too subtle).
+- **F-056** (OPEN, HIGH): Quantum change not reflected in status bar/system tab after Config tab change. Xrun counters also not updating during visible Mixxx underruns. Monitoring gap — operator cannot confirm system state.
+- **F-057** (OPEN, HIGH): Config tab gain controls show -INF and are not editable. Gain feature completely non-functional. Likely backend data issue or mock data gap.
+- **F-051/F-052/F-053** (OPEN, Medium/Low): Contrast follow-ups from F-050 deployment review. Spectrum bg too bright, meters still insufficient, PHYS IN 30% opacity invisible.
+- **F-054/F-055** (OPEN, Low/Medium): Graph view issues — HP lines behind Convolver node, four gain nodes missing from visualization.
+- **ENH-002** (OPEN, Low): Owner wants tooltips on all dashboard elements. Comprehensive UX enhancement (~50+ definitions).
+- **ENH-003** (OPEN, Medium): Sticky latching health indicator with manual clear. Analogous to industrial alarm panel.
 - **F-040** (**RESOLVED** — committed `4c80c23` 2026-03-21): Panic MUTE/UNMUTE backend (`audio_mute.py` + `pw_helpers.py`). US-065 and US-064 commits followed (`965f501`, `23a57c1`). No longer blocking.
 - **F-041** (**RESOLVED, VERIFIED** — `3a1e6bb` + `c76b882`): Mock server crash fix. Health-check + stderr capture in conftest.py. Additional fix `c76b882`: subprocess.PIPE replaced with tempfile (deadlock prevention). Verified 2026-03-21: full E2E suite completed, no crash. 124 passed, 41 failed (pre-existing regressions → F-048).
 - **F-048** (IN PROGRESS → ~1-8 remaining, Medium): Originally 41 E2E test failures. **25 fixed** (system_view, status_bar, visual_regression, event_log — pending commit). **13 fixed** (capture_spectrum + measurement_wizard — pending commit). Remaining: measurement wizard state isolation (F-049, 8 tests hang sequentially).
@@ -122,36 +128,55 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 ### Session Progress (2026-03-22)
 
-**Committed this session:**
+**Commits this session (18 total, `30a25e1`..`e286a41`):**
 - `30a25e1` — F-046: quantum confirmation dialog (HIGH safety fix)
-- `ef7a063` — ENH-001 + F-043 + F-044 + F-045: sample rate in status bar, GM SCHED_OTHER color, Links label, duplicate Mode removed
+- `ef7a063` — ENH-001 + F-043 + F-044 + F-045: status bar + system tab fixes
 - `5dad57e` — US-064/US-065 E2E tests + F-047 keyboard focus indicators
-- `784c408` — F-026: spectrum clock drift fix (render loop synchronization)
-- `552866d` — docs: stale tracking corrections for F-040/US-064/US-065
+- `784c408` — F-026: spectrum clock drift fix
+- `2020da8` — F-048: 25 E2E test failures fixed
+- `c021fca` — T-066-3: PHYS IN inactive state
+- `a473c12` — T-066-2: D-040 labels (APP→CONV, DSP→OUT)
+- `bbe1f0e` — F-048: capture_spectrum + measurement abort button
+- `7600280` — T-044-4: GM safety watchdog (native PW API mute)
+- `df70fc5` — T-044-1: ALSA lockout udev rules
+- `1cb8834` — T-044-2: WP deny policy
+- `6bde490` — T-044-3 + T-044-5: link audit + gain integrity
+- `bcab1fd` — T-044-8: safety docs Section 9
+- `914add6` — F-049: measurement wizard session isolation
+- `bca8d6b` — US-067, US-068, US-069 story drafts
+- `1b527d8` — F-050: dashboard brightness fix
+- `0c1f650` — docs: status + defects update
+- `e286a41` — E2E screenshot baselines
 
-**Pending commit (code complete):**
-- F-048: 25 E2E test fixes (system_view, status_bar, visual_regression, event_log)
-- F-048: 13 E2E test fixes (capture_spectrum, measurement_wizard)
-- T-066-2: D-040 label updates (APP→CONV, DSP→OUT)
-- T-066-3: PHYS IN group inactive state
-- T-044-4: GraphManager safety watchdog (native PW API, <21ms mute)
+**Defects resolved this session:** F-026, F-038, F-043, F-044, F-045, F-046, F-047, F-049, F-050, ENH-001 (10 items)
+**New defects filed:** F-049 (resolved same session), F-050 (resolved same session)
 
-**Defects resolved this session:** F-026, F-038 (already committed), F-043, F-044, F-045, F-046, F-047, ENH-001 (8 items)
-**New defect filed:** F-049 (measurement wizard mock session state isolation)
-
-**E2E test health:** 41 failures → ~1-8 remaining (F-049 state isolation). F-041 VERIFIED — no server crash.
+**E2E test health:** 41 failures → resolved. F-041 VERIFIED — no server crash. F-049 session isolation fixed.
 
 **Story progress:**
 - US-064: DoD 3/8 → 4/8 (E2E test written, 600px responsive fixed)
 - US-065: DoD 5/10 → 6/10 (E2E test written, F-046 confirm dialog)
 - US-066: Phase 1 complete (T-066-1/2/3). Phase 2 needs Pi.
-- US-044: T-044-4 watchdog done. T-044-1/2 in progress.
+- US-044: T-044-1/2/3/4/5/8 done. T-044-6/7 need Pi.
+- US-067, US-068, US-069: stories drafted
+
+**Lesson learned (L-041): CM agent crash — likely memory pressure.**
+The Change Manager agent became unresponsive during the overnight autonomous
+session, causing all commits to stall. A replacement CM was spawned to clear
+the backlog. Probable cause: memory pressure from accumulated context (the CM
+handles all git operations and had been processing a high volume of commits).
+This is the first observed agent crash from resource exhaustion (distinct from
+L-001/L-007/L-008/L-021/L-023/L-031/L-037 which were orchestrator-initiated
+shutdowns). Mitigation: monitor for CM responsiveness during long sessions;
+the CM role accumulates context faster than advisory roles due to frequent
+tool calls (git add, git commit, git status). Consider periodic CM rotation
+for sessions exceeding ~20 commits.
 
 **Next steps:**
-- Commit pending code (F-048 fixes, T-066-2/3, T-044-4)
-- T-044-1 (ALSA lockout) + T-044-2 (WP hardening) — in progress
 - Pi CHANGE session: US-066 Phase 2 (pcm-bridge deploy, TK-112), US-064/US-065 Pi integration tests
-- US-044 remaining tasks (T-044-3/5/6/7/8)
+- US-044: T-044-6 (reboot survival), T-044-7 (no-interference test) — need Pi
+- Task #28: Redesign T-044-1 with dedicated service account (may supersede `df70fc5`)
+- Working tree has uncommitted changes in 16 files — need CM commit
 
 ### Session Wrap-Up (2026-03-21, continued session)
 
@@ -458,7 +483,16 @@ See `docs/project/defects.md` for full details.
 | F-046 | High | Resolved | Quantum confirmation dialog added (`30a25e1`). |
 | F-047 | Low | Resolved | `:focus-visible` CSS styles added (`5dad57e`). |
 | F-049 | Medium | Resolved | Measurement wizard mock session state isolation fixed (task #24, pending commit). |
-| F-050 | Medium | Open | Dashboard brightness too low: spectrum grid lines, meter labels, meter outlines barely visible. Owner UX feedback. worker-brightness assigned. |
+| F-050 | Medium | Resolved | Dashboard brightness fix: spectrum grid, meter labels, meter outlines (`1b527d8`). |
+| F-051 | Medium | Open | Spectrum background accidentally brightened by F-050 — should be black. |
+| F-052 | Medium | Open | Meter contrast still insufficient after F-050 — labels and outlines hard to read. |
+| F-053 | Low | Open | PHYS IN inactive state 30% opacity too subtle — not visible at normal distance. |
+| F-054 | Low | Open | Graph view HP connection lines render behind Convolver node. |
+| F-055 | Medium | Open | Graph view missing four gain nodes (gain_left_hp, gain_right_hp, gain_sub1_lp, gain_sub2_lp). |
+| F-056 | High | Open | Quantum change not reflected in status bar/system tab. Xrun counters not updating. |
+| F-057 | High | Open | Config tab gain controls show -INF and are not editable. Non-functional. |
+| ENH-002 | Low | Open | Tooltips for all dashboard elements (what, good/bad values, relevance). |
+| ENH-003 | Medium | Open | Sticky "problems occurred" latching health indicator with manual clear. |
 
 ### Resolved
 
@@ -486,6 +520,8 @@ See `docs/project/defects.md` for full details.
 | F-046 | High | Resolved | Quantum confirmation dialog (`30a25e1`). |
 | F-047 | Low | Resolved | Keyboard focus indicators (`5dad57e`). |
 | ENH-001 | Low | Resolved | Sample rate in status bar (`ef7a063`). |
+| F-049 | Medium | Resolved | Measurement wizard session isolation (`914add6`). |
+| F-050 | Medium | Resolved | Dashboard brightness fix (`1b527d8`). |
 
 ## External Dependencies
 
