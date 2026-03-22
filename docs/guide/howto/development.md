@@ -216,7 +216,7 @@ appropriate for changes to scripts and application code (not system configs).
 | `PI4AUDIO_LEVELS_HOST` | `127.0.0.1` | pcm-bridge levels server host for LevelsCollector (peak/RMS metering). |
 | `PI4AUDIO_LEVELS_PORT` | `9100` | pcm-bridge levels server TCP port for LevelsCollector. |
 | `PI4AUDIO_PCM_JACK` | (unset) | Enable legacy JACK PCM collector (`1` = enable). Default off — pcm-bridge (Rust) is the replacement. The JACK client joins the RT graph and can cause xruns. |
-| `PI4AUDIO_PW_TOP` | (unset) | Enable PipeWireCollector (`1` = enable). Default off — the `pw-top` subprocess spawned every second causes xruns on the Pi. Native PW metadata reads planned as replacement. |
+| ~~`PI4AUDIO_PW_TOP`~~ | **removed** | Removed (US-063). PipeWireCollector now uses GraphManager RPC — no pw-top subprocess, no env gate needed. PipeWire data is always available. |
 | `PI4AUDIO_MEAS_DIR` | (unset) | Override measurement directory path. Set in webui systemd service file on Pi. |
 | `PLAYWRIGHT_BROWSERS_PATH` | (set by flake) | Path to Playwright's Chromium. Set automatically in `nix develop` and `nix run`. |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | `1` (set by flake) | Prevents Playwright from downloading browsers (Nix provides them). |

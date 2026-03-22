@@ -810,51 +810,7 @@ systemctl --user status pi4audio-signal-gen
 
 ---
 
-> **Historical reference: CamillaDSP (pre-D-040).** The following subsections
-> document the original CamillaDSP-based architecture. They are retained for
-> reference but do not describe the current system.
-
-### 6.1 Install CamillaDSP
-
-```bash
-# Method 1: Download pre-built binary (recommended)
-# Latest: v3.0.1 (2025-03-20) — check https://github.com/HEnquist/camilladsp/releases
-# Pre-built binaries include ALSA backend + websocket server
-# They do NOT include JACK or PulseAudio backends
-# For Pi 4 (aarch64):
-cd /tmp
-wget https://github.com/HEnquist/camilladsp/releases/download/v3.0.1/camilladsp-linux-aarch64.tar.gz
-tar xzf camilladsp-linux-aarch64.tar.gz
-sudo mv camilladsp /usr/local/bin/
-sudo chmod +x /usr/local/bin/camilladsp
-
-# Verify
-camilladsp --version
-
-# Method 2: Build from source (if you need JACK backend or latest features)
-# Requires Rust toolchain — build with NEON SIMD optimization for Pi 4
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source ~/.cargo/env
-sudo apt install -y build-essential libasound2-dev pkg-config openssl libssl-dev
-
-# For JACK backend support (optional):
-# sudo apt install -y jack libjack-dev
-
-git clone https://github.com/HEnquist/camilladsp.git
-cd camilladsp
-
-# Build with NEON optimization (critical for FIR convolution performance on Pi 4)
-RUSTFLAGS='-C target-feature=+neon -C target-cpu=cortex-a72' cargo build --release
-# Or with JACK: cargo build --release --features jack-backend
-sudo cp target/release/camilladsp /usr/local/bin/
-
-# Also install the GUI for configuration (optional, runs on another machine)
-# pip install camilladsp-controller
-# Or use the web-based GUI:
-pip install camilladsp-plot
-```
-
-### 6.2 Install CamillaDSP GUI (Web-based, for remote config)
+### Performance Validation
 
 ```bash
 # The CamillaDSP backend/GUI combo
