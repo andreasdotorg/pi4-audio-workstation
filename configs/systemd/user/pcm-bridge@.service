@@ -13,7 +13,7 @@ ExecStart=/home/ela/bin/pcm-bridge \
     --channels ${CHANNELS} \
     --rate ${RATE} \
     --quantum ${QUANTUM} \
-    ${EXTRA_ARGS}
+    --levels-listen ${LEVELS_LISTEN}
 
 Restart=on-failure
 RestartSec=2
