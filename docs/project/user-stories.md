@@ -3290,7 +3290,7 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 **I want** the Pi to boot straight into DJ mode with Mixxx open, routing active, and volume at a safe level,
 **so that** I can power on the system at a venue and start DJing without manual SSH commands or pw-link setup.
 
-**Status:** in-progress
+**Status:** done (owner-accepted 2026-03-20. 7/7 DoD. Clean reboot demo PASS — S-004, 17/17 checks green.)
 **Depends on:** US-059 IMPLEMENT COMPLETE (GraphManager + filter-chain operational), D-042 (q1024 default)
 **Blocks:** none
 **Decisions:** D-042 (q1024 default for all modes)
@@ -3324,21 +3324,21 @@ attenuation at boot. See `docs/operations/safety.md` Section 1
 (USBStreamer transient risk) and Section 7 (runtime gain safety).
 
 **Acceptance criteria:**
-- [ ] PipeWire quantum defaults to 1024 at boot without manual intervention
-- [ ] Convolver volume attenuation (-30 dB / Mult 0.0316) is verified to persist or be re-applied before any audio routes to the amplifier chain
-- [ ] Mixxx launches automatically after boot and connects to PipeWire JACK bridge
-- [ ] DJ routing (Mixxx -> convolver -> USBStreamer mains + subs, headphone bypass) is established automatically after Mixxx registers
-- [ ] System is ready for DJ playback within 60 seconds of boot completing
-- [ ] No manual SSH, pw-link, or pw-cli commands required for basic DJ operation
+- [x] PipeWire quantum defaults to 1024 at boot without manual intervention
+- [x] Convolver volume attenuation (-30 dB / Mult 0.0316) is verified to persist or be re-applied before any audio routes to the amplifier chain
+- [x] Mixxx launches automatically after boot and connects to PipeWire JACK bridge
+- [x] DJ routing (Mixxx -> convolver -> USBStreamer mains + subs, headphone bypass) is established automatically after Mixxx registers
+- [x] System is ready for DJ playback within 60 seconds of boot completing
+- [x] No manual SSH, pw-link, or pw-cli commands required for basic DJ operation
 
 **DoD:**
-- [ ] Quantum 1024 persisted in PipeWire static config
-- [ ] Mult persistence verified (or startup re-application script deployed and tested)
-- [ ] Mixxx systemd user service created and tested across reboot
-- [ ] pw-link routing script created and tested across reboot
-- [ ] End-to-end reboot test: power cycle -> DJ-ready within 60s
-- [ ] Safety review: attenuation confirmed active before first audio reaches amplifier chain
-- [ ] Owner acceptance: boots and works at venue without intervention
+- [x] Quantum 1024 persisted in PipeWire static config
+- [x] Mult persistence verified (or startup re-application script deployed and tested)
+- [x] Mixxx systemd user service created and tested across reboot
+- [x] pw-link routing script created and tested across reboot
+- [x] End-to-end reboot test: power cycle -> DJ-ready within 60s
+- [x] Safety review: attenuation confirmed active before first audio reaches amplifier chain
+- [x] Owner acceptance: boots and works at venue without intervention
 
 ---
 
@@ -3348,7 +3348,7 @@ attenuation at boot. See `docs/operations/safety.md` Section 1
 **I want** PipeWire graph state (quantum, xrun count, scheduling policy) collected via lightweight PW-native APIs instead of the pw-top subprocess,
 **so that** the web UI status bar and system view display live PipeWire data without causing xruns (F-030 / PI4AUDIO_PW_TOP gate).
 
-**Status:** selected (owner-authorized 2026-03-21. Worker-2 implementing per architect task decomposition.)
+**Status:** mostly satisfied by Phase 2a (task #108 assessment 2026-03-22). PipeWireCollector migrated to GM RPC (`2370ff9`) — quantum, sample rate, xruns, graph state all sourced from GM `get_graph_info` instead of subprocess calls. Remaining gap: xrun counter from PW metadata (F-056 — pw-dump/pw-cli don't expose xrun counts).
 **Depends on:** US-059 (GraphManager + filter-chain operational)
 **Blocks:** none (but satisfies US-060 AC #2 quantum, AC #3 processing load, AC #7 xrun counter, and removes the PI4AUDIO_PW_TOP gate)
 **Decisions:** D-040 (CamillaDSP removed), F-030 (pw-top subprocess causes xruns under DJ load)
@@ -3390,10 +3390,12 @@ All three are non-invasive: they query PipeWire's registry or kernel interfaces 
 **I want** a "Graph" tab in the web UI showing the **actual PipeWire graph topology** from `pw-dump` data with real node names, real links, real states, and live level meters on audio-carrying nodes,
 **so that** I can see exactly what PipeWire sees — real routing, real parameters, real signal levels — and edit gain and quantum values in-place without switching tabs.
 
-**Status:** DESIGN phase (rework per F-059. Previous implementation `23a57c1`
-used hardcoded SVG templates — rejected by owner 2026-03-22. DoD reset to 0/9.
-Architect 6-phase design proposal received. All F-054/F-055 fixes to the old
-hardcoded layout are superseded.)
+**Status:** IMPLEMENT Phase 3 (2026-03-22). Phase 1: SPA config parser committed
+(`e72de9b`, 38 tests). Phase 2: backend `/api/v1/graph/topology` endpoint
+committed (`2370ff9`, 40 unit tests) — merges pw-dump + GM RPC + SPA parser.
+Phase 3: frontend D3.js rendering in progress (task #100, worker-spa). DoD 2/8.
+Previous hardcoded SVG implementation (`23a57c1`) replaced — all F-054/F-055
+fixes to old layout are superseded.
 **Depends on:** US-059 (GraphManager RPC operational), US-060 (monitoring
 replacement — shares data layer), US-066 (pcm-bridge level data)
 **Blocks:** none
