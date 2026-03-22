@@ -8,13 +8,13 @@
 :root {
     --bg: #0c0e12;
     --bg-panel: #14161a;
-    --bg-meter: #101216;
-    --bg-bar: #1f2229;
-    --border: #1f2229;
+    --bg-meter: #181b20;
+    --bg-bar: #2a2e38;
+    --border: #3a3f4a;
     --text: #c8cdd6;
-    --text-dim: #5a6270;
-    --text-micro: #454c58;
-    --text-label: #8a94a4;
+    --text-dim: #8a94a4;
+    --text-micro: #6a7280;
+    --text-label: #a0aab8;
 
     --green: #79e25b;
     --yellow: #e2c039;
@@ -414,20 +414,20 @@ html, body {
 }
 
 .meter-group-label-main {
-    color: #8a94a4;
+    color: #a0aab8;
     font-size: 9px;
 }
 
 .meter-group-label-app {
-    color: #00838f;
+    color: #00acc1;
 }
 
 .meter-group-label-dspout {
-    color: #2e7d32;
+    color: #43a047;
 }
 
 .meter-group-label-physin {
-    color: #c17900;
+    color: #e2a639;
 }
 
 /* Inactive group state (no data source connected) */
@@ -946,7 +946,7 @@ html, body {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #555;
+    color: #888;
     z-index: 1;
 }
 
@@ -2201,10 +2201,10 @@ html, body {
 /* -- Graph Visualization (US-064) ---------------------------------------- */
 
 :root {
-    --gv-color-app: #00838f;
-    --gv-color-dsp: #2e7d32;
-    --gv-color-hw: #c17900;
-    --gv-color-main: #8a94a4;
+    --gv-color-app: #00acc1;
+    --gv-color-dsp: #43a047;
+    --gv-color-hw: #e2a639;
+    --gv-color-main: #a0aab8;
     --gv-node-bg: #1a1d23;
     --gv-border: #556;
     --gv-border-absent: #778;

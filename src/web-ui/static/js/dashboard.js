@@ -209,7 +209,7 @@
 
         ctx.clearRect(0, 0, w, h);
 
-        ctx.fillStyle = "#101216";
+        ctx.fillStyle = "#181b20";
         ctx.fillRect(0, 0, w, h);
 
         // Peak fill — unified gradient for all groups:
@@ -245,7 +245,7 @@
         }
 
         // dB scale lines
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.fillStyle = "rgba(255,255,255,0.20)";
         var markers = [-48, -36, -24, -12, -6];
         for (var m = 0; m < markers.length; m++) {
             var my = h - dbToFraction(markers[m]) * h;

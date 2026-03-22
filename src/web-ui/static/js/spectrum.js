@@ -82,9 +82,9 @@
 
     var OUTLINE_STYLE = "rgba(220, 220, 240, 0.7)";
     var OUTLINE_WIDTH = 1.5;
-    var BG_COLOR = "#0c0e12";
-    var GRID_COLOR = "rgba(200, 205, 214, 0.08)";
-    var LABEL_COLOR = "#6a7280";
+    var BG_COLOR = "#181b20";
+    var GRID_COLOR = "rgba(200, 205, 214, 0.22)";
+    var LABEL_COLOR = "#9aa3b0";
 
     // Smoothing
     var ANALYSER_SMOOTHING = 0.3;
@@ -487,7 +487,7 @@
         }
 
         // --- dB grid lines: minor (6dB intermediates) ---
-        ctx.strokeStyle = "rgba(200, 205, 214, 0.04)";
+        ctx.strokeStyle = "rgba(200, 205, 214, 0.12)";
         ctx.lineWidth = 0.5;
         for (var im = 0; im < DB_GRID_LINES_MINOR.length; im++) {
             var ym = dbToY(DB_GRID_LINES_MINOR[im]);
@@ -510,7 +510,7 @@
         ctx.fillText("-60 dB", plotX - 3, dbToY(-60));
 
         // --- Vertical frequency grid: minor (lightest) ---
-        ctx.strokeStyle = "rgba(200, 205, 214, 0.025)";
+        ctx.strokeStyle = "rgba(200, 205, 214, 0.10)";
         ctx.lineWidth = 0.5;
         for (var km = 0; km < FREQ_GRID_MINOR.length; km++) {
             var normm = freqToNorm(FREQ_GRID_MINOR[km]);
@@ -523,7 +523,7 @@
         }
 
         // --- Vertical frequency grid: medium ---
-        ctx.strokeStyle = "rgba(200, 205, 214, 0.05)";
+        ctx.strokeStyle = "rgba(200, 205, 214, 0.16)";
         ctx.lineWidth = 1;
         for (var kd = 0; kd < FREQ_GRID_MEDIUM.length; kd++) {
             var normd = freqToNorm(FREQ_GRID_MEDIUM[kd]);
