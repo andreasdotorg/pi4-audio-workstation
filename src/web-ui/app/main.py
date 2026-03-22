@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -97,6 +98,17 @@ async def _watchdog_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown logic."""
+    # 0. Expand default thread pool (F-063).
+    # The default executor has min(32, cpu_count+4) = 8 threads on Pi 4.
+    # PCM relay, pw-dump, pw-cli, and GM RPC calls all use asyncio.to_thread,
+    # which queues on this pool. With 2-3 browser tabs each holding a blocking
+    # tcp_sock.recv, the pool saturates and new connections (including TLS
+    # handshakes) stall. 32 threads provides headroom for concurrent PCM
+    # streams + collector polling + pw-cli operations.
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=32)
+    loop.set_default_executor(executor)
+
     # 1. Create ModeManager.
     gm_host = os.environ.get("PI4AUDIO_GM_HOST", "127.0.0.1")
     gm_port = int(os.environ.get("PI4AUDIO_GM_PORT", "4002"))
@@ -182,6 +194,7 @@ async def lifespan(app: FastAPI):
             await task
         except Exception:
             pass
+    executor.shutdown(wait=False)
     log.info("Shutdown complete")
 
 
