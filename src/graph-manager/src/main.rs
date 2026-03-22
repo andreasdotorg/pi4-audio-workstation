@@ -620,8 +620,8 @@ fn run_gain_integrity_check(
 /// Update the cached PipeWire graph info (quantum, sample rate, xruns).
 ///
 /// Runs `pw-metadata -n settings` to read quantum/force-quantum/sample-rate,
-/// then finds the USBStreamer driver node from the graph state and runs
-/// `pw-cli info <node-id>` to read the xrun count.
+/// then iterates over all tracked nodes and sums their `clock.xrun-count`
+/// values via `pw-cli info <node-id>` calls.
 ///
 /// Called every 1s on the PW main loop thread. Subprocess overhead is ~5-10ms
 /// each — acceptable for a 1s polling interval on the control plane.
@@ -677,21 +677,33 @@ fn update_graph_info_cache(
         }
     }
 
-    // --- Step 2: Find driver node and read xruns ---
+    // --- Step 2: Aggregate xruns across ALL tracked nodes (F-092) ---
+    //
+    // PipeWire tracks xrun counters per-node. Previously only the
+    // USBStreamer driver node was queried, missing xruns on Mixxx,
+    // convolver, or other nodes. Now we sum clock.xrun-count across
+    // every tracked node.
     let mut xruns: u64 = 0;
     let mut driver_node_name = String::new();
 
-    // Extract driver node info from the graph (borrow scope).
-    let driver_info: Option<(String, u32)> = {
+    // Collect all node IDs and identify the driver node (borrow scope).
+    let (all_node_ids, driver_info): (Vec<u32>, Option<(String, u32)>) = {
         let g = graph.borrow();
-        let result = g.nodes()
+        let ids: Vec<u32> = g.nodes().map(|n| n.id).collect();
+        let driver = g.nodes()
             .find(|n| n.name.starts_with("alsa_output.usb-MiniDSP_USBStreamer"))
             .map(|n| (n.name.clone(), n.id));
-        result
+        (ids, driver)
     };
 
-    if let Some((name, node_id)) = driver_info {
+    if let Some((name, _)) = driver_info {
         driver_node_name = name;
+    }
+
+    // Query each node for xrun counts. Each pw-cli call takes ~5ms;
+    // with ~10-20 nodes this adds ~50-100ms per cycle — acceptable
+    // for a 1s control-plane poll.
+    for node_id in &all_node_ids {
         match Command::new("pw-cli").arg("info").arg(node_id.to_string()).output() {
             Ok(output) if output.status.success() => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -713,6 +725,7 @@ fn update_graph_info_cache(
             }
             Err(e) => {
                 log::debug!("pw-cli info failed to execute: {}", e);
+                break; // pw-cli binary not available, skip remaining nodes
             }
         }
     }
