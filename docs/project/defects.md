@@ -2543,10 +2543,10 @@ is down or slow. This is the primary operational interface — HIGH severity.
 - `src/web-ui/app/collectors/` (all collector modules)
 - `src/web-ui/app/main.py` (event loop setup)
 
-## F-066: C-009 Mult persistence claim needs Pi verification (OPEN)
+## F-066: C-009 Mult persistence claim needs Pi verification (RESOLVED)
 
 **Severity:** Medium (safety-adjacent — gain values protect speakers)
-**Status:** Open
+**Status:** RESOLVED — Mult values are SESSION-ONLY (revert to .conf defaults on PW restart). Docs corrected in US-071 audit.
 **Found in:** AE architecture review (2026-03-22)
 **Affects:** Gain attenuation persistence across PipeWire restarts
 **Found by:** Audio Engineer (AE Finding 2)
