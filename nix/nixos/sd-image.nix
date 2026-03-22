@@ -5,11 +5,11 @@
 #
 # The image uses U-Boot as the second-stage bootloader so that
 # NixOS's extlinux-based generation switching works out of the box.
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, modulesPath, ... }:
 
 {
   imports = [
-    "${toString pkgs.path}/nixos/modules/installer/sd-card/sd-image-aarch64.nix"
+    "${modulesPath}/installer/sd-card/sd-image-aarch64.nix"
   ];
 
   # ── Image knobs ────────────────────────────────────────────────

@@ -15,10 +15,10 @@
 
   # ── Kernel ─────────────────────────────────────────────────────
   # Phase 1: stock Raspberry Pi fork kernel (NOT PREEMPT_RT — that is Phase 5).
-  # nixos-hardware may already set this; lib.mkDefault lets the
-  # nixos-hardware value win if it conflicts, but ensures we have a
-  # value when the module is used standalone.
-  boot.kernelPackages = lib.mkDefault pkgs.linuxPackages_rpi4;
+  # nixos-hardware.nixosModules.raspberry-pi-4 already sets this to
+  # linuxPackages_rpi4 via mkDefault, so we don't duplicate it here.
+  # When used standalone (without nixos-hardware), add:
+  #   boot.kernelPackages = pkgs.linuxPackages_rpi4;
 
   # ALSA loopback device — required by CamillaDSP for virtual routing
   boot.kernelModules = [ "snd-aloop" ];

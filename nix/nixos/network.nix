@@ -7,10 +7,8 @@
     nftables.enable = true;
     firewall = {
       enable = true;
-      allowedTCPPorts = [ 22 ];      # SSH only for Phase 1
-      allowedUDPPorts = [ 5353 ];    # mDNS
-      # VNC (5900) added in Phase 3 (display.nix)
-      # Web UI (8080) added in Phase 4 (applications.nix)
+      allowedTCPPorts = [ 22 5900 8080 ];  # SSH, wayvnc, web-ui
+      allowedUDPPorts = [ 5353 ];           # mDNS
     };
   };
 
