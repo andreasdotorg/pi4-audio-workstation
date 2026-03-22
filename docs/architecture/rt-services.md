@@ -76,7 +76,7 @@ input and output) and publishes pre/post-convolver level data as JSON over
 WebSocket at 10 Hz. Replaces the Python `LevelsCollector` that polled
 pcm-bridge over TCP.
 
-- **PW streams:** 2 (convolver capture side + convolver playback side)
+- **PW streams:** 2 capture/monitor streams (pre-convolver + post-convolver)
 - **Protocol:** WebSocket JSON, 10 Hz update rate
 - **Node property:** `node.passive = true` (never drives the graph)
 - **Shared code:** `audio-common::LevelTracker`
@@ -87,7 +87,9 @@ On-demand spectrum taps managed by GraphManager. Each instance attaches to a
 specific point in the PipeWire graph and streams raw PCM data over WebSocket.
 GM allocates ports starting at :9200 and monitors health.
 
-- **Protocol:** WebSocket binary PCM (all channels interleaved)
+- **Protocol:** Currently raw TCP binary PCM (all channels interleaved);
+  Phase 2f adds WebSocket via `tungstenite` with backward-compatible HTTP
+  Upgrade detection
 - **Channel selection:** Browser JS selects which channels to display
 - **Lifecycle:** GM creates/destroys instances via `start_tap`/`stop_tap` RPC
 - **Node property:** `node.passive = true`
@@ -102,16 +104,18 @@ Python proxy stays in the loop for D-009 safety enforcement -- the web UI
 validates gain parameters before forwarding to signal-gen.
 
 Always-on systemd user service (not GM-managed). This simplifies lifecycle --
-signal-gen is always ready for measurement without startup delay. The RPC
-interface accepts a `start_clock_position` parameter from the web UI to
-coordinate timing with audio-recorder (see Section 8).
+signal-gen is always ready for measurement without startup delay. Signal-gen
+reports its `start_clock_position` (the PW graph clock position at the first
+quantum of playback) in its `status` RPC response. The web UI reads this
+after the sweep completes for post-hoc alignment with audio-recorder
+(see Section 8).
 
 - **Protocol:** TCP JSON-RPC (newline-delimited)
 - **Safety:** Hard output level cap, independent of any software configuration
 - **Lifecycle:** systemd user service, always listening on :4001
-- **Key RPC parameter:** `start_clock_position` -- PipeWire graph clock
-  position at which to begin playback (set by web UI based on audio-recorder's
-  reported clock position)
+- **Key RPC output:** `start_clock_position` -- PipeWire graph clock position
+  at the first quantum where playback began. Reported in `status` response,
+  used by web UI for deconvolution alignment.
 - **Design doc:** [rt-signal-generator.md](rt-signal-generator.md)
 
 ### audio-recorder
@@ -122,10 +126,11 @@ web UI manages audio-recorder's lifecycle directly (not GraphManager).
 
 Deconvolution (performed post-capture in Python) inherently finds time
 offsets within the captured buffer, so sample-accurate synchronization with
-signal-gen is not required. However, both services use PipeWire clock
-timestamps (`spa_io_position.clock.position`) to establish a shared timeline
--- the web UI reads the recorder's current clock position and passes it to
-signal-gen as the `start_clock_position` parameter.
+signal-gen is not required. Both services independently record the PipeWire
+clock position (`spa_io_position.clock.position`) at their first active
+quantum and report it to the web UI. The web UI reads both services'
+reported clock positions after the measurement and computes the alignment
+offset for deconvolution.
 
 - **Protocol:** TCP JSON-RPC (newline-delimited, matching signal-gen pattern)
 - **Port:** :4003
@@ -163,7 +168,9 @@ tier boundary is absolute.
 All four RT services share a workspace crate. **Key constraint:** `audio-common`
 has zero dependency on PipeWire (`pipewire-rs` or `libpipewire`). Each service
 adds its own PipeWire dependency; the shared crate provides only pure-Rust
-data structures and helpers.
+data structures and helpers. Note: `build_audio_format` uses SPA type IDs as
+raw `u32` constants copied from PipeWire headers, not as imports from
+`libspa-rs`. No runtime PW dependency.
 
 | Component | Purpose | Used by |
 |-----------|---------|---------|
@@ -176,7 +183,7 @@ data structures and helpers.
 ### Cargo Workspace Layout
 
 ```
-src/rt/
+src/
     Cargo.toml              # workspace root
     audio-common/
         Cargo.toml          # no pipewire dependency
@@ -244,7 +251,10 @@ adds the binding. This is a known gap tracked for upstream contribution.
 
 ### Always-On Services (systemd)
 
-**level-bridge** and **signal-gen** run as systemd user services, started at boot.
+**level-bridge**, **signal-gen**, and **GraphManager** run as systemd user
+services, started at boot. GraphManager (:4002) is an existing always-on
+service that manages link topology and mode transitions. See the GraphManager
+design doc for its service configuration.
 
 level-bridge:
 
@@ -385,31 +395,35 @@ Web-UI (Python)              signal-gen (:4001)         audio-recorder (:4003)
      |--- spawn (if not running) -------------------------------->|
      |<------------------------------- ready (health check OK) ---|
      |                            |                           |
-     |--- start_capture(ch, len) -------------------------------->|
-     |<---------------------- { clock_position: N } -------------|
+     |--- start_recording(target: UMIK-1) ----------------------->|
+     |<----------------------------------- { ok } ---------------|
      |                            |                           |
-     |--- start(sweep, gain,      |                           |
-     |    start_clock_position:   |                           |
-     |    N + margin) ----------->|                           |
+     |--- play(sweep, gain) ---->|                           |
      |<--- { ok } ---------------|                           |
      |                            |                           |
      |    ... sweep plays ...     |    ... capture runs ...   |
      |                            |                           |
-     |--- stop() --------------->|                           |
-     |<--- { ok } ---------------|                           |
+     |--- status() ------------->|                           |
+     |<--- { start_clock_pos:    |                           |
+     |       N, state: stopped } |                           |
      |                            |                           |
-     |--- get_capture() ------------------------------------------->|
-     |<---------------------- { pcm_data, clock_start, len } ------|
+     |--- stop_recording() -------------------------------------->|
+     |<------------ { clock_start: M, n_frames: F, nsec: T } ----|
      |                            |                           |
-     |  (Python: deconvolve,      |                           |
-     |   compute IR, save)        |                           |
+     |--- get_recording() ---------------------------------------->|
+     |<---------------------- { pcm_data, clock_start: M } -------|
+     |                            |                           |
+     |  (Python: align using      |                           |
+     |   delta = N - M,           |                           |
+     |   deconvolve, save IR)     |                           |
 ```
 
-**Margin:** The web UI adds a small margin (e.g., 2-4 quantum periods) to
-the `start_clock_position` to account for RPC round-trip latency and
-ensure the recorder is already capturing when signal-gen begins playback.
-The worst-case start uncertainty is 1 quantum period (the signal-gen's
-`process` callback fires once per quantum).
+**Timing:** The web UI sends `start_recording` before `play` to ensure the
+recorder is already capturing when signal-gen begins playback. Both services
+report their start `clock.position` independently. The web UI computes the
+sample offset (delta) between the two and passes it to the deconvolution
+step. The worst-case start uncertainty is 1 quantum period, which is a
+trivial constant offset for deconvolution.
 
 ### Clock Position Precision
 
@@ -432,7 +446,7 @@ on each other (except where noted). Phases 3-5 depend on Phase 2 completion.
 |-------|----------|-------|------------|
 | **2a** | HIGH | `get_graph_info` GM RPC endpoint. Replace `pipewire_collector` subprocess calls with GM RPC. Directly fixes F-061/F-063/F-064 collector blocking. | -- |
 | **2b** | HIGH | Add `tungstenite` WebSocket to pcm-bridge + `audio-common` shared crate restructuring (add `CaptureRingBuffer`, `SpscQueue`, `build_audio_format`). | -- |
-| **2c** | MEDIUM | signal-gen `start_clock_position` parameter + systemd unit. Convert from GM-managed to always-on. | -- |
+| **2c** | MEDIUM | Remove capture code from signal-gen, add clock position reporting to `status` response. signal-gen is already always-on systemd. | -- |
 | **2d** | MEDIUM | audio-recorder binary. TCP JSON-RPC on :4003, `CaptureRingBuffer`, PW capture stream, 60s idle timeout. | 2b (shared crate) |
 | **2e** | MEDIUM | Web-UI measurement session updates. Spawn/manage audio-recorder, read clock position, pass to signal-gen. | 2c, 2d |
 | **2f** | LOW | `pipewire-rs` upstream PR for `pw_stream_get_time_n` binding. Until merged, use thin unsafe FFI wrapper. | -- |
@@ -451,7 +465,7 @@ shared crate structure is agreed.
 | Document | Relationship |
 |----------|-------------|
 | [rt-audio-stack.md](rt-audio-stack.md) | PipeWire configuration, filter-chain convolver, gain architecture. RT services attach to this audio graph. |
-| [rt-signal-generator.md](rt-signal-generator.md) | Detailed design of signal-gen (D-037). Covers safety caps, RPC protocol, PW stream management. Must be updated for `start_clock_position` parameter and systemd lifecycle. |
+| [rt-signal-generator.md](rt-signal-generator.md) | Detailed design of signal-gen (D-037). Covers safety caps, RPC protocol, PW stream management. Must be updated for clock position reporting in `status` response. |
 | [measurement-daemon.md](measurement-daemon.md) | Measurement workflow architecture (D-036). Web-UI Python orchestrates measurement sessions using signal-gen + audio-recorder. Must be updated for clock-based timing alignment. |
 | [web-ui.md](web-ui.md) | Web UI architecture. FilterChainCollector and LevelsCollector will be replaced by direct browser-to-RT-service WebSocket connections (Phase 3). Measurement session code manages audio-recorder lifecycle. |
 | [safety.md](../operations/safety.md) | Operational safety constraints. Signal-gen's -20 dBFS cap (D-009), GM watchdog mute (<21ms), gain staging limits. |
