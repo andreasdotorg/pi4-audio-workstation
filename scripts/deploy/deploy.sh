@@ -75,6 +75,8 @@ USER_CONFIGS=(
     "configs/wireplumber/50-usbstreamer-disable-acp.conf|.config/wireplumber/wireplumber.conf.d/50-usbstreamer-disable-acp.conf"
     "configs/wireplumber/51-loopback-disable-acp.conf|.config/wireplumber/wireplumber.conf.d/51-loopback-disable-acp.conf"
     "configs/wireplumber/52-umik1-low-priority.conf|.config/wireplumber/wireplumber.conf.d/52-umik1-low-priority.conf"
+    "configs/wireplumber/53-deny-usbstreamer-alsa.conf|.config/wireplumber/wireplumber.conf.d/53-deny-usbstreamer-alsa.conf"
+    "configs/wireplumber/scripts/deny-usbstreamer-alsa.lua|.config/wireplumber/scripts/deny-usbstreamer-alsa.lua"
     "configs/systemd/user/labwc.service|.config/systemd/user/labwc.service"
     "configs/systemd/user/pipewire-force-quantum.service|.config/systemd/user/pipewire-force-quantum.service"
     "configs/systemd/user/pi4-audio-webui.service|.config/systemd/user/pi4-audio-webui.service"
@@ -91,6 +93,7 @@ SYSTEM_CONFIGS=(
     "configs/camilladsp/production/dj-pa.yml|/etc/camilladsp/production/dj-pa.yml"
     "configs/camilladsp/production/live.yml|/etc/camilladsp/production/live.yml"
     "configs/systemd/camilladsp.service.d/override.conf|/etc/systemd/system/camilladsp.service.d/override.conf"
+    "configs/udev/90-usbstreamer-lockout.rules|/etc/udev/rules.d/90-usbstreamer-lockout.rules"
 )
 
 # Scripts to deploy to ~/bin/ (chmod +x)
@@ -270,7 +273,7 @@ echo "=== Section 3: Deploy system-level configs (sudo) ==="
 
 # Create staging directory and system destination directories
 ssh_cmd "mkdir -p $STAGING_DIR"
-ssh_cmd "sudo mkdir -p /etc/camilladsp/production /etc/systemd/system/camilladsp.service.d"
+ssh_cmd "sudo mkdir -p /etc/camilladsp/production /etc/systemd/system/camilladsp.service.d /etc/udev/rules.d"
 
 for entry in "${SYSTEM_CONFIGS[@]}"; do
     src="${entry%%|*}"
@@ -320,6 +323,10 @@ echo "=== Section 5: Reload systemd ==="
 ssh_cmd "sudo systemctl daemon-reload"
 ssh_cmd "systemctl --user daemon-reload"
 echo "  systemd reloaded (system + user)."
+
+# Reload udev rules (US-044: ALSA lockout)
+ssh_cmd "sudo udevadm control --reload-rules"
+echo "  udev rules reloaded."
 echo ""
 
 # --- Section 6: Deploy scripts -----------------------------------------------
