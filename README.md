@@ -37,8 +37,8 @@ singing in a tile bathroom. The system keeps that delay under 21 milliseconds,
 fast enough to feel natural.
 
 Both modes share the same audio processing pipeline. The only things that
-change are the application (Mixxx vs Reaper) and the buffer sizes (trading
-CPU efficiency for lower latency in live mode).
+change are the application (Mixxx vs Reaper) and the PipeWire quantum
+(trading CPU efficiency for lower latency in live mode).
 
 **Why these choices?** The [design rationale](docs/theory/design-rationale.md)
 tells the story behind the technical decisions -- why combined FIR filters
@@ -209,43 +209,46 @@ For detailed progress, see [docs/project/status.md](docs/project/status.md).
 ## Repository Layout
 
 ```
-SETUP-MANUAL.md              Comprehensive setup manual (~2200 lines)
-scripts/                     Automation scripts (see scripts/README.md)
+SETUP-MANUAL.md              Comprehensive setup manual (~2500 lines)
+src/                         Source code
+  web-ui/                    Monitoring web UI (FastAPI + JS, 7-tab SPA)
+  graph-manager/             GraphManager — PipeWire link topology manager (Rust)
+  pcm-bridge/                PCM bridge — lock-free level metering and PCM taps (Rust)
+  signal-gen/                RT signal generator for measurement/test (Rust)
+  room-correction/           Automated room correction pipeline (Python)
+  measurement/               Measurement client libraries (GraphManager RPC)
+  midi/                      MIDI system controller daemon
+  camilladsp-test/           Historical CamillaDSP benchmark harness (pre-D-040)
+scripts/                     Operational scripts
   test/                      Benchmark and latency measurement scripts
   stability/                 Long-running stability test scripts
   deploy/                    Deployment scripts (deploy.sh, libjack alternatives)
   launch/                    Application launch scripts (start-mixxx.sh)
-  midi/                      MIDI system controller daemon and tests
-  room-correction/           Automated room correction pipeline
-  web-ui/                    Monitoring web UI application (FastAPI + JS)
+  ci/                        CI helper scripts
+  drivers/                   Driver management scripts
+nix/                         NixOS standalone build (flake modules)
+  nixos/                     NixOS system configuration (hardware, audio, services, display)
 configs/                     All configuration files (see configs/README.md)
-  camilladsp/production/     Historical CamillaDSP configs (pre-D-040, service stopped)
-  camilladsp/test/           Historical CamillaDSP benchmark configs (pre-D-040)
-  pipewire/                  PipeWire audio server configuration
+  pipewire/                  PipeWire audio server + filter-chain convolver config
   wireplumber/               WirePlumber routing rules
+  pcm-bridge/                pcm-bridge service configuration
   midi/                      MIDI controller mappings (APCmini mk2)
   mixxx/                     Mixxx DJ software config and controller mappings
   room-correction/           Room correction profiles and venue templates
   speakers/                  Speaker identity files and system profiles
-  systemd/                   systemd service units and overrides (labwc, graph-manager, web UI, etc.)
+  systemd/                   systemd service units and overrides
+  camilladsp/                Historical CamillaDSP configs (pre-D-040, service stopped)
   labwc/                     labwc Wayland compositor configuration
   wayvnc/                    wayvnc remote desktop configuration
-  xdg-desktop-portal-wlr/   Screen share auto-approve for headless operation
 results/                     Processed test results (see results/README.md)
-  benchmarks/                US-001 CPU benchmark results
-  latency/                   US-002 latency measurement results
 data/                        Raw test data (see data/README.md)
-  US-003/T3b/                Live mode stability test data
-  US-003/T3c/                Informational stability test data
-  US-003/T3e/                PREEMPT_RT validation data
 patches/                     Kernel patches (V3D DMA fence deadlock fix)
-poc/                         Proof-of-concept prototypes (web UI PoC)
 docs/
   guide/introduction.md      Documentation entry point and navigation map
   guide/howto/               Step-by-step operational procedures
-  architecture/              System architecture (RT audio stack, web UI)
+  architecture/              System architecture (RT audio stack, RT services, web UI)
+  operations/                Safety manual, operational procedures
   theory/                    Design rationale, enclosure topologies, Zynq exploration
-  design-reference/          External reference material (minimeters)
   project/                   Status, decisions, user stories, task register
   lab-notes/                 Experiment logs with raw data and exact commands
 ```
