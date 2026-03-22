@@ -263,6 +263,11 @@ pub enum RpcCommand {
     WatchdogUnlatch {
         reply: mpsc::Sender<RpcResult>,
     },
+
+    /// Request the current gain integrity check status.
+    GainIntegrityStatus {
+        reply: mpsc::Sender<crate::gain_integrity::GainIntegrityStatus>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +321,17 @@ pub enum GraphEvent {
     },
     #[serde(rename = "watchdog_unlatched")]
     WatchdogUnlatched { restored_gains: usize },
+    #[serde(rename = "gain_integrity_violation")]
+    GainIntegrityViolation {
+        violating: Vec<(String, f64)>,
+    },
+    #[serde(rename = "link_audit_violation")]
+    LinkAuditViolation {
+        /// Violating links: (source_node, source_port, target_port).
+        violations: Vec<(String, String, String)>,
+        /// Number of violating links destroyed.
+        destroyed: usize,
+    },
 }
 
 
@@ -350,6 +366,7 @@ pub fn handle_request(
         "get_links" => handle_get_links(cmd_tx, stored_mode),
         "watchdog_status" => handle_watchdog_status(cmd_tx),
         "watchdog_unlatch" => handle_watchdog_unlatch(cmd_tx),
+        "gain_integrity_status" => handle_gain_integrity_status(cmd_tx),
         other => HandleResult::Error(
             other.to_string(),
             format!("unknown command: \"{}\"", other),
@@ -649,6 +666,56 @@ fn handle_watchdog_unlatch(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
     }
 }
 
+fn handle_gain_integrity_status(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::GainIntegrityStatus { reply: reply_tx })
+        .is_err()
+    {
+        let status = crate::gain_integrity::GainIntegrityStatus {
+            last_result: None,
+            consecutive_ok: 0,
+            consecutive_violations: 0,
+            total_checks: 0,
+        };
+        return HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "gain_integrity_status",
+                "ok": true,
+                "gain_integrity": status,
+            }))
+            .unwrap_or_default(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(status) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "gain_integrity_status",
+                "ok": true,
+                "gain_integrity": status,
+            }))
+            .unwrap_or_default(),
+        ),
+        Err(_) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "gain_integrity_status",
+                "ok": true,
+                "gain_integrity": {
+                    "last_result": null,
+                    "consecutive_ok": 0,
+                    "consecutive_violations": 0,
+                    "total_checks": 0,
+                },
+            }))
+            .unwrap_or_default(),
+        ),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Response formatting
 // ---------------------------------------------------------------------------
@@ -762,6 +829,14 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
         }
         RpcCommand::WatchdogUnlatch { reply } => {
             let _ = reply.send(RpcResult::Error("watchdog is not latched".to_string()));
+        }
+        RpcCommand::GainIntegrityStatus { reply } => {
+            let _ = reply.send(crate::gain_integrity::GainIntegrityStatus {
+                last_result: None,
+                consecutive_ok: 0,
+                consecutive_violations: 0,
+                total_checks: 0,
+            });
         }
     }
 }

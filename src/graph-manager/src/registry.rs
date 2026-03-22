@@ -37,6 +37,7 @@ use std::sync::mpsc;
 
 use crate::graph::{GraphState, TrackedLink, TrackedNode, TrackedPort};
 use crate::lifecycle::{ComponentRegistry, HealthTransition};
+use crate::link_audit;
 use crate::reconcile::{self, LinkAction};
 use crate::routing::{Mode, RoutingTable};
 use crate::rpc::GraphEvent;
@@ -135,7 +136,7 @@ impl RegistryHandle {
             let mut pod_data: Vec<u8> = Vec::with_capacity(128);
             let mut builder = libspa::pod::builder::Builder::new(&mut pod_data);
 
-            let build_result = libspa::builder_add!(
+            let build_result = libspa::__builder_add__!(
                 &mut builder,
                 Object(
                     spa_sys::SPA_TYPE_OBJECT_Props,
@@ -408,6 +409,11 @@ fn run_reconcile(
     // This fires on every graph mutation — if a critical node disappears,
     // the watchdog latches a safety mute within the same PW loop iteration.
     run_watchdog_check(graph, watchdog, registry, event_tx);
+
+    // Run link audit (T-044-3).
+    // Verify no links bypass the convolver/gain chain to reach USBStreamer
+    // speaker ports directly. Destroy any violating links immediately.
+    run_link_audit(graph, registry, event_tx);
 }
 
 /// Execute the safety watchdog check and apply mute actions.
@@ -509,6 +515,53 @@ fn run_watchdog_check(
         }
 
     }
+}
+
+/// Run the link audit and destroy any bypass links (T-044-3).
+///
+/// Checks all links in the graph for convolver bypass violations:
+/// any link to USBStreamer speaker ports (AUX0..AUX3) that does NOT
+/// originate from `pi4audio-convolver-out`. Violating links are
+/// destroyed immediately via `registry.destroy_global()`.
+///
+/// Called after every graph mutation alongside the watchdog check.
+fn run_link_audit(
+    graph: &GraphState,
+    registry: &RegistryHandle,
+    event_tx: &mpsc::Sender<GraphEvent>,
+) {
+    let violations = link_audit::audit_links(graph);
+
+    if violations.is_empty() {
+        return;
+    }
+
+    log::error!(
+        "LINK AUDIT: {} bypass violation(s) detected — destroying",
+        violations.len(),
+    );
+
+    let mut destroyed = 0usize;
+    let mut violation_info = Vec::new();
+
+    for v in &violations {
+        log::error!(
+            "LINK AUDIT: Destroying bypass link id={}: {} ({}) -> USBStreamer {}",
+            v.link_id, v.source_node, v.source_port, v.target_port,
+        );
+        registry.destroy_global(v.link_id);
+        destroyed += 1;
+        violation_info.push((
+            v.source_node.clone(),
+            v.source_port.clone(),
+            v.target_port.clone(),
+        ));
+    }
+
+    let _ = event_tx.send(GraphEvent::LinkAuditViolation {
+        violations: violation_info,
+        destroyed,
+    });
 }
 
 /// Register the PW registry listener that populates GraphState from

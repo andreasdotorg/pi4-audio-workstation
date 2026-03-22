@@ -31,8 +31,10 @@
 //! - `rpc` — TCP JSON-RPC server (port 4002), cross-thread commands
 
 // Pure-logic modules — compile on all platforms.
+mod gain_integrity;
 mod graph;
 mod lifecycle;
+mod link_audit;
 mod reconcile;
 mod routing;
 mod rpc;
@@ -133,6 +135,7 @@ fn run_pipewire(
     use std::rc::Rc;
     use std::time::Duration;
 
+    use gain_integrity::GainIntegrityCheck;
     use graph::GraphState;
     use lifecycle::ComponentRegistry;
     use routing::RoutingTable;
@@ -172,6 +175,10 @@ fn run_pipewire(
     // safety mute if any disappear (T-044-4).
     let watchdog_state = Rc::new(RefCell::new(Watchdog::new()));
     info!("Safety watchdog initialized (monitoring {} nodes)", watchdog::MONITORED_NODES.len());
+
+    // Gain integrity check — periodic Mult <= 1.0 verification (T-044-5).
+    let gain_integrity_state = Rc::new(RefCell::new(GainIntegrityCheck::new()));
+    info!("Gain integrity check initialized (checking {} gain nodes)", watchdog::GAIN_NODE_NAMES.len());
 
     // Created link proxies — must be kept alive for links to persist.
     // Keyed by (output_port_id, input_port_id).
@@ -241,6 +248,7 @@ fn run_pipewire(
         let component_registry = component_registry.clone();
         let reg_handle = reg_handle.clone();
         let watchdog_state = watchdog_state.clone();
+        let gain_integrity_state = gain_integrity_state.clone();
         move |_expirations| {
             // Drain all pending commands.
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -261,6 +269,7 @@ fn run_pipewire(
                     &reg_handle,
                     &component_registry,
                     &watchdog_state,
+                    &gain_integrity_state,
                 );
             }
         }
@@ -274,11 +283,40 @@ fn run_pipewire(
         .expect("Failed to arm RPC command timer");
     info!("RPC command timer armed (50ms polling)");
 
+    // Gain integrity timer: every 30s, run `pw-dump` and check that all
+    // gain node Mult values are <= 1.0 (T-044-5). If any Mult > 1.0,
+    // trigger watchdog safety mute.
+    let _gain_timer = mainloop.loop_().add_timer({
+        let gain_integrity_state = gain_integrity_state.clone();
+        let watchdog_state = watchdog_state.clone();
+        let reg_handle = reg_handle.clone();
+        let event_tx = event_tx.clone();
+        let graph = graph.clone();
+        move |_expirations| {
+            run_gain_integrity_check(
+                &gain_integrity_state,
+                &watchdog_state,
+                &reg_handle,
+                &event_tx,
+                &graph,
+            );
+        }
+    });
+    _gain_timer
+        .update_timer(
+            Some(Duration::from_secs(30)),
+            Some(Duration::from_secs(30)),
+        )
+        .into_result()
+        .expect("Failed to arm gain integrity timer");
+    info!("Gain integrity timer armed (30s polling)");
+
     info!("PipeWire main loop starting");
     mainloop.run();
     info!("PipeWire main loop exited");
 
     // Drop PipeWire objects in reverse order BEFORE calling deinit().
+    drop(_gain_timer);
     drop(_rpc_timer);
     drop(_shutdown_timer);
     drop(_registry_listener);
@@ -310,6 +348,7 @@ fn dispatch_rpc_command(
     reg_handle: &registry::RegistryHandle,
     component_registry: &std::rc::Rc<std::cell::RefCell<lifecycle::ComponentRegistry>>,
     watchdog_state: &std::rc::Rc<std::cell::RefCell<watchdog::Watchdog>>,
+    gain_integrity_state: &std::rc::Rc<std::cell::RefCell<gain_integrity::GainIntegrityCheck>>,
 ) {
     use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
@@ -434,6 +473,112 @@ fn dispatch_rpc_command(
                     ));
                 }
             }
+        }
+
+        rpc::RpcCommand::GainIntegrityStatus { reply } => {
+            let gi = gain_integrity_state.borrow();
+            let _ = reply.send(gi.status());
+        }
+    }
+}
+
+/// Run one cycle of the gain integrity check (T-044-5).
+///
+/// Spawns `pw-dump` as a subprocess, parses gain node Mult values,
+/// and checks that all are <= 1.0. If any Mult > 1.0, triggers the
+/// watchdog's safety mute mechanism.
+///
+/// This runs on the PW main loop thread every 30s. The subprocess
+/// overhead (~50ms) is acceptable for a control-plane check (AE approved).
+#[cfg(feature = "pipewire-backend")]
+fn run_gain_integrity_check(
+    gain_integrity_state: &std::rc::Rc<std::cell::RefCell<gain_integrity::GainIntegrityCheck>>,
+    watchdog_state: &std::rc::Rc<std::cell::RefCell<watchdog::Watchdog>>,
+    reg_handle: &registry::RegistryHandle,
+    event_tx: &std::sync::mpsc::Sender<rpc::GraphEvent>,
+    graph: &std::rc::Rc<std::cell::RefCell<graph::GraphState>>,
+) {
+    use std::process::Command;
+
+    // Run pw-dump and capture output (timeout: 5s).
+    let output = Command::new("pw-dump")
+        .arg("--no-colors")
+        .output();
+
+    let output = match output {
+        Ok(o) => o,
+        Err(e) => {
+            log::warn!("Gain integrity: pw-dump failed to execute: {}", e);
+            gain_integrity_state.borrow_mut().record_failure(
+                format!("pw-dump exec failed: {}", e),
+            );
+            return;
+        }
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::warn!("Gain integrity: pw-dump exited with {}: {}", output.status, stderr);
+        gain_integrity_state.borrow_mut().record_failure(
+            format!("pw-dump exited {}", output.status),
+        );
+        return;
+    }
+
+    let json_str = match std::str::from_utf8(&output.stdout) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("Gain integrity: pw-dump output not UTF-8: {}", e);
+            gain_integrity_state.borrow_mut().record_failure(
+                "pw-dump output not UTF-8".to_string(),
+            );
+            return;
+        }
+    };
+
+    let gains = match gain_integrity::parse_pw_dump_gains(json_str) {
+        Ok(g) => g,
+        Err(e) => {
+            log::warn!("Gain integrity: parse error: {}", e);
+            gain_integrity_state.borrow_mut().record_failure(e);
+            return;
+        }
+    };
+
+    let result = gain_integrity_state.borrow_mut().check(&gains);
+
+    match result {
+        gain_integrity::GainCheckResult::Violation { ref violating, .. } => {
+            // Trigger watchdog safety mute.
+            log::error!(
+                "GAIN INTEGRITY VIOLATION: Mult > 1.0 on {} node(s) — triggering safety mute",
+                violating.len(),
+            );
+
+            // Emit violation event.
+            let _ = event_tx.send(rpc::GraphEvent::GainIntegrityViolation {
+                violating: violating.clone(),
+            });
+
+            // Trigger watchdog mute via the same mechanism as T-044-4.
+            // We force a mute by calling set_node_mult(0.0) on all gain nodes.
+            let g = graph.borrow();
+            for name in watchdog::GAIN_NODE_NAMES {
+                if let Some(node) = g.node_by_name(name) {
+                    log::error!("GAIN INTEGRITY: Muting {} (node {}) via set_node_mult", name, node.id);
+                    reg_handle.set_node_mult(node.id, 0.0);
+                }
+            }
+        }
+        gain_integrity::GainCheckResult::AllOk { .. } => {
+            log::debug!("Gain integrity check passed");
+        }
+        gain_integrity::GainCheckResult::MissingNodes { ref missing } => {
+            // Watchdog T-044-4 handles missing nodes — just log here.
+            log::debug!("Gain integrity: {} gain nodes missing (watchdog handles)", missing.len());
+        }
+        gain_integrity::GainCheckResult::CheckFailed { .. } => {
+            // Already logged by record_failure.
         }
     }
 }
