@@ -1,5 +1,15 @@
 # Design Rationale
 
+> **D-040 (2026-03-16): Architecture pivot — CamillaDSP abandoned in favor of
+> PipeWire filter-chain convolver.** This document describes the reasoning behind
+> the *original* CamillaDSP-based design. The rationale for FIR filters,
+> minimum-phase design, dual-quantum strategy, and driver protection remains
+> valid — only the *execution engine* changed. BM-2 benchmarks showed PipeWire's
+> built-in convolver is 3-5.6x more CPU-efficient than CamillaDSP on Pi 4B ARM.
+> For the current architecture, see
+> [`rt-audio-stack.md`](../architecture/rt-audio-stack.md). The signal flow
+> diagram and CamillaDSP-specific sections below are historical.
+
 This document tells the story of the technical decisions behind the Pi 4B audio
 workstation -- why things are the way they are, what alternatives were considered,
 and what tradeoffs were accepted. It is written for someone who wants to
