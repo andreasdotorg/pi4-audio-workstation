@@ -84,7 +84,7 @@ def _build_system_snapshot(app) -> dict:
 
     # Build camilladsp section, then override xruns from PipeWireCollector.
     # FilterChainCollector hardcodes xruns=0 because GraphManager doesn't
-    # track xruns; PipeWireCollector reads them (pw-cli or pw-top).
+    # track xruns; PipeWireCollector reads them via GM RPC (get_graph_info).
     dsp_section = cdsp_snap if cdsp_snap else {
         "state": "Disconnected",
         "processing_load": 0.0,

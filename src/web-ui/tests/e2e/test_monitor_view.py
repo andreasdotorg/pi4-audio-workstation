@@ -1,10 +1,10 @@
 """Dashboard view tests for the D-020 Web UI.
 
 Verifies the dense single-screen dashboard: level meter groups
-(Main, APP->DSP, DSP->OUT, PHYS IN), LUFS placeholder, SPL hero,
+(Main, APP->CONV, CONV->OUT, PHYS IN), LUFS placeholder, SPL hero,
 silent channel dimming, and WebSocket data flow.
 
-24-channel layout (4 groups): MAIN (2), APP->DSP (6), DSP->OUT (8), PHYS IN (8).
+24-channel layout (4 groups): MAIN (2), APP->CONV (6), CONV->OUT (8), PHYS IN (8).
 
 Note: Health bar and sys-health-panel were removed in F-038 (status bar
 unification). Their data is now in the persistent status bar.
@@ -77,19 +77,19 @@ def test_main_meters_present(page):
 
 
 def test_app_meters_present(page):
-    """APP->DSP meter group has 6 canvas elements (A3-A8)."""
+    """APP->CONV meter group has 6 canvas elements (A3-A8)."""
     canvases = page.locator("#meters-app canvas")
     expect(canvases).to_have_count(6)
 
 
 def test_app_group_always_visible(page):
-    """APP->DSP group is always visible (no auto-hide)."""
+    """APP->CONV group is always visible (no auto-hide)."""
     group = page.locator("#group-app")
     expect(group).to_be_visible()
 
 
 def test_dspout_group_exists(page):
-    """DSP->OUT meter group has 8 canvas elements."""
+    """CONV->OUT meter group has 8 canvas elements."""
     canvases = page.locator("#meters-dspout canvas")
     expect(canvases).to_have_count(8)
 
@@ -135,7 +135,7 @@ def test_channel_labels_main(page):
 
 
 def test_dspout_first_label(page):
-    """DSP->OUT group has SatL as first label (satellite speakers)."""
+    """CONV->OUT group has SatL as first label (satellite speakers)."""
     labels = page.locator("#meters-dspout .meter-label")
     expect(labels.first).to_have_text("SatL")
 
@@ -147,7 +147,7 @@ def test_physin_first_label(page):
 
 
 def test_app_first_label(page):
-    """APP->DSP group has A3 as first label."""
+    """APP->CONV group has A3 as first label."""
     labels = page.locator("#meters-app .meter-label")
     expect(labels.first).to_have_text("A3")
 
@@ -156,7 +156,7 @@ def test_app_first_label(page):
 
 def test_no_signal_overlay_exists(page):
     """Each meter channel has a 'NO SIG' overlay element (24 total)."""
-    # MAIN (2) + APP->DSP (6) + DSP->OUT (8) + PHYS IN (8) = 24
+    # MAIN (2) + APP->CONV (6) + CONV->OUT (8) + PHYS IN (8) = 24
     overlays = page.locator(".meter-no-signal")
     expect(overlays).to_have_count(24)
 
@@ -233,6 +233,6 @@ def test_main_db_readout_updates(page):
 
 
 def test_dspout_db_readout_updates(page):
-    """DSP->OUT meter dB readout updates from '-inf' within 3 s."""
+    """CONV->OUT meter dB readout updates from '-inf' within 3 s."""
     db_readout = page.locator("#meters-dspout-db-0")
     expect(db_readout).not_to_have_text("-inf", timeout=3000)
