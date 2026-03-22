@@ -75,8 +75,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-064 | **IMPLEMENT** | **1/8** | **REWORK in progress (F-059).** Phase 1 complete: SPA config parser for filter-chain internal topology (task #67, 38 tests, awaiting CM commit). Remaining phases: pw-dump graph builder, dynamic SVG layout, live updates, E2E tests, architect review, UX review. |
 | US-070 | IMPLEMENT | 0/TBD | **CI setup.** GitHub Actions workflow YAML + self-hosted runner setup script + `test-everything` flake target delivered (task #66, awaiting CM commit). DoD TBD — needs story acceptance criteria. |
 | US-065 | IMPLEMENT | 6/10 | **committed** (`965f501` + `5dad57e`). Config Tab + E2E test (#6, `5dad57e`). F-046 quantum confirm dialog committed (`30a25e1`). Remaining: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10). |
-| US-071 | IMPLEMENT | 0/9 | **IMPLEMENT.** Story committed (`f3719c2`). Documentation overhaul — TW leading (task #70). 7 AC groups (SETUP-MANUAL, architecture, safety, dev workflow, PM docs, lab notes, staleness markers) + 9 DoD items. TW first batch of 4 doc fixes ready for commit. |
-| US-072 | IMPLEMENT | 0/8 | **IMPLEMENT starting.** Story committed (`f3719c2`). NixOS standalone build — SD image + nixos-anywhere. Architect 8-phase plan delivered (task #69). 9 AC groups + 8 DoD items. Existing `nix/nixos/` (5 files) needs D-040 update. Worker-functional active on task #72 (Phase 1: fix NixOS config, verify toplevel builds). P1-P3 dev-testable, P4-P7 need Pi. |
+| US-071 | IMPLEMENT | 0/9 | **IMPLEMENT — doc audit complete** (task #70). Story `f3719c2`. SETUP-MANUAL D-040 overhaul committed (`d4648a5`, TW batch 2+3). All high/medium priority items done. 9 DoD items: remaining are reviews (AE, security, owner) and staleness marker verification. |
+| US-072 | IMPLEMENT | 0/8 | **IMPLEMENT — P1-P3 complete, committed.** Story `f3719c2`. P1 boot config (`fa9c3ca`), P2 PipeWire+WirePlumber+udev (`5379874`), P3 service modules (`0af215b`). Remaining: P4 (display/labwc), P5 (RT kernel — high risk), P6 (SD image test), P7 (nixos-anywhere). P4-P7 need Pi. |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -111,7 +111,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **F-058** (OPEN, Medium): E2E screenshot tests write to read-only Nix store path — 6+ false failures in pure sandbox. Task #49 pending.
 - **ENH-002** (OPEN, Low): Owner wants tooltips on all dashboard elements. Comprehensive UX enhancement (~50+ definitions).
 - **ENH-003** (OPEN, Medium): Sticky latching health indicator with manual clear. Analogous to industrial alarm panel.
-- **F-059** (OPEN, HIGH): Graph view uses hardcoded SVG — owner directive to show real `pw-dump` topology. US-064 returned to DESIGN phase, DoD reset to 0/8.
+- **F-059** (**RESOLVED** — `98a95bf` 2026-03-22): Graph view hardcoded SVG replaced. Part 2 committed. US-064 rework in progress (SPA parser Phase 1 complete).
 - **F-060** (OPEN, Medium): L-042 process docs (`17a0cb2`) need corrections: (1) `nix develop` used where `nix run .#test-*` required for QA gates, (2) project-specific details (GraphManager, gain nodes, etc.) embedded in generic role prompts — must be extracted to project config.
 - **F-061** (**RESOLVED** — deployed + verified on Pi 2026-03-22): All 6 `asyncio.create_subprocess_exec` calls converted to `asyncio.to_thread`. No more subprocess hangs. Awaiting CM commit. **F-056 and F-057 now unblocked for Pi verification.** New issue found during deploy: F-063 (uvicorn single-worker capacity).
 - **F-063** (OPEN, Medium): uvicorn single-worker saturated by active WebSocket connections — blocks new TLS handshakes. Separate from F-061. Needs `--workers 2` or similar.
@@ -264,7 +264,7 @@ shows 25 failures across visual regression (screenshot diffs) and other suites.
 Per L-042 these must be triaged by QE + Architect — not dismissed. Each failure
 needs classification (code bug / test bug / environment gap) and a tracked defect.
 
-**Session totals:** 35+ commits, 15 defects resolved (incl F-061 Pi deploy, F-062), 3 owner approvals, 1 new defect (F-063).
+**Session totals:** 40+ commits, 16 defects resolved (incl F-059 part 2, F-061 Pi deploy, F-062), 3 owner approvals, 1 new defect (F-063).
 
 **Late session progress (3 parallel streams):**
 - **US-070 code complete** (task #66, worker-ci): workflow YAML + runner setup script + `test-everything` flake target. Awaiting CM commit.
@@ -272,16 +272,18 @@ needs classification (code bug / test bug / environment gap) and a tracked defec
 - **F-062 RESOLVED** (`95aeb0a`): 25 asyncio test failures fixed.
 - **Visual regression snapshots** (task #68, worker-ci): 3 stale reference PNGs from before F-050-F-055 contrast fixes. Updating — test bug, not code regression.
 - **Task #59** (F-061 Pi deploy): **COMPLETE.** All 6 `asyncio.create_subprocess_exec` calls converted to `asyncio.to_thread`. Deployed and verified on Pi — no more subprocess hangs. F-056/F-057 now unblocked. New issue found: F-063 (uvicorn single-worker capacity).
-- **US-072 architect design complete** (task #69): 8-phase NixOS standalone build plan. Existing `nix/nixos/` work (5 files) found. P1-P3 dev-testable, P4-P7 need Pi. Story pending from PO.
+- **US-072 P1-P3 complete** (tasks #72-#74): Boot config (`fa9c3ca`), PipeWire+WirePlumber+udev (`5379874`), service modules (`0af215b`). All committed, tree clean. P4-P7 remaining (need Pi).
+- **US-071 doc audit complete** (task #70): SETUP-MANUAL D-040 overhaul committed (`d4648a5`). All high/medium items done.
+- **F-059 part 2 RESOLVED** (`98a95bf`).
 
 **Next steps:**
+- **US-072 P4-P7:** Display/labwc (P4), RT kernel (P5, high risk), SD image test (P6), nixos-anywhere (P7) — all need Pi
 - **F-056/F-057 Pi verification:** Now unblocked (F-061 resolved). Quantum xrun counters + gain control real-mode testing.
-- **CM commits:** US-070 + US-064 Phase 1 deliverables + dirty tree cleanup (revert `testing-process.md`)
-- **US-064 Phase 2+:** pw-dump graph builder, dynamic SVG layout — blocked on Phase 1 commit
-- **US-071 (docs overhaul):** IMPLEMENT 0/9. TW leading (task #70), audit in progress. PO story delivered.
-- **US-072 (NixOS standalone):** DESIGN 0/8. Architect 8-phase plan delivered. Task #72 (Phase 1: fix NixOS config, verify toplevel builds) pending. PO story delivered.
+- **US-064 Phase 2+:** pw-dump graph builder, dynamic SVG layout
+- **US-071 reviews:** AE, security, owner reviews remaining for DoD completion
 - US-044: T-044-6 (reboot survival), T-044-7 (no-interference test) — need Pi
 - US-066 Phase 2: pcm-bridge deploy + TK-112 validation — needs Pi
+- **3 idle workers available** for next assignments
 
 ### Session Wrap-Up (2026-03-21, continued session)
 

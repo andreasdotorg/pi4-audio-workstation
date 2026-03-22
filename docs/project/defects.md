@@ -2268,10 +2268,10 @@ suite in CI).
 
 ---
 
-## F-059: Graph view uses hardcoded SVG templates instead of real PipeWire topology (OPEN)
+## F-059: Graph view uses hardcoded SVG templates instead of real PipeWire topology (RESOLVED)
 
 **Severity:** High (feature fundamentally incorrect — owner directive to rework)
-**Status:** Open — US-064 returned to DESIGN phase
+**Status:** Resolved (`98a95bf` 2026-03-22) — hardcoded SVG replaced, US-064 rework in progress (SPA parser Phase 1 complete)
 **Found in:** Owner review of deployed graph tab (2026-03-22)
 **Affects:** Graph tab (`graph.js`), US-064
 **Found by:** Owner

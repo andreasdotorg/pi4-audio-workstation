@@ -19,6 +19,9 @@
     ./audio/pipewire.nix
     ./audio/wireplumber.nix
     ./audio/udev.nix
+    # Phase 4: Display + applications
+    ./display.nix
+    ./applications.nix
     # Phase 3: Custom service modules
     ./services/graph-manager.nix
     ./services/pcm-bridge.nix
@@ -33,6 +36,10 @@
 
   # Enable flakes on the target system
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+  # Allow specific unfree packages (Reaper DAW)
+  nixpkgs.config.allowUnfreePredicate = pkg:
+    builtins.elem (lib.getName pkg) [ "reaper" ];
 
   # Minimal packages for Phase 1 validation
   environment.systemPackages = with pkgs; [
