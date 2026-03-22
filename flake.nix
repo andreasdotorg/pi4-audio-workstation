@@ -485,12 +485,54 @@
       }
     ))
     // {
-      nixosConfigurations.mugge = nixpkgs.lib.nixosSystem {
-        system = "aarch64-linux";
-        modules = [
-          nixos-hardware.nixosModules.raspberry-pi-4
-          ./nix/nixos/configuration.nix
-        ];
-      };
+      nixosConfigurations.mugge =
+        let
+          system = "aarch64-linux";
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ nixgl.overlay ];
+          };
+          # Build our custom Rust packages for the Pi target.
+          # These are passed to NixOS modules via specialArgs so service
+          # units can reference Nix store paths instead of ~/bin.
+          mkRustPkg = { pname, src, cargoLock }: pkgs.rustPlatform.buildRustPackage {
+            inherit pname src;
+            version = "0.1.0";
+            cargoLock.lockFile = cargoLock;
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
+            buildInputs = [ pkgs.pipewire ];
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            BINDGEN_EXTRA_CLANG_ARGS = builtins.toString [
+              "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"
+              "-isystem ${pkgs.glibc.dev}/include"
+            ];
+          };
+        in
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = {
+            pi4audio-packages = {
+              graph-manager = mkRustPkg {
+                pname = "pi4audio-graph-manager";
+                src = ./src/graph-manager;
+                cargoLock = ./src/graph-manager/Cargo.lock;
+              };
+              pcm-bridge = mkRustPkg {
+                pname = "pcm-bridge";
+                src = ./src/pcm-bridge;
+                cargoLock = ./src/pcm-bridge/Cargo.lock;
+              };
+              signal-gen = mkRustPkg {
+                pname = "pi4audio-signal-gen";
+                src = ./src/signal-gen;
+                cargoLock = ./src/signal-gen/Cargo.lock;
+              };
+            };
+          };
+          modules = [
+            nixos-hardware.nixosModules.raspberry-pi-4
+            ./nix/nixos/configuration.nix
+          ];
+        };
     };
 }
