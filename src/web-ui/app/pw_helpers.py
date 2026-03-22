@@ -33,6 +33,7 @@ import asyncio
 import json
 import logging
 import re
+import subprocess
 
 log = logging.getLogger(__name__)
 
@@ -40,25 +41,37 @@ log = logging.getLogger(__name__)
 CONVOLVER_NODE_NAME = "pi4audio-convolver"
 
 
-async def pw_dump() -> list | None:
-    """Run ``pw-dump`` and return parsed JSON, or None on failure."""
+def _pw_dump_sync() -> list | None:
+    """Run ``pw-dump`` synchronously (called from thread pool)."""
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "pw-dump",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        result = subprocess.run(
+            ["pw-dump"],
+            capture_output=True,
+            timeout=30,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-        if proc.returncode != 0:
-            log.error("pw-dump failed: %s", stderr.decode().strip())
+        if result.returncode != 0:
+            log.error("pw-dump failed: %s", result.stderr.decode().strip())
             return None
-        return json.loads(stdout)
-    except asyncio.TimeoutError:
+        return json.loads(result.stdout)
+    except subprocess.TimeoutExpired:
         log.error("pw-dump timed out (30s)")
         return None
-    except (FileNotFoundError, json.JSONDecodeError) as exc:
-        log.error("pw-dump error: %s", exc)
+    except FileNotFoundError:
+        log.error("pw-dump not found")
         return None
+    except json.JSONDecodeError as exc:
+        log.error("pw-dump JSON parse error: %s", exc)
+        return None
+
+
+async def pw_dump() -> list | None:
+    """Run ``pw-dump`` and return parsed JSON, or None on failure.
+
+    Uses ``asyncio.to_thread`` to run the subprocess in the thread pool
+    executor, avoiding event loop starvation when the main loop is busy
+    with WebSocket/polling traffic (F-059).
+    """
+    return await asyncio.to_thread(_pw_dump_sync)
 
 
 def find_convolver_node(pw_data: list) -> tuple[int | None, dict]:
