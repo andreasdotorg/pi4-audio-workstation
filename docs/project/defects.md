@@ -2754,3 +2754,433 @@ indicators. Single implementation task covering all three ACs.
 - `src/graph-manager/src/rpc.rs` (new/extended RPC response)
 - `src/web-ui/app/ws_system.py` (consume GM safety state)
 - `src/web-ui/static/js/statusbar.js` (display safety indicators)
+
+---
+
+## F-081: pcm-bridge file descriptor leak — "Too many open files" after extended runtime (REOPENED)
+
+**Severity:** High
+**Status:** Reopened (S-021 binary redeploy did NOT fix — code bug confirmed)
+**Found in:** S-020 deploy session (2026-03-22)
+**Affects:** pcm-bridge stability, US-066 (Spectrum and Meter Polish), F-083, F-084
+**Found by:** team-lead (deployment observation), worker-spa (root cause, S-024)
+
+**Description:** pcm-bridge exhausts file descriptors after running for an extended
+period, failing with "Too many open files" (EMFILE). Service restart clears the
+condition but it will recur. This is a resource leak — file descriptors (likely
+PipeWire stream FDs, socket FDs, or epoll FDs) are being opened but not closed
+on some code path.
+
+**Symptoms:**
+- pcm-bridge at 1024/1024 file descriptors (confirmed S-024)
+- Error: "Too many open files"
+- Service restart restores normal operation temporarily
+
+**Root cause (confirmed S-024):** The TCP broadcast server accepts connections but
+when no audio data flows, the `broadcast_loop` never calls `retain_mut` to prune
+disconnected clients. The web-UI's LevelsCollector reconnects repeatedly, and each
+connection leaks an FD. The S-021 binary redeploy (from latest source including
+F-077) did NOT fix this — the leak path exists in the current code.
+
+**Code location:** `src/pcm-bridge/src/server.rs` lines 151-175 (`broadcast_loop`)
+and lines 262-296 (`run_levels_tcp`).
+
+**Fix needed:** `broadcast_loop` must prune disconnected clients even when no audio
+data is flowing (idle path). Currently `retain_mut` only runs when there is data to
+broadcast.
+
+**Workaround:** Restart pcm-bridge service (`systemctl --user restart pcm-bridge@monitor.service`). Safe — no PW/USBStreamer impact, just kills meters/spectrum briefly.
+
+**Files:**
+- `src/pcm-bridge/src/server.rs` (broadcast_loop + run_levels_tcp)
+- `src/pcm-bridge/src/main.rs`
+- `src/audio-common/src/spsc_queue.rs` (shared ring buffer)
+
+---
+
+## F-082: Web-UI deployment directory mismatch — git pull does not update running service (RESOLVED)
+
+**Severity:** High
+**Status:** Resolved (S-022, 2026-03-22)
+**Found in:** S-020 deploy session (2026-03-22)
+**Affects:** All web-UI deployments to Pi, US-064, US-065, F-076, F-074
+**Found by:** worker-spa (stale content diagnosis)
+
+**Description:** The web-UI systemd service on Pi serves from a separate deployment
+directory (`/home/ela/web-ui/`), but `git pull` only updates the git repo at
+`/home/ela/pi4-audio-workstation/src/web-ui/`. This means `git pull` alone does
+NOT update the running web UI. Every past web-UI deploy that only did
+`git pull + service restart` may have served stale code.
+
+**Evidence (S-020):**
+- Deployment `~/web-ui/static/js/config.js`: 300 lines, no `currentSampleRate` (F-074 missing)
+- Git repo `~/pi4-audio-workstation/src/web-ui/static/js/config.js`: 305 lines, has `currentSampleRate`
+- Deployment `~/web-ui/static/js/test.js`: 9 `Math.min` occurrences (F-076 missing)
+- Git repo: 11 `Math.min` occurrences
+- Some Python files in `~/web-ui/app/` were partially updated (timestamps 18:05-18:09)
+  but `find_sample_rate` is missing from deployment `config_routes.py`
+
+**Impact:** Owner saw no changes after S-020 deploy. F-076 safety clamp and F-074
+sample rate label are committed but NOT running on Pi.
+
+**Immediate fix:** Sync files from git repo to deployment dir + restart service.
+Requires CM CHANGE session.
+
+**Long-term fix options:**
+1. Change systemd service unit to serve directly from the git repo path
+2. Add an explicit deploy script that copies from repo to deployment dir
+3. Use a symlink from `~/web-ui/` to `~/pi4-audio-workstation/src/web-ui/`
+
+**Related:** All Rust binaries have the same pattern — `~/bin/pcm-bridge`,
+`~/bin/graph-manager`, `~/bin/signal-gen` are separate from the git repo and
+require explicit `nix build + scp/cp` to update. This is by design for Rust
+(compiled binaries). The web-UI case is different because Python/JS files could
+be served directly from the repo.
+
+---
+
+## F-083: No spectrum display on dashboard (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
+**Affects:** Dashboard tab, US-066 (Spectrum and Meter Polish)
+**Found by:** Owner
+
+**Description:** The spectrum canvas on the dashboard tab does not display any data.
+Even with no audio playing, the canvas should render at floor level (noise floor
+visualization). The owner reports this has NEVER worked for them on the Pi.
+
+**Root cause (confirmed S-024 by worker-spa):** Two compounding issues:
+
+1. **F-081 FD leak:** pcm-bridge exhausts FDs (1024/1024), making it unable to
+   accept new connections or send data. See F-081 for details.
+
+2. **pcm-bridge auto-connect broken for filter-chain targets:** The pcm-bridge
+   PipeWire stream config uses `stream.capture.sink=true` +
+   `target.object=pi4audio-convolver`, but this does NOT auto-link. Root cause:
+   both convolver and pcm-bridge have `object.register=false` (standard for
+   filter-chain and pw_stream nodes). WirePlumber's `find-defined-target.lua`
+   searches SiLinkable items which don't exist for unregistered nodes. `pw-link`
+   also fails ("Invalid argument"). Links must be created via `pw-cli create-link`
+   (PipeWire core API).
+
+   **This means pcm-bridge gets NO audio data** — it connects to PipeWire but
+   never receives samples from the convolver. Without data flowing, the broadcast
+   loop never prunes clients (F-081), and no level/spectrum data reaches the UI.
+
+**Needs architect assessment:** How should pcm-bridge links be created?
+- Option A: GraphManager manages pcm-bridge links (adds to reconciler topology)
+- Option B: systemd ExecStartPost with `pw-cli create-link`
+- Option C: pcm-bridge creates links internally via PipeWire core API
+
+**Files:**
+- `src/web-ui/static/js/dashboard.js` (spectrum canvas rendering)
+- `src/pcm-bridge/src/server.rs` (broadcast_loop — F-081 FD leak)
+- `src/web-ui/app/levels_collector.py` (WebSocket proxy to pcm-bridge)
+
+---
+
+## F-084: No level meters on dashboard (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
+**Affects:** Dashboard tab, US-066 (Spectrum and Meter Polish)
+**Found by:** Owner
+
+**Description:** Level meter bars on the dashboard tab do not show any data. pcm-bridge
+is running but meters display nothing. Same root cause investigation as F-083 — both
+depend on the pcm-bridge data pipeline.
+
+**Root cause:** Same as F-083 — two compounding issues: F-081 (FD leak prevents
+data transmission) and pcm-bridge auto-connect failure (no audio data flows to
+pcm-bridge because PW links are never created). See F-083 for full analysis.
+
+**Fix:** Resolving F-081 (FD leak) + F-083 auto-connect issue will fix both
+F-083 and F-084 simultaneously.
+
+**Files:**
+- `src/web-ui/static/js/dashboard.js` (meter bar rendering)
+- `src/pcm-bridge/src/broadcast.rs` (level data broadcast)
+- `src/web-ui/app/levels_collector.py` (WebSocket proxy)
+
+---
+
+## F-085: Graph tab rendering issues — layout, direction, wiring, values, filter types (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
+**Affects:** Graph tab, US-064 (PW Graph Visualization)
+**Found by:** Owner
+
+**Description:** Multiple rendering issues in the graph tab when viewed on Pi with
+real PipeWire data:
+
+1. **Layout overlap:** All nodes overlap — layout algorithm not spacing them correctly
+   with real graph data (works in mock/test but not with actual pw-dump output)
+2. **ADA8200 input direction wrong:** ADA8200 input node rendered like an output
+   (wrong column/direction). Should be on the input side of the graph.
+3. **Gain nodes not wired:** Gain nodes present but not properly connected in the
+   visualization
+4. **Wrong gain values:** Gain values displayed do not match actual PW Mult params
+5. **IIR filters shown instead of FIR convolver:** Graph shows IIR filter nodes for
+   crossover. The real pipeline uses FIR convolver (filter-chain). This may be
+   incorrect parsing of PW filter-chain internal SPA config — the SPA parser may be
+   misidentifying convolver sections as IIR filters.
+6. **Mixxx not visible:** Mixxx node not appearing in the graph despite being a
+   connected PW client
+
+**Root cause hypothesis:** The graph.js D3 rendering was developed and tested against
+mock data and E2E test fixtures. Real pw-dump output from the Pi has different node
+names, port counts, and topology than the mock data assumed. The SPA config parser
+may also be misclassifying filter-chain internal nodes.
+
+**Files:**
+- `src/web-ui/static/js/graph.js` (D3 rendering, layout algorithm)
+- `src/web-ui/app/graph_routes.py` (topology API endpoint)
+- `src/web-ui/app/pw_helpers.py` (pw-dump parsing)
+- `src/web-ui/app/spa_config_parser.py` (filter-chain internal topology)
+
+---
+
+## F-086: Config tab quantum button not pre-selected (OPEN)
+
+**Severity:** Medium
+**Status:** Open
+**Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
+**Affects:** Config tab, US-065
+**Found by:** Owner
+
+**Description:** The config tab quantum selector should show the current quantum
+(1024 for DJ mode) as the active/selected button. No button appears selected on page
+load. F-073 was supposed to fix this — the `fetchConfig()` -> `updateQuantumButtons()`
+flow exists in the code but is not working on Pi.
+
+**Probable causes:**
+- `/api/v1/config` endpoint not returning the quantum value on Pi
+- `pw-metadata` command failing or returning unexpected format on Pi
+- `updateQuantumButtons()` receiving null/undefined quantum value
+- Race condition: buttons rendered before config fetch completes
+
+**Related:** F-073 (previously marked resolved in code, but not working on Pi)
+
+**Files:**
+- `src/web-ui/static/js/config.js` (`fetchConfig`, `updateQuantumButtons`)
+- `src/web-ui/app/config_routes.py` (GET `/api/v1/config`)
+- `src/web-ui/app/pw_helpers.py` (`find_quantum`, `find_sample_rate`)
+
+---
+
+## F-087: Config tab latency display missing "Latency" label (OPEN)
+
+**Severity:** Low
+**Status:** Open
+**Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
+**Affects:** Config tab, US-065
+**Found by:** Owner
+
+**Description:** The config tab shows the sample rate and millisecond latency value
+but has no label identifying it as "Latency." The display shows something like
+"21.3 ms at 48 kHz" but without the word "Latency" the user cannot tell what this
+number represents.
+
+**Fix:** Add a "Latency:" label prefix or heading to the latency display element.
+
+**Files:**
+- `src/web-ui/static/js/config.js` (latency display rendering)
+- `src/web-ui/templates/config.html` (if label is in template)
+
+---
+
+## F-088: Xrun display still broken — status bar count not updating (RESOLVED)
+
+**Severity:** High
+**Status:** Resolved (worker-truth task #139, pending commit + deploy)
+**Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
+**Affects:** Status bar, US-051 (Persistent Status Bar)
+**Found by:** Owner
+
+**Description:** The xrun count in the status bar is not updating. This is a
+pre-existing issue originally scoped under F-056. F-056 was partially resolved
+(quantum display fixed) but the xrun counter remains broken.
+
+**Root cause (from F-056 investigation):** There is no viable data source for xrun
+counts via pw-dump or pw-cli. The PipeWire metadata/registry does not expose a
+cumulative xrun counter in a way that the web UI collectors can poll. Previous
+attempts to read xrun data from pw-dump found no such field.
+
+**Possible approaches:**
+- Parse `pw-top` output (if it exposes xruns — needs investigation)
+- Use `pw-cat --verbose` or `pw-mon` to detect xrun events in real-time
+- Add xrun counting to pcm-bridge (Rust service has direct PW stream access)
+- Read from `/proc/asound/` ALSA xrun counters (if PW exposes them)
+
+**Related:** F-056 (partial fix — quantum display works, xruns do not)
+
+**Files:**
+- `src/web-ui/static/js/statusbar.js` (xrun display)
+- `src/web-ui/app/pipewire_collector.py` (PW metadata polling)
+- `src/pcm-bridge/src/main.rs` (potential xrun counter addition)
+
+---
+
+## F-089: journalctl --user returns "No entries" on Pi (OPEN)
+
+**Severity:** Medium
+**Status:** Open
+**Found in:** S-024 diagnostics (2026-03-22)
+**Affects:** Debugging, all user services (web-UI, pcm-bridge, GM, signal-gen)
+**Found by:** worker-spa (S-024 diagnostics)
+
+**Description:** `journalctl --user` returns "No journal files were found" on the Pi
+for both pi4-audio-webui.service and pcm-bridge@monitor.service. Logs ARE visible
+in `systemctl --user status` output (ring buffer), but are not persisted to disk.
+
+**Impact:** Cannot review service logs after a restart or crash. Debugging requires
+catching the issue live via `systemctl --user status` before the ring buffer wraps.
+
+**Probable cause:** User-level journal storage not configured. May need
+`/var/log/journal/` directory created, or `Storage=persistent` in
+`/etc/systemd/journald.conf`, or user lingering enabled (`loginctl enable-linger ela`).
+
+**Fix options:**
+1. `sudo mkdir -p /var/log/journal && sudo systemd-tmpfiles --create --prefix /var/log/journal`
+2. Set `Storage=persistent` in `/etc/systemd/journald.conf`
+3. Verify `loginctl enable-linger ela` is set (needed for user services to persist)
+
+---
+
+## F-090: pcm-bridge auto-connect broken + monitor links session-only (RESOLVED)
+
+**Severity:** High
+**Status:** Resolved (task #141 — code complete, pending commit + Pi deploy)
+**Found in:** S-024 diagnostics (2026-03-22)
+**Affects:** pcm-bridge metering (F-083/F-084), US-066 (Spectrum and Meter Polish)
+**Found by:** worker-spa (S-024 diagnostics)
+
+**Description:** pcm-bridge cannot auto-link to the filter-chain convolver monitor
+ports. Two related problems:
+
+1. **Auto-connect broken:** pcm-bridge PipeWire stream config uses
+   `stream.capture.sink=true` + `target.object=pi4audio-convolver`, but WirePlumber
+   does NOT create the links. Root cause: both the convolver node and pcm-bridge's
+   pw_stream have `object.register=false` (standard for filter-chain and pw_stream
+   nodes). WirePlumber's `find-defined-target.lua` searches SiLinkable items which
+   do not exist for unregistered nodes. `pw-link` also fails with "Invalid argument"
+   for the same reason.
+
+2. **Links are session-only:** Manual links created via `pw-cli create-link` work
+   but are lost on pcm-bridge or PipeWire restart. There is no mechanism to
+   re-establish them automatically.
+
+**Combined effect:** After every pcm-bridge restart (or PipeWire restart), the
+metering pipeline is broken until someone manually runs `pw-cli create-link` for
+all 4 monitor channels. This blocks F-083/F-084 from being permanently resolved.
+
+**Links needed (4 channels):**
+- pi4audio-convolver:monitor_FL -> pcm-bridge-monitor:input_FL
+- pi4audio-convolver:monitor_FR -> pcm-bridge-monitor:input_FR
+- pi4audio-convolver:monitor_RL -> pcm-bridge-monitor:input_RL
+- pi4audio-convolver:monitor_RR -> pcm-bridge-monitor:input_RR
+
+**Fix options (needs architect assessment):**
+- **Option A: GraphManager manages pcm-bridge links.** Add pcm-bridge monitor links
+  to the reconciler's target topology. GM already manages Mixxx→convolver and
+  convolver→USBStreamer links. Pro: single source of truth for all PW links. Con:
+  couples pcm-bridge lifecycle to GM.
+- **Option B: systemd ExecStartPost.** Add `ExecStartPost=pw-cli create-link ...`
+  to pcm-bridge@.service. Pro: simple, self-contained. Con: race condition (pcm-bridge
+  node may not be registered yet when ExecStartPost runs); does not handle PW restarts.
+- **Option C: pcm-bridge creates links internally.** Use PipeWire core API from
+  within pcm-bridge Rust code to create links after stream connection. Pro: no
+  external dependency. Con: more Rust code, pcm-bridge must know convolver node name.
+
+**Architect assessment (2026-03-22):** Option A selected — GM manages pcm-bridge
+links. pcm-bridge's existing `--managed` flag disables AUTOCONNECT; GM adds monitor
+links to its routing table. See F-091 for the D-043 violation this resolves.
+
+**Related:** F-081 (FD leak, same component), F-083/F-084 (downstream symptoms),
+F-091 (D-043 architecture violation)
+
+**Files:**
+- `src/pcm-bridge/src/main.rs` (PW stream setup, `--managed` flag)
+- `configs/pcm-bridge/monitor.env` (stream config)
+- `src/graph-manager/src/reconciler.rs` (add monitor links to routing table)
+
+---
+
+## F-091: pcm-bridge violates D-043 — uses PipeWire AUTOCONNECT instead of GM-managed links (RESOLVED)
+
+**Severity:** Medium
+**Status:** Resolved (task #141 — same fix as F-090, pending commit + Pi deploy)
+**Found in:** Architect WP vs GM link audit (2026-03-22)
+**Affects:** Architecture compliance, D-043 ("GM is sole link manager")
+**Found by:** Architect (link audit)
+
+**Description:** pcm-bridge uses PipeWire AUTOCONNECT (`stream.capture.sink=true` +
+`target.object`) to establish its audio links. This directly violates D-043, the
+owner-approved decision that GraphManager is the sole link manager for the audio
+pipeline. All PipeWire links should be created and managed by GM's reconciler.
+
+**Impact:** No safety impact (pcm-bridge is monitoring-only, not in the audio output
+path). However, this is an architecture violation against an owner-approved decision.
+The AUTOCONNECT approach also does not work for filter-chain targets (F-090), so
+it is both non-compliant AND broken.
+
+**Fix (architect-approved):** Enable pcm-bridge's existing `--managed` flag to
+disable AUTOCONNECT. Add pcm-bridge monitor links (4 channels: convolver monitor
+ports → pcm-bridge input ports) to GM's routing table in the reconciler. This
+brings pcm-bridge into compliance with D-043 and permanently fixes F-090.
+
+**Related:** D-043 (decision violated), F-090 (auto-connect broken — same root
+cause, different framing), F-083/F-084 (downstream symptoms)
+
+**Files:**
+- `src/pcm-bridge/src/main.rs` (`--managed` flag)
+- `configs/pcm-bridge/monitor.env` (remove AUTOCONNECT props when managed)
+- `src/graph-manager/src/reconciler.rs` (add monitor link topology)
+
+---
+
+## F-092: Xruns triggered in Mixxx at quantum 256 not visible in web UI (OPEN)
+
+**Severity:** High
+**Status:** Open
+**Found in:** Owner testing on Pi (2026-03-22)
+**Affects:** Status bar xrun display, US-051 (Persistent Status Bar), US-066
+**Found by:** Owner
+
+**Description:** Owner confirmed they can easily trigger xruns by running Mixxx at
+quantum 256 (live mode), but the web UI xrun counter stays at 0. The xruns are real
+(audible glitches), but the web UI has no data pipeline to detect or display them.
+
+**Difference from F-088:** F-088 was about the fake-truth display (showing "Xr 0" as
+if it were real data when there was no data source). F-088 is resolved — the display
+now shows "—" for unavailable data. F-092 is about building the actual xrun data
+pipeline so real xrun counts can be displayed.
+
+**Root cause:** PipeWire does not expose a cumulative xrun counter via pw-dump,
+pw-cli, or pw-metadata. The web UI's PipeWire collector has no way to poll for
+xrun events. Previous investigation (F-056) found no viable data source in PW's
+public metadata/registry.
+
+**Possible data sources to investigate:**
+1. `pw-top` — may show xrun counts per node (needs parsing)
+2. PipeWire driver xrun counters in `pw_impl_node` — accessible via `pw-dump` node
+   props or `spa_node_info`?
+3. pcm-bridge stream callback — PW streams receive `SPA_STATUS_HAVE_DATA` on xruns;
+   pcm-bridge could count these and expose via its broadcast protocol
+4. `pw-mon` real-time event stream — could detect xrun events
+5. `/proc/asound/` ALSA-level xrun counters (if PW exposes to ALSA layer)
+6. GraphManager — already has PW core connection, could subscribe to node xrun events
+
+**Related:** F-088 (fake-truth display, resolved), F-056 (partial fix — quantum works,
+xruns do not)
+
+**Files:**
+- `src/web-ui/static/js/statusbar.js` (xrun display)
+- `src/web-ui/app/pipewire_collector.py` (PW metadata polling)
+- `src/pcm-bridge/src/main.rs` (potential xrun counter in stream callback)
+- `src/graph-manager/src/main.rs` (potential xrun event subscription)

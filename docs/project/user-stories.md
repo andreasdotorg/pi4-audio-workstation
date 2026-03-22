@@ -5012,6 +5012,205 @@ work — this story cannot be implemented until those are in place.
 
 ---
 
+## US-075: Local PipeWire Integration Test Environment
+
+**As** the development team,
+**I want** a local PipeWire test harness on the dev machine that starts a
+minimal but complete audio graph (filter-chain convolver, signal-gen,
+pcm-bridge, graph-manager) without requiring the Pi,
+**so that** integration tests can verify end-to-end audio flow — signal
+generation through convolver processing to level metering — on every commit,
+and serve as the foundation for all future integration testing (room
+correction, mode transitions, xrun regression, filter deployment).
+
+**Status:** draft (PO-drafted 2026-03-22 per owner directive. Owner identified
+gap: Pi is currently the only integration test environment, but the dev machine
+can run the full PipeWire stack.)
+**Depends on:** US-059 (GraphManager operational — manages links in the test
+graph), signal-gen and pcm-bridge binaries buildable via Nix
+**Blocks:** US-050 Tier 2 (E2E measurement harness builds on this), US-067
+(PW speaker-room-mic simulator runs inside this environment)
+**Decisions:** D-040 (PW filter-chain architecture), D-043 (GM-managed links)
+
+**The problem:** All integration testing currently requires the Pi. The dev
+machine runs unit tests and E2E browser tests against a mock backend, but
+never exercises the actual PipeWire graph — the filter-chain convolver, link
+topology, GM reconciler, pcm-bridge monitor tap, or signal-gen audio source.
+Bugs in these interactions (F-079 reconciler, F-083/F-084 pcm-bridge levels,
+F-090/F-091 D-043 compliance) are only discovered during Pi deployment,
+creating slow feedback loops and blocking ALL HANDS debugging sessions.
+
+Additionally, Rust testing in `flake.nix` uses three inconsistent approaches:
+(1) shell script `cargo test` outside the Nix sandbox (what workers actually
+use — fast but not reproducible), (2) `runCommand` with `cargo test` inside
+the sandbox (unused), (3) `rustPlatform.buildRustPackage` proper Nix build
+(unused). The QA gate must be deterministic and reproducible; the dev workflow
+must still be fast. This story consolidates all Rust test targets into a
+single coherent approach.
+
+**The solution:** A `nix run .#test-integration` target that:
+1. Starts a headless PipeWire instance (pipewire + wireplumber) in a
+   temporary runtime directory, isolated from the user's desktop audio
+2. Loads a filter-chain convolver config with passthrough or dummy
+   coefficients (identity FIR — no frequency modification, just exercises
+   the convolution path)
+3. Starts graph-manager, signal-gen, and pcm-bridge binaries connected to
+   the test PipeWire instance
+4. GM establishes the production link topology (same reconciler logic as Pi)
+5. signal-gen produces a test tone → convolver processes → pcm-bridge taps
+   monitor ports → levels on :9100 show non-zero values
+6. Test script verifies the end-to-end chain, then tears everything down
+
+**Relationship to existing stories:**
+- **US-050 Tier 1 (CI mock):** Python-level mocks, no PipeWire. Preserved as
+  fast CI path. US-075 is the real-PipeWire layer beneath it.
+- **US-050 Tier 2 (E2E harness):** Measurement-pipeline-specific E2E. Builds
+  ON TOP of US-075's infrastructure.
+- **US-067 (Speaker-Room-Mic Simulator):** Physics-based acoustic simulation
+  as PW filter-chain nodes. Runs INSIDE US-075's test PipeWire instance.
+  US-075 provides the plumbing; US-067 provides the acoustic models.
+
+### Acceptance criteria
+
+**1. Isolated PipeWire instance:**
+- [ ] Test harness starts a dedicated PipeWire + WirePlumber instance in a
+  temporary `XDG_RUNTIME_DIR`, fully isolated from any running desktop audio
+- [ ] PipeWire configured with a null/dummy audio sink (no hardware device
+  required)
+- [ ] WirePlumber configured with linking disabled (D-043 — GM manages links)
+- [ ] Instance teardown is reliable: all processes killed and temp dirs cleaned
+  up even if tests fail or crash
+- [ ] Works inside the Nix sandbox (no system PipeWire dependency, no root
+  required)
+
+**2. Filter-chain convolver with test coefficients:**
+- [ ] Filter-chain convolver config loaded with identity/passthrough FIR
+  coefficients (single-sample impulse = no frequency modification)
+- [ ] Convolver config matches production topology: 4 output channels
+  (left HP, right HP, sub1 LP, sub2 LP) with `linear` builtin gain nodes
+- [ ] Config generated or templated from the production config with only the
+  coefficient WAV files replaced (ensures test exercises the same SPA config
+  structure as production)
+
+**3. Service binaries running:**
+- [ ] graph-manager starts, connects to the test PipeWire instance, and
+  establishes links via its reconciler (same logic as production)
+- [ ] signal-gen starts on a test port, produces audio when commanded via RPC
+- [ ] pcm-bridge starts, connects monitor ports, serves level data on TCP
+  (test port, not :9100 to avoid conflicts)
+- [ ] All three services use the test PipeWire instance (via `PIPEWIRE_REMOTE`
+  or `XDG_RUNTIME_DIR` override)
+
+**4. End-to-end verification:**
+- [ ] Integration test commands signal-gen via RPC to produce a 1kHz sine tone
+  on channel 0 at a known level
+- [ ] Test reads pcm-bridge TCP output and verifies non-zero levels on the
+  expected output channels (left HP at minimum)
+- [ ] Test verifies GM reports correct link count and topology via
+  `get_graph_info` RPC
+- [ ] Test verifies convolver node is present and in "running" state
+- [ ] Entire cycle (start PW → start services → produce audio → verify levels
+  → teardown) completes in < 30 seconds
+
+**5. Nix integration:**
+- [ ] Available as `nix run .#test-integration` (new flake app target)
+- [ ] All binary dependencies (pipewire, wireplumber, graph-manager,
+  signal-gen, pcm-bridge) provided by the Nix closure — no system packages
+  required
+- [ ] Runs on the dev machine (aarch64-linux) and on CI runners (x86_64-linux)
+  with the same test script
+- [ ] Passthrough coefficient WAV files included in the test fixture (not
+  downloaded or generated at runtime)
+
+**6. Reusable infrastructure:**
+- [ ] Test harness is a library/module, not a monolithic script — other test
+  suites can import it to get a running PipeWire environment with services
+- [ ] Configuration is parameterizable: quantum, sample rate, channel count,
+  coefficient files, service subset (e.g., run without signal-gen for
+  measurement pipeline tests)
+- [ ] Documented API for downstream test suites: how to start the environment,
+  how to send commands, how to read levels, how to tear down
+
+**7. Rust test target consolidation (architect plan: three tiers):**
+
+*Tier 1 — Dev loop (fast, non-hermetic):*
+- [ ] `nix run .#test-graph-manager`, `.#test-pcm-bridge`, `.#test-signal-gen`
+  remain as shell script `cargo test` wrappers for fast developer iteration
+- [ ] All dev-loop targets standardized to consistent flags: `--release
+  --locked` (currently inconsistent across targets)
+- [ ] `audio-common` crate included: `nix run .#test-audio-common` or tested
+  as part of workspace
+- [ ] These are convenience targets, NOT QA gates
+
+*Tier 2 — QA gate (hermetic, deterministic):*
+- [ ] `rustPlatform.buildRustPackage` used for all Rust QA gate tests —
+  hermetic build with `cargoHash`, pinned toolchain, Nix sandbox isolation
+- [ ] Current `test-graph-manager-full` renamed to `test-graph-manager` in
+  `checks` (or equivalent QA namespace) — this becomes the merge gate target
+- [ ] Equivalent `buildRustPackage`-based test targets added for pcm-bridge,
+  signal-gen, and audio-common
+- [ ] Fragile `runCommand`-based test variant removed from `flake.nix`
+  entirely (the current `checks.test-graph-manager` using `runCommand` with
+  `CARGO_TARGET_DIR` hacks)
+- [ ] `nix run .#test-all` and `nix run .#test-everything` include Tier 2
+  Rust tests as the QA gate
+- [ ] Results identical regardless of host state — deterministic at merge gates
+
+*Tier 3 — PipeWire integration (new, the main US-075 deliverable):*
+- [ ] `nix run .#test-pw-integration` — isolated PipeWire instance with real
+  services (AC #1-#6 above)
+- [ ] Depends on Tier 2 binaries building successfully
+- [ ] This is the highest-value new capability — exercises the full audio
+  graph locally
+
+*Cleanup:*
+- [ ] Unused/redundant Rust test definitions removed from `flake.nix` — no
+  dead code, exactly one target per tier per crate
+- [ ] Two-tier model (dev loop vs QA gate) documented in
+  `docs/guide/howto/development.md` with clear guidance on when to use which
+
+### Definition of Done
+
+- [ ] `nix run .#test-integration` passes on the dev machine: starts isolated
+  PW, starts all services, produces audio, verifies non-zero levels via
+  pcm-bridge, tears down cleanly
+- [ ] Test passes on CI (x86_64-linux GitHub-hosted runner via
+  `cachix/install-nix-action`)
+- [ ] At least one existing test suite (e.g., graph-manager link topology
+  tests) migrated to use the real PW harness instead of mocks, demonstrating
+  reusability
+- [ ] Identity/passthrough FIR coefficients committed to `tests/fixtures/`
+- [ ] Harness documented in `docs/guide/howto/development.md`: how to run,
+  how to extend, how to debug when tests fail
+- [ ] Rust test targets consolidated: exactly one QA mechanism per crate in
+  `flake.nix`, redundant definitions removed, `nix run .#test-all` includes
+  Rust tests
+- [ ] Dev workflow documented: `nix develop` + `cargo test` for fast iteration,
+  `nix run .#test-*` for QA gate
+- [ ] Architect review: isolation mechanism, service startup order, teardown
+  reliability, Rust test build approach
+- [ ] QE review: test coverage adequacy, failure mode handling, CI
+  integration, Rust test reproducibility
+
+### Risks
+
+1. **PipeWire in Nix sandbox:** PipeWire requires socket files and
+   potentially D-Bus. The Nix sandbox may restrict these. Mitigation: use
+   `--option sandbox false` for integration tests (same as E2E tests with
+   Playwright), or configure PipeWire to use Unix socket without D-Bus
+2. **Service startup ordering:** GM, signal-gen, and pcm-bridge all need
+   PipeWire to be ready. Race conditions on startup could cause flaky tests.
+   Mitigation: health-check polling with timeout before running test
+   assertions
+3. **Port conflicts:** pcm-bridge (TCP) and signal-gen (RPC) default ports
+   may conflict with running Pi services or other test instances.
+   Mitigation: parameterizable ports, test uses ephemeral ports
+4. **x86_64 Rust binaries:** GM, signal-gen, and pcm-bridge must build for
+   x86_64 as well as aarch64. Currently only tested on aarch64. May uncover
+   architecture-specific issues in the Rust code
+
+---
+
 ## Process Gate: Measurement UI Development Cycle (owner directive 2026-03-14)
 
 **GATE:** US-047, US-048, and US-049 implementation is blocked until the
