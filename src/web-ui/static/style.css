@@ -10,10 +10,10 @@
     --bg-panel: #14161a;
     --bg-meter: #181b20;
     --bg-bar: #2a2e38;
-    --border: #3a3f4a;
+    --border: #556;
     --text: #c8cdd6;
     --text-dim: #8a94a4;
-    --text-micro: #6a7280;
+    --text-micro: #6b7585;
     --text-label: #a0aab8;
 
     --green: #79e25b;
@@ -176,7 +176,7 @@ html, body {
 }
 
 .sb-label {
-    color: var(--text-dim);
+    color: #7a8494;
 }
 
 .sb-value {
@@ -419,29 +419,38 @@ html, body {
 }
 
 .meter-group-label-app {
-    color: #00acc1;
+    color: #00a8b5;
 }
 
 .meter-group-label-dspout {
-    color: #43a047;
+    color: #4caf50;
 }
 
 .meter-group-label-physin {
-    color: #e2a639;
+    color: #e09520;
 }
 
 /* Inactive group state (no data source connected) */
 
 .meter-group--inactive {
-    opacity: 0.3;
+    opacity: 1;
+}
+
+.meter-group--inactive .meter-channel {
+    opacity: 0.5;
+}
+
+.meter-group--inactive .meter-group-label {
+    opacity: 0.7;
 }
 
 .meter-group-inactive-label {
-    font-size: 7px;
-    font-weight: 600;
-    color: var(--text-micro);
+    font-size: 9px;
+    font-weight: 700;
+    color: #8a94a4;
     text-align: center;
     letter-spacing: 0.05em;
+    text-transform: uppercase;
     height: 10px;
     line-height: 10px;
     flex-shrink: 0;
@@ -521,7 +530,7 @@ html, body {
 .meter-label {
     font-size: 8px;
     font-weight: 600;
-    color: var(--text-dim);
+    color: #9aa3b0;
     text-align: center;
     letter-spacing: 0.03em;
     white-space: nowrap;
@@ -533,7 +542,7 @@ html, body {
 .meter-db-value {
     font-size: 9px;
     font-weight: 600;
-    color: var(--text-dim);
+    color: #9aa3b0;
     font-family: var(--font-numeric);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
@@ -590,7 +599,7 @@ html, body {
     position: absolute;
     right: 2px;
     font-size: 7px;
-    color: var(--text-dim);
+    color: #8a94a4;
     line-height: 1;
     transform: translateY(-50%);
     font-variant-numeric: tabular-nums;
@@ -946,7 +955,7 @@ html, body {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    color: #888;
+    color: #6b7585;
     z-index: 1;
 }
 

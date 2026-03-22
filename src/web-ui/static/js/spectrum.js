@@ -82,7 +82,7 @@
 
     var OUTLINE_STYLE = "rgba(220, 220, 240, 0.7)";
     var OUTLINE_WIDTH = 1.5;
-    var BG_COLOR = "#181b20";
+    var BG_COLOR = "#050608";
     var GRID_COLOR = "rgba(200, 205, 214, 0.22)";
     var LABEL_COLOR = "#9aa3b0";
 
