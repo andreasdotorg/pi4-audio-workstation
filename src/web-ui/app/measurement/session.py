@@ -372,6 +372,14 @@ class MeasurementSession:
             await self._broadcast_state()
         except _AbortError as exc:
             await self._handle_abort(str(exc))
+        except asyncio.CancelledError:
+            # Task cancelled by /reset endpoint (F-049).  Treat as abort.
+            # Uncancel so that subsequent awaits in _handle_abort and
+            # _cleanup don't raise CancelledError again.
+            task = asyncio.current_task()
+            if task is not None:
+                task.uncancel()
+            await self._handle_abort("task cancelled (reset)")
         except Exception as exc:
             log.exception("Session error")
             self._error_message = str(exc)

@@ -214,14 +214,21 @@ async def _run_session_lifecycle(app: Any, session: MeasurementSession) -> None:
         await session.run()
     finally:
         mode_manager = app.state.mode_manager
-        terminal = session.state in (
-            MeasurementState.COMPLETE,
-            MeasurementState.ABORTED,
-            MeasurementState.ERROR,
-        )
-        if terminal:
-            restore_gm = session.state is not MeasurementState.COMPLETE
-            await mode_manager.enter_monitoring_mode(restore_gm=restore_gm)
+        # Only touch mode_manager state if THIS session is still the active
+        # one.  A /reset may have already cleared the state or replaced us
+        # with a new session (F-049: zombie lifecycle race).
+        current_session = mode_manager.measurement_session
+        if current_session is session:
+            terminal = session.state in (
+                MeasurementState.COMPLETE,
+                MeasurementState.ABORTED,
+                MeasurementState.ERROR,
+            )
+            if terminal:
+                restore_gm = session.state is not MeasurementState.COMPLETE
+                await mode_manager.enter_monitoring_mode(restore_gm=restore_gm)
+        else:
+            log.info("Lifecycle: session superseded — skipping mode restore")
         # Close SignalGenClient if it was used as sd_override (SG-11).
         sd = getattr(session, "_sd_override", None)
         if sd is not None and hasattr(sd, "close"):
@@ -230,7 +237,10 @@ async def _run_session_lifecycle(app: Any, session: MeasurementSession) -> None:
                 log.info("Signal generator client closed")
             except Exception:
                 pass
-        app.state.measurement_task = None
+        # Only clear the task ref if it still points to us (F-049).
+        current_task = getattr(app.state, "measurement_task", None)
+        if current_task is not None and current_task is asyncio.current_task():
+            app.state.measurement_task = None
 
 
 @router.post("/abort", responses={404: {"model": ErrorResponse}})
@@ -290,25 +300,32 @@ async def reset_measurement_state(request: Request):
         )
     mode_manager = request.app.state.mode_manager
 
-    # Abort any active measurement session.
+    # Abort any active measurement session and wait for its task to finish.
     session = mode_manager.measurement_session
+    task = getattr(request.app.state, "measurement_task", None)
     if session is not None:
         session.request_abort("e2e test reset")
-        # Wait briefly for the session task to finish.
-        task = getattr(request.app.state, "measurement_task", None)
-        if task is not None:
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
-            except (asyncio.TimeoutError, Exception):
-                pass
+    if task is not None and not task.done():
+        # Cancel the task (not shield!) so cleanup runs promptly.
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=10.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
 
-    # Force mode back to monitoring if still in measurement mode.
+    # Yield to the event loop to let any in-flight lifecycle callbacks
+    # (e.g. enter_monitoring_mode from a zombie lifecycle) settle before
+    # we force-reset the state.  Without this, a zombie lifecycle's
+    # finally block can overwrite our clean state (F-049).
+    await asyncio.sleep(0.1)
+
+    # Force mode back to monitoring unconditionally.  Even if a zombie
+    # lifecycle already restored monitoring mode, we need to clear the
+    # last_completed_session reference it may have set.
     from ..mode_manager import DaemonMode
-    if mode_manager.mode is DaemonMode.MEASUREMENT:
-        mode_manager._measurement_session = None
-        mode_manager._mode = DaemonMode.MONITORING
-
+    mode_manager._measurement_session = None
     mode_manager._last_completed_session = None
+    mode_manager._mode = DaemonMode.MONITORING
     request.app.state.measurement_task = None
     log.info("Measurement state fully reset for e2e tests")
     return {"status": "reset"}

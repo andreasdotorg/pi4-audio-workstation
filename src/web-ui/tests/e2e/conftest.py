@@ -189,18 +189,38 @@ def page(browser, mock_server, request):
     """
     _assert_server_alive(request.config)
 
+    import json
     import urllib.request
 
     # Reset measurement state so each test starts from clean IDLE.
     # The session-scoped mock server retains _last_completed_session across
     # tests; this endpoint clears it (mock mode only).
+    # The reset may need to cancel a running background task (F-049), so
+    # allow a generous timeout.
     try:
         req = urllib.request.Request(
             f"{mock_server}/api/v1/measurement/reset", method="POST",
             headers={"Content-Length": "0"})
-        urllib.request.urlopen(req, timeout=10)
+        urllib.request.urlopen(req, timeout=30)
     except Exception:
         pass  # Server may not have the endpoint yet; non-fatal
+
+    # Verify the server is actually in idle/monitoring state after reset.
+    # Zombie lifecycle tasks (F-049) may still be running and can flip the
+    # mode back to measurement if we proceed too quickly.
+    for _attempt in range(10):
+        try:
+            resp = urllib.request.urlopen(
+                f"{mock_server}/api/v1/measurement/status", timeout=5)
+            status = json.loads(resp.read())
+            if status.get("state") == "idle" and status.get("mode") == "monitoring":
+                break
+        except Exception:
+            pass
+        time.sleep(0.5)
+    else:
+        # Log but don't fail — the test itself will catch any issues.
+        pass
 
     context = browser.new_context()
     pg = context.new_page()
