@@ -2314,3 +2314,115 @@ F-054 and F-055 fixes to the hardcoded layout are also superseded.
 
 **Related:** US-064 (PW graph visualization), F-054 (superseded), F-055
 (superseded).
+
+---
+
+## F-060: L-042 process docs need corrections — nix develop vs nix run, separation of concerns (OPEN)
+
+**Severity:** Medium (process documentation — incorrect gate definitions and role/project coupling)
+**Status:** Open
+**Found in:** Owner review of `17a0cb2` (L-042 process docs commit, 2026-03-22)
+**Affects:** `.claude/team/roles/worker.md`, `docs/project/testing-process.md`
+**Found by:** Owner
+
+**Description:** Two corrections required to the L-042 process documents
+committed in `17a0cb2`:
+
+### Correction 1: `nix develop` is ad-hoc only
+
+The GraphManager Rust row in both `worker.md` (line 131) and
+`testing-process.md` (line 541) says workers should run
+`cargo test --no-default-features` in `nix develop`. This is incorrect.
+**QA-relevant testing MUST use `nix run .#test-*` targets.** `nix develop`
+is only for ad-hoc developer iteration and does not count for QA gates.
+
+The gate structure must be:
+- **Gate 1 (worker):** `nix run .#test-*` (impure, against working tree)
+- **Gate 2:** Pi hardware validation (QE owns)
+- `nix flake check` is a build validation tool, NOT a test gate
+- `nix develop` is NOT a QA gate
+
+Affected locations in `worker.md`: line 131 (table row), lines 201-206
+(Rust code section header + instructions).
+
+Affected locations in `testing-process.md`: line 541 (Gate 1 table row),
+lines 746-760 (Section 10.5 GraphManager).
+
+### Correction 2: Separation of concerns — role prompts vs project config
+
+Role prompts must be **generic** — they define HOW to work, not WHAT you're
+working on. Project-specific details that were embedded in role prompts:
+
+In `worker.md`:
+- Line 131: "GraphManager Rust (`src/graph-manager/`)" — project-specific path
+- Lines 201-206: "Rust code (GraphManager)" section — project-specific component
+- Lines 317-319: "PipeWire filter-chain config syntax", "PipeWire `config.gain`
+  silently ignored, CamillaDSP quirks" — project-specific examples
+
+In `testing-process.md`:
+- Lines 133, 176-177, 229-232: GraphManager, `find_gain_node()`, F-057 examples
+- Lines 299, 310, 336: Safety-critical code examples (watchdog, gain integrity)
+- Lines 361-367, 395-396, 486-487: D-009 violations, Mult > 1.0, safety paths
+- Lines 541, 746-760: GraphManager-specific gate instructions
+
+These must be extracted to a **project testing configuration** file (e.g.,
+`.claude/team/project-testing-config.md` or an addition to
+`.claude/team/config.md`). Role prompts should reference the project config
+as a mandatory read: "Read the project testing configuration at [path] for
+project-specific test suites, safety rules, and code path details."
+
+**Fix required:**
+1. Create project-specific testing config with all extracted details
+2. Replace project-specific content in `worker.md` with generic patterns
+   and a reference to the project config
+3. Replace project-specific content in `testing-process.md` similarly
+4. Add `nix run .#test-graph-manager` target if one doesn't exist, or
+   document the correct `nix run` invocation for Rust tests
+5. Fix Gate 1 table to use `nix run` for all rows
+
+**Files:**
+- `.claude/team/roles/worker.md`
+- `docs/project/testing-process.md`
+- New: project testing config file (location TBD)
+- Possibly `flake.nix` (if new `nix run` target needed for GM Rust)
+
+**Related:** L-042 (broken tests policy), `17a0cb2` (commit being corrected).
+
+---
+
+## F-061: `pw-dump` subprocess hangs under WebSocket load — event loop saturation (OPEN)
+
+**Severity:** High (blocks real-mode Pi operation — all PW introspection endpoints hang)
+**Status:** Open — worker-functional fixing now
+**Found in:** S-005 deploy session (Pi, 2026-03-22)
+**Affects:** All backend endpoints using `pw-dump` / `pw-cli` subprocess calls
+**Found by:** Worker (S-005 deployment verification)
+
+**Description:** When the web UI has active WebSocket connections (dashboard
+polling, status bar updates), `pw-dump` subprocess calls hang indefinitely.
+The root cause is event loop saturation: `asyncio.create_subprocess_exec`
+runs the subprocess within uvicorn's async event loop, and under WebSocket
+load the event loop cannot service the subprocess PIPE reader fast enough.
+The subprocess output buffer fills, the subprocess blocks on write, and the
+async reader never gets scheduled — classic deadlock.
+
+This blocks real-mode verification of F-056 (quantum display) and F-057
+(gain controls) on Pi, since both depend on `pw-dump` / `pw-cli` subprocess
+calls that hang under normal UI operation.
+
+**Root cause:** Using `asyncio.create_subprocess_exec` with PIPE for
+PipeWire CLI tools in an event loop that is saturated by WebSocket handlers.
+
+**Fix:** Replace `asyncio.create_subprocess_exec` with
+`asyncio.to_thread(subprocess.run, ...)` to run the subprocess in a thread
+pool, isolating it from event loop scheduling pressure.
+
+**Also discovered during S-005:** The webui systemd service had a
+pre-existing `Type=notify` bug causing restart loops. Fixed in `ba8aaf5`.
+
+**Files:**
+- `src/web-ui/app/pw_helpers.py` (subprocess call pattern)
+- Any other backend module using `asyncio.create_subprocess_exec` for PW CLI
+
+**Related:** F-056 (quantum display — blocked on Pi by this), F-057 (gain
+controls — blocked on Pi by this), S-005 (deployment session).

@@ -44,7 +44,7 @@ The record must include:
 ### Automated Regression (owner directive 2026-03-15)
 
 All tests MUST be part of the project's automated regression suite (runnable via
-`nix flake check` or equivalent CI gate). One-shot validation scripts that are not
+`nix run .#test-*`). One-shot validation scripts that are not
 wired into the regression harness do NOT satisfy DoD. Specifically:
 
 - Every test must catch regressions on every commit — not just validate once
@@ -3614,7 +3614,7 @@ signal-gen (PW stream) → production convolver (filter-chain, FIR crossover+cor
 - `mock/export_room_irs.py` — exports room IRs as float32 WAV files for
   PW filter-chain convolver loading.
 - `tests/test_mock_e2e.py` — Python-level sweep→deconvolve→verify test.
-- Nix `checks` infrastructure for `nix flake check` regression gating.
+- Nix `apps` infrastructure for `nix run .#test-*` regression gating.
 
 **Acceptance criteria:**
 
@@ -3638,7 +3638,7 @@ signal-gen (PW stream) → production convolver (filter-chain, FIR crossover+cor
 - [ ] **Graph topology matches production:** The PipeWire node/link topology in simulation must be structurally equivalent to production (same node types, same link patterns, same port names) with the simulation chain appended. GraphManager should be able to manage this topology.
 
 *Nix sandbox integration:*
-- [ ] **Runs in `nix flake check`:** The simulation-based tests run as a Nix check target (e.g., `test-room-sim-e2e`). Must work in the Nix build sandbox (no network, no audio hardware, no X11/Wayland).
+- [ ] **Runs via `nix run .#test-room-sim-e2e`:** The simulation-based tests run as a Nix app target. Must work without audio hardware or X11/Wayland.
 - [ ] **PipeWire in Nix sandbox:** The headless PipeWire instance runs with `PIPEWIRE_RUNTIME_DIR` and `XDG_RUNTIME_DIR` set to a temporary directory inside the sandbox. WirePlumber auto-link suppression rules from D-043 are applied. No dbus dependency (or dbus-daemon started in the sandbox if required by PW).
 - [ ] **Deterministic output:** Given the same room scenario YAML and the same input signal, the simulation produces bit-identical output (no random noise in the room model by default — noise is opt-in via a `noise_floor_dbfs` parameter). This enables reproducible regression testing.
 
@@ -3654,7 +3654,7 @@ signal-gen (PW stream) → production convolver (filter-chain, FIR crossover+cor
 - [ ] Speaker, room, and microphone simulation models implemented
 - [ ] PipeWire headless test fixture working in Nix sandbox
 - [ ] Filter-chain config generation from room scenario YAML
-- [ ] At least 5 E2E test scenarios passing in `nix flake check` (T-067-1 through T-067-5)
+- [ ] At least 5 E2E test scenarios passing via `nix run .#test-room-sim-e2e` (T-067-1 through T-067-5)
 - [ ] 3 pre-defined room scenarios committed and AE-validated
 - [ ] Audio engineer sign-off: acoustic models are physically plausible and the correction pipeline produces reasonable results against them
 - [ ] Architect sign-off: PipeWire sandbox integration is robust (no leaked processes, no race conditions, deterministic cleanup)

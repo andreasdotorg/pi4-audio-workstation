@@ -13,27 +13,15 @@ all Python dependencies is `flake.nix`.
 
 ### 1.1 Running Tests and Commands
 
-**`nix flake check`** is the gold standard: pure, sandboxed derivations with
-no access to the host environment. It runs four checks:
-
-```sh
-nix flake check    # Runs all four checks in the Nix sandbox:
-                   #   test-web-ui           (web UI unit/integration tests)
-                   #   test-room-correction  (DSP pipeline tests)
-                   #   test-midi             (MIDI daemon tests)
-                   #   test-drivers          (driver validation tests)
-```
-
-If `nix flake check` passes, the code is reproducible. This is what CI runs.
-
-**`nix run .#<target>`** runs tests impurely against the working tree (picks
-up uncommitted changes). Use these during development:
+**`nix run .#<target>`** is the QA gate. It runs tests impurely against the
+working tree (picks up uncommitted changes):
 
 ```sh
 nix run .#test-unit             # Web UI unit tests (excludes e2e)
 nix run .#test-room-correction  # Room correction DSP tests
+nix run .#test-graph-manager    # GraphManager Rust tests (pure logic)
 nix run .#test-e2e              # Playwright e2e tests
-nix run .#test-all              # All four suites sequentially
+nix run .#test-all              # All suites sequentially
 nix run .#serve                 # Dev server (mock mode, 0.0.0.0:8080)
 ```
 
@@ -118,14 +106,12 @@ state) and are skipped by default. They require the `--destructive` flag.
 Located in `src/midi/tests/` and `scripts/drivers/tests/` respectively.
 These do not have individual `nix run` targets. They are included in:
 
-- `nix flake check` (as `test-midi` and `test-drivers` checks)
-- `nix run .#test-all` (runs all four suites sequentially)
+- `nix run .#test-all` (runs all suites sequentially)
 
 ### 2.5 Running Everything
 
 ```sh
-nix flake check    # CI-grade, pure sandbox — 4 checks
-nix run .#test-all # All 4 suites sequentially against working tree
+nix run .#test-all # All suites sequentially against working tree
 ```
 
 
