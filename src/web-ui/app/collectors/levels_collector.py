@@ -1,6 +1,6 @@
 """Levels collector — reads peak/RMS from pcm-bridge levels server.
 
-Connects to pcm-bridge's levels TCP server (default 127.0.0.1:9091)
+Connects to pcm-bridge's levels TCP server (default 127.0.0.1:9100)
 which pushes newline-delimited JSON at 10 Hz:
 
     {"channels":8,"peak":[-3.1,-6.0,...],"rms":[-12.5,-20.0,...]}\n
@@ -9,7 +9,8 @@ The collector stores the latest snapshot for consumption by
 FilterChainCollector.monitoring_snapshot().
 
 Connection lifecycle: connect on startup, reconnect with exponential
-backoff (1s -> 2s -> 4s -> 8s cap). Timeouts reduced to 2s (F-063b). Graceful degradation:
+backoff (1s -> 2s -> 4s, capped at 8s). Connect/read timeouts
+reduced from 5s to 2s for localhost (F-064). Graceful degradation:
 when pcm-bridge is unreachable, snapshot returns -120.0 (silent).
 """
 
@@ -29,7 +30,7 @@ _BACKOFF_CAP = 8.0
 class LevelsCollector:
     """TCP client for pcm-bridge level metering data."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 9091) -> None:
+    def __init__(self, host: str = "127.0.0.1", port: int = 9100) -> None:
         self._host = host
         self._port = port
         self._reader: asyncio.StreamReader | None = None
