@@ -2587,3 +2587,37 @@ persistence behavior must be documented correctly.
 - `CLAUDE.md` (gain persistence reference)
 - `SETUP-MANUAL.md` (gain persistence reference)
 - `~/.config/pipewire/pipewire.conf.d/30-filter-chain-convolver.conf` (on Pi)
+
+## F-067: SETUP-MANUAL.md writing quality and stale CamillaDSP references (OPEN)
+
+**Severity:** Medium (documentation quality — blocks US-071 owner acceptance)
+**Status:** OPEN
+**Found in:** Owner Gate 3 review of US-071 (2026-03-22)
+**Affects:** SETUP-MANUAL.md
+**Found by:** Owner (Gabriela Bogk)
+
+**Description:** Owner rejected US-071 Gate 3 with two issues:
+
+1. **Writing quality:** The manual is factually up to date but reads poorly.
+   Owner quote: "Terrible manual. Not explaining anything, very terse bullet
+   point style." The manual needs prose, explanations, and context — not just
+   bullet lists. Each section should explain *why*, not just *what*.
+
+2. **CamillaDSP references:** Owner quote: "Why keep mentioning CamillaDSP at
+   all, except maybe as a historical note in one place?" CamillaDSP should be
+   scrubbed from the manual except for one brief historical note. The system
+   runs PipeWire filter-chain — the manual should reflect that cleanly.
+
+**Impact:** US-071 cannot be owner-accepted until both issues are fixed. DoD
+remains 9/9 technically (all ACs met) but owner Gate 3 review FAILED.
+
+**Required actions:**
+1. Full prose quality pass on SETUP-MANUAL.md — convert terse bullet points
+   to explanatory paragraphs with context
+2. Remove or consolidate all CamillaDSP references into one brief historical
+   note (e.g., "The system previously used CamillaDSP; it was replaced by
+   PipeWire filter-chain in D-040")
+3. Re-submit for owner review
+
+**Files:**
+- `SETUP-MANUAL.md`
