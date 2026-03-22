@@ -53,15 +53,15 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 | Story | Phase | Score | Status |
 |-------|-------|-------|--------|
-| US-000 | done | 3/3 | **done** (all advisors signed off: audio engineer, security specialist, technical writer) |
+| US-000 | done | 3/3 | **done** (owner-accepted, retroactive 2026-03-22). All advisors signed off: audio engineer, security specialist, technical writer. |
 | US-000a | done | 4/4 | **done** (owner-accepted 2026-03-21). Platform security hardening. F-002 resolved: CamillaDSP systemd service. F-011 resolved: nfs-blkmap masked. Verified across reboot in US-000b T7. |
-| US-000b | done | 13/13 | done (security specialist + architect signed off) |
-| US-001 | done | 4/4 | **done** (all 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 19.25%, T1d 6.35%, T1e 6.61%. 16k taps both modes. A1/A2 validated.) |
-| US-002 | done | 4/4 | **done** (Pass 1 + Pass 2 complete, lab notes written, A3 updated. D-011 confirmed. IEM passthrough = net benefit.) |
+| US-000b | done | 13/13 | **done** (owner-accepted, retroactive 2026-03-22). Security specialist + architect signed off. |
+| US-001 | done | 4/4 | **done** (owner-accepted, retroactive 2026-03-22). All 5 tests pass: T1a 5.23%, T1b 10.42%, T1c 19.25%, T1d 6.35%, T1e 6.61%. 16k taps both modes. A1/A2 validated. |
+| US-002 | done | 4/4 | **done** (owner-accepted, retroactive 2026-03-22). Pass 1 + Pass 2 complete, lab notes written, A3 updated. D-011 confirmed. IEM passthrough = net benefit. |
 | US-003 | DEFERRED | 3/4 | **deferred** (owner directive 2026-03-16: deselected for Tier 11. Was IMPLEMENT 3/4 — T3a/b/e PASS. T3d and T4 pending. Work preserved.) |
 | US-004 | done | 4/4 | **done** (owner-accepted 2026-03-21). Assumption register (A1-A28), cross-references documented, CLAUDE.md updated. |
-| US-005 | done | 3/3 | **done** (owner confirms basic DJ functionality works 2026-03-12. Residual mapping work deferred.) |
-| US-006 | done | 3/3 | **done** (implicitly validated — owner actively DJing on Mixxx with Hercules on Pi 2026-03-12.) |
+| US-005 | done | 3/3 | **done** (owner-accepted, implicit 2026-03-12). Basic DJ functionality works. Residual mapping work deferred. |
+| US-006 | done | 3/3 | **done** (owner-accepted, implicit 2026-03-12). Owner actively DJing on Mixxx with Hercules on Pi. |
 | US-050 | TEST | 6/6 | **TEST phase (advanced 2026-03-21).** QE test plan: T-050-1 (CI regression), T-050-2 (E2E harness self-validation on Linux+PW), T-050-3 (D-040 adaptation inspection), T-050-4 (AC coverage check). QE reviewing T-050-3/4 on commit. CM committing code. |
 | US-051 | TEST | 4/4 | **TEST phase (advanced 2026-03-21).** QE test plan: T-051-1 (Playwright E2E, 20+ tests), T-051-2 (CI regression), T-051-3 (D-040 inspection), T-051-4 (Pi hardware, deferred to VERIFY). TP-003 protocol exists. Committed `8975b5b`. |
 | US-052 | VERIFY | 4/6 | **VERIFY PASS** (S-001 2026-03-21). Signal-gen running on Pi. F-034/F-035 repo fixes committed (`33b5577`). Responds to RPC. |

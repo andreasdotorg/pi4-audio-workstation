@@ -19,6 +19,8 @@
     ./audio/pipewire.nix
     ./audio/wireplumber.nix
     ./audio/udev.nix
+    # Phase 5: PREEMPT_RT kernel (D-013 mandatory)
+    ./kernel-rt.nix
     # Phase 4: Display + applications
     ./display.nix
     ./applications.nix

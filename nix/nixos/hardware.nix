@@ -14,11 +14,9 @@
   boot.loader.grub.enable = false;
 
   # ── Kernel ─────────────────────────────────────────────────────
-  # Phase 1: stock Raspberry Pi fork kernel (NOT PREEMPT_RT — that is Phase 5).
-  # nixos-hardware.nixosModules.raspberry-pi-4 already sets this to
-  # linuxPackages_rpi4 via mkDefault, so we don't duplicate it here.
-  # When used standalone (without nixos-hardware), add:
-  #   boot.kernelPackages = pkgs.linuxPackages_rpi4;
+  # The PREEMPT_RT kernel is set in kernel-rt.nix (Phase 5) via
+  # lib.mkForce, overriding both nixos-hardware's mkDefault and any
+  # other default. See kernel-rt.nix for details.
 
   # D-040: snd-aloop removed — CamillaDSP abandoned, PW filter-chain
   # convolver handles all DSP natively (no ALSA loopback needed).
