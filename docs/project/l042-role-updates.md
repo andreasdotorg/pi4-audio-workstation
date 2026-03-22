@@ -1,6 +1,6 @@
 # L-042 Role Prompt Updates
 
-**Status:** Applied — role prompts updated, F-060 corrections applied
+**Status:** Applied — role prompts updated, F-060 corrections applied, 3-gate structure finalized (2026-03-22)
 **Author:** Quality Engineer
 
 These are the exact text additions for the worker and QE role prompts.

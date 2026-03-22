@@ -1,6 +1,6 @@
 # Testing and Code Quality Process (L-042)
 
-**Status:** Approved — Architect confirmed, AD challenge resolved (11 findings)
+**Status:** Approved — 3-gate structure owner-approved (2026-03-22). Architect, AD, PM, QE consensus.
 **Author:** Quality Engineer
 **Trigger:** L-042 — workers dismissed test failures without proper review;
 no gate requiring tests to pass before task completion. Extended with owner
@@ -521,12 +521,15 @@ remove the xfail marker.
 
 ## 8. Deployment Gates
 
-Two gates. Each must pass before proceeding to the next.
+Three gates. Each must pass before proceeding to the next. Approved by
+owner (2026-03-22) with input from Architect, AD, PM, and QE.
 
 ### Gate 1: Worker Task Completion (`nix run .#test-*`)
 
 **When:** Worker reports a task as done.
 **Who runs:** The worker.
+**Enforcement:** Trust-based (worker self-enforces). CI will automate
+enforcement in the future (see Section 8.4).
 **What runs:** The **relevant `nix run .#test-*` suite(s)** based on what
 files changed (impure, runs against working tree).
 
@@ -539,6 +542,8 @@ files changed (impure, runs against working tree).
 | Web UI backend + frontend | `test-unit` + `test-e2e` |
 | Room correction (`src/room-correction/`) | `test-room-correction` |
 | GraphManager Rust (`src/graph-manager/`) | `test-graph-manager` |
+| pcm-bridge Rust (`src/pcm-bridge/`) | `test-pcm-bridge` |
+| signal-gen Rust (`src/signal-gen/`) | `test-signal-gen` |
 | MIDI daemon (`src/midi/`) | `test-all` (includes midi suite) |
 | Driver YAMLs (`configs/drivers/`) | `test-drivers` |
 | PipeWire/WP configs (`configs/pipewire/`, `configs/wireplumber/`) | No local test — mark "requires Pi validation" |
@@ -550,6 +555,16 @@ files changed (impure, runs against working tree).
 **Key rule:** Changes that touch BOTH frontend and backend require BOTH
 `test-unit` AND `test-e2e`. A common mistake is running only unit tests
 when a JS change breaks an E2E assertion.
+
+**E2E frequency:** E2E tests (`nix run .#test-e2e`) take ~7-20 minutes.
+They are required when:
+- Frontend code changes (`src/web-ui/static/`, templates)
+- Backend changes that affect WebSocket data or API responses
+- Any change to mock data used by E2E tests
+
+E2E is not required for pure backend refactors with no API/WS change,
+Rust components, room-correction, MIDI, driver YAMLs, documentation,
+or config files. **When in doubt, run E2E.**
 
 **Rules:**
 - Worker MUST run the relevant suite(s) before reporting done
@@ -564,13 +579,29 @@ when a JS change breaks an E2E assertion.
 - For changes requiring Pi validation, the worker must note this in the
   task completion report so it is tracked for Gate 2
 
-### Gate 2: Pi Deployment Validation
+### Gate 2: Pi Hardware Validation
 
-**When:** Code is deployed to the Pi via a DEPLOY session.
+**When:** Story-closing commits (IMPLEMENT -> TEST phase transition) and
+batched fix commits (3+ related defects). Single-defect fixes and
+documentation-only commits require only Gate 1. The CM enforces the
+trigger: "Is this commit closing a story phase or a batch?"
 **Who runs:** Worker holding the DEPLOY session (executes tests on Pi).
 **Who owns:** The **QE owns Gate 2** — the QE defines what must be validated,
 reviews the evidence, and signs off. The worker executes; the QE decides.
 **What runs:** Hardware-specific validation per the test plan for the story.
+
+**Standard checklist** (always checked on Pi deploys):
+- [ ] Services start cleanly after deploy
+- [ ] No xruns in 60-second idle period
+- [ ] Web UI accessible on port 8080
+- [ ] pcm-bridge levels endpoint responsive on port 9100
+
+**Per-story checklist** (QE adds based on acceptance criteria):
+- Functional verification specific to the change
+- Regression checks for adjacent subsystems
+
+Gate 2 is **not required** for pure documentation, test-only, or tooling
+changes that do not deploy to Pi.
 
 **Rules:**
 - QE writes the hardware validation criteria for each story BEFORE
@@ -588,6 +619,58 @@ reviews the evidence, and signs off. The worker executes; the QE decides.
   the worker must capture real Pi output and the QE must verify mock data
   format matches. F-056 and F-057 are evidence that mock-production divergence
   causes real defects (see Section 3.7).
+
+### Gate 3: Owner Acceptance
+
+**When:** Story reaches REVIEW phase (all prior gates passed).
+**Who runs:** The owner, on real Pi hardware.
+**Who tracks:** The PM records the owner's decision in the DoD tracking
+table ("Owner Accepted" column: YES / NO / N/A).
+**Phase mapping:** Gate 3 is a sub-step of the existing REVIEW phase. No
+new phase is added.
+
+The owner performs subjective and functional verification on the Pi as part
+of story acceptance. This is the final gate before a story moves to DONE.
+
+**Rules:**
+- The owner is the sole authority for acceptance. No bypass mechanism.
+- Maximum 3 stories may await owner acceptance simultaneously. If the queue
+  is full, workers focus on stories in earlier phases rather than producing
+  more Gate 3 candidates. The PM tracks this queue.
+- If the owner is unavailable for >24h, stories remain in VERIFY state.
+  No one may accept on the owner's behalf.
+- The owner says "accepted" or "needs rework." The PM records the outcome.
+  The owner does not file formal documents.
+
+**Acceptance criteria authorship:**
+- **PO** writes acceptance criteria in user stories (business-level)
+- **QE** translates AC into testable checklist items for Gate 2
+- **Worker** executes the checklist and provides evidence
+- **Owner** performs final hands-on verification at Gate 3
+
+### 8.4 Future: GitHub Actions CI (Gate 1b)
+
+The owner has approved GitHub Actions with a self-hosted runner as a future
+enhancement. When implemented, CI will:
+
+- Run ALL `nix run .#test-*` suites on push/PR against committed code
+- Gate merges to main on green CI (automated enforcement)
+- Enable branch-based parallel work with merge gates
+- Eliminate the "worker said tests passed" trust gap
+- Resolve AD finding F14 (working tree vs committed source) by testing
+  committed code by definition
+
+CI will become **Gate 1b** — an automated enforcement layer between Gate 1a
+(worker local testing) and Gate 2 (Pi hardware validation). The 3-gate
+structure works without CI for now; CI adds automated enforcement.
+
+**QE concerns for the CI design** (to be addressed by the architect):
+1. Self-hosted runner security (acceptable for single-owner repo)
+2. Runner capacity (queueing if multiple PRs push simultaneously)
+3. Nix store caching on the runner (cold cache on first run)
+4. Playwright/Chromium environment requirements
+5. Flaky test policy: flaky test = defect filed + test quarantined
+   (`@pytest.mark.skip` with defect ID) until fixed. No "re-run until green."
 
 ---
 
@@ -815,3 +898,6 @@ This process was created in response to L-042. Key failure modes it prevents:
 | Mock data diverges from production (F-056, F-057) | Real Pi data sample required for collector changes; Gate 2 mock divergence check (Sec 3.7, 8) |
 | Test asserts structure not values | Value-assertion criterion: assert values when code computes them (Sec 3.3) |
 | Wiring test without companion logic test | QE verifies companion test exists during review (Sec 3.5, 11.1) |
+| Stories accepted without owner hands-on testing | Gate 3: owner acceptance is mandatory sub-step of REVIEW (Sec 8) |
+| Too many stories waiting for owner | WIP limit of 3 at Gate 3; PM tracks queue (Sec 8) |
+| Worker claims tests passed but committed code differs | Future CI (Gate 1b) will test committed code automatically (Sec 8.4) |

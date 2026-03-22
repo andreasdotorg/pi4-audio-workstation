@@ -70,6 +70,8 @@ acceptable only for ad-hoc exploratory testing during development.
 | Web UI backend + frontend | `nix run .#test-unit` + `nix run .#test-e2e` |
 | Room correction (`src/room-correction/`) | `nix run .#test-room-correction` |
 | GraphManager Rust (`src/graph-manager/`) | `nix run .#test-graph-manager` |
+| pcm-bridge Rust (`src/pcm-bridge/`) | `nix run .#test-pcm-bridge` |
+| signal-gen Rust (`src/signal-gen/`) | `nix run .#test-signal-gen` |
 | MIDI daemon (`src/midi/`) | `nix run .#test-all` |
 | Driver YAMLs (`configs/drivers/`) | `nix run .#test-all` (includes driver validation) |
 | PW/WP configs, systemd, udev | No local test — note "requires Pi validation" |
@@ -78,12 +80,24 @@ acceptable only for ad-hoc exploratory testing during development.
 **Key rules:**
 - Changes to BOTH frontend and backend require BOTH `test-unit` AND `test-e2e`
 - Config-only changes (PipeWire, WirePlumber, systemd, udev) have no local
-  test — mark "requires Pi validation" for Pi hardware gate.
+  test — mark "requires Pi validation" for Gate 2.
+- When in doubt whether E2E is needed, run E2E.
 
-### Pi Hardware Validation (QE owns)
+### Gate 2: Pi Hardware Validation (QE owns)
+
+**Trigger:** Story-closing commits and batched fix commits (3+ related
+defects). Single-defect fixes and doc-only commits need only Gate 1.
 
 Hardware-specific validation per story test plan. Requires CM DEPLOY session.
-QE defines criteria, worker executes on Pi, QE reviews evidence and signs off.
+QE defines criteria (standard + per-story checklist), worker executes on Pi,
+QE reviews evidence and signs off.
+
+### Gate 3: Owner Acceptance (PM tracks)
+
+Sub-step of REVIEW phase. Owner performs hands-on Pi verification. PM records
+outcome in DoD tracking table. Max 3 stories in acceptance queue at a time.
+
+See `docs/project/testing-process.md` Section 8 for full gate definitions.
 
 ## Deployment Target
 
