@@ -460,6 +460,9 @@ class TestGModeVerificationFailure:
 
             final = _wait_for_session_done(client, timeout_s=120.0)
             assert final["state"] in TERMINAL_STATES
+            # Allow async cleanup (finally block) to complete before
+            # TestClient teardown cancels the background task.
+            time.sleep(0.5)
 
 
 # ===========================================================================
@@ -946,6 +949,9 @@ class TestGMFullSessionLifecycle:
             time.sleep(0.5)
             client.post("/api/v1/measurement/abort")
             _wait_for_session_done(client, timeout_s=30.0)
+            # Allow async cleanup (finally block) to complete before
+            # TestClient teardown cancels the background task.
+            time.sleep(0.5)
 
         # Last mode set should be "monitoring" (restore).
         assert mode_log[-1] == "monitoring"
