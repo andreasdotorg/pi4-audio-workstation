@@ -2466,3 +2466,36 @@ an already-running loop (if so, use `await` + `@pytest.mark.asyncio` instead).
 **Files:**
 - `src/web-ui/tests/test_measurement_integration.py` (20 call sites)
 - `src/web-ui/tests/test_phase1_validation.py` (5 call sites)
+
+## F-063: uvicorn single-worker capacity — WebSocket connections block new TLS handshakes (OPEN)
+
+**Severity:** Medium
+**Status:** Open
+**Found in:** F-061 Pi deployment verification (2026-03-22)
+**Affects:** Web UI availability under concurrent WebSocket connections
+**Found by:** Worker-functional during F-061 Pi deploy
+
+**Description:** uvicorn runs with a single worker (default). Active WebSocket
+connections (spectrum data, level meters, graph updates) saturate the worker's
+event loop capacity. When the worker is busy servicing existing WebSocket frames,
+new incoming TLS handshakes are blocked — the browser spins waiting for the
+connection to complete.
+
+This is a separate issue from F-061 (subprocess hangs). F-061 fixed the event
+loop blocking from `asyncio.create_subprocess_exec`; F-063 is about inherent
+single-worker throughput limits when multiple WebSocket streams are active
+simultaneously.
+
+**Impact:** Users opening a second browser tab or refreshing may experience
+connection timeouts. During active monitoring (spectrum + meters + graph),
+the single worker has little headroom for new connections.
+
+**Fix approach:** Configure uvicorn with `--workers 2` or similar. Note: multiple
+workers with WebSocket state requires careful consideration — each worker has
+independent state. Alternatively, optimize WebSocket frame processing to reduce
+per-frame CPU cost, or use a reverse proxy (nginx) to handle TLS termination
+and connection management.
+
+**Files:**
+- `src/web-ui/pi4audio-webui.service` (systemd unit, ExecStart uvicorn args)
+- `src/web-ui/app/main.py` (uvicorn startup)

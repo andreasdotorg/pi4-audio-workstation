@@ -41,7 +41,6 @@ or do any interactive work:
 # Inside nix develop
 python -m pytest src/room-correction/tests/ -v
 python -m pytest src/web-ui/tests/ -v -k "not e2e"
-python -c "import camilladsp; print(camilladsp.versions.VERSION)"
 ```
 
 ### 1.3 What NOT to Do
@@ -108,18 +107,40 @@ These do not have individual `nix run` targets. They are included in:
 
 - `nix run .#test-all` (runs all suites sequentially)
 
-### 2.5 Running Everything
+### 2.5 GraphManager Rust Tests
+
+Rust-based logic tests for the GraphManager (reconciler, watchdog, routing
+tables). Runs via `cargo test` inside the Nix environment.
+
+```sh
+nix run .#test-graph-manager
+```
+
+### 2.6 Running Everything
 
 ```sh
 nix run .#test-all # All suites sequentially against working tree
 ```
 
+### 2.7 Three-Gate Testing Process
+
+The project uses a three-gate testing process (owner-approved, 2026-03-22):
+
+| Gate | When | What | Who |
+|------|------|------|-----|
+| **Gate 1** | Every task | `nix run .#test-<suite>` (targeted suite for changed code) | Worker |
+| **Gate 2** | Pre-merge / story-closing commits | `nix run .#test-all` (full suite including E2E) | Worker or CI |
+| **Gate 3** | REVIEW phase | Pi acceptance testing | Owner |
+
+**`nix run .#test-*` is the sole QA gate.** `nix flake check` is build
+validation only. `nix develop` is for interactive exploration, not QA.
+
 
 ## 3. Running the Web UI Locally
 
 The web UI is a FastAPI application. In mock mode (`PI_AUDIO_MOCK=1`, the
-default), it uses mock collectors and a mock sounddevice backend so you can
-develop and test without audio hardware.
+default), it uses mock collectors and mock backends so you can develop and
+test without audio hardware or PipeWire.
 
 ```sh
 nix run .#serve
@@ -149,7 +170,7 @@ Workers do not deploy directly; they commit code and the CM deploys.
 
 1. The CM must hold a DEPLOY session (exclusive lock) before deploying.
 2. Only committed code is deployed (D-023). The git working tree must be clean.
-3. The owner must be notified before any action that restarts CamillaDSP or
+3. The owner must be notified before any action that restarts PipeWire or
    reboots the Pi, because the USBStreamer produces transients through the
    amplifier chain that can damage speakers. See `docs/operations/safety.md`.
 
@@ -160,7 +181,7 @@ the Pi via SSH/SCP/rsync.
 
 ```sh
 scripts/deploy/deploy.sh --dry-run              # preview what would be deployed
-scripts/deploy/deploy.sh                         # deploy, keep current CamillaDSP mode
+scripts/deploy/deploy.sh                         # deploy configs and code
 scripts/deploy/deploy.sh --mode dj               # deploy and set DJ/PA mode
 scripts/deploy/deploy.sh --mode live             # deploy and set Live mode
 scripts/deploy/deploy.sh --pi ela@10.0.0.5       # deploy to a different host
@@ -171,12 +192,12 @@ The script runs 9 sections:
 
 1. Validate prerequisites (clean git, Pi reachable, source files exist)
 2. Deploy user-level configs (PipeWire, WirePlumber, labwc, systemd user units)
-3. Deploy system-level configs via sudo (CamillaDSP, systemd overrides)
-4. Set active CamillaDSP config symlink (`/etc/camilladsp/active.yml`)
+3. Deploy system-level configs via sudo (udev rules, systemd overrides)
+4. Deploy FIR coefficient files to `/etc/pi4audio/coeffs/`
 5. Reload systemd (system + user)
 6. Deploy scripts to `~/bin/` (test, stability, launch scripts)
-7. Deploy web UI and room correction code via rsync
-8. Verify (CamillaDSP config syntax, script syntax, libjack resolution)
+7. Deploy web UI, measurement, and room correction code via rsync
+8. Verify (PipeWire config syntax, script syntax, libjack resolution)
 9. Optionally reboot
 
 ### 4.3 Manual Deploy (git pull on Pi)
@@ -190,13 +211,13 @@ appropriate for changes to scripts and application code (not system configs).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PI_AUDIO_MOCK` | `1` | Enable mock mode (mock sounddevice, mock CamillaDSP, mock collectors). Set to `0` for real hardware. |
+| `PI_AUDIO_MOCK` | `1` | Enable mock mode (mock collectors, mock GraphManager/signal-gen). Set to `0` for real hardware. |
 | `PI_AUDIO_URL` | (unset) | Pi web UI URL for e2e tests against real hardware. Tests skip if unset. |
 | `PI4AUDIO_LEVELS_HOST` | `127.0.0.1` | pcm-bridge levels server host for LevelsCollector (peak/RMS metering). |
 | `PI4AUDIO_LEVELS_PORT` | `9100` | pcm-bridge levels server TCP port for LevelsCollector. |
 | `PI4AUDIO_PCM_JACK` | (unset) | Enable legacy JACK PCM collector (`1` = enable). Default off — pcm-bridge (Rust) is the replacement. The JACK client joins the RT graph and can cause xruns. |
 | `PI4AUDIO_PW_TOP` | (unset) | Enable PipeWireCollector (`1` = enable). Default off — the `pw-top` subprocess spawned every second causes xruns on the Pi. Native PW metadata reads planned as replacement. |
-| `PI4AUDIO_PRODUCTION_CONFIG` | `/etc/camilladsp/active.yml` | Production CamillaDSP config path, restored after measurement. |
+| `PI4AUDIO_MEAS_DIR` | (unset) | Override measurement directory path. Set in webui systemd service file on Pi. |
 | `PLAYWRIGHT_BROWSERS_PATH` | (set by flake) | Path to Playwright's Chromium. Set automatically in `nix develop` and `nix run`. |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | `1` (set by flake) | Prevents Playwright from downloading browsers (Nix provides them). |
 
@@ -208,37 +229,44 @@ pi4-audio-workstation/
   flake.nix                       Nix flake — all deps, packages, test targets
   flake.lock                      Pinned Nix inputs
   configs/                        Version-controlled Pi configs
-    camilladsp/                   CamillaDSP production configs (dj-pa.yml, live.yml)
-    pipewire/                     PipeWire config fragments
-    wireplumber/                  WirePlumber config fragments
+    pipewire/                     PipeWire config fragments (quantum, filter-chain convolver)
+    wireplumber/                  WirePlumber config fragments (D-043: linking disabled)
     labwc/                        Wayland compositor config
     systemd/                      Systemd unit files and overrides
-  scripts/
-    deploy/deploy.sh              Deployment script (9 sections)
-    room-correction/              DSP pipeline (sweep, deconvolution, filters)
-      tests/                      Unit tests (15 test files)
-      mock/                       Mock CamillaDSP client
+    udev/                         udev rules (USBStreamer ALSA lockout, US-044)
+    room-correction/              Room correction pipeline configs
+    speakers/                     Speaker identity profiles
+    camilladsp/                   Historical CamillaDSP configs (service stopped, D-040)
+  src/
+    graph-manager/                Rust GraphManager — sole PipeWire link manager (D-039)
+    signal-gen/                   Rust RT signal generator — measurement audio source
+    pcm-bridge/                   Rust PipeWire monitor tap (lock-free level metering)
     web-ui/                       FastAPI web UI + monitoring dashboard
       app/                        FastAPI application
+        collectors/               Backend data collectors (FilterChain, Levels, System, PW)
         measurement/              Measurement daemon (session, routes)
-        mock/                     Mock sounddevice
+        mock/                     Mock backends for development
       static/                     Frontend assets (HTML, JS, CSS)
       tests/                      Unit + integration tests
         e2e/                      Playwright e2e tests
           screenshots/            Visual regression reference images
+    room-correction/              DSP pipeline (sweep, deconvolution, filters)
+      tests/                      Unit tests (15+ test files)
+    measurement/                  Measurement client libraries (GraphManager, signal-gen)
     midi/                         MIDI daemon
       tests/                      MIDI daemon tests
-    drivers/                      Driver validation
-      tests/                      Driver validation tests
-    test/                         Hardware test scripts (T1-T5)
+  scripts/
+    deploy/deploy.sh              Deployment script (9 sections)
+    test/                         Hardware test scripts
     stability/                    Stability test scripts
     launch/                       Application launch scripts
-  tools/
-    pcm-bridge/                   Rust PipeWire monitor tap (passive, no xruns)
+    drivers/                      Driver validation
+      tests/                      Driver validation tests
   docs/
-    architecture/                 Architecture documents (rt-audio-stack, measurement-daemon)
+    architecture/                 Architecture documents (rt-audio-stack, web-ui, etc.)
     operations/safety.md          Safety manual — read before audio-producing operations
     lab-notes/                    Session lab notes (CHANGE, DEPLOY, OBSERVE)
-    project/                      Status, decisions, assumptions
+    project/                      Status, decisions, assumptions, user stories
     guide/howto/                  This file and future HOWTOs
+    theory/                       Design rationale, signal processing theory
 ```

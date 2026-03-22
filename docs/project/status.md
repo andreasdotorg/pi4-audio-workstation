@@ -75,8 +75,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-064 | **IMPLEMENT** | **1/8** | **REWORK in progress (F-059).** Phase 1 complete: SPA config parser for filter-chain internal topology (task #67, 38 tests, awaiting CM commit). Remaining phases: pw-dump graph builder, dynamic SVG layout, live updates, E2E tests, architect review, UX review. |
 | US-070 | IMPLEMENT | 0/TBD | **CI setup.** GitHub Actions workflow YAML + self-hosted runner setup script + `test-everything` flake target delivered (task #66, awaiting CM commit). DoD TBD — needs story acceptance criteria. |
 | US-065 | IMPLEMENT | 6/10 | **committed** (`965f501` + `5dad57e`). Config Tab + E2E test (#6, `5dad57e`). F-046 quantum confirm dialog committed (`30a25e1`). Remaining: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10). |
-| US-071 | PENDING | 0/TBD | **Story pending from PO.** Documentation overhaul — TW leading (task #70). Comprehensive docs review and update. DoD TBD. |
-| US-072 | PENDING | 0/TBD | **Story pending from PO.** NixOS standalone build — Architect design complete (task #69): 8-phase plan, module structure, RT kernel, PipeWire configPackages. Existing NixOS work found in `nix/nixos/` (5 files). P1-P3 dev-testable, P4-P7 need Pi. DoD TBD. |
+| US-071 | IMPLEMENT | 0/9 | **IMPLEMENT.** Documentation overhaul — TW leading (task #70). 7 AC groups (SETUP-MANUAL, architecture, safety, dev workflow, PM docs, lab notes, staleness markers) + 9 DoD items (audit checklist, 5 doc areas updated, no stale CamillaDSP refs, AE review, security review, owner review). TW audit in progress. |
+| US-072 | DESIGN | 0/8 | **DESIGN complete.** NixOS standalone build — SD image + nixos-anywhere (task #69). Architect 8-phase plan delivered. 9 AC groups (kernel, audio stack, services, desktop, network, apps, SD image, nixos-anywhere, CI integration) + 8 DoD items. Existing `nix/nixos/` (5 files) needs D-040 update. P1-P3 dev-testable, P4-P7 need Pi. Task #72 (Phase 1) pending. |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -278,8 +278,8 @@ needs classification (code bug / test bug / environment gap) and a tracked defec
 - **F-056/F-057 Pi verification:** Now unblocked (F-061 resolved). Quantum xrun counters + gain control real-mode testing.
 - **CM commits:** US-070 + US-064 Phase 1 deliverables + dirty tree cleanup (revert `testing-process.md`)
 - **US-064 Phase 2+:** pw-dump graph builder, dynamic SVG layout — blocked on Phase 1 commit
-- **US-071 (docs overhaul):** Story pending from PO. TW leading (task #70), work in progress as ad-hoc task. Needs proper user story for sprint tracking.
-- **US-072 (NixOS standalone build):** Story pending from PO. Architect designing (task #69), work in progress as ad-hoc task. Needs proper user story for sprint tracking.
+- **US-071 (docs overhaul):** IMPLEMENT 0/9. TW leading (task #70), audit in progress. PO story delivered.
+- **US-072 (NixOS standalone):** DESIGN 0/8. Architect 8-phase plan delivered. Task #72 (Phase 1: fix NixOS config, verify toplevel builds) pending. PO story delivered.
 - US-044: T-044-6 (reboot survival), T-044-7 (no-interference test) — need Pi
 - US-066 Phase 2: pcm-bridge deploy + TK-112 validation — needs Pi
 

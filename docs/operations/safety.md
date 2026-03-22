@@ -73,8 +73,8 @@ need protection too.
 
 ### The Rule
 
-Any speaker identity declaring `mandatory_hpf_hz` MUST have an IIR Butterworth
-HPF in the CamillaDSP pipeline as a safety net, regardless of enclosure type:
+Any speaker identity declaring `mandatory_hpf_hz` MUST have subsonic
+protection in the audio pipeline, regardless of enclosure type:
 
 - **Subwoofers (all types):** HPF below the driver's usable bandwidth. The
   `mandatory_hpf_hz` field in the speaker identity schema declares the cutoff.
@@ -86,8 +86,17 @@ HPF in the CamillaDSP pipeline as a safety net, regardless of enclosure type:
 - **Satellites:** HPF at or above the crossover frequency to prevent
   bass-induced damage to small drivers.
 
-This IIR filter is present from first deploy and remains until replaced by the
-combined FIR filter (which embeds the HPF into the crossover shape).
+**Post-D-040 implementation:** The PipeWire filter-chain convolver loads
+combined FIR coefficient WAV files that embed both the crossover slope and
+room correction. When dirac placeholder filters are in use (before room
+measurement), subsonic protection must come from either: (a) the FIR
+coefficient itself (a highpass FIR placeholder instead of a dirac), or
+(b) a future `bq_highpass` IIR stage in the filter-chain config. The room
+correction pipeline generates combined filters that embed the HPF into the
+crossover shape, making the protection permanent once measurements are done.
+
+**Historical note:** Under the pre-D-040 CamillaDSP architecture, this was
+implemented as an IIR Butterworth HPF in the CamillaDSP YAML pipeline.
 
 ### Known Gap: Signal-Gen Measurement Path (D-040)
 

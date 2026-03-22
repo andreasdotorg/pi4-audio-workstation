@@ -396,18 +396,43 @@ workload (convolver + graph scheduling + JACK bridge + device I/O). The B/Q
 ratio (8-12% of quantum budget) is the convolver-specific metric, consistent
 with BM-2.
 
-### Known Issue: `config.gain` Silently Ignored (PW 1.4.9)
+### Gain Architecture: `linear` Builtin Mult Params (C-009)
 
-PipeWire 1.4.9's filter-chain convolver silently ignores the `gain` parameter
-in convolver block configs. A `gain = -30.0` specification produces no
-attenuation — audio passes at full level (~-0.6 dB from FIR coefficient
-normalization only). This is a **safety-critical** issue when driving PA
-amplifiers.
+PipeWire 1.4.9's filter-chain convolver silently ignores the `config.gain`
+parameter in convolver block configs (TK-237). The production gain mechanism
+uses four `linear` builtin gain nodes defined in the filter-chain config, each
+with a `Mult` parameter on the convolver node (id 43 on production Pi):
 
-**Production workaround:** Apply -30 dB attenuation via `pw-cli` after every
-PipeWire restart. See
-[GM-12 Finding 4](../lab-notes/GM-12-dj-stability-pw-filter-chain.md#finding-4-pw-convolver-configgain-silently-ignored--safety-issue)
-for the full procedure.
+| Gain Node | Parameter | Default | Purpose |
+|-----------|-----------|---------|---------|
+| `gain_left_hp` | `gain_left_hp:Mult` | 0.001 (-60 dB) | Left main attenuation |
+| `gain_right_hp` | `gain_right_hp:Mult` | 0.001 (-60 dB) | Right main attenuation |
+| `gain_sub1_lp` | `gain_sub1_lp:Mult` | 0.000631 (-64 dB) | Sub 1 attenuation |
+| `gain_sub2_lp` | `gain_sub2_lp:Mult` | 0.000631 (-64 dB) | Sub 2 attenuation |
+
+**Key property (C-009):** Mult params persist across PipeWire restarts. Unlike
+the earlier `pw-cli volume` workaround (which was runtime-only), Mult values
+set via `pw-cli s <node> Props '{ params = [ "<name>:Mult" <value> ] }'` are
+stored by PipeWire and restored on restart. No manual reapplication needed.
+
+**Setting gain:**
+```bash
+# Set left main to -30 dB (Mult = 0.0316):
+pw-cli s 43 Props '{ params = [ "gain_left_hp:Mult" 0.0316 ] }'
+
+# Read current gain values:
+pw-dump 43 | jq '.[0].info.params.Props[1].params'
+# Returns flat key-value array: [ "gain_left_hp:Mult", 0.001, ... ]
+```
+
+**Safety cap (D-009):** The Config tab's server-side hard cap enforces
+Mult <= 1.0 (0 dB) on every API call. See
+[`docs/operations/safety.md`](../operations/safety.md) Section 8 for the
+two-layer gain cap architecture.
+
+**Historical note:** The GM-12 session used `pw-cli volume` as a temporary
+workaround before the Mult param mechanism was discovered. That approach was
+runtime-only and required reapplication after every PipeWire restart.
 
 ### Historical: CamillaDSP (Pre-D-040)
 
@@ -734,9 +759,10 @@ pw-top
 ldd /usr/lib/aarch64-linux-gnu/spa-0.2/filter-graph/libspa-filter-graph.so | grep fft
 # Expected: libfftw3f.so.3
 
-# Check convolver volume (gain workaround):
-pw-dump $(pw-cli ls Node | grep -B1 pi4audio-convolver | head -1 | awk '{print $2}' | tr -d ',') | grep volume
-# Expected: "volume": 0.0316... (if -30 dB workaround is applied)
+# Check convolver gain (Mult params, C-009):
+pw-dump 43 | jq '.[0].info.params.Props[1].params'
+# Expected: flat array with gain_left_hp:Mult, gain_right_hp:Mult, etc.
+# Values should be <= 1.0 (D-009 hard cap). Production defaults: 0.001 mains, 0.000631 subs.
 
 # Verify FIR coefficient files exist:
 ls -la /etc/pi4audio/coeffs/combined_*.wav
@@ -890,9 +916,8 @@ ps -eLo pid,tid,cls,rtprio,comm -p $(pgrep -x mixxx) | grep FF
 
 All safety constraints are in [`docs/operations/safety.md`](../operations/safety.md).
 
-**Critical safety note (GM-12 Finding 4):** PipeWire 1.4.9's filter-chain
-convolver silently ignores the `config.gain` parameter. The production
-workaround (pw-cli volume) must be re-applied after every PipeWire restart.
-See [GM-12 Finding 4](../lab-notes/GM-12-dj-stability-pw-filter-chain.md)
-for the procedure. Failure to apply the workaround results in full-volume
-output to the amplifier chain.
+**Gain architecture (C-009):** PipeWire 1.4.9's filter-chain convolver
+silently ignores `config.gain`. The production gain mechanism uses `linear`
+builtin Mult params on the convolver node (Section 4). These persist across
+PipeWire restarts — no manual reapplication needed. The Config tab (US-065)
+enforces a server-side hard cap of Mult <= 1.0 (0 dB) per D-009.
