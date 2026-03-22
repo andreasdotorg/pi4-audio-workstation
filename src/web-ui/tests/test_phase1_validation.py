@@ -147,7 +147,7 @@ class TestTK132MockPCMStream:
                 )
                 assert len(msg) > 0, "Received empty message"
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_pcm_first_message_header_format(self, pcm_server):
         """First 4 bytes must be LE uint32 with value 256 (frame count)."""
@@ -168,7 +168,7 @@ class TestTK132MockPCMStream:
                     f"got {frame_count}"
                 )
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_pcm_first_message_total_size(self, pcm_server):
         """Total message: 4 + (256 * 3 * 4) = 3076 bytes."""
@@ -185,7 +185,7 @@ class TestTK132MockPCMStream:
                     f"{NUM_CHANNELS} channels * 4 bytes = {EXPECTED_TOTAL_SIZE}"
                 )
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_pcm_payload_is_valid_float32(self, pcm_server):
         """Payload after header must be decodable as float32 values."""
@@ -208,7 +208,7 @@ class TestTK132MockPCMStream:
                     "All PCM samples are zero -- stream may not be generating data"
                 )
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())
 
     def test_pcm_stream_sends_multiple_messages(self, pcm_server):
         """Verify the stream is continuous: receive at least 3 messages."""
@@ -232,4 +232,4 @@ class TestTK132MockPCMStream:
                         f"got {len(msg)}"
                     )
 
-        asyncio.get_event_loop().run_until_complete(_test())
+        asyncio.run(_test())

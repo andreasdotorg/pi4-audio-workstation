@@ -593,7 +593,7 @@ class TestGMEnterMeasurementMode:
         gm = _make_mock_gm()
         session._gm_client = gm
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._enter_measurement_mode())
 
         assert gm.get_mode() == "measurement"
@@ -604,7 +604,7 @@ class TestGMEnterMeasurementMode:
         session._gm_client = None
 
         # Should not raise.
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._enter_measurement_mode())
 
     def test_enter_measurement_mode_verifies_mode_after_set(self):
@@ -629,7 +629,7 @@ class TestGMEnterMeasurementMode:
 
         with patch.object(MockGraphManagerClient, "set_mode", tracking_set_mode), \
              patch.object(MockGraphManagerClient, "get_mode", tracking_get_mode):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 session._enter_measurement_mode())
 
         # set_mode("measurement") should be called first, then get_mode for verification.
@@ -650,7 +650,7 @@ class TestGMEnterMeasurementMode:
 
         with patch.object(MockGraphManagerClient, "set_mode", stubborn_set_mode):
             with pytest.raises(RuntimeError, match="did not enter measurement mode"):
-                asyncio.get_event_loop().run_until_complete(
+                asyncio.run(
                     session._enter_measurement_mode())
 
     def test_enter_measurement_mode_failure_restores_production(self):
@@ -678,7 +678,7 @@ class TestGMEnterMeasurementMode:
              patch.object(MockGraphManagerClient, "restore_production_mode",
                           tracking_restore):
             with pytest.raises(RuntimeError):
-                asyncio.get_event_loop().run_until_complete(
+                asyncio.run(
                     session._enter_measurement_mode())
 
         assert len(restore_called) == 1
@@ -695,7 +695,7 @@ class TestGMVerifyMeasurementMode:
         session._gm_client = gm
 
         # Should not raise.
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._verify_measurement_mode_active())
 
     def test_verify_raises_when_mode_wrong(self):
@@ -706,7 +706,7 @@ class TestGMVerifyMeasurementMode:
         session._gm_client = gm
 
         with pytest.raises(RuntimeError, match="not in measurement mode"):
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 session._verify_measurement_mode_active())
 
     def test_verify_skipped_in_mock_mode(self):
@@ -717,7 +717,7 @@ class TestGMVerifyMeasurementMode:
         session._gm_client = gm
 
         # Should NOT raise even though mode is wrong.
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._verify_measurement_mode_active())
 
     def test_verify_skipped_when_no_client(self):
@@ -727,7 +727,7 @@ class TestGMVerifyMeasurementMode:
         session._gm_client = None
 
         # Should not raise.
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._verify_measurement_mode_active())
 
 
@@ -740,7 +740,7 @@ class TestGMRestoreOnCleanup:
         gm = _make_mock_gm(initial_mode="measurement")
         session._gm_client = gm
 
-        asyncio.get_event_loop().run_until_complete(session._cleanup())
+        asyncio.run(session._cleanup())
 
         assert gm.get_mode() == "monitoring"
 
@@ -750,7 +750,7 @@ class TestGMRestoreOnCleanup:
         gm = _make_mock_gm(initial_mode="measurement")
         session._gm_client = gm
 
-        asyncio.get_event_loop().run_until_complete(session._cleanup())
+        asyncio.run(session._cleanup())
 
         assert session._gm_client is None
 
@@ -760,7 +760,7 @@ class TestGMRestoreOnCleanup:
         session._gm_client = None
 
         # Should not raise.
-        asyncio.get_event_loop().run_until_complete(session._cleanup())
+        asyncio.run(session._cleanup())
 
     def test_cleanup_restore_failure_does_not_crash(self):
         """If restore_production_mode fails, cleanup still completes."""
@@ -776,7 +776,7 @@ class TestGMRestoreOnCleanup:
         with patch.object(MockGraphManagerClient, "restore_production_mode",
                           failing_restore):
             # Should not raise even though restore fails.
-            asyncio.get_event_loop().run_until_complete(session._cleanup())
+            asyncio.run(session._cleanup())
 
         # GM client should still be disconnected.
         assert session._gm_client is None
@@ -791,9 +791,9 @@ class TestGMRestoreOnAbort:
         gm = _make_mock_gm(initial_mode="measurement")
         session._gm_client = gm
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._handle_abort("test abort"))
-        asyncio.get_event_loop().run_until_complete(session._cleanup())
+        asyncio.run(session._cleanup())
 
         assert gm.get_mode() == "monitoring"
         assert session._gm_client is None
@@ -804,7 +804,7 @@ class TestGMRestoreOnAbort:
         # Transition to a state that allows ABORTED.
         session._state = MeasurementState.SETUP
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             session._handle_abort("operator abort"))
 
         assert session.state == MeasurementState.ABORTED
@@ -817,7 +817,7 @@ class TestGMConnectGM:
         """In mock mode, _connect_gm creates a MockGraphManagerClient."""
         session = _make_session()
 
-        asyncio.get_event_loop().run_until_complete(session._connect_gm())
+        asyncio.run(session._connect_gm())
 
         assert session._gm_client is not None
         assert session._is_mock is True
@@ -827,7 +827,7 @@ class TestGMConnectGM:
         """Mock client created by _connect_gm can track mode changes."""
         session = _make_session()
 
-        asyncio.get_event_loop().run_until_complete(session._connect_gm())
+        asyncio.run(session._connect_gm())
 
         session._gm_client.set_mode("measurement")
         assert session._gm_client.get_mode() == "measurement"
@@ -840,7 +840,7 @@ class TestGMConnectGM:
         session = _make_session()
         session._gm_client = _make_mock_gm()
 
-        asyncio.get_event_loop().run_until_complete(session._disconnect_gm())
+        asyncio.run(session._disconnect_gm())
 
         assert session._gm_client is None
 
@@ -863,7 +863,7 @@ class TestGMSetupPhaseIntegration:
 
         with patch.object(MockGraphManagerClient, "get_state",
                           tracking_get_state):
-            asyncio.get_event_loop().run_until_complete(session._run_setup())
+            asyncio.run(session._run_setup())
 
         assert session.state == MeasurementState.SETUP
         assert session._gm_client is not None
@@ -881,7 +881,7 @@ class TestGMSetupPhaseIntegration:
         with patch.object(MockGraphManagerClient, "get_state",
                           failing_get_state):
             # Should not raise.
-            asyncio.get_event_loop().run_until_complete(session._run_setup())
+            asyncio.run(session._run_setup())
 
         assert session.state == MeasurementState.SETUP
         assert session._gm_client is not None
