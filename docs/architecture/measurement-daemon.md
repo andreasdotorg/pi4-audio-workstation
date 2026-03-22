@@ -5,6 +5,9 @@
 **Supersedes:** `measurement-workflow-ux.md` Section 10 (subprocess backend)
 **Dependencies:** D-035 (measurement safety), US-047 (Path A measurement),
 US-048 (post-measurement viz), US-049 (real-time websocket feed)
+**D-040 update:** Section 3 documents the post-D-040 RPC client architecture
+(GraphManager + signal-gen). CamillaDSP references in Sections 1-2 are
+historical context explaining the original subprocess model that was replaced.
 
 ---
 

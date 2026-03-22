@@ -1,5 +1,15 @@
 # Web UI Monitoring Dashboard Plan
 
+> **D-040 (2026-03-16): Data sources have changed.** This plan was written for the
+> CamillaDSP architecture. Post-D-040, CamillaDSP and pycamilladsp are no longer
+> used. The production web UI uses:
+> - **FilterChainCollector** (via GraphManager RPC, port 4002) — replaces CamillaDSPCollector
+> - **pcm-bridge** (TCP JSON, port 9100) — replaces JACK PCM level collector
+> - **pw-cli / pw-dump** — replaces pycamilladsp for PipeWire state
+>
+> See `docs/architecture/web-ui.md` for the current implementation. The UX design
+> principles and layout below remain valid; only the data source sections are stale.
+
 **Author:** UX Specialist
 **Date:** 2026-03-10
 **Extends:** D-020 (Web UI Architecture), PoC at `poc/server.py` + `poc/static/index.html`

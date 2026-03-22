@@ -1,6 +1,12 @@
 # Unified Audio Graph Architecture Analysis
 
-**Status:** Forward-looking analysis. NOT for immediate implementation.
+> **D-040 outcome (2026-03-16):** This analysis was the basis for D-040. Option B
+> (PipeWire filter-chain convolver) was selected and is now the production
+> architecture. BM-2 benchmarks validated the approach: 1.70% CPU at q1024, 3.47%
+> at q256, zero additional quanta of latency. CamillaDSP was abandoned. The
+> analysis below is **historical context** showing why the decision was made.
+
+**Status:** Analysis complete. **Decision D-040 was taken based on this analysis.**
 **Date:** 2026-03-16
 **Contributors:** Audio Engineer (AE), Advocatus Diaboli (AD), Product Owner (PO),
 Technical Writer (TW), Architect

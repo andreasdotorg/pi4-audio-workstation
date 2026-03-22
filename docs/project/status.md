@@ -72,11 +72,11 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-059 | done | **14/14** | **done** (owner-accepted 2026-03-21). GraphManager Core + Production Filter-Chain (Phase A). Clean reboot demo PASS (S-004, 17/17 checks). Pi boots into working DJ mode on pure PW filter-chain pipeline (D-040/D-043). Follow-ups: F-033, I-1 CI wiring, spectral verification (AC 3141), D-042 lifting. |
 | US-060 | VERIFY | 3/7 | **VERIFY PASS** (S-002 2026-03-21). FilterChainCollector running, GM RPC working, 0 xruns. `56ef3f0` LevelsCollector adds PW-native level data for meters. DoD #1 (collectors replaced) advancing. Known gaps: AC #3 (processing load, F-039), AC #7 (xrun counter from PW metadata, needs US-063). |
 | US-061 | VERIFY | 1/8 | **VERIFY PASS** (S-002 2026-03-21). Client files deployed, imports OK on Pi. Known gaps resolved: deploy.py path fixed (`3dcccc2`), measure_nearfield.py pycamilladsp removed (`d368c76`). |
-| US-064 | **IMPLEMENT** | **1/8** | **REWORK in progress (F-059).** Phase 1 complete: SPA config parser for filter-chain internal topology (task #67, 38 tests, awaiting CM commit). Remaining phases: pw-dump graph builder, dynamic SVG layout, live updates, E2E tests, architect review, UX review. |
-| US-070 | IMPLEMENT | 0/TBD | **CI setup.** GitHub Actions workflow YAML + self-hosted runner setup script + `test-everything` flake target delivered (task #66, awaiting CM commit). DoD TBD — needs story acceptance criteria. |
-| US-065 | IMPLEMENT | 6/10 | **committed** (`965f501` + `5dad57e`). Config Tab + E2E test (#6, `5dad57e`). F-046 quantum confirm dialog committed (`30a25e1`). Remaining: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10). |
-| US-071 | IMPLEMENT | 0/9 | **IMPLEMENT — doc audit complete** (task #70). Story `f3719c2`. SETUP-MANUAL D-040 overhaul committed (`d4648a5`, TW batch 2+3). All high/medium priority items done. 9 DoD items: remaining are reviews (AE, security, owner) and staleness marker verification. |
-| US-072 | IMPLEMENT | 0/8 | **IMPLEMENT — P1-P3 complete, committed.** Story `f3719c2`. P1 boot config (`fa9c3ca`), P2 PipeWire+WirePlumber+udev (`5379874`), P3 service modules (`0af215b`). Remaining: P4 (display/labwc), P5 (RT kernel — high risk), P6 (SD image test), P7 (nixos-anywhere). P4-P7 need Pi. |
+| US-064 | **IMPLEMENT** | **1/8** | **REWORK in progress (F-059).** Phase 1 committed (`e72de9b`): SPA config parser, 38 tests. Phase 2+ not started. Remaining: pw-dump graph builder, dynamic SVG layout, live updates, E2E tests, architect review, UX review. |
+| US-070 | IMPLEMENT | 0/TBD | **Committed** (`6db6f28`). CI workflow YAML + runner setup script + `test-everything` flake target. DoD TBD — needs story acceptance criteria from PO. Runner one-time setup not yet done (owner manual action). |
+| US-065 | IMPLEMENT | 6/10 | **committed** (`965f501` + `5dad57e`). Config Tab + E2E test (#6, `5dad57e`). F-046 quantum confirm dialog committed (`30a25e1`). Remaining: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10). **STALLED** — all remaining need Pi. |
+| US-071 | IMPLEMENT | **3/9** | **IMPLEMENT — partial.** Story `f3719c2`. Commits: `96d7058` (arch/safety/dev docs), `d4648a5` (SETUP-MANUAL overhaul). **TW precise report:** AC1 SETUP-MANUAL partial (deprecation notices done, new procedures NOT written). AC2 architecture partial (rt-audio-stack gain section done, rest not). AC3 safety DONE. AC4 dev workflow mostly done. AC5 PM docs partial. AC6 lab notes NOT STARTED. AC7 staleness markers mostly done for user-facing. **DoD 3/9:** #4 safety, #5 dev how-to, #6 no stale CamillaDSP-as-current. Pending: #1 audit checklist, #2 SETUP-MANUAL end-to-end, #3 arch docs pipeline diagram, #7 AE review, #8 security review, #9 owner review. |
+| US-072 | IMPLEMENT | 0/8 | **IMPLEMENT — P1-P5 complete, P6 in progress.** Story `f3719c2`. P1 boot (`fa9c3ca`), P2 audio (`5379874`), P3 services (`0af215b`), P4 display (`4889e62`), P5 RT kernel (task #80 complete, NOT committed — dirty tree). P6 SD image build (task #78 in progress). P7 nixos-anywhere remaining. |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -98,10 +98,10 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-051** (Phase: **TEST, DoD 4/4** — advanced 2026-03-21): Persistent System Status Bar. QE test plan delivered: T-051-1 (Playwright E2E, 20+ tests in `test_status_bar.py`), T-051-2 (CI regression), T-051-3 (D-040 inspection — QE reviewing), T-051-4 (Pi hardware — deferred to VERIFY per QE recommendation). TP-003 protocol exists. Committed `8975b5b`. T-051-1/2 need worker execution.
 - **US-053** (Phase: **IMPLEMENT, DoD 4/6** — code complete 2026-03-21): Manual Test Tool Page. Code committed (`94103c3`): 7 UX spec fixes, signal-gen env var. Remaining DoD: #3 integration test (Pi), #4 hot-plug test (Pi), #5 AD sign-off (safety controls), #6 AE sign-off (signal quality). All remaining items need Pi access.
 - **US-065** (Phase: **IMPLEMENT, DoD 6/10** — committed `965f501` + `5dad57e` + `30a25e1`): Configuration Tab. Code + E2E test + F-046 quantum confirm dialog all committed. Remaining DoD: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10).
-- **US-064** (Phase: **IMPLEMENT, DoD 1/8** — rework in progress, F-059): PW Graph Visualization Tab. **Phase 1 complete:** SPA config parser module delivered (task #67, worker-spa, 38 tests, awaiting CM commit). Parses PipeWire filter-chain config to expose internal node topology. Remaining phases: pw-dump graph builder, dynamic SVG layout, live updates, E2E tests, architect review, UX review.
-- **US-070** (Phase: **IMPLEMENT** — awaiting CM commit): CI Setup. GitHub Actions workflow YAML + self-hosted runner setup script + `test-everything` flake target delivered (task #66, worker-ci). Enables branch-based parallel work (resolves L-039). DoD TBD.
-- **US-066** (Phase: **IMPLEMENT** — T-066-1/2/3 complete): Spectrum and Meter Polish. Phase 1 complete: F-026 spectrum clock drift fix (`784c408`), T-066-2 D-040 label updates (APP→CONV, DSP→OUT, pending commit), T-066-3 PHYS IN group inactive state (pending commit). Phase 2: pcm-bridge deployment + TK-112 validation needs Pi CHANGE session.
-- **US-044** (Phase: **IMPLEMENT** — T-044-4 complete, T-044-1/2 in progress): CamillaDSP Bypass Protection (rewritten for D-040). T-044-4 watchdog implemented (native PW API, <21ms mute, pending commit). T-044-1 (ALSA lockout) and T-044-2 (WP hardening) in progress. T-044-3/5 blocked on earlier tasks. T-044-6/7/8 pending.
+- **US-064** (Phase: **IMPLEMENT, DoD 1/8** — rework in progress, F-059): PW Graph Visualization Tab. Phase 1 committed (`e72de9b`): SPA config parser, 38 tests. Phase 2+ not started — no worker assigned. Remaining: pw-dump graph builder, dynamic SVG layout, live updates, E2E tests, architect review, UX review.
+- **US-070** (Phase: **IMPLEMENT** — committed `6db6f28`): CI Setup. Workflow YAML + runner setup script + `test-everything` flake target all committed. Enables branch-based parallel work (resolves L-039). DoD TBD — needs PO acceptance criteria. **Runner one-time setup not yet done (owner manual action).**
+- **US-066** (Phase: **IMPLEMENT** — T-066-1/2/3 committed): Spectrum and Meter Polish. Phase 1 committed: F-026 spectrum clock drift fix (`784c408`), T-066-2 D-040 label updates (`a473c12`), T-066-3 PHYS IN inactive state (`c021fca`). Phase 2: pcm-bridge deployment + TK-112 validation needs Pi CHANGE session. **STALLED** — needs Pi.
+- **US-044** (Phase: **IMPLEMENT** — T-044-1 through T-044-5 + T-044-8 committed): Safety protection suite (rewritten for D-040). T-044-4 watchdog (`7600280`), T-044-1 ALSA lockout (`df70fc5`), T-044-2 WP hardening (`1cb8834`), T-044-3+5 link audit + gain integrity (`6bde490`), T-044-8 safety docs (`bcab1fd`). **Remaining:** T-044-6 reboot survival, T-044-7 no-interference — both need Pi.
 - **F-049** (RESOLVED, pending commit): Measurement wizard mock session state isolation fixed (task #24).
 - **F-050** (**RESOLVED** — `1b527d8` 2026-03-22): Dashboard brightness increased for spectrum grid lines, meter labels, meter outlines. Owner UX feedback addressed same session. **Follow-ups from deployment review:** F-051 (spectrum bg too bright), F-052 (meters still bad), F-053 (PHYS IN too subtle).
 - **F-056** (PARTIAL FIX, HIGH): Quantum display fix confirmed on Pi. **Xrun counters still OPEN** — `pw-dump` and `pw-cli info` don't expose xrun counts. Need to investigate `pw-top`, `/proc`, PipeWire profiler as alternative sources. **F-061 resolved — Pi verification now unblocked.**
@@ -114,7 +114,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **F-059** (**RESOLVED** — `98a95bf` 2026-03-22): Graph view hardcoded SVG replaced. Part 2 committed. US-064 rework in progress (SPA parser Phase 1 complete).
 - **F-060** (OPEN, Medium): L-042 process docs (`17a0cb2`) need corrections: (1) `nix develop` used where `nix run .#test-*` required for QA gates, (2) project-specific details (GraphManager, gain nodes, etc.) embedded in generic role prompts — must be extracted to project config.
 - **F-061** (**RESOLVED** — deployed + verified on Pi 2026-03-22): All 6 `asyncio.create_subprocess_exec` calls converted to `asyncio.to_thread`. No more subprocess hangs. Awaiting CM commit. **F-056 and F-057 now unblocked for Pi verification.** New issue found during deploy: F-063 (uvicorn single-worker capacity).
-- **F-063** (OPEN, Medium): uvicorn single-worker saturated by active WebSocket connections — blocks new TLS handshakes. Separate from F-061. Needs `--workers 2` or similar.
+- **F-063** (PARTIAL FIX `5e05c0f`, deployed): Thread pool expanded to 32 workers. **Insufficient** — blocking is in async coroutines, not thread pool. See F-064.
+- **F-064** (OPEN, HIGH): Collector timeout cycles block event loop — web-ui unreachable when pcm-bridge/GM collectors enter timeout/retry. Root cause: timeouts too long + no isolation from request handling. F-063 thread pool fix doesn't help (wrong layer). **Architect recommendation:** direct WebSocket endpoints on pcm-bridge (eliminate Python relay bottleneck). **Owner directive:** this is an arch fix for existing monitoring, NOT a new story — track under US-060/US-066.
 - **F-062** (**RESOLVED** `95aeb0a`): 25 asyncio test failures fixed — `asyncio.get_event_loop()` replaced with `asyncio.run()` across 25 call sites.
 - **F-040** (**RESOLVED** — committed `4c80c23` 2026-03-21): Panic MUTE/UNMUTE backend (`audio_mute.py` + `pw_helpers.py`). US-065 and US-064 commits followed (`965f501`, `23a57c1`). No longer blocking.
 - **F-041** (**RESOLVED, VERIFIED** — `3a1e6bb` + `c76b882`): Mock server crash fix. Health-check + stderr capture in conftest.py. Additional fix `c76b882`: subprocess.PIPE replaced with tempfile (deadlock prevention). Verified 2026-03-21: full E2E suite completed, no crash. 124 passed, 41 failed (pre-existing regressions → F-048).
@@ -266,24 +267,42 @@ needs classification (code bug / test bug / environment gap) and a tracked defec
 
 **Session totals:** 40+ commits, 16 defects resolved (incl F-059 part 2, F-061 Pi deploy, F-062), 3 owner approvals, 1 new defect (F-063).
 
-**Late session progress (3 parallel streams):**
-- **US-070 code complete** (task #66, worker-ci): workflow YAML + runner setup script + `test-everything` flake target. Awaiting CM commit.
-- **US-064 Phase 1 complete** (task #67, worker-spa): SPA config parser module + 38 tests. Parses filter-chain config for internal node topology. Awaiting CM commit.
+**Late session progress:**
+- **US-070 committed** (`6db6f28`): CI workflow YAML + runner setup + `test-everything`.
+- **US-064 Phase 1 committed** (`e72de9b`): SPA config parser, 38 tests.
 - **F-062 RESOLVED** (`95aeb0a`): 25 asyncio test failures fixed.
-- **Visual regression snapshots** (task #68, worker-ci): 3 stale reference PNGs from before F-050-F-055 contrast fixes. Updating — test bug, not code regression.
-- **Task #59** (F-061 Pi deploy): **COMPLETE.** All 6 `asyncio.create_subprocess_exec` calls converted to `asyncio.to_thread`. Deployed and verified on Pi — no more subprocess hangs. F-056/F-057 now unblocked. New issue found: F-063 (uvicorn single-worker capacity).
-- **US-072 P1-P3 complete** (tasks #72-#74): Boot config (`fa9c3ca`), PipeWire+WirePlumber+udev (`5379874`), service modules (`0af215b`). All committed, tree clean. P4-P7 remaining (need Pi).
-- **US-071 doc audit complete** (task #70): SETUP-MANUAL D-040 overhaul committed (`d4648a5`). All high/medium items done.
-- **F-059 part 2 RESOLVED** (`98a95bf`).
+- **Visual regression snapshots committed** (`85bb305`): 3 stale PNGs updated.
+- **F-061 deployed + verified** on Pi (S-007). F-059 part 2 (`98a95bf`) also deployed in S-007. F-056/F-057 unblocked.
+- **US-072 P1-P5 complete:** P1 (`fa9c3ca`), P2 (`5379874`), P3 (`0af215b`), P4 (`4889e62`), P5 (task #80 complete, NOT committed). P6 (task #78) in progress.
+- **US-071 partial** (3/9): SETUP-MANUAL overhaul (`d4648a5`), arch/safety/dev docs (`96d7058`). TW report: AC1/AC2 partial, AC3 done, AC4 mostly done, AC5 partial, AC6 not started, AC7 mostly done.
+- **F-063 code fixed** (`5e05c0f`), deploy task #82 complete.
+- **F-059 part 2 RESOLVED** (`98a95bf`, deployed S-007).
 
-**Next steps:**
-- **US-072 P4-P7:** Display/labwc (P4), RT kernel (P5, high risk), SD image test (P6), nixos-anywhere (P7) — all need Pi
-- **F-056/F-057 Pi verification:** Now unblocked (F-061 resolved). Quantum xrun counters + gain control real-mode testing.
-- **US-064 Phase 2+:** pw-dump graph builder, dynamic SVG layout
-- **US-071 reviews:** AE, security, owner reviews remaining for DoD completion
-- US-044: T-044-6 (reboot survival), T-044-7 (no-interference test) — need Pi
-- US-066 Phase 2: pcm-bridge deploy + TK-112 validation — needs Pi
-- **3 idle workers available** for next assignments
+**Reconciliation (2026-03-22 late session):**
+
+*Stalled items (no progress since 2026-03-21):*
+- US-050 TEST, US-051 TEST — no QE activity, no worker assigned
+- US-052 VERIFY, US-060 VERIFY, US-061 VERIFY — need next Pi VERIFY session
+- US-053, US-065 — code complete, remaining items need Pi
+- F-056 xrun research, F-057 Pi verification — unblocked but no worker assigned
+- F-048 remaining ~1-8 tests, F-060 doc corrections — no worker assigned
+
+*Missing items identified:*
+- **US-063 never drafted** — blocks US-060 DoD #3 (processing load) and #7 (xrun counter)
+- **US-070 DoD TBD** — no acceptance criteria defined
+- **US-071 checkboxes** in user-stories.md — none updated despite committed work
+
+*Dirty tree:* US-072 P5 (kernel-rt.nix) — CM needs to commit.
+
+**Next steps (prioritized):**
+1. **CM: Commit US-072 P5** (dirty tree)
+2. **PO: Draft US-063** (blocks US-060), define US-070 DoD
+3. **Workers: F-056 xrun research + F-057 Pi verify** (unblocked, no worker assigned)
+4. **QE: Resume US-050/US-051 TEST** (stalled 1 day)
+5. **Pi VERIFY session** needed for: US-052, US-053, US-060, US-061, US-065, US-066 Phase 2, US-044 T-044-6/7
+6. **US-072 P6** (task #78 in progress) then P7
+7. **US-064 Phase 2+** — needs worker assignment
+8. **US-071** — remaining AC items (AC1 new procedures, AC2 arch docs, AC6 lab notes) + 3 reviews
 
 ### Session Wrap-Up (2026-03-21, continued session)
 
