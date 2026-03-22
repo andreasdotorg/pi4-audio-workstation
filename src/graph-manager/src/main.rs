@@ -617,6 +617,30 @@ fn run_gain_integrity_check(
     }
 }
 
+/// Parse `clock.xrun-count` from `pw-cli info` output.
+///
+/// Only matches lines containing `xrun-count` specifically — NOT
+/// `clock.xrun-delay` or `clock.xrun-last-size`, which contain
+/// nanosecond/sample values that would wildly inflate the count.
+///
+/// Returns 0 if no xrun-count line is found.
+#[cfg(any(feature = "pipewire-backend", test))]
+fn parse_xrun_count(pw_cli_output: &str) -> u64 {
+    for line in pw_cli_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains("xrun-count") {
+            // Parse lines like: clock.xrun-count = "7"
+            if let Some(eq_pos) = trimmed.find('=') {
+                let val_str = trimmed[eq_pos + 1..].trim().trim_matches('"');
+                if let Ok(v) = val_str.parse::<u64>() {
+                    return v;
+                }
+            }
+        }
+    }
+    0
+}
+
 /// Update the cached PipeWire graph info (quantum, sample rate, xruns).
 ///
 /// Runs `pw-metadata -n settings` to read quantum/force-quantum/sample-rate,
@@ -707,18 +731,7 @@ fn update_graph_info_cache(
         match Command::new("pw-cli").arg("info").arg(node_id.to_string()).output() {
             Ok(output) if output.status.success() => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.contains("xrun") {
-                        // Parse lines like: clock.xrun-count = "3"
-                        if let Some(eq_pos) = trimmed.find('=') {
-                            let val_str = trimmed[eq_pos + 1..].trim().trim_matches('"');
-                            if let Ok(v) = val_str.parse::<u64>() {
-                                xruns += v;
-                            }
-                        }
-                    }
-                }
+                xruns += parse_xrun_count(&stdout);
             }
             Ok(_) => {
                 log::debug!("pw-cli info {} failed (node may have been removed)", node_id);
@@ -959,5 +972,72 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(false));
         flag.store(true, Ordering::Relaxed);
         assert!(flag.load(Ordering::Relaxed));
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_xrun_count (F-092)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_xrun_count_extracts_count() {
+        let output = r#"
+        id: 42, type: PipeWire:Interface:Node/3
+          clock.quantum = "1024"
+          clock.rate = "48000"
+          clock.xrun-count = "7"
+          clock.xrun-delay = "12345"
+          clock.xrun-last-size = "256"
+        "#;
+        assert_eq!(parse_xrun_count(output), 7);
+    }
+
+    #[test]
+    fn parse_xrun_count_ignores_delay_and_size() {
+        // Verify we don't sum xrun-delay (ns) or xrun-last-size
+        let output = r#"
+          clock.xrun-delay = "9999999"
+          clock.xrun-last-size = "512"
+        "#;
+        assert_eq!(parse_xrun_count(output), 0);
+    }
+
+    #[test]
+    fn parse_xrun_count_zero_when_no_xruns() {
+        let output = r#"
+        id: 42, type: PipeWire:Interface:Node/3
+          clock.quantum = "1024"
+          clock.rate = "48000"
+        "#;
+        assert_eq!(parse_xrun_count(output), 0);
+    }
+
+    #[test]
+    fn parse_xrun_count_handles_zero_value() {
+        let output = "  clock.xrun-count = \"0\"\n";
+        assert_eq!(parse_xrun_count(output), 0);
+    }
+
+    #[test]
+    fn parse_xrun_count_handles_large_value() {
+        let output = "  clock.xrun-count = \"42387\"\n";
+        assert_eq!(parse_xrun_count(output), 42387);
+    }
+
+    #[test]
+    fn parse_xrun_count_empty_output() {
+        assert_eq!(parse_xrun_count(""), 0);
+    }
+
+    #[test]
+    fn parse_xrun_count_realistic_multi_node_aggregation() {
+        // Simulate summing across 3 nodes like the real code does
+        let node1 = "  clock.xrun-count = \"3\"\n  clock.xrun-delay = \"999999\"\n";
+        let node2 = "  clock.xrun-count = \"0\"\n";
+        let node3 = "  clock.xrun-count = \"12\"\n  clock.xrun-delay = \"555555\"\n";
+        let total: u64 = [node1, node2, node3]
+            .iter()
+            .map(|s| parse_xrun_count(s))
+            .sum();
+        assert_eq!(total, 15);
     }
 }
