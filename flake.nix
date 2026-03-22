@@ -392,7 +392,21 @@
               cd ${toString ./.}/scripts/drivers
               ${testPython}/bin/python -m pytest tests/ -v --tb=short
               echo ""
+              echo "=== graph-manager tests ==="
+              cd ${toString ./.}/src/graph-manager
+              HOME="''${HOME:-/tmp}" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:$PATH" cargo test --no-default-features --release 2>&1
+              echo ""
               echo "All test suites passed."
+            ''}";
+          };
+
+          test-graph-manager = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-graph-manager" ''
+              export HOME="''${HOME:-/tmp}"
+              export PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:$PATH"
+              cd ${toString ./.}/src/graph-manager
+              exec cargo test --no-default-features "$@"
             ''}";
           };
 
