@@ -749,20 +749,20 @@ crossover and room correction with minimum latency and no pre-ringing.
 
 ---
 
-## US-011b: Speaker Profile Schema and CamillaDSP Config Generator
+## US-011b: Speaker Profile Schema and PW Filter-Chain Config Generator
 
 **As** the sound engineer,
 **I want** a validated YAML schema for speaker profiles that defines speaker
 topology, crossover parameters, channel assignment, and monitoring routing,
-plus a generator that produces a complete CamillaDSP configuration YAML from
-a profile and venue measurement results,
+plus a generator that produces a complete PipeWire filter-chain convolver
+configuration (`.conf` format) from a profile and venue measurement results,
 **so that** different speaker configurations can be supported without manual
-CamillaDSP config editing, and channel budgets are validated before deployment.
+filter-chain config editing, and channel budgets are validated before deployment.
 
-**Status:** draft
+**Status:** draft (D-040 rewrite 2026-03-22. Was: CamillaDSP YAML generator. Now: PW filter-chain `.conf` generator.)
 **Depends on:** US-011 (crossover integration must be defined before config generation can reference combined filters)
 **Blocks:** US-012 (automation script uses profile schema and config generator)
-**Decisions:** D-010 (speaker profiles and configurable crossover)
+**Decisions:** D-010 (speaker profiles and configurable crossover), D-040 (CamillaDSP abandoned, PW filter-chain)
 
 **Note:** The profile system is designed to support 3-way from the start but
 validated with 2-way first (architect + audio engineer recommendation). 3-way
@@ -801,9 +801,9 @@ speaker identities.
 - [ ] 3-way mode constraint: when topology is "3way", validator warns that live mode is unsupported (no IEM channels available) and requires DJ-mode-only flag
 - [ ] **Power budget validation (D-035):** config generator computes worst-case power per speaker channel from: driver T/S data (Pe_max, impedance from identity -> driver), maximum possible digital level (0dBFS + max FIR boost from D-029 headroom), and hardware gain chain (amp voltage gain, DAC 0dBFS level from `configs/hardware/`). Rejects configurations where worst-case power exceeds any driver's Pe_max. This is Belt 1 of the safety model.
 - [ ] **Minimum power margin (PO requirement, DEFERRED per AE):** >= 3 dB margin requirement deferred until Path A FIR corrections provide real boost values. Current +1.7 dB margin is a theoretical worst-case envelope (correlated L+R + full 10 dB FIR boost + 6 dB shelf simultaneously), not an operating point. AE approved current margin as safe. Revisit when Path A generates actual FIR coefficients — set meaningful minimum margin based on real-world boost values. Power validator must warn (not reject) below 3 dB until then.
-- [ ] CamillaDSP config YAML generator: takes a speaker profile + venue measurement results (delay values, filter WAV paths) and produces a complete, deployable CamillaDSP config
-- [ ] Generated config includes: device settings (chunksize per mode), filters (referencing combined WAV files), pipeline with per-channel delay and gain, mixer routing
-- [ ] Config generator parameterized by operating mode (DJ/Live) — chunksize and monitoring routing differ per D-002
+- [ ] PW filter-chain `.conf` generator: takes a speaker profile + venue measurement results (delay values, filter WAV paths) and produces a complete, deployable PipeWire filter-chain convolver configuration
+- [ ] Generated config includes: convolver nodes (referencing combined WAV files per channel), `linear` builtin gain nodes with Mult params for per-channel attenuation, delay nodes per speaker channel, and link topology
+- [ ] Config generator parameterized by operating mode (DJ/Live) — quantum differs per D-042 (1024 DJ, 256 Live). Monitoring routing handled by GraphManager link topology, not by the filter-chain config itself
 - [ ] Ships with 2-3 built-in profiles:
   - `2way-80hz-sealed`: 2-way, 80Hz crossover, sealed subs (default)
   - `2way-80hz-ported`: 2-way, 80Hz crossover, ported subs with subsonic protection
@@ -814,7 +814,7 @@ speaker identities.
 - [ ] Python validation module written and syntax-validated (`python -m py_compile`)
 - [ ] Config generator module written and syntax-validated
 - [ ] Unit tests: valid profiles pass validation, invalid profiles (over-budget, overlapping crossovers, 3-way without DJ flag) are rejected with clear error messages
-- [ ] Unit tests: generated CamillaDSP config is valid YAML and matches expected structure for each built-in profile
+- [ ] Unit tests: generated PW filter-chain `.conf` is valid SPA config syntax and matches expected structure for each built-in profile
 - [ ] Built-in profiles shipped and validated
 - [ ] Lab note with example generated configs for each built-in profile
 
@@ -824,21 +824,22 @@ speaker identities.
 
 **As** the sound engineer setting up at a venue,
 **I want** a single script that guides me through mic placement, runs all
-measurements, computes correction filters, deploys them to CamillaDSP, updates
-delay values, and optionally runs a verification measurement,
+measurements, computes correction filters, deploys them to the PipeWire
+filter-chain convolver, updates delay values, and runs a mandatory
+verification measurement,
 **so that** I can calibrate the system at each venue with one command and
 minimal manual intervention.
 
-**Status:** draft
+**Status:** draft (D-040 rewrite 2026-03-22. Was: deploys to CamillaDSP. Now: deploys to PW filter-chain convolver.)
 **Depends on:** US-008 (measurement engine), US-009 (time alignment), US-010 (correction filters), US-011 (crossover integration), US-011b (speaker profile schema and config generator), US-052 (RT signal generator — amended 2026-03-15)
 **Blocks:** none
-**Decisions:** D-001, D-002, D-003, D-004, D-008 (per-venue measurement), D-009 (cut-only), D-010 (speaker profiles), D-013 (PREEMPT_RT mandatory), D-014 (hardware limiter deferred — gain structure procedure is the primary safety mechanism)
+**Decisions:** D-001, D-003, D-004, D-008 (per-venue measurement), D-009 (cut-only), D-010 (speaker profiles), D-013 (PREEMPT_RT mandatory), D-014 (hardware limiter deferred), D-040 (CamillaDSP abandoned, PW filter-chain), D-042 (quantum management)
 
 **Note:** Per D-008 and design principle #7 ("fresh measurements per venue"),
 this script is an operational tool run at every venue setup, not a one-time
 development utility. It must be robust, repeatable, and fast enough to run as
 part of the standard gig setup workflow. Previous venue measurements are never
-reused. Filter WAV files and CamillaDSP delay configs are ephemeral derived
+reused. Filter WAV files and filter-chain delay configs are ephemeral derived
 artifacts (never version-controlled); the pipeline scripts, calibration files,
 target curves, and crossover settings are the version-controlled source.
 
@@ -864,13 +865,13 @@ target curves, and crossover settings are the version-controlled source.
 - [ ] Speaker profile selection: user selects a named speaker profile (YAML) or provides custom parameters. Profile specifies crossover freq, slope, speaker type, target SPL (D-010)
 - [ ] Generates combined FIR filters with user-selected target curve and speaker profile parameters
 - [ ] Pre-deployment gain verification: every generated filter checked for D-009 compliance (no frequency bin exceeds -0.5dB). Script refuses to deploy non-compliant filters
-- [ ] CamillaDSP pipeline gain audit: verifies no stage in the pipeline produces net gain (D-009)
-- [ ] Atomic deployment: filter WAVs and delay values deployed together as a matched set -- never update one without the other (per D-008)
-- [ ] CamillaDSP config YAML generated from templates with measured delay values and speaker profile parameters (deployed config is a derived artifact per D-008)
-- [ ] Restarts CamillaDSP with new configuration (or hot-swaps via websocket API if available)
+- [ ] Filter-chain gain audit: verifies all `linear` builtin Mult params <= 1.0 and no stage in the pipeline produces net gain (D-009)
+- [ ] Atomic deployment: filter WAVs, delay values, and filter-chain `.conf` deployed together as a matched set -- never update one without the other (per D-008)
+- [ ] PW filter-chain `.conf` generated from profile + measured delay values + speaker profile parameters (deployed config is a derived artifact per D-008, generated by US-011b config generator)
+- [ ] Reloads PW filter-chain with new configuration (GraphManager mode transition or `pw-cli` config reload). No CamillaDSP restart -- D-040 eliminated CamillaDSP from the pipeline
 - [ ] Mandatory verification measurement: runs a post-correction sweep and displays before/after comparison (not optional -- per design principle #7, verification is part of every setup)
 - [ ] All parameters configurable via command-line arguments or config file (crossover freq, target curve, filter length, max boost, number of measurement positions)
-- [ ] Memory budget estimated and documented: peak RAM usage during filter computation (FFT of 16k+ tap filters, multiple channels, spatial averaging) must fit within Pi 4B's 4GB alongside running CamillaDSP and PipeWire (AD finding -- memory is constrained)
+- [ ] Memory budget estimated and documented: peak RAM usage during filter computation (FFT of 16k+ tap filters, multiple channels, spatial averaging) must fit within Pi 4B's 4GB alongside running PipeWire filter-chain convolver, GraphManager, and application (Mixxx or Reaper) (AD finding -- memory is constrained)
 - [ ] Previous calibration archived (timestamped backup of old filter WAVs and config) before deploying new one -- historical measurements enable regression detection
 - [ ] Graceful error handling: any failure rolls back to previous configuration
 - [ ] Progress output: clear status messages throughout the process
@@ -1126,64 +1127,61 @@ reaches Reaper and the PA,
 **so that** the condenser mic can be used in the same room as the PA speakers
 without risking feedback howl during performance.
 
-**Status:** draft
-**Depends on:** US-003 (stability confirmed), US-028 (8-channel Loopback configured), US-017 (IEM mix routing established — this story changes the input signal path that feeds Reaper)
+**Status:** draft (D-040 rewrite 2026-03-22. Was: two-instance CamillaDSP architecture. Now: PW filter-chain input processing node. ALSA Loopback eliminated.)
+**Depends on:** US-003 (stability confirmed), US-059 (GraphManager operational — manages link topology), US-017 (IEM mix routing established — this story changes the input signal path that feeds Reaper)
 **Blocks:** none
-**Decisions:** none yet (architecture confirmed by owner, architect, and audio engineer — two-instance CamillaDSP)
+**Decisions:** D-040 (CamillaDSP abandoned, PW filter-chain), D-039/D-043 (GraphManager sole link manager)
 
 **Note:** Feedback suppression is a venue-specific concern for live vocal mode.
 The singer uses a condenser mic through the ADA8200 (ch 1), and the PA
-speakers in the same room create a feedback risk. Per the confirmed
-architecture decision, feedback suppression runs at infrastructure level in
-CamillaDSP (not in Reaper) — consistent with the project's design principle
-that safety-critical DSP belongs in the signal chain infrastructure, not in
-the application layer. A Reaper crash or misconfiguration must not remove
-feedback protection.
+speakers in the same room create a feedback risk. The design principle that
+safety-critical DSP belongs in the signal chain infrastructure (not in the
+application layer) still applies — a Reaper crash or misconfiguration must
+not remove feedback protection.
 
-**Architecture:** Two-instance CamillaDSP:
-- **Instance 1 (existing):** Output path — captures from Loopback, applies
-  crossover + room correction FIR filters, outputs to USBStreamer ch 1-8.
-  Unchanged from current architecture.
-- **Instance 2 (new):** Input path — captures from USBStreamer (mic channels),
-  applies IIR notch filter bank for feedback suppression, outputs to a second
-  Loopback subdevice. PipeWire exposes this processed input to Reaper via the
-  JACK bridge. This instance runs at low chunksize for minimal latency.
+**Architecture (D-040):** PipeWire filter-chain input processing node:
+- **Output path (existing):** PW filter-chain convolver applies crossover +
+  room correction FIR filters. GraphManager manages all links. No ALSA
+  Loopback — everything runs as native PW nodes.
+- **Input path (new):** A second PW filter-chain node configured for IIR
+  notch filter bank processing on the mic capture channels. PipeWire routes
+  USBStreamer mic capture → feedback suppression filter-chain → Reaper input
+  via PW links managed by GraphManager. All within the single PW graph — no
+  second ALSA Loopback, no second CamillaDSP instance.
 
 IIR notch filters are configured per-venue during soundcheck via a ring-out
 procedure: gradually raise mic gain until each feedback frequency is
 identified, then place a narrow notch filter at that frequency. Typical
 venues need 3-8 notch filters.
 
-**Latency impact:** Instance 2 adds one capture-process-playback cycle to the
-mic-to-PA path. At chunksize 256 (5.33ms per chunk, 2 chunks = 10.66ms),
-total mic-to-PA latency increases from ~21ms to ~31.6ms. This is within
-the manageable range but close to the singer comfort threshold. Chunksize
-tuning (e.g., chunksize 128 for Instance 2 if CPU permits) can reduce the
-added latency to ~5.3ms.
+**Latency impact:** The input filter-chain node adds processing within the
+same PW graph cycle. At quantum 256, the added latency is minimal (within
+the same 5.3ms quantum period) since PipeWire schedules all filter-chain
+nodes in the same graph cycle. This is a significant improvement over the
+previous dual-CamillaDSP architecture which added a full capture-process-
+playback cycle (~10.7ms at chunksize 256).
 
 **Acceptance criteria:**
-- [ ] CamillaDSP Instance 2 installed and configured: captures from USBStreamer mic channels, outputs to a second ALSA Loopback subdevice (e.g., `hw:Loopback,0,1`)
-- [ ] Instance 2 runs concurrently with Instance 1 without ALSA device conflicts — Instance 1 owns Loopback subdevice 0 playback + USBStreamer playback, Instance 2 owns USBStreamer capture + Loopback subdevice 1 playback
-- [ ] IIR notch filter bank configured in Instance 2: minimum 8 parametric notch filters on mic channel(s), each with configurable center frequency, Q factor, and gain
+- [ ] PW filter-chain input processing node configured: IIR notch filter bank on USBStreamer mic capture channels (ch 1-2). Configured as a separate filter-chain `.conf` loaded by PipeWire alongside the output convolver
+- [ ] GraphManager routes: USBStreamer capture → input filter-chain → Reaper (via PW JACK bridge). GraphManager link topology updated for Live mode to include the input processing path
+- [ ] IIR notch filter bank: minimum 8 parametric notch filters on mic channel(s), each with configurable center frequency, Q factor, and gain. Implemented using PW filter-chain `bq_peaking` or equivalent IIR builtins
 - [ ] Notch filters are narrow (Q >= 10) to minimize coloration of the vocal signal
-- [ ] Filter parameters are stored in a per-venue config file (consistent with D-008 per-venue measurement approach)
-- [ ] PipeWire exposes Instance 2's processed output (Loopback subdevice 1) as a JACK source that Reaper can capture
-- [ ] Reaper receives processed mic input (feedback-suppressed) via PipeWire JACK bridge — no change to Reaper's configuration beyond selecting the correct input source
-- [ ] No regression on output path: Instance 1 performance (processing load, xrun count, latency) is unaffected by Instance 2 running concurrently. F-015 fix (if applicable) remains intact
-- [ ] End-to-end mic-to-PA latency measured and documented: target < 35ms with Instance 2 at chunksize 256, or < 27ms if chunksize 128 is viable
-- [ ] Singer comfort assessment: vocalist confirms the added latency is acceptable for live performance (compare with and without Instance 2)
+- [ ] Filter parameters stored in a per-venue config file (consistent with D-008 per-venue measurement approach). Parameters loadable at runtime via `pw-cli` or filter-chain config reload
+- [ ] Reaper receives processed mic input (feedback-suppressed) via PipeWire JACK bridge — no change to Reaper's configuration beyond the correct input source being linked by GraphManager
+- [ ] No regression on output path: convolver performance (xrun count, latency) is unaffected by the input filter-chain node running concurrently. Both nodes scheduled within the same PW graph cycle
+- [ ] End-to-end mic-to-PA latency measured and documented: target < 25ms at quantum 256 (within single graph cycle, no extra buffering hop)
+- [ ] Singer comfort assessment: vocalist confirms the latency is acceptable for live performance
 - [ ] Ring-out soundcheck procedure documented: step-by-step instructions for identifying feedback frequencies and configuring notch filters at a venue
-- [ ] CPU budget validated: both CamillaDSP instances + Reaper + PipeWire combined CPU < 85% sustained
-- [ ] Instance 2 systemd service unit created with appropriate dependencies (starts after Instance 1, requires Loopback and USBStreamer)
+- [ ] CPU budget validated: PipeWire (convolver + input filter-chain) + Reaper combined CPU < 85% sustained at quantum 256
+- [ ] Input filter-chain `.conf` loaded automatically in Live mode (GraphManager mode transition includes this config)
 - [ ] Audio engineer review: signal chain integrity confirmed, no unintended coloration beyond the notch filters
 
 **DoD:**
-- [ ] Both CamillaDSP instances running concurrently on Pi 4B, validated for 30-minute stability (0 xruns on both instances)
+- [ ] Input filter-chain + output convolver running concurrently on Pi 4B within the same PW graph, validated for 30-minute stability (0 xruns)
 - [ ] Ring-out procedure tested at a real or simulated venue setup with PA speakers and condenser mic
 - [ ] Per-venue notch filter config file format defined and documented
-- [ ] Lab note documenting: dual-instance architecture, ALSA device allocation, latency measurements, CPU budget, ring-out procedure results
+- [ ] Lab note documenting: PW filter-chain input processing architecture, GraphManager Live mode link topology, latency measurements, CPU budget, ring-out procedure results
 - [ ] Audio engineer and architect reviews passed
-- [ ] CLAUDE.md updated with dual-instance CamillaDSP architecture note
 
 ---
 
@@ -1465,45 +1463,45 @@ outputting structured event logs and CLI summaries,
 **so that** I can detect problems during tests and gigs without needing a web
 dashboard, and review a persistent log after each session.
 
-**Status:** draft
-**Depends on:** US-003 (stability tests validate the audio metrics), US-028 (production CamillaDSP configs as systemd service)
+**Status:** draft (D-040 rewrite 2026-03-22. Was: pycamilladsp websocket API throughout. Now: PW-native data sources — GM RPC, pcm-bridge, pw-cli, PW metadata.)
+**Depends on:** US-003 (stability tests validate the audio metrics), US-059 (GraphManager operational — provides graph state via RPC), US-060 (PW-native monitoring data sources)
 **Blocks:** US-027b (dashboard UI consumes this backend's event stream)
-**Cross-references:** US-003 (stability tests), D-009 (clipping is impossible in the DSP chain by design — monitors upstream/input clipping only), D-013 (PREEMPT_RT — CamillaDSP stderr underruns captured via journald), D-012 (thermal management — monitoring validates cooling effectiveness)
-**Decisions:** D-009 (cut-only correction), D-012 (flight case thermal), D-013 (PREEMPT_RT mandatory)
+**Cross-references:** US-003 (stability tests), D-009 (clipping is impossible in the DSP chain by design — monitors upstream/input clipping only), D-013 (PREEMPT_RT mandatory), D-012 (thermal management — monitoring validates cooling effectiveness)
+**Decisions:** D-009 (cut-only correction), D-012 (flight case thermal), D-013 (PREEMPT_RT mandatory), D-040 (CamillaDSP abandoned, PW filter-chain)
 
 **Note:** This is the data collection layer of the monitoring system, split from
-the dashboard UI (US-027b). It runs as an async Python daemon alongside
-CamillaDSP and outputs two streams: (1) structured JSON Lines to a log file
-for post-gig analysis and future UI consumption, and (2) human-readable CLI
-output for immediate use during tests via SSH/VNC. No web UI dependency.
+the dashboard UI (US-027b). It runs as an async Python daemon alongside the
+PipeWire filter-chain convolver and outputs two streams: (1) structured JSON
+Lines to a log file for post-gig analysis and future UI consumption, and (2)
+human-readable CLI output for immediate use during tests via SSH/VNC. No web
+UI dependency.
 
 The scope covers four domains: (1) audio faults — xruns, clipping, DSP
 overload, PipeWire errors; (2) system resources — CPU load, memory pressure,
 per-process resource consumption; (3) hardware health — temperature, SD card
 wear and I/O latency, USB device stability; (4) D-009 safety cross-check.
-The architect is designing the async collection architecture.
 
-The DSP chain is clipping-safe by design (D-009: all filters <= -0.5dB,
-no stage produces net gain). Input clipping detection focuses on the
-UMIK-1/mic preamp stage and any upstream source feeding CamillaDSP.
-CamillaDSP's websocket API provides processing load and clipping indicators
-natively. CamillaDSP stderr underruns are captured automatically by journald
-when running as a systemd service (D-013).
+**D-040 data source mapping:** All monitoring data comes from PW-native
+sources (no pycamilladsp). Graph state from GraphManager RPC
+(`get_graph_info`). Audio levels from pcm-bridge (port 9100). Filter-chain
+state from `pw-cli info` on the convolver node. PipeWire xruns from PW
+metadata (US-063). System metrics from standard OS interfaces (`/sys/`,
+`/proc/`, journald).
 
 **Acceptance criteria:**
 
 *Audio fault detection:*
-- [ ] **Xrun detection:** CamillaDSP stderr underruns captured via journald monitoring; PipeWire xrun events detected via PipeWire log or event stream
-- [ ] **Input clipping detection:** peak level monitoring on active input channels (ch 0-1); alert when signal exceeds -1 dBFS for more than 10ms
-- [ ] **CamillaDSP processing overload:** processing load percentage read via pycamilladsp websocket API; alert when sustained above 80% for more than 5 seconds
-- [ ] **PipeWire pipeline errors:** pipeline state changes (error, paused unexpectedly) captured from PipeWire's event stream
-- [ ] **D-009 cross-check:** monitoring confirms no output channel exceeds 0 dBFS during operation (defense-in-depth validation that cut-only filters are working as designed)
-- [ ] **Startup transient filtering:** known CamillaDSP chunksize-256 startup underrun suppressed (no false alarm in first 5 seconds after CamillaDSP start)
+- [ ] **Xrun detection:** PipeWire xrun events detected via PW metadata (US-063) or PipeWire log/event stream. No CamillaDSP stderr monitoring (D-040: CamillaDSP removed)
+- [ ] **Input clipping detection:** peak level monitoring on active input channels (ch 0-1) via pcm-bridge (port 9100); alert when signal exceeds -1 dBFS for more than 10ms
+- [ ] **PW graph DSP overload:** graph processing load from PW metadata or GraphManager RPC; alert when sustained above 80% for more than 5 seconds
+- [ ] **PipeWire pipeline errors:** pipeline state changes (error, paused unexpectedly) captured from PipeWire's event stream or GraphManager health check
+- [ ] **D-009 cross-check:** monitoring confirms no output channel exceeds 0 dBFS during operation via pcm-bridge level data (defense-in-depth validation that cut-only filters are working as designed)
+- [ ] **Filter-chain health:** convolver node presence and state monitored via GraphManager RPC. Alert if convolver node disappears from PW graph (complements US-044 watchdog)
 
 *System resource monitoring:*
 - [ ] **CPU load:** per-core and aggregate CPU utilization; alert when any core sustains >90% for more than 10 seconds
 - [ ] **Memory pressure:** total and available memory tracked; alert at <200MB available (warning) and <100MB available (critical). OOM killer activity detected via dmesg/journald
-- [ ] **Per-process resource tracking:** CPU and RSS memory for key processes (CamillaDSP, PipeWire, Mixxx/Reaper) sampled at each polling interval
+- [ ] **Per-process resource tracking:** CPU and RSS memory for key processes (PipeWire, GraphManager, pcm-bridge, signal-gen, Mixxx/Reaper) sampled at each polling interval
 
 *Hardware health:*
 - [ ] **Thermal monitoring:** CPU temperature monitored; alert at 75C (warning) and 80C (critical); clock frequency drop detected as throttling indicator (D-012 validation)
@@ -1514,21 +1512,21 @@ when running as a systemd service (D-013).
 *Output:*
 - [ ] **Structured JSON Lines log:** each event written as a single JSON line with fields: timestamp (ISO 8601), event_type, severity (info/warning/critical), source, details. File path configurable, default `/tmp/audio-monitor.jsonl`
 - [ ] **CLI summary output:** human-readable event stream to stdout, suitable for `ssh ela@mugge monitor-audio` or viewing via VNC terminal
-- [ ] **Periodic health snapshot:** aggregate system state (CPU, memory, temperature, CamillaDSP load) emitted as an info-level JSON line at configurable interval (default every 60s) for trend analysis
+- [ ] **Periodic health snapshot:** aggregate system state (CPU, memory, temperature, PW graph DSP load) emitted as an info-level JSON line at configurable interval (default every 60s) for trend analysis
 
 *Operational:*
-- [ ] **Polling intervals:** CamillaDSP load and clipped samples every 1s; temperature every 5s; CPU/memory every 5s; PipeWire state every 1s; journald/dmesg tailing continuous; USB events via udev continuous
+- [ ] **Polling intervals:** PW graph load and peak levels (via pcm-bridge) every 1s; temperature every 5s; CPU/memory every 5s; PipeWire state (via GM RPC) every 1s; journald/dmesg tailing continuous; USB events via udev continuous
 - [ ] **Zero performance impact:** monitoring must not itself cause xruns or measurable CPU overhead (< 1% additional CPU)
-- [ ] **Works with both production configs:** dj-pa.yml and live.yml
+- [ ] **Works with both production modes:** DJ (quantum 1024) and Live (quantum 256)
 - [ ] **Standalone operation:** no dependency on US-022/US-023 web UI; runs as a systemd user service or manual foreground process
-- [ ] **Graceful degradation:** if any data source is unavailable (e.g., CamillaDSP websocket not running), that collector logs a warning and continues monitoring other sources
+- [ ] **Graceful degradation:** if any data source is unavailable (e.g., GraphManager not responding, pcm-bridge not running), that collector logs a warning and continues monitoring other sources
 
 **DoD:**
 - [ ] Monitoring daemon written as async Python module, syntax-validated (`python -m py_compile`)
 - [ ] Unit tests: synthetic events for each detection category trigger correct JSON output and CLI alerts
 - [ ] Unit tests: thermal threshold logic (75C warning, 80C critical, clock frequency drop)
 - [ ] Unit tests: memory pressure thresholds (200MB warning, 100MB critical)
-- [ ] Integration test on Pi 4B: run CamillaDSP under load, verify monitoring captures real audio events and system metrics
+- [ ] Integration test on Pi 4B: run PW filter-chain convolver under DJ load (Mixxx), verify monitoring captures real audio events and system metrics via GM RPC + pcm-bridge
 - [ ] Performance validation: monitoring active during 30-minute playback, zero additional xruns caused by monitoring itself
 - [ ] Post-session log extraction demonstrated: JSON Lines file readable, parseable, contains expected events and periodic snapshots
 - [ ] Audio engineer review: audio fault detection covers the failure modes that matter during live performance
@@ -4445,7 +4443,7 @@ not glanceable.
 
 ---
 
-## US-070: GitHub Actions CI with Self-Hosted Runner
+## US-070: GitHub Actions CI Pipeline
 
 **As** the project team,
 **I want** a GitHub Actions CI pipeline running all test suites on every push
@@ -4454,14 +4452,17 @@ and PR, with branch protection requiring green CI before merging to main,
 develop on feature branches with confidence, and the "worker said tests passed"
 trust gap (AD finding F14) is eliminated.
 
-**Status:** draft (PO-drafted 2026-03-22. Architect workflow design received.
-QE gate proposal v3 received. Prerequisites: `nix run .#test-pcm-bridge` and
-`nix run .#test-signal-gen` flake targets — task #58 in progress.)
+**Status:** in-progress (IMPLEMENT phase. Workflow YAML committed `6db6f28`.
+AC revised 2026-03-22: pivoted from self-hosted runner to GitHub-hosted
+runners with `cachix/install-nix-action` per owner suggestion. Workflow YAML
+needs updating to match revised AC. Gaps: trigger scope, Nix caching,
+branch protection, docs.)
 **Depends on:** All `nix run .#test-*` targets must exist in `flake.nix`
 (test-unit, test-e2e, test-room-correction, test-graph-manager, test-pcm-bridge,
 test-signal-gen, test-drivers)
 **Blocks:** none (but enables PR-based workflow for all future stories)
-**Decisions:** none
+**Decisions:** D-044 (GitHub-hosted runners with cachix/install-nix-action,
+replacing self-hosted runner — owner directive 2026-03-22)
 
 **The problem:** Currently, Gate 1 (worker local testing) is trust-based:
 workers self-report that `nix run .#test-*` passed. There is no automated
@@ -4470,24 +4471,33 @@ not against committed code. Multiple workers on `main` cannot work in
 parallel without stepping on each other's commits. The testing-process.md
 (Section 8.4) identifies CI as the solution.
 
-**The solution (architect design):** GitHub Actions workflow with a
-self-hosted `aarch64-linux` runner (the dev machine, NOT the Pi). Two
-parallel jobs. Branch protection on `main` requiring green CI. Enables
-feature branches and PR-based workflow.
+**The solution:** GitHub Actions workflow using GitHub-hosted `ubuntu-latest`
+runners with `cachix/install-nix-action` for Nix environment setup. Two
+parallel jobs. Nix store cached via GitHub Actions cache or Cachix. Branch
+protection on `main` requiring green CI. Enables feature branches and
+PR-based workflow. No self-hosted runner infrastructure to maintain.
 
 ### Acceptance criteria
 
-**1. Self-hosted runner setup:**
-- [ ] GitHub Actions self-hosted runner installed on the dev machine
-  (aarch64-linux NixOS) and registered with the repository
-- [ ] Runner executes under a dedicated unprivileged user (not root,
-  not the developer's user account)
-- [ ] Runner has access to the Nix store and can execute `nix run`
-  commands
-- [ ] Runner configured as a systemd service with auto-restart
-- [ ] Runner labeled `self-hosted, linux, aarch64` for workflow targeting
+**1. Nix environment on GitHub-hosted runners:**
+- [ ] Workflow uses `cachix/install-nix-action` to install Nix on
+  `ubuntu-latest` runners
+- [ ] Nix configured with `extra-experimental-features: nix-command flakes`
+- [ ] No self-hosted runner infrastructure required — no dedicated user,
+  no systemd service, no machine that must stay on
+- [ ] Workflow runs on `ubuntu-latest` (x86_64-linux) — tests must pass
+  on x86_64 (no aarch64-specific code in test suites)
 
-**2. Workflow definition (`.github/workflows/ci.yml`):**
+**2. Nix caching:**
+- [ ] Nix store cached between CI runs to avoid cold-cache rebuilds
+  (via `cachix/cachix-action` with a Cachix cache, or `nix-community/cache-nix-action`,
+  or GitHub Actions native cache on `/nix/store`)
+- [ ] First CI run after cache miss may be slow (full Nix build); subsequent
+  runs use cached store paths
+- [ ] Cache key includes `flake.lock` hash so cache invalidates when
+  dependencies change
+
+**3. Workflow definition (`.github/workflows/ci.yml`):**
 - [ ] Triggered on: push to any branch, pull_request to main
 - [ ] Two parallel jobs:
   - **`test-all`**: runs `nix run .#test-all` (unit tests + room-correction
@@ -4495,32 +4505,25 @@ feature branches and PR-based workflow.
   - **`test-e2e`**: runs `nix run .#test-e2e` (Playwright E2E tests —
     separated because they take 7-20 minutes and benefit from parallel
     execution)
-- [ ] Both jobs use `runs-on: [self-hosted, linux, aarch64]`
+- [ ] Both jobs use `runs-on: ubuntu-latest`
 - [ ] Both jobs run against committed code (git checkout), NOT working tree
 - [ ] Workflow file committed to repository
+- [ ] Concurrency group per branch to cancel superseded runs
 
-**3. Branch protection rules:**
+**4. Branch protection rules:**
 - [ ] Branch protection enabled on `main` branch
 - [ ] Required status checks: both `test-all` and `test-e2e` must pass
 - [ ] Merging blocked if either check fails
 - [ ] Force-push to `main` disabled (prevents bypassing CI)
 - [ ] Branch deletion after merge: enabled (keeps branch list clean)
 
-**4. PR-based workflow enablement:**
+**5. PR-based workflow enablement:**
 - [ ] Workers create feature branches for their work (naming convention:
   `<story-id>/<short-description>`, e.g., `us-064/graph-rework`)
 - [ ] Workers open PRs against `main` when ready for merge
 - [ ] CI runs automatically on PR creation and on each push to the PR branch
 - [ ] PR merge is blocked until CI passes (enforced by branch protection)
 - [ ] Squash merge as default merge strategy (clean main history)
-
-**5. Nix caching:**
-- [ ] Nix store persists across CI runs on the self-hosted runner (no cold
-  cache penalty — the runner IS the dev machine)
-- [ ] `/nix/store` is shared between the runner and interactive development
-  (same machine, same store)
-- [ ] Workflow does NOT use GitHub-hosted cache actions (unnecessary for
-  self-hosted with persistent Nix store)
 
 **6. Flaky test handling (per QE policy):**
 - [ ] Flaky test = defect filed + test quarantined (`@pytest.mark.skip` with
@@ -4530,41 +4533,48 @@ feature branches and PR-based workflow.
 - [ ] CI failure on a flaky test blocks the PR until the test is fixed or
   properly quarantined
 
-**7. Security considerations (single-owner repo):**
-- [ ] Self-hosted runner acceptable because this is a single-owner private
-  repository — no risk of untrusted PR code executing on the runner
-- [ ] Runner does NOT have SSH access to the Pi (CI is dev-machine only;
-  Pi deployment remains a manual Gate 2 operation via CM)
+**7. Security considerations:**
+- [ ] GitHub-hosted runners — no untrusted code executes on project
+  infrastructure
+- [ ] CI does NOT have SSH access to the Pi (Pi deployment remains a
+  manual Gate 2 operation via CM)
 - [ ] Secrets (if any) stored in GitHub repository secrets, not in the
   workflow file
+- [ ] Cachix auth token (if using Cachix) stored as GitHub secret
 
 ### Definition of Done
 
-- [ ] Self-hosted runner registered and running as systemd service
-- [ ] `.github/workflows/ci.yml` committed and functional
+- [ ] `.github/workflows/ci.yml` committed and functional on GitHub-hosted
+  runners with `cachix/install-nix-action`
+- [ ] Nix store caching configured and verified (second run faster than first)
 - [ ] Both jobs (`test-all`, `test-e2e`) pass on current `main` branch
 - [ ] Branch protection configured on `main` with required status checks
 - [ ] Test PR created, verified that merge is blocked on CI failure and
   allowed on CI success
-- [ ] Documentation: runner setup and maintenance instructions added to
+- [ ] Documentation: CI workflow and caching setup documented in
   `docs/guide/howto/development.md`
 - [ ] QE sign-off: CI test coverage matches Gate 1 requirements from
   testing-process.md
 
 ### Risks
 
-1. **Runner capacity:** Only one self-hosted runner. If two PRs push
-   simultaneously, jobs queue. Mitigation: concurrency group in workflow
-   to cancel superseded runs on the same branch
-2. **Playwright on aarch64:** Chromium for Playwright on aarch64-linux
-   must be available in the Nix environment. Already verified in
-   `nix run .#test-e2e` (existing flake target)
-3. **Runner machine availability:** If the dev machine is off or
-   rebooting, CI is unavailable. Acceptable for a single-developer
-   project — not a production CI service
+1. **GitHub-hosted runner limits:** Free tier has limited minutes (2,000/month
+   for private repos). Two parallel Nix-based jobs with caching may consume
+   significant minutes. Mitigation: concurrency groups cancel stale runs;
+   monitor usage
+2. **Nix cache cold start:** First run (or after cache eviction) rebuilds
+   the full Nix closure — could take 15-30 minutes. Mitigation: proper
+   cache key strategy; Cachix binary cache if GitHub cache proves insufficient
+3. **x86_64 vs aarch64:** Tests run on x86_64 GitHub runners but production
+   is aarch64 Pi. Architecture-specific bugs won't be caught. Mitigation:
+   all current tests are architecture-independent (Python, Playwright). Rust
+   cross-compilation not tested in CI (built locally on aarch64 dev machine)
 4. **Long E2E test times:** E2E tests take 7-20 minutes. PRs will wait.
    Mitigation: parallel job execution, concurrency groups to cancel stale
    runs
+5. **Playwright on GitHub runners:** Chromium must be available. GitHub
+   `ubuntu-latest` supports Playwright natively; Nix sandbox may need
+   `--option sandbox false` for browser execution
 
 ---
 
@@ -4719,8 +4729,9 @@ signal-gen, web UI, all systemd services),
 can be provisioned in minutes, and the current manual Debian Trixie setup
 can be replaced with a declarative NixOS configuration.
 
-**Status:** draft (PO-drafted 2026-03-22 per owner directive. Architect
-designing now — task #69.)
+**Status:** deferred (owner directive 2026-03-22. SD image build needs more
+resources than available. P6/P7 cancelled. P1-P5 work preserved in
+`nix/nixos/` — boot, audio, services, display, RT kernel modules all build.)
 **Depends on:** US-019 (state capture — NixOS config IS the captured state),
 US-059 (GraphManager must be buildable), all Rust binaries in flake
 (pcm-bridge, signal-gen, graph-manager)
@@ -4876,6 +4887,128 @@ current Pi state declaratively. Two deployment paths from the same config:
   udev rules. Full production parity
 - **Phase 4:** nixos-anywhere deployment tested. Documentation. Owner
   acceptance
+
+---
+
+## US-073: Enhanced Gain Controls — Numeric Input, Thermal Limits, and Safety Confirmation
+
+**As** the sound engineer adjusting gain settings during setup,
+**I want** precise numeric input alongside the gain slider, a visual indicator
+showing the thermal ceiling for each channel, and a confirmation dialog when
+I exceed thermal limits,
+**so that** I can set gain values precisely without fiddly slider interaction,
+see at a glance how close I am to speaker damage thresholds, and am protected
+from accidentally applying unsafe gain settings.
+
+**Status:** draft (PO-drafted 2026-03-22 per owner feedback. Future enhancement
+— not current priority.)
+**Depends on:** US-046 (thermal ceiling computation provides per-channel dBFS
+hard caps), US-045 (hardware config — DAC levels, amp gain), US-039 (driver
+database — Pe_max, impedance), US-065 (Config tab baseline — gain sliders
+must exist before enhancing them). Speaker profile with sensitivity data
+(future — not yet a story).
+**Blocks:** none
+**Decisions:** D-009 (cut-only correction, -0.5 dB safety margin), D-035
+(measurement safety, Layer 1: digital hard cap)
+
+**Background:** The current Config tab (US-065) provides gain sliders for the
+four PW filter-chain `linear` builtin Mult params (left HP, right HP, sub1 LP,
+sub2 LP). Setting precise values with a slider alone is difficult — especially
+for fine adjustments in the -20 to -40 dB range where small Mult changes
+correspond to large dB differences. The thermal ceiling (US-046) computes the
+maximum safe digital output per channel based on driver Pe_max, impedance, amp
+gain, and DAC reference level. This story visualizes that ceiling on the gain
+control and adds a safety gate for exceeding it.
+
+**Note:** The thermal limit line position depends on data from multiple sources:
+US-046 thermal ceiling (dBFS hard cap per channel), speaker configuration
+(sensitivity, power handling), hardware configuration (DAC levels, amp voltage
+gain), and the current filter-chain attenuation. All dependencies are future
+work — this story cannot be implemented until those are in place.
+
+### Acceptance criteria
+
+**1. Numeric input field:**
+- [ ] Each gain slider has an adjacent numeric input field showing the current
+  value in dB (converted from the Mult parameter: `dB = 20 * log10(Mult)`)
+- [ ] User can type a dB value directly; the slider position updates to match
+- [ ] User can type a Mult value directly (toggle between dB and Mult display
+  via a unit selector or consistent UI convention)
+- [ ] Input validates range: Mult must be > 0 and <= 1.0 (D-009: cut-only).
+  Values outside range are rejected with inline feedback
+- [ ] Numeric input and slider are bidirectionally synchronized — dragging the
+  slider updates the number, editing the number moves the slider
+- [ ] Tab/Enter key navigation between numeric fields for keyboard-efficient
+  workflow
+
+**2. Thermal limit visualization:**
+- [ ] Each gain slider displays a visual limit line (e.g., colored tick mark
+  or shaded zone) indicating the thermal ceiling for that channel
+- [ ] Limit line position is computed from US-046 `compute_thermal_ceiling_dbfs()`
+  output for the corresponding channel, converted to the slider's Mult scale
+- [ ] Limit line color: amber/orange for warning zone, red for absolute maximum
+- [ ] The region between current gain and the thermal limit is visually
+  distinguished (e.g., green zone below limit, amber zone approaching limit,
+  red zone above limit)
+- [ ] If thermal ceiling data is unavailable (US-046 dependencies not met),
+  the limit line is hidden and a "no thermal data" indicator is shown instead
+  of displaying a potentially misleading default
+
+**3. Real-time visual feedback:**
+- [ ] As the user drags the slider or types a value, the position relative to
+  the thermal limit updates immediately (no apply-button delay for the visual)
+- [ ] Color feedback on the numeric input field: green when below thermal
+  limit, amber when within 3 dB of limit, red when at or above limit
+- [ ] The dB distance to thermal ceiling is displayed (e.g., "6.2 dB below
+  thermal limit" or "OVER LIMIT by 2.1 dB")
+
+**4. Confirmation dialog for over-limit gain:**
+- [ ] If the user attempts to apply a gain value that exceeds the thermal
+  ceiling for any channel, a confirmation dialog appears before the value
+  is sent to PipeWire
+- [ ] Dialog clearly states: which channel(s) exceed the limit, the thermal
+  ceiling value, the requested value, and the consequence ("may cause thermal
+  damage to speaker")
+- [ ] Dialog requires explicit confirmation ("Apply anyway" / "Cancel") —
+  not auto-dismissing, not a toast notification
+- [ ] Override is logged (timestamp, channel, requested value, thermal ceiling)
+  for operational auditability
+- [ ] If the user cancels, the gain reverts to the previous safe value
+
+**5. Integration with existing Config tab:**
+- [ ] Numeric inputs integrate cleanly with the existing gain slider layout
+  (US-065) without breaking the current responsive design at 600px and 1920px
+  viewports
+- [ ] Thermal limit visualization works on both 7" kiosk (1024x600) and
+  VNC desktop (1920x1080) displays
+- [ ] All gain changes still go through the existing `pw-cli` Mult parameter
+  path — no new backend API required beyond what US-065 already provides
+- [ ] Thermal ceiling data fetched from a new API endpoint that wraps
+  US-046's `compute_thermal_ceiling_dbfs()` (or included in the existing
+  `/api/v1/config/gains` response)
+
+### Definition of Done
+
+- [ ] Numeric input field present alongside each of the 4 gain sliders;
+  bidirectional sync with slider verified
+- [ ] Thermal limit line renders correctly when US-046 data is available;
+  hidden gracefully when unavailable
+- [ ] Real-time color feedback updates as user adjusts gain (no perceptible
+  lag on Pi 4B hardware)
+- [ ] Confirmation dialog appears and blocks apply when gain exceeds thermal
+  ceiling; override logged
+- [ ] E2E test: type dB value in numeric field, verify slider position and
+  `pw-cli` command match
+- [ ] E2E test: mock thermal ceiling data, verify limit line renders at
+  correct position
+- [ ] E2E test: attempt over-limit gain, verify confirmation dialog appears,
+  verify cancel reverts value
+- [ ] Visual regression: no layout breakage at 600px and 1920px viewports
+- [ ] UX specialist review: control layout, feedback clarity, dialog wording
+- [ ] Audio engineer review: dB/Mult conversion accuracy, thermal ceiling
+  display correctness
+- [ ] Security specialist review: confirm override logging cannot be bypassed,
+  confirm no new attack surface
 
 ---
 

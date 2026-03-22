@@ -2621,3 +2621,136 @@ remains 9/9 technically (all ACs met) but owner Gate 3 review FAILED.
 
 **Files:**
 - `SETUP-MANUAL.md`
+
+---
+
+## F-068: graph_routes.py accesses private `_state` attribute of FilterChainCollector (OPEN)
+
+**Severity:** Low
+**Status:** Open (tech debt)
+**Found in:** Phase 2a QE code review (task #97)
+**Affects:** US-064 (graph topology endpoint)
+**Found by:** Quality Engineer
+
+**Description:** `src/web-ui/app/graph_routes.py` line 223 accesses
+`cdsp._state` — a private attribute of `FilterChainCollector` — to read the
+current GraphManager state for the topology endpoint. This is a coupling issue:
+the graph route depends on an implementation detail of a different module.
+
+**Required action:** Add a public accessor method to `FilterChainCollector`
+(e.g., `get_gm_state()`) and use it from `graph_routes.py`. Low priority — the
+code works correctly; this is purely about encapsulation.
+
+**Files:**
+- `src/web-ui/app/graph_routes.py:223`
+- `src/web-ui/app/collectors/filter_chain_collector.py`
+
+---
+
+## F-069: US-045 schema validation uses defaults instead of rejecting missing fields (OPEN)
+
+**Severity:** Medium (upgraded — architect MUST-FIX)
+**Status:** Open
+**Found in:** US-045/US-046 DoD review (worker-review)
+**Affects:** US-045 (Hardware Config Schema)
+**Found by:** worker-review
+
+**Description:** US-045 AC says "Schema validation: rejects configs with missing
+required fields." The current loader in `thermal_ceiling.py` (lines 144-187) uses
+`.get()` with default values instead of rejecting configs with missing fields.
+This means an incomplete YAML config silently uses defaults rather than failing
+with a clear error message.
+
+**Required action:** Add explicit validation that required fields are present and
+raise a clear error if missing. Default-fallback is acceptable ONLY when the
+config file doesn't exist at all (architect clarification). When a file IS present
+but has missing/misspelled required keys, the loader must raise a clear error.
+
+**Architect review (2026-03-22):** APPROVED with MUST-FIX. Blocks US-045 DONE.
+
+**Files:**
+- `src/room-correction/pi4audio_room/thermal_ceiling.py:144-187`
+
+---
+
+## F-070: US-046 missing -6 dBFS operator warning (OPEN)
+
+**Severity:** Medium
+**Status:** Open
+**Found in:** US-045/US-046 DoD review (worker-review)
+**Affects:** US-046 (Thermal Ceiling Computation)
+**Found by:** worker-review
+
+**Description:** US-046 AC says "If computed ceiling is above -6 dBFS, warn
+operator." The current `safe_ceiling_dbfs` function clamps the value but does NOT
+issue any warning to the operator. The hard cap at -20 dBFS works correctly, but
+the -6 dBFS warning threshold is not implemented.
+
+**Required action:** Add warning logic when computed ceiling > -6 dBFS. This
+could be a log warning, a return flag, or a UI indicator — depends on where the
+function is called from. Medium priority since -6 dBFS is approaching dangerous
+levels.
+
+**AD review (2026-03-22):** CONDITIONAL APPROVE — must fix before US-046 DONE.
+AD confirmed: fallback-to-hard-cap is correct, hard cap should NOT be configurable,
+core safety logic is sound.
+
+**Files:**
+- `src/room-correction/pi4audio_room/thermal_ceiling.py` (`safe_ceiling_dbfs` function)
+
+---
+
+## F-071: US-046 silent fallback when pe_max_watts missing (OPEN)
+
+**Severity:** Low
+**Status:** Open
+**Found in:** US-045/US-046 DoD review (AD review)
+**Affects:** US-046 (Thermal Ceiling Computation)
+**Found by:** Advocatus Diaboli
+
+**Description:** When `pe_max_watts` is missing from the speaker config, the
+`safe_ceiling_dbfs` function silently falls back to the -20 dBFS hard cap without
+logging a warning. The operator has no indication that the thermal ceiling
+computation was skipped due to missing data. AD confirmed the fallback behavior
+itself is correct (hard failure would be worse), but recommends adding a log
+message when the fallback triggers.
+
+**Required action:** Add `logging.warning()` when falling back to hard cap due to
+missing `pe_max_watts`. Low priority — safety behavior is correct, this is an
+observability improvement.
+
+**Files:**
+- `src/room-correction/pi4audio_room/thermal_ceiling.py` (`safe_ceiling_dbfs` function)
+
+---
+
+## F-072: US-044 GM safety alerts not surfaced to web UI status bar (OPEN)
+
+**Severity:** Medium
+**Status:** Open
+**Found in:** US-044 gap analysis (worker-functional, task #114)
+**Affects:** US-044 (Bypass Protection), AC-3, AC-4, AC-5
+**Found by:** worker-functional
+
+**Description:** Three US-044 acceptance criteria require web UI status bar
+indicators for safety events:
+- AC-3: Link audit unauthorized link detection -> status bar warning
+- AC-4: Watchdog-triggered mute -> status bar shows MUTED state
+- AC-5: Gain integrity Mult > 1.0 -> status bar alert
+
+Currently all three are logged by GraphManager (Rust side) but have NO
+notification path to the web UI. The F-040 MUTE/UNMUTE endpoint
+(`audio_mute.py`) handles manual mute only, not watchdog-triggered mute.
+
+**Required action:** Add a GM RPC endpoint for safety alerts (or extend
+`get_graph_info` response to include safety state: muted, link_audit_violations,
+gain_integrity_warnings). Web UI status bar reads this and displays appropriate
+indicators. Single implementation task covering all three ACs.
+
+**Files:**
+- `src/graph-manager/src/watchdog.rs` (mute state)
+- `src/graph-manager/src/link_audit.rs` (violation state)
+- `src/graph-manager/src/gain_integrity.rs` (warning state)
+- `src/graph-manager/src/rpc.rs` (new/extended RPC response)
+- `src/web-ui/app/ws_system.py` (consume GM safety state)
+- `src/web-ui/static/js/statusbar.js` (display safety indicators)
