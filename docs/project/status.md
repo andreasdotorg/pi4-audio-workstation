@@ -97,13 +97,16 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-044** (Phase: **IMPLEMENT** — T-044-4 complete, T-044-1/2 in progress): CamillaDSP Bypass Protection (rewritten for D-040). T-044-4 watchdog implemented (native PW API, <21ms mute, pending commit). T-044-1 (ALSA lockout) and T-044-2 (WP hardening) in progress. T-044-3/5 blocked on earlier tasks. T-044-6/7/8 pending.
 - **F-049** (RESOLVED, pending commit): Measurement wizard mock session state isolation fixed (task #24).
 - **F-050** (**RESOLVED** — `1b527d8` 2026-03-22): Dashboard brightness increased for spectrum grid lines, meter labels, meter outlines. Owner UX feedback addressed same session. **Follow-ups from deployment review:** F-051 (spectrum bg too bright), F-052 (meters still bad), F-053 (PHYS IN too subtle).
-- **F-056** (PARTIAL FIX, HIGH): Quantum display fix confirmed on Pi. **Xrun counters still OPEN** — `pw-dump` and `pw-cli info` don't expose xrun counts. Need to investigate `pw-top`, `/proc`, PipeWire profiler as alternative sources.
-- **F-057** (IN PROGRESS, HIGH): Previous fix `e75b73a` based on incorrect assumption that gain nodes are separate PW nodes. Pi OBSERVE session S-004 revealed they're **params on the convolver node** (`pi4audio-convolver`, id 43). Full `pw_helpers.py` rewrite needed. Validates L-042.
+- **F-056** (PARTIAL FIX, HIGH): Quantum display fix confirmed on Pi. **Xrun counters still OPEN** — `pw-dump` and `pw-cli info` don't expose xrun counts. Need to investigate `pw-top`, `/proc`, PipeWire profiler as alternative sources. **Pi real-mode verification blocked by F-061.**
+- **F-057** (IN PROGRESS, HIGH): Previous fix `e75b73a` based on incorrect assumption that gain nodes are separate PW nodes. Pi OBSERVE session S-004 revealed they're **params on the convolver node** (`pi4audio-convolver`, id 43). Full `pw_helpers.py` rewrite needed. Validates L-042. **Pi real-mode verification blocked by F-061.**
 - **F-051/F-052/F-053** (**RESOLVED** — `774c2ee`): Contrast follow-ups from F-050. Spectrum bg restored to black, meter contrast improved, PHYS IN opacity increased.
 - **F-054/F-055** (**RESOLVED** — `93567db`): Graph view HP bypass arc z-order fixed, four gain nodes added.
 - **F-058** (OPEN, Medium): E2E screenshot tests write to read-only Nix store path — 6+ false failures in pure sandbox. Task #49 pending.
 - **ENH-002** (OPEN, Low): Owner wants tooltips on all dashboard elements. Comprehensive UX enhancement (~50+ definitions).
 - **ENH-003** (OPEN, Medium): Sticky latching health indicator with manual clear. Analogous to industrial alarm panel.
+- **F-059** (OPEN, HIGH): Graph view uses hardcoded SVG — owner directive to show real `pw-dump` topology. US-064 returned to DESIGN phase, DoD reset to 0/8.
+- **F-060** (OPEN, Medium): L-042 process docs (`17a0cb2`) need corrections: (1) `nix develop` used where `nix run .#test-*` required for QA gates, (2) project-specific details (GraphManager, gain nodes, etc.) embedded in generic role prompts — must be extracted to project config.
+- **F-061** (IN PROGRESS, HIGH): `pw-dump` subprocess hangs under WebSocket load — `asyncio.create_subprocess_exec` deadlocks when event loop is saturated by WS handlers. Fix: `asyncio.to_thread(subprocess.run, ...)`. **Blocks F-056 and F-057 real-mode Pi verification.** Worker-functional fixing now. Also: webui systemd `Type=notify` restart loop bug fixed in `ba8aaf5` (S-005).
 - **F-040** (**RESOLVED** — committed `4c80c23` 2026-03-21): Panic MUTE/UNMUTE backend (`audio_mute.py` + `pw_helpers.py`). US-065 and US-064 commits followed (`965f501`, `23a57c1`). No longer blocking.
 - **F-041** (**RESOLVED, VERIFIED** — `3a1e6bb` + `c76b882`): Mock server crash fix. Health-check + stderr capture in conftest.py. Additional fix `c76b882`: subprocess.PIPE replaced with tempfile (deadlock prevention). Verified 2026-03-21: full E2E suite completed, no crash. 124 passed, 41 failed (pre-existing regressions → F-048).
 - **F-048** (IN PROGRESS → ~1-8 remaining, Medium): Originally 41 E2E test failures. **25 fixed** (system_view, status_bar, visual_regression, event_log — pending commit). **13 fixed** (capture_spectrum + measurement_wizard — pending commit). Remaining: measurement wizard state isolation (F-049, 8 tests hang sequentially).
@@ -190,6 +193,16 @@ failures without a tracked defect erodes test suite trust. Rules:
 Root cause: the orchestrator optimized for throughput over correctness — a
 recurring anti-pattern when under time pressure. The correct response was to
 file F-058 immediately and assign a worker to fix the screenshot output path.
+
+**L-042 process docs committed (`17a0cb2`) — owner corrections APPLIED (F-060):**
+1. ~~`nix develop` exception~~ **FIXED:** Added `nix run .#test-graph-manager`
+   app target to `flake.nix`. All Gate 1 rows now use `nix run .#test-*`.
+   Updated: `config.md`, `testing-process.md` (Gate 1 table + Section 10.5),
+   `l042-role-updates.md`, `worker.md`.
+2. ~~Role/config split~~ **FIXED:** Project-specific test suite mapping table
+   moved to `config.md` (Test Suite Mapping section). Worker role prompt
+   references `config.md` generically. `testing-process.md` has full detail
+   (environment matrix, code quality standards) as process documentation.
 
 **Next steps:**
 - Pi CHANGE session: US-066 Phase 2 (pcm-bridge deploy, TK-112), US-064/US-065 Pi integration tests
@@ -514,6 +527,8 @@ See `docs/project/defects.md` for full details.
 | ENH-003 | Medium | Open | Sticky "problems occurred" latching health indicator with manual clear. |
 | F-058 | Medium | Open | E2E screenshot tests write to read-only Nix store path — 6+ false failures in pure sandbox. |
 | F-059 | High | Open | Graph view uses hardcoded SVG templates instead of real PW topology. US-064 returned to DESIGN. |
+| F-060 | Medium | Open | L-042 process docs: `nix develop` used where `nix run` required; project-specific details in role prompts. |
+| F-061 | High | In progress | `pw-dump` subprocess hangs under WebSocket load — event loop saturation. Blocks F-056/F-057 Pi verification. |
 
 ### Resolved
 

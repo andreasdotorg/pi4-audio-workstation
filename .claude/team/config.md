@@ -57,6 +57,34 @@ validation is hardware-dependent and cannot be run in CI. Validation categories:
 | Hardware validation | Test plan T1-T5 on actual Pi 4B hardware | Before deployment to hardware |
 | Documentation accuracy | Technical writer verifies docs match implementation | Before commit |
 
+## Test Suite Mapping (Gate 1)
+
+Workers must run the relevant `nix run .#test-*` suite(s) before reporting
+a task complete. `nix run` is THE QA gate for workers. `nix develop` is
+acceptable only for ad-hoc exploratory testing during development.
+
+| Change category | Required suites |
+|----------------|----------------|
+| Web UI backend (`src/web-ui/app/`) | `nix run .#test-unit` |
+| Web UI frontend (`src/web-ui/static/`) | `nix run .#test-unit` + `nix run .#test-e2e` |
+| Web UI backend + frontend | `nix run .#test-unit` + `nix run .#test-e2e` |
+| Room correction (`src/room-correction/`) | `nix run .#test-room-correction` |
+| GraphManager Rust (`src/graph-manager/`) | `nix run .#test-graph-manager` |
+| MIDI daemon (`src/midi/`) | `nix run .#test-all` |
+| Driver YAMLs (`configs/drivers/`) | `nix run .#test-all` (includes driver validation) |
+| PW/WP configs, systemd, udev | No local test — note "requires Pi validation" |
+| Multiple categories | All relevant suites from above |
+
+**Key rules:**
+- Changes to BOTH frontend and backend require BOTH `test-unit` AND `test-e2e`
+- Config-only changes (PipeWire, WirePlumber, systemd, udev) have no local
+  test — mark "requires Pi validation" for Pi hardware gate.
+
+### Pi Hardware Validation (QE owns)
+
+Hardware-specific validation per story test plan. Requires CM DEPLOY session.
+QE defines criteria, worker executes on Pi, QE reviews evidence and signs off.
+
 ## Deployment Target
 
 | Property | Value |

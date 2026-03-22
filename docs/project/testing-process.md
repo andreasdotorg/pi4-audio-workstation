@@ -236,8 +236,8 @@ from production reality without anyone noticing.
 - When a worker modifies a collector or any code that parses external tool
   output (pw-dump, pw-cli, pw-metadata, /proc, systemd), they must provide
   a **real Pi data sample** alongside any mock update. The QE verifies the
-  mock matches the sample at Gate 3.
-- The Gate 3 checklist (Section 8) includes: "Verify mock data format
+  mock matches the sample at Gate 2.
+- The Gate 2 checklist (Section 8) includes: "Verify mock data format
   matches observed Pi output for changed code paths."
 
 **Technical mitigation (future):** Generate mock fixtures FROM real Pi output
@@ -423,8 +423,8 @@ Every story's Definition of Done must include:
    only valid for pure documentation changes — and even then, if the
    documentation describes behavior, the behavior must have tests.
 
-2. **Tests pass.** All relevant test suites pass at Gate 1 (worker) and
-   Gate 2 (CM commit). No story can be marked complete with failing tests.
+2. **Tests pass.** All relevant test suites pass at Gate 1 (`nix run`).
+   No story can be marked complete with failing tests.
 
 3. **Tests have been reviewed.** The QE has reviewed the tests themselves —
    not just the test results — and confirmed they are adequate. Adequate
@@ -521,7 +521,7 @@ remove the xfail marker.
 
 ## 8. Deployment Gates
 
-Four tiers. Each must pass before proceeding to the next.
+Two gates. Each must pass before proceeding to the next.
 
 ### Gate 1: Worker Task Completion (`nix run .#test-*`)
 
@@ -538,7 +538,7 @@ files changed (impure, runs against working tree).
 | Web UI frontend (`src/web-ui/static/`) | `test-unit` + `test-e2e` |
 | Web UI backend + frontend | `test-unit` + `test-e2e` |
 | Room correction (`src/room-correction/`) | `test-room-correction` |
-| GraphManager Rust (`src/graph-manager/`) | `cargo test --no-default-features` in `nix develop` |
+| GraphManager Rust (`src/graph-manager/`) | `test-graph-manager` |
 | MIDI daemon (`src/midi/`) | `test-all` (includes midi suite) |
 | Driver YAMLs (`configs/drivers/`) | `test-drivers` |
 | PipeWire/WP configs (`configs/pipewire/`, `configs/wireplumber/`) | No local test — mark "requires Pi validation" |
@@ -551,13 +551,6 @@ files changed (impure, runs against working tree).
 `test-unit` AND `test-e2e`. A common mistake is running only unit tests
 when a JS change breaks an E2E assertion.
 
-**Why E2E is a Gate 1 obligation:** E2E tests require Playwright/Chromium
-and a running server, which the pure Nix sandbox (`nix flake check`) cannot
-provide. **E2E tests are NOT in `nix flake check`.** This means Gate 2
-cannot verify E2E — the worker is the trust boundary for E2E pass evidence.
-Workers MUST include E2E test output in their task completion report when
-frontend changes are involved.
-
 **Rules:**
 - Worker MUST run the relevant suite(s) before reporting done
 - ALL tests in the relevant suites must pass (exit code 0)
@@ -566,41 +559,16 @@ frontend changes are involved.
 - Pre-existing failures (tests that were already failing before the worker's
   changes) must still be reported — the worker does not get to assume they
   are someone else's problem
-- For changes requiring Pi validation, the worker must note this in the
-  task completion report so it is tracked for Gate 3
-
-### Gate 2: Change Manager Commit (`nix flake check`)
-
-**When:** Worker requests commit via Change Manager.
-**Who runs:** Change Manager (or worker at CM's request).
-**What runs:** `nix flake check` (pure Nix sandbox — the reproducibility gate).
-
-**What `nix flake check` runs** (all must pass):
-- `test-web-ui` — Python unit/integration tests (excludes E2E)
-- `test-room-correction` — Room correction module tests
-- `test-midi` — MIDI daemon tests
-- `test-drivers` — Driver YAML validation
-- `test-graph-manager` — GM pure-logic Rust tests (`--no-default-features`)
-- `test-graph-manager-full` — GM full build with PipeWire linkage (Linux)
-- `test-pcm-bridge` — pcm-bridge Rust tests (Linux, via `buildRustPackage`)
-- `test-signal-gen` — signal-gen Rust tests (Linux, via `buildRustPackage`)
-
-**What `nix flake check` does NOT run:**
-- E2E tests (require Playwright/Chromium + running server — not available
-  in pure sandbox). E2E coverage is a Gate 1 worker obligation.
-
-**Rules:**
-- `nix flake check` must pass before the commit is created
-- If it fails, CM returns the task to the worker with the failure output
-- The worker fixes the issue and re-requests commit
 - CM does NOT commit code with known test failures unless the QE has
   explicitly approved an `xfail` with a tracked defect
+- For changes requiring Pi validation, the worker must note this in the
+  task completion report so it is tracked for Gate 2
 
-### Gate 3: Pi Deployment Validation
+### Gate 2: Pi Deployment Validation
 
 **When:** Code is deployed to the Pi via a DEPLOY session.
 **Who runs:** Worker holding the DEPLOY session (executes tests on Pi).
-**Who owns:** The **QE owns Gate 3** — the QE defines what must be validated,
+**Who owns:** The **QE owns Gate 2** — the QE defines what must be validated,
 reviews the evidence, and signs off. The worker executes; the QE decides.
 **What runs:** Hardware-specific validation per the test plan for the story.
 
@@ -613,7 +581,7 @@ reviews the evidence, and signs off. The worker executes; the QE decides.
 - Deployment is not complete until QE signs off
 - If the QE has not written validation criteria for a story, the worker
   must request them before proceeding with deployment
-- The Change Manager enforces Gate 3: no DEPLOY session is closed without
+- The Change Manager enforces Gate 2: no DEPLOY session is closed without
   QE sign-off on hardware validation results
 - **Mock divergence check (AD finding):** For changes that modify collectors
   or code parsing external tool output (pw-dump, pw-cli, pw-metadata, /proc),
@@ -706,6 +674,10 @@ Workers and test authors must understand what each environment provides.
 
 ### 10.2 Nix Pure Sandbox (`nix flake check`)
 
+`nix flake check` is a build validation tool, not a test gate. It builds
+derivations in a pure sandbox. This section documents what the pure sandbox
+environment provides, for reference when designing tests.
+
 **Available:** Python 3.13, all pip dependencies, Rust toolchain,
 PipeWire dev headers (Linux), filesystem (read/write within sandbox).
 
@@ -715,8 +687,7 @@ server.
 
 **Implications for test design:**
 - All PipeWire interactions must be mocked (PI_AUDIO_MOCK=1)
-- **E2E tests cannot run here** — no Playwright/Chromium in pure sandbox.
-  E2E is a Gate 1 (worker) obligation only.
+- E2E tests cannot run in pure sandbox — no Playwright/Chromium
 - No tests may depend on network connectivity
 - GM pure-logic tests use `--no-default-features` (no PipeWire backend)
 
@@ -728,8 +699,8 @@ host environment (fonts if installed, PipeWire if running, network).
 **Implications:**
 - E2E tests run here (with Playwright) — this is the ONLY non-Pi
   environment where E2E works
-- Tests may pass here but fail in pure sandbox due to host-specific
-  conditions. Gate 2 (`nix flake check`) catches these.
+- Tests may pass here but fail in the pure Nix sandbox due to host-specific
+  conditions. Run `nix run .#test-all` to catch host-dependent passes.
 - Chromium in the sandbox renders text with zero-width fonts — E2E
   tests must use `to_be_attached()` not `to_be_visible()` for text
   elements (F-048 zero-font workaround)
@@ -740,24 +711,22 @@ host environment (fonts if installed, PipeWire if running, network).
 **Available:** Full production stack — PipeWire daemon, USB audio devices,
 PREEMPT_RT kernel, real-time scheduling, systemd user services.
 
-**Implications:** Only environment where hardware validation tests (Gate 3)
+**Implications:** Only environment where hardware validation tests (Gate 2)
 can run. Requires CM DEPLOY session.
 
 ### 10.5 GraphManager (Rust)
 
-**Automated gate exists.** Two GM test checks are already in `nix flake check`:
+Two GM test targets exist:
 
-1. **`test-graph-manager`** — Runs `cargo test --no-default-features --release`
-   in pure Nix sandbox. Tests all pure-logic modules (graph state, routing
-   table, reconciler, lifecycle, watchdog, link audit, gain integrity). No
-   PipeWire needed. Runs on all platforms.
-2. **`test-graph-manager-full`** — Linux only. Full `buildRustPackage` with
-   PipeWire linkage. Runs `cargo test` with default features (includes
-   `pipewire-backend`).
+1. **`nix run .#test-graph-manager`** — Runs `cargo test --no-default-features`
+   against the working tree. Tests all pure-logic modules (graph state,
+   routing table, reconciler, lifecycle, watchdog, link audit, gain
+   integrity). No PipeWire needed. Runs on all platforms.
+2. **`test-graph-manager-full`** — Full build with PipeWire linkage. Runs
+   `cargo test` with default features (includes `pipewire-backend`).
 
 **Worker Gate 1:** For Rust changes, workers run
-`cargo test --no-default-features` inside `nix develop` and report output
-to QE. Gate 2 (`nix flake check`) then runs both checks automatically.
+`nix run .#test-graph-manager` and report output to QE.
 
 ### 10.6 Config-Only Changes
 
@@ -765,7 +734,7 @@ Changes to PipeWire configs (`configs/pipewire/`), WirePlumber configs
 (`configs/wireplumber/`), systemd units (`configs/systemd/`), and udev
 rules (`configs/udev/`) have **no local test possible**. These must be
 marked "requires Pi validation" in the task completion report and validated
-at Gate 3.
+at Gate 2.
 
 ---
 
@@ -782,12 +751,11 @@ The QE is a **quality gate**, not a rubber stamp.
 - Challenge "PASS" claims that lack evidence
 - Verify that `xfail` markers reference valid defects
 - Track flaky test defects and escalate if TTL expires
-- Write test criteria for hardware validation (Gate 3)
+- Write test criteria for hardware validation (Gate 2)
 - Participate in every test failure triage
 - **Rule 13 approval:** Sign off on test adequacy before CM commits (Section 6)
-- **Verify E2E evidence** for frontend changes — E2E tests are not in
-  `nix flake check`, so the worker's reported E2E output is the only
-  evidence. Demand it when frontend files are in the changeset.
+- **Verify E2E evidence** for frontend changes — demand the worker's E2E
+  test output when frontend files are in the changeset.
 - Coordinate with the Architect on code quality review (Architect owns code
   quality; QE owns test quality — both must approve at Rule 13)
 
@@ -827,7 +795,7 @@ This process was created in response to L-042. Key failure modes it prevents:
 |-------------|------------------------------|
 | Worker deletes failing test | Deletion = dismissal, requires defect + QE approval (Sec 9.2) |
 | Worker adds skip without tracking | Skip without defect = protocol violation (Sec 9.2) |
-| Worker reports "done" with failures | Gate 1 requires relevant suites pass; Gate 2 requires `nix flake check` (Sec 8) |
+| Worker reports "done" with failures | Gate 1 requires all relevant `nix run` suites pass (Sec 8) |
 | Worker changes assertion to match bug | Assertion weakening without justification = protocol violation (Sec 9.2) |
 | Worker provides summary instead of raw output | Raw output required, summaries rejected (Sec 1.2) |
 | Flaky tests erode trust in suite | Flaky handling with re-evaluation intervals + accumulation limit (Sec 2) |
@@ -837,13 +805,13 @@ This process was created in response to L-042. Key failure modes it prevents:
 | Tests verify mocks, not behavior | No mock theater rule with QE review (Sec 3) |
 | Story marked done without tests | Tests mandatory in DoD (Sec 5.1) |
 | Tests not reviewed before commit | QE in Rule 13 approval matrix (Sec 6) |
-| Test passes impure but fails pure | Gate 2 = `nix flake check` (pure sandbox) catches impure-only passes (Sec 8) |
+| Test passes impure but fails pure | Worker must run `nix run .#test-all` to verify (Sec 8) |
 | E2E not verified at commit time | E2E is Gate 1 obligation; worker must provide evidence (Sec 8) |
-| Nobody owns Pi deployment validation | QE owns Gate 3: defines criteria, reviews evidence, signs off (Sec 8) |
+| Nobody owns Pi deployment validation | QE owns Gate 2: defines criteria, reviews evidence, signs off (Sec 8) |
 | Code quality not reviewed | Architect in Rule 13 approval matrix for all code changes (Sec 6) |
 | Tech debt accumulates silently | Aggressive refactoring required, protected by tests (Sec 4.1) |
 | Edge cases ignored or deferred | Explicit handling required, Architect reviews (Sec 4.2) |
 | Code quality feedback deferred | Must be addressed before task completion (Sec 5.2) |
-| Mock data diverges from production (F-056, F-057) | Real Pi data sample required for collector changes; Gate 3 mock divergence check (Sec 3.7, 8) |
+| Mock data diverges from production (F-056, F-057) | Real Pi data sample required for collector changes; Gate 2 mock divergence check (Sec 3.7, 8) |
 | Test asserts structure not values | Value-assertion criterion: assert values when code computes them (Sec 3.3) |
 | Wiring test without companion logic test | QE verifies companion test exists during review (Sec 3.5, 11.1) |

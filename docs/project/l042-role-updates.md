@@ -1,17 +1,29 @@
 # L-042 Role Prompt Updates
 
-**Status:** Approved — Architect confirmed, AD challenge resolved (11 findings)
+**Status:** Applied — role prompts updated, F-060 corrections applied
 **Author:** Quality Engineer
 
 These are the exact text additions for the worker and QE role prompts.
-A worker should apply these edits to the role files in `.claude/team/roles/`.
+Role prompts are **generic** — they define how to work, not project-specific
+details. Project-specific test suite mappings, gate contents, and environment
+details are in `.claude/team/config.md` (Test Suite Mapping section) and
+`docs/project/testing-process.md`.
 
 ---
 
 ## 1. Worker Role Prompt Additions
 
-Add the following section to `.claude/team/roles/worker.md` after the
-"Consultation Protocol" section and before "Communication & Responsiveness":
+The worker role prompt additions are in `.claude/team/roles/worker.md`
+(Testing Requirements and Code Quality Standards sections). The key change
+from the original spec is that the **project-specific suite mapping table**
+and **GraphManager Rust instructions** have been moved to
+`.claude/team/config.md` (Test Suite Mapping section). The role prompt now
+references config.md for suite specifics and states:
+
+> `nix run` is THE QA gate for workers. `nix develop` is acceptable only
+> for ad-hoc exploratory testing during development.
+
+The following generic content remains in the worker role prompt:
 
 ```markdown
 ## Testing Requirements (L-042)
@@ -24,33 +36,19 @@ tests is not done. See `docs/project/testing-process.md` for the full process.
 
 ### Before reporting a task complete:
 
-1. **Run the relevant `nix run .#test-*` suite(s)** based on what you changed:
-
-   | Change category | Required suites |
-   |----------------|----------------|
-   | Web UI backend (`src/web-ui/app/`) | `nix run .#test-unit` |
-   | Web UI frontend (`src/web-ui/static/`) | `nix run .#test-unit` + `nix run .#test-e2e` |
-   | Web UI backend + frontend | `nix run .#test-unit` + `nix run .#test-e2e` |
-   | Room correction (`src/room-correction/`) | `nix run .#test-room-correction` |
-   | GraphManager Rust (`src/graph-manager/`) | `cargo test --no-default-features` in `nix develop` |
-   | MIDI daemon (`src/midi/`) | `nix run .#test-all` |
-   | PW/WP configs, systemd, udev | No local test — note "requires Pi validation" |
-   | Multiple categories | All relevant suites |
-
-   **Key rule:** Changes to BOTH frontend and backend require BOTH
-   `test-unit` AND `test-e2e`. A common mistake is running only unit tests
-   when a JS change breaks an E2E assertion.
+1. **Run the relevant `nix run .#test-*` suite(s)** based on what you changed.
+   The project's `config.md` defines which suites to run for each source area.
+   `nix run` is THE QA gate for workers. `nix develop` is acceptable only for
+   ad-hoc exploratory testing during development. When multiple areas are
+   affected, run ALL relevant suites.
 
 2. **All tests must pass (exit code 0).** If any test fails, your task is
    NOT done. The task stays `in_progress` until resolved.
 
 3. **Capture full output.** Include the exact command and complete
-   stdout/stderr in your report.
-
-   **E2E evidence is critical:** E2E tests are NOT in `nix flake check`
-   (Gate 2) because they need Playwright/Chromium. You are the trust
-   boundary for E2E. When frontend changes are involved, your E2E test
-   output in the task report is the only evidence that E2E passes.
+   stdout/stderr in your report. If certain test suites cannot run in the
+   commit gate (e.g., E2E tests requiring a browser), your test output is
+   the only evidence — include it.
 
 4. **Write tests for new functionality.** New features require new tests.
    Bug fixes require a regression test that would have caught the bug.
@@ -102,13 +100,6 @@ rules and examples.
    test was already failing before your changes, report it. Do not assume it
    is someone else's problem.
 
-### Rust code (GraphManager):
-
-If you modify Rust code, run `cargo test --no-default-features` inside
-`nix develop` and report the output to the QE before requesting commit.
-Gate 2 (`nix flake check`) runs both `test-graph-manager` (pure logic) and
-`test-graph-manager-full` (with PipeWire linkage) automatically.
-
 ## Code Quality Standards (Owner Directive)
 
 **Code quality is mandatory, not aspirational.** These are requirements, not
@@ -151,9 +142,14 @@ Architect provides feedback, you must address it before the task can be
 marked complete. Code quality feedback cannot be deferred to follow-up
 stories.
 
-See `docs/project/testing-process.md` Section 4 for the full code quality
+See the project's testing process document for the full code quality
 standards and the Architect's review criteria.
 ```
+
+**Note (F-060):** The project-specific test suite mapping table, GraphManager
+Rust instructions, E2E trust boundary details, and gate contents have been
+moved to `.claude/team/config.md` (Test Suite Mapping section). Role prompts
+are generic and reference project config for specifics.
 
 ---
 
@@ -296,7 +292,8 @@ governance process.
 
 | File | Change | Rationale |
 |------|--------|-----------|
-| `.claude/team/roles/worker.md` | Add "Testing Requirements (L-042)" and "Code Quality Standards" sections | Workers must run tests, write tests, avoid mock theater, report honestly, meet code quality standards |
+| `.claude/team/roles/worker.md` | Add generic "Testing Requirements (L-042)" and "Code Quality Standards" sections | Workers must run tests, write tests, avoid mock theater, report honestly, meet code quality standards. References config.md for project-specific suites. |
 | `.claude/team/roles/quality-engineer.md` | Replace "Critical Rules", add to "Responsibilities" | QE becomes blocking quality gate with mock theater review and Rule 13 authority |
+| `.claude/team/config.md` | Add "Test Suite Mapping" section with Gate 1/2/3 details | Project-specific suite-to-source mapping, gate contents, E2E trust boundary (F-060 split) |
 | `.claude/team/protocol/orchestration.md` | Add QE + Architect to Rule 13 approval matrix | Test + code quality review required before every commit (owner directives) |
-| `docs/project/testing-process.md` | Renamed to "Testing and Code Quality Process" | Full governance: classification, gates, mock theater, code quality standards, DoD, Rule 13 |
+| `docs/project/testing-process.md` | "Testing and Code Quality Process" — project-specific governance | Full governance: classification, gates, mock theater, code quality standards, DoD, Rule 13 |

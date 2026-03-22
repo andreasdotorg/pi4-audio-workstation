@@ -120,33 +120,19 @@ tests is not done. See `docs/project/testing-process.md` for the full process.
 
 ### Before reporting a task complete:
 
-1. **Run the relevant `nix run .#test-*` suite(s)** based on what you changed:
-
-   | Change category | Required suites |
-   |----------------|----------------|
-   | Web UI backend (`src/web-ui/app/`) | `nix run .#test-unit` |
-   | Web UI frontend (`src/web-ui/static/`) | `nix run .#test-unit` + `nix run .#test-e2e` |
-   | Web UI backend + frontend | `nix run .#test-unit` + `nix run .#test-e2e` |
-   | Room correction (`src/room-correction/`) | `nix run .#test-room-correction` |
-   | GraphManager Rust (`src/graph-manager/`) | `cargo test --no-default-features` in `nix develop` |
-   | MIDI daemon (`src/midi/`) | `nix run .#test-all` |
-   | PW/WP configs, systemd, udev | No local test — note "requires Pi validation" |
-   | Multiple categories | All relevant suites |
-
-   **Key rule:** Changes to BOTH frontend and backend require BOTH
-   `test-unit` AND `test-e2e`. A common mistake is running only unit tests
-   when a JS change breaks an E2E assertion.
+1. **Run the relevant `nix run .#test-*` suite(s)** based on what you changed.
+   The project's `config.md` defines which suites to run for each source area.
+   `nix run` is THE QA gate for workers. `nix develop` is acceptable only for
+   ad-hoc exploratory testing during development. When multiple areas are
+   affected, run ALL relevant suites.
 
 2. **All tests must pass (exit code 0).** If any test fails, your task is
    NOT done. The task stays `in_progress` until resolved.
 
 3. **Capture full output.** Include the exact command and complete
-   stdout/stderr in your report.
-
-   **E2E evidence is critical:** E2E tests are NOT in `nix flake check`
-   (Gate 2) because they need Playwright/Chromium. You are the trust
-   boundary for E2E. When frontend changes are involved, your E2E test
-   output in the task report is the only evidence that E2E passes.
+   stdout/stderr in your report. If certain test suites cannot run in the
+   commit gate (e.g., E2E tests requiring a browser), your test output is
+   the only evidence — include it.
 
 4. **Write tests for new functionality.** New features require new tests.
    Bug fixes require a regression test that would have caught the bug.
@@ -198,13 +184,6 @@ rules and examples.
    test was already failing before your changes, report it. Do not assume it
    is someone else's problem.
 
-### Rust code (GraphManager):
-
-If you modify Rust code, run `cargo test --no-default-features` inside
-`nix develop` and report the output to the QE before requesting commit.
-Gate 2 (`nix flake check`) runs both `test-graph-manager` (pure logic) and
-`test-graph-manager-full` (with PipeWire linkage) automatically.
-
 ## Code Quality Standards (Owner Directive)
 
 **Code quality is mandatory, not aspirational.** These are requirements, not
@@ -247,7 +226,7 @@ Architect provides feedback, you must address it before the task can be
 marked complete. Code quality feedback cannot be deferred to follow-up
 stories.
 
-See `docs/project/testing-process.md` Section 4 for the full code quality
+See the project's testing process document for the full code quality
 standards and the Architect's review criteria.
 
 ## Communication & Responsiveness (L-040)
