@@ -53,17 +53,53 @@ def find_gain_node(pw_data: list, node_name: str) -> tuple[int | None, float]:
             node_id = obj.get("id")
             # Try to read current Mult from params.
             # pw-dump exposes params under info.params.Props[].Mult
-            mult = 1.0
-            params_list = obj.get("info", {}).get("params", {})
-            if isinstance(params_list, dict):
-                for props_entry in params_list.get("Props", []):
-                    if isinstance(props_entry, dict) and "Mult" in props_entry:
-                        try:
-                            mult = float(props_entry["Mult"])
-                        except (TypeError, ValueError):
-                            pass
+            # F-057: Also search recursively — pw-dump output structure
+            # varies between PipeWire versions and node types.
+            mult = _extract_mult(obj.get("info", {}))
             return node_id, mult
     return None, 0.0
+
+
+def _extract_mult(info: dict) -> float:
+    """Extract Mult value from pw-dump node info, searching multiple paths.
+
+    PipeWire builtin ``linear`` gain nodes expose Mult in params.Props,
+    but the exact nesting varies. This function checks known locations.
+    """
+    params = info.get("params", {})
+    if not isinstance(params, dict):
+        return 1.0
+
+    # Path 1: info.params.Props[].Mult (standard)
+    for props_entry in params.get("Props", []):
+        if isinstance(props_entry, dict) and "Mult" in props_entry:
+            try:
+                return float(props_entry["Mult"])
+            except (TypeError, ValueError):
+                pass
+
+    # Path 2: info.params.Props[].params[].Mult (nested params)
+    for props_entry in params.get("Props", []):
+        if isinstance(props_entry, dict):
+            for nested in props_entry.get("params", []):
+                if isinstance(nested, dict) and "Mult" in nested:
+                    try:
+                        return float(nested["Mult"])
+                    except (TypeError, ValueError):
+                        pass
+
+    # Path 3: Check all param categories for Mult
+    for key, entries in params.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, dict) and "Mult" in entry:
+                try:
+                    return float(entry["Mult"])
+                except (TypeError, ValueError):
+                    pass
+
+    return 1.0
 
 
 async def set_mult(node_id: int, node_name: str, mult: float) -> bool:

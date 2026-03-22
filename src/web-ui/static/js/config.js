@@ -40,8 +40,9 @@
     // -- Helpers --
 
     function multToDb(mult) {
-        if (mult <= 0) return "-inf";
+        if (mult <= 0) return "-INF";
         var db = 20 * Math.log10(mult);
+        if (db <= -100) return "-INF";
         return db.toFixed(1);
     }
 
