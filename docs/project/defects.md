@@ -2429,10 +2429,10 @@ controls — blocked on Pi by this), S-005 (deployment session).
 
 ---
 
-## F-062: 25 tests fail in full suite due to deprecated asyncio.get_event_loop()
+## F-062: 25 tests fail in full suite due to deprecated asyncio.get_event_loop() (RESOLVED)
 
 **Severity:** Medium
-**Status:** Open
+**Status:** Resolved (`95aeb0a` 2026-03-22)
 **Found in:** F-059 fix test run (full suite: `pytest tests/ --ignore=tests/e2e/`)
 **Affects:** test_measurement_integration.py (20 tests), test_phase1_validation.py (5 tests)
 **Found by:** Worker (F-059 run), triaged by QE

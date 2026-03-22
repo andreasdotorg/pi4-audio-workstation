@@ -107,7 +107,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **F-059** (OPEN, HIGH): Graph view uses hardcoded SVG — owner directive to show real `pw-dump` topology. US-064 returned to DESIGN phase, DoD reset to 0/8.
 - **F-060** (OPEN, Medium): L-042 process docs (`17a0cb2`) need corrections: (1) `nix develop` used where `nix run .#test-*` required for QA gates, (2) project-specific details (GraphManager, gain nodes, etc.) embedded in generic role prompts — must be extracted to project config.
 - **F-061** (CODE FIXED `9808a56`, needs Pi deploy): `pw-dump` subprocess hang fixed — `asyncio.to_thread(subprocess.run, ...)` replaces `asyncio.create_subprocess_exec`. Also: webui systemd `Type=notify` restart loop fixed (`ba8aaf5`). **Pi deploy unblocks F-056 and F-057 real-mode verification.**
-- **F-062** (OPEN, Medium): 25 tests fail due to deprecated `asyncio.get_event_loop()` under Python 3.13. Affects `test_measurement_integration.py` (20) and `test_phase1_validation.py` (5). QE + Architect confirmed: test bug, not production. Fix: replace with `asyncio.run()`. Worker-functional fixing after task #58.
+- **F-062** (**RESOLVED** `95aeb0a`): 25 asyncio test failures fixed — `asyncio.get_event_loop()` replaced with `asyncio.run()` across 25 call sites.
 - **F-040** (**RESOLVED** — committed `4c80c23` 2026-03-21): Panic MUTE/UNMUTE backend (`audio_mute.py` + `pw_helpers.py`). US-065 and US-064 commits followed (`965f501`, `23a57c1`). No longer blocking.
 - **F-041** (**RESOLVED, VERIFIED** — `3a1e6bb` + `c76b882`): Mock server crash fix. Health-check + stderr capture in conftest.py. Additional fix `c76b882`: subprocess.PIPE replaced with tempfile (deadlock prevention). Verified 2026-03-21: full E2E suite completed, no crash. 124 passed, 41 failed (pre-existing regressions → F-048).
 - **F-048** (IN PROGRESS → ~1-8 remaining, Medium): Originally 41 E2E test failures. **25 fixed** (system_view, status_bar, visual_regression, event_log — pending commit). **13 fixed** (capture_spectrum + measurement_wizard — pending commit). Remaining: measurement wizard state isolation (F-049, 8 tests hang sequentially).
@@ -586,7 +586,7 @@ See `docs/project/defects.md` for full details.
 | F-059 | High | Open | Graph view uses hardcoded SVG templates instead of real PW topology. US-064 returned to DESIGN. |
 | F-060 | Medium | Open | L-042 process docs: `nix develop` used where `nix run` required; project-specific details in role prompts. |
 | F-061 | High | Code fixed (`9808a56`) | pw-dump hang fixed (thread pool). Needs Pi deploy to unblock F-056/F-057. |
-| F-062 | Medium | Open | 25 tests fail: deprecated `asyncio.get_event_loop()` in Python 3.13. Test bug, not production. Worker fixing after #58. |
+| F-062 | Medium | Resolved | 25 asyncio test failures fixed (`95aeb0a`). `get_event_loop()` → `asyncio.run()`. |
 
 ### Resolved
 
