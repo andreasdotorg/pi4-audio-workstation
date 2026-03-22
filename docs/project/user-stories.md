@@ -4613,8 +4613,8 @@ sections.
 - [x] pcm-bridge documented (installation, level metering, TCP protocol)
 - [x] Signal-gen documented (installation, RPC API, sweep generation)
 - [x] ALSA Loopback references removed (no longer in the signal path)
-- [ ] Web UI documented (all 7 tabs, service setup, HTTPS, port 8080)
-- [ ] Test plan section updated (BM-2 results supersede T1a-e, nix run
+- [x] Web UI documented (all 7 tabs, service setup, HTTPS, port 8080)
+- [x] Test plan section updated (BM-2 results supersede T1a-e, nix run
   as QA gate, CI workflow)
 
 **2. Architecture docs update:**
