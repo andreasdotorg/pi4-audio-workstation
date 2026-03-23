@@ -512,6 +512,7 @@ impl RoutingTable {
     ///
     /// Signal-gen sends test signals through the convolver to the speakers.
     /// UMIK-1 captures the room response back to signal-gen for analysis.
+    /// pcm-bridge taps the convolver output for level metering (D-043).
     fn measurement_links() -> Vec<DesiredLink> {
         let mut links = Vec::new();
         let sg = AppPortNaming::SignalGenOutput;
@@ -533,6 +534,9 @@ impl RoutingTable {
         // Convolver → USBStreamer (ch 1-4: measurement signal to speakers).
         links.extend(Self::convolver_to_usbstreamer_links());
 
+        // Convolver → pcm-bridge (ch 1-4: level metering, D-043).
+        links.extend(Self::pcm_bridge_links());
+
         // UMIK-1 → signal-gen capture (mono measurement mic).
         links.push(DesiredLink {
             output_node: NodeMatch::Prefix(UMIK1_PREFIX.to_string()),
@@ -552,7 +556,7 @@ impl RoutingTable {
     /// Convolver output → pcm-bridge input (ch 1-4).
     /// D-043: GraphManager manages pcm-bridge's links instead of
     /// pcm-bridge self-linking via stream.capture.sink + AUTOCONNECT.
-    /// Used by Monitoring, DJ, and Live modes (level metering always active).
+    /// Used by all modes (level metering always active).
     ///
     /// pcm-bridge taps the convolver's output ports (output_AUX0..3) —
     /// the same processed audio that feeds the USBStreamer. PipeWire
@@ -746,10 +750,11 @@ mod tests {
     }
 
     #[test]
-    fn measurement_has_9_links() {
-        // signal-gen → convolver (4) + convolver → USBStreamer (4) + UMIK-1 → signal-gen-capture (1).
+    fn measurement_has_13_links() {
+        // signal-gen → convolver (4) + convolver → USBStreamer (4)
+        // + convolver → pcm-bridge (4) + UMIK-1 → signal-gen-capture (1).
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Measurement).len(), 9);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 13);
     }
 
     #[test]
@@ -778,11 +783,10 @@ mod tests {
     }
 
     #[test]
-    fn monitoring_dj_live_have_pcm_bridge_links() {
-        // D-043: pcm-bridge links in Monitoring, DJ, and Live modes.
-        // Not in Measurement (no level metering needed during measurement).
+    fn all_modes_have_pcm_bridge_links() {
+        // D-043: pcm-bridge links in all modes (level metering always active).
         let table = RoutingTable::production();
-        for mode in [Mode::Monitoring, Mode::Dj, Mode::Live] {
+        for mode in Mode::ALL {
             let links = table.links_for(mode);
             let pcm_links: Vec<_> = links
                 .iter()
@@ -803,15 +807,6 @@ mod tests {
                 mode,
             );
         }
-        // Measurement mode should NOT have pcm-bridge links.
-        let meas_links = table.links_for(Mode::Measurement);
-        let meas_pcm: Vec<_> = meas_links
-            .iter()
-            .filter(|l| {
-                matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-pcm-bridge")
-            })
-            .collect();
-        assert_eq!(meas_pcm.len(), 0, "Measurement should not have pcm-bridge links");
     }
 
     #[test]

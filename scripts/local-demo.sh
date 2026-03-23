@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 # Local demo stack — launches the full pi4-audio workstation locally.
 #
-# Starts:  PipeWire test env → GraphManager → signal-gen → pcm-bridge → web-ui
+# Starts:  PipeWire (no WP) → GraphManager → signal-gen → pcm-bridge → web-ui
 # Cleanup: Ctrl+C kills all child processes
+#
+# The PipeWire test environment mirrors the Pi's production topology with
+# a null audio sink matching the USBStreamer name, a real filter-chain
+# convolver with dirac passthrough coefficients, and GraphManager as the
+# sole link manager (D-039). No WirePlumber. signal-gen and pcm-bridge
+# run in managed mode.
 #
 # Usage:
 #   nix run .#local-demo      # preferred (all deps resolved by Nix)
 #   ./scripts/local-demo.sh   # if already in nix develop
 #
 # Prerequisites:
-#   - PipeWire + WirePlumber available (via Nix or system)
+#   - PipeWire available (via Nix or system) — NO WirePlumber needed
 #   - Rust binaries built (script builds them automatically via nix build)
 #   - Python with FastAPI/uvicorn (provided by nix run .#local-demo)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_DIR="${LOCAL_DEMO_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
 PW_TEST_ENV="${LOCAL_DEMO_PW_TEST_ENV:-$SCRIPT_DIR/local-pw-test-env.sh}"
 
 # Track child PIDs for cleanup
@@ -78,7 +84,25 @@ echo "  graph-manager: $GM_BIN"
 echo "  signal-gen:    $SG_BIN"
 echo "  pcm-bridge:    $PCM_BIN"
 
-# ---- 2. Start PipeWire test environment ----
+# ---- 2. Generate dirac coefficients and convolver config ----
+# Generate 1024-sample dirac impulse WAV files (unity passthrough).
+# These serve as default coefficients for the filter-chain convolver.
+COEFFS_DIR="/tmp/pw-test-coeffs"
+echo ""
+echo "[local-demo] Generating dirac impulse coefficients..."
+"$PYTHON" "$REPO_DIR/scripts/generate-dirac-coeffs.py" "$COEFFS_DIR"
+
+# Inject the convolver drop-in config with resolved coefficient paths.
+# PW_TEST_ENV's create_configs() creates the config directory; we pre-create
+# it here so the convolver drop-in is ready before PipeWire starts.
+PW_CONF_DIR="/tmp/pw-test-xdg-config/pipewire/pipewire.conf.d"
+mkdir -p "$PW_CONF_DIR"
+sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
+    "$REPO_DIR/configs/local-demo/convolver.conf" \
+    > "$PW_CONF_DIR/30-convolver.conf"
+echo "[local-demo] Convolver config installed (coefficients: $COEFFS_DIR)"
+
+# ---- 3. Start PipeWire test environment ----
 echo ""
 echo "[local-demo] Starting PipeWire test environment..."
 "$PW_TEST_ENV" stop 2>/dev/null || true
@@ -103,10 +127,10 @@ fi
 
 echo "[local-demo] PipeWire ready."
 
-# ---- 3. Start GraphManager ----
+# ---- 4. Start GraphManager ----
 echo ""
-echo "[local-demo] Starting GraphManager (port 4002)..."
-"$GM_BIN" --listen tcp:127.0.0.1:4002 --mode monitoring --log-level info &
+echo "[local-demo] Starting GraphManager (port 4002, measurement mode)..."
+"$GM_BIN" --listen tcp:127.0.0.1:4002 --mode measurement --log-level info &
 PIDS+=($!)
 sleep 1
 
@@ -116,13 +140,15 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] GraphManager running (PID ${PIDS[-1]})"
 
-# ---- 4. Start signal-gen ----
+# ---- 5. Start signal-gen (managed mode) ----
+# Managed mode: no AUTOCONNECT, no --target. GraphManager creates links.
+# 4 channels to match convolver input (AUX0-AUX3).
 echo ""
-echo "[local-demo] Starting signal-gen (port 4001)..."
+echo "[local-demo] Starting signal-gen (port 4001, managed mode)..."
 "$SG_BIN" \
-    --target test-output \
+    --managed \
     --capture-target "" \
-    --channels 2 \
+    --channels 4 \
     --rate 48000 \
     --listen tcp:127.0.0.1:4001 \
     --max-level-dbfs -20 &
@@ -135,12 +161,14 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] signal-gen running (PID ${PIDS[-1]})"
 
-# ---- 5. Start pcm-bridge ----
+# ---- 6. Start pcm-bridge (managed mode) ----
+# Managed mode: no stream.capture.sink, no --target. GM creates links
+# from convolver-out:output_AUX0..3 → pcm-bridge:input_1..4.
 echo ""
-echo "[local-demo] Starting pcm-bridge (levels on port 9100)..."
+echo "[local-demo] Starting pcm-bridge (levels on port 9100, managed mode)..."
 "$PCM_BIN" \
+    --managed \
     --mode monitor \
-    --target test-output \
     --levels-listen tcp:127.0.0.1:9100 \
     --listen tcp:127.0.0.1:9090 \
     --channels 4 \
@@ -154,23 +182,23 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]})"
 
-# ---- 6. Start signal-gen playing a sine wave ----
+# ---- 7. Start signal-gen playing a sine wave ----
 echo ""
 echo "[local-demo] Sending signal-gen play command (440 Hz sine, -20 dBFS)..."
 sleep 0.5
 # signal-gen RPC: newline-delimited JSON on TCP port 4001.
 # Use bash /dev/tcp to avoid nc dependency (nc may not be in Nix PATH).
 if exec 3<>/dev/tcp/127.0.0.1/4001 2>/dev/null; then
-    echo '{"cmd":"play","signal":"sine","freq":440.0,"level_dbfs":-20.0,"channels":[1,2]}' >&3
+    echo '{"cmd":"play","signal":"sine","freq":440.0,"level_dbfs":-20.0,"channels":[1,2,3,4]}' >&3
     timeout 2 head -n1 <&3 2>/dev/null && echo "[local-demo] signal-gen playing." || true
     exec 3>&- 2>/dev/null
 else
     echo "[local-demo] WARNING: Could not connect to signal-gen RPC (port 4001)" >&2
     echo "  Start playback manually:"
-    echo "  echo '{\"cmd\":\"play\",\"signal\":\"sine\",\"freq\":440,\"level_dbfs\":-20,\"channels\":[1,2]}' > /dev/tcp/127.0.0.1/4001"
+    echo "  echo '{\"cmd\":\"play\",\"signal\":\"sine\",\"freq\":440,\"level_dbfs\":-20,\"channels\":[1,2,3,4]}' > /dev/tcp/127.0.0.1/4001"
 fi
 
-# ---- 7. Start web-ui ----
+# ---- 8. Start web-ui ----
 echo ""
 echo "[local-demo] Starting web-ui (port 8080, real collectors)..."
 export PI_AUDIO_MOCK=0
@@ -194,9 +222,13 @@ echo "============================================================"
 echo "  Local demo stack is running!"
 echo ""
 echo "  Web UI:       http://localhost:8080"
-echo "  GraphManager: tcp://127.0.0.1:4002 (RPC)"
-echo "  signal-gen:   tcp://127.0.0.1:4001 (RPC)"
-echo "  pcm-bridge:   tcp://127.0.0.1:9100 (levels)"
+echo "  GraphManager: tcp://127.0.0.1:4002 (RPC, measurement mode)"
+echo "  signal-gen:   tcp://127.0.0.1:4001 (RPC, managed mode)"
+echo "  pcm-bridge:   tcp://127.0.0.1:9100 (levels, managed mode)"
+echo ""
+echo "  PW nodes:     alsa_output.usb-MiniDSP_USBStreamer (null sink)"
+echo "                pi4audio-convolver (filter-chain, dirac passthrough)"
+echo "                pi4audio-convolver-out (filter-chain output)"
 echo ""
 echo "  Press Ctrl+C to stop all services."
 echo "============================================================"

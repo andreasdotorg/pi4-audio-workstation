@@ -517,6 +517,7 @@
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
               export LOCAL_DEMO_PW_TEST_ENV="${./scripts/local-pw-test-env.sh}"
+              export LOCAL_DEMO_REPO_DIR="${toString ./.}"
               export PATH="${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/local-demo.sh} "$@"
             ''}";
