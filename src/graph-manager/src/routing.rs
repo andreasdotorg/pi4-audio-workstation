@@ -187,8 +187,8 @@ const SIGNAL_GEN_CAPTURE: &str = "pi4audio-signal-gen-capture";
 /// UMIK-1 capture node name prefix.
 const UMIK1_PREFIX: &str = "alsa_input.usb-miniDSP_UMIK-1";
 
-/// pcm-bridge node name (monitor port tap for level metering).
-/// D-043: GraphManager creates the links from the convolver's monitor
+/// pcm-bridge node name (level metering tap).
+/// D-043: GraphManager creates the links from the convolver's output
 /// ports to pcm-bridge's input ports.
 const PCM_BRIDGE: &str = "pi4audio-pcm-bridge";
 
@@ -249,10 +249,6 @@ pub enum AppPortNaming {
     /// UMIK-1 capture: `capture_MONO`.
     /// Only channel 1 is valid.
     Umik1Capture,
-    /// Convolver monitor output: `monitor_AUX0`, `monitor_AUX1`, ...
-    /// These are the monitor ports on the convolver's capture (Audio/Sink) side.
-    /// Channel 1 -> "monitor_AUX0", channel 2 -> "monitor_AUX1", etc.
-    ConvolverMonitorOutput,
     /// pcm-bridge input: `input_1`, `input_2`, ...
     /// PipeWire creates one-based input ports for streams without position info.
     /// Channel 1 -> "input_1", channel 2 -> "input_2", etc.
@@ -284,7 +280,6 @@ impl AppPortNaming {
                 assert_eq!(channel, 1, "UMIK-1 is mono, only channel 1");
                 "capture_MONO".to_string()
             }
-            AppPortNaming::ConvolverMonitorOutput => format!("monitor_AUX{}", zero_based),
             AppPortNaming::PcmBridgeInput => format!("input_{}", channel),
         }
     }
@@ -337,7 +332,7 @@ impl RoutingTable {
         // TODO: AE-F6 USBStreamer volume lock — when USBStreamer is first
         // detected, set volume to unity to prevent post-DSP clipping.
         let mut links = Self::convolver_to_usbstreamer_links();
-        links.extend(Self::pcm_bridge_monitor_links());
+        links.extend(Self::pcm_bridge_links());
         links
     }
 
@@ -392,8 +387,8 @@ impl RoutingTable {
         // Convolver → USBStreamer (ch 1-4: processed speakers).
         links.extend(Self::convolver_to_usbstreamer_links());
 
-        // Convolver monitor → pcm-bridge (D-043: GM-managed level metering).
-        links.extend(Self::pcm_bridge_monitor_links());
+        // Convolver output → pcm-bridge (D-043: GM-managed level metering).
+        links.extend(Self::pcm_bridge_links());
 
         // Mixxx headphones → USBStreamer direct (bypass convolver).
         // Ch 3 (Headphone L) → USBStreamer ch 5
@@ -468,8 +463,8 @@ impl RoutingTable {
         // Convolver → USBStreamer (ch 1-4: processed speakers).
         links.extend(Self::convolver_to_usbstreamer_links());
 
-        // Convolver monitor → pcm-bridge (D-043: GM-managed level metering).
-        links.extend(Self::pcm_bridge_monitor_links());
+        // Convolver output → pcm-bridge (D-043: GM-managed level metering).
+        links.extend(Self::pcm_bridge_links());
 
         // Reaper headphones → USBStreamer direct (bypass convolver).
         // Ch 5 (HP L) → USBStreamer ch 5
@@ -554,21 +549,23 @@ impl RoutingTable {
     // Shared link sets
     // -------------------------------------------------------------------
 
-    /// Convolver monitor → pcm-bridge input (ch 1-4).
+    /// Convolver output → pcm-bridge input (ch 1-4).
     /// D-043: GraphManager manages pcm-bridge's links instead of
     /// pcm-bridge self-linking via stream.capture.sink + AUTOCONNECT.
     /// Used by Monitoring, DJ, and Live modes (level metering always active).
     ///
-    /// The convolver's Audio/Sink node exposes monitor_AUX0..3 output ports
-    /// that mirror its playback_AUX0..3 inputs. pcm-bridge creates generic
-    /// input_1..4 ports (no SPA position array — PW uses 1-based naming).
-    fn pcm_bridge_monitor_links() -> Vec<DesiredLink> {
-        let cv_mon = AppPortNaming::ConvolverMonitorOutput;
+    /// pcm-bridge taps the convolver's output ports (output_AUX0..3) —
+    /// the same processed audio that feeds the USBStreamer. PipeWire
+    /// natively fans out: multiple sinks on the same output port each
+    /// receive a copy. pcm-bridge creates generic input_1..4 ports
+    /// (no SPA position array — PW uses 1-based naming).
+    fn pcm_bridge_links() -> Vec<DesiredLink> {
+        let cv_out = AppPortNaming::ConvolverOutput;
         let pcm = AppPortNaming::PcmBridgeInput;
         (1..=4)
             .map(|ch| DesiredLink {
-                output_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
-                output_port: cv_mon.port_name(ch),
+                output_node: NodeMatch::Exact(CONVOLVER_OUT.to_string()),
+                output_port: cv_out.port_name(ch),
                 input_node: NodeMatch::Exact(PCM_BRIDGE.to_string()),
                 input_port: pcm.port_name(ch),
                 optional: true, // pcm-bridge may not be running
@@ -724,7 +721,7 @@ mod tests {
 
     #[test]
     fn monitoring_has_8_links() {
-        // convolver-out → USBStreamer ch 0-3 (4) + convolver monitor → pcm-bridge (4) = 8.
+        // convolver-out → USBStreamer ch 0-3 (4) + convolver-out → pcm-bridge (4) = 8.
         let table = RoutingTable::production();
         assert_eq!(table.links_for(Mode::Monitoring).len(), 8);
     }
@@ -732,7 +729,7 @@ mod tests {
     #[test]
     fn dj_has_16_links() {
         // Mixxx → convolver mains (2) + Mixxx → convolver subs fan-out (4)
-        // + convolver → USBStreamer (4) + convolver monitor → pcm-bridge (4)
+        // + convolver → USBStreamer (4) + convolver → pcm-bridge (4)
         // + Mixxx → USBStreamer HP (2) = 16.
         let table = RoutingTable::production();
         assert_eq!(table.links_for(Mode::Dj).len(), 16);
@@ -741,7 +738,7 @@ mod tests {
     #[test]
     fn live_has_26_links() {
         // REAPER → convolver mains (2) + REAPER → convolver subs fan-out (4)
-        // + convolver → USBStreamer (4) + convolver monitor → pcm-bridge (4)
+        // + convolver → USBStreamer (4) + convolver → pcm-bridge (4)
         // + REAPER → USBStreamer HP (2) + REAPER → USBStreamer IEM (2)
         // + ADA8200 → REAPER capture (8) = 26.
         let table = RoutingTable::production();
@@ -781,8 +778,8 @@ mod tests {
     }
 
     #[test]
-    fn monitoring_dj_live_have_pcm_bridge_monitor_links() {
-        // D-043: pcm-bridge monitor links in Monitoring, DJ, and Live modes.
+    fn monitoring_dj_live_have_pcm_bridge_links() {
+        // D-043: pcm-bridge links in Monitoring, DJ, and Live modes.
         // Not in Measurement (no level metering needed during measurement).
         let table = RoutingTable::production();
         for mode in [Mode::Monitoring, Mode::Dj, Mode::Live] {
@@ -796,7 +793,7 @@ mod tests {
             assert_eq!(
                 pcm_links.len(),
                 4,
-                "Mode {} should have 4 pcm-bridge monitor links",
+                "Mode {} should have 4 pcm-bridge links",
                 mode,
             );
             // All pcm-bridge links are optional (pcm-bridge may not be running).
@@ -818,9 +815,9 @@ mod tests {
     }
 
     #[test]
-    fn pcm_bridge_monitor_links_use_correct_ports() {
-        // Verify monitor_AUX0..3 → input_1..4 mapping.
-        // PW creates 1-based input ports for streams without SPA position array.
+    fn pcm_bridge_links_use_correct_ports() {
+        // Verify output_AUX0..3 → input_1..4 mapping.
+        // pcm-bridge taps the convolver output (same ports as USBStreamer).
         let table = RoutingTable::production();
         let links = table.links_for(Mode::Monitoring);
         let pcm_links: Vec<_> = links
@@ -830,10 +827,10 @@ mod tests {
             })
             .collect();
         for (i, link) in pcm_links.iter().enumerate() {
-            assert_eq!(link.output_port, format!("monitor_AUX{}", i));
+            assert_eq!(link.output_port, format!("output_AUX{}", i));
             assert_eq!(link.input_port, format!("input_{}", i + 1));
-            // Output node is the convolver capture sink (monitor ports).
-            assert!(matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver"));
+            // Output node is the convolver playback source.
+            assert!(matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver-out"));
         }
     }
 
@@ -1166,13 +1163,6 @@ mod tests {
     }
 
     #[test]
-    fn port_naming_convolver_monitor_output() {
-        // Convolver monitor: monitor_AUX prefix, zero-based.
-        assert_eq!(AppPortNaming::ConvolverMonitorOutput.port_name(1), "monitor_AUX0");
-        assert_eq!(AppPortNaming::ConvolverMonitorOutput.port_name(4), "monitor_AUX3");
-    }
-
-    #[test]
     fn port_naming_pcm_bridge_input() {
         // pcm-bridge input: input_ prefix, one-based (PW convention for no SPA positions).
         assert_eq!(AppPortNaming::PcmBridgeInput.port_name(1), "input_1");
@@ -1296,17 +1286,17 @@ mod tests {
 
     #[test]
     fn monitoring_has_no_app_links() {
-        // Monitoring mode: convolver → USBStreamer (4) + convolver monitor → pcm-bridge (4).
+        // Monitoring mode: convolver → USBStreamer (4) + convolver → pcm-bridge (4).
         // No application (Mixxx/Reaper/signal-gen) links.
+        // Both sets originate from convolver-out.
         let table = RoutingTable::production();
         let mon_links = table.links_for(Mode::Monitoring);
         assert_eq!(mon_links.len(), 8);
         for link in mon_links {
             let is_convolver_out = matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver-out");
-            let is_convolver_monitor = matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver");
             assert!(
-                is_convolver_out || is_convolver_monitor,
-                "Monitoring should only have convolver output and monitor links, got: {}",
+                is_convolver_out,
+                "Monitoring should only have convolver-out output links, got: {}",
                 link,
             );
         }
