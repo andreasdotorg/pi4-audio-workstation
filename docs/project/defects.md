@@ -2879,6 +2879,25 @@ visualization). The owner reports this has NEVER worked for them on the Pi.
 - `src/pcm-bridge/src/server.rs` (broadcast_loop — F-081 FD leak)
 - `src/web-ui/app/levels_collector.py` (WebSocket proxy to pcm-bridge)
 
+**Update (2026-03-23, local PW 1.4.10 demo):** Commit `197c97c` (DRIVER flag +
+conditional capture stream) is **insufficient**. Local testing confirmed both
+pcm-bridge and signal-gen still fail with ENOTSUP (-95) on PW 1.4.10. The previous
+root cause analysis was wrong — DRIVER nodes still call `negotiate_format`, they
+do NOT bypass it. Three specific bugs identified:
+
+1. **pcm-bridge `main.rs:343-346`:** `set_active(true)` in Paused callback forces
+   premature stream start before links exist — format negotiation fails because
+   no peers are connected.
+2. **signal-gen standalone:** DRIVER+AUTOCONNECT triggers start before auto-linking
+   completes — same negotiate_format failure.
+3. **signal-gen managed:** Without DRIVER flag, stream stays suspended; `node.group`
+   prevents scheduling.
+
+TCP/RPC/HTTP infrastructure works correctly (web UI connects to pcm-bridge levels,
+signal-gen accepts RPC). Issue is purely PipeWire stream activation timing. Fix
+needs rework to ensure format negotiation succeeds before activation (i.e., links
+must exist before `set_active(true)`).
+
 ---
 
 ## F-084: No level meters on dashboard (OPEN)
