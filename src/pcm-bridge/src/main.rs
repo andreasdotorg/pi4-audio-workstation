@@ -350,7 +350,8 @@ fn run_pipewire(
         .expect("Failed to register stream listener");
 
     let mut flags = pipewire::stream::StreamFlags::MAP_BUFFERS
-        | pipewire::stream::StreamFlags::RT_PROCESS;
+        | pipewire::stream::StreamFlags::RT_PROCESS
+        | pipewire::stream::StreamFlags::DRIVER;
     if !args.managed {
         flags |= pipewire::stream::StreamFlags::AUTOCONNECT;
     }

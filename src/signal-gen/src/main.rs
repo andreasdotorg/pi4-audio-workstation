@@ -746,128 +746,137 @@ fn run_pipewire(
 
     // -----------------------------------------------------------------------
     // Capture stream (Section 3.2) — targets UMIK-1
+    // Skip when --capture-target "" is passed (F-083: avoids -95 ENOTSUP
+    // from audioadapter negotiate_format when target doesn't exist).
     // -----------------------------------------------------------------------
 
-    let mut capture_props = pipewire::properties::properties! {
-        "media.type" => "Audio",
-        "media.category" => "Capture",
-        "media.role" => "Production",
-        "media.class" => "Stream/Input/Audio",
-        "node.name" => "pi4audio-signal-gen-capture",
-        "node.description" => "RT Signal Generator (UMIK-1 capture)",
-        "node.group" => "pi4audio.usbstreamer",
-        "audio.channels" => "1",
-        "audio.position" => "MONO",
-        "node.always-process" => "true",
-    };
-    if !args.managed && !args.capture_target.is_empty() {
-        capture_props.insert("target.object", &*args.capture_target);
-    }
+    let (_capture_stream, _capture_listener) = if !args.capture_target.is_empty() {
+        let mut capture_props = pipewire::properties::properties! {
+            "media.type" => "Audio",
+            "media.category" => "Capture",
+            "media.role" => "Production",
+            "media.class" => "Stream/Input/Audio",
+            "node.name" => "pi4audio-signal-gen-capture",
+            "node.description" => "RT Signal Generator (UMIK-1 capture)",
+            "node.group" => "pi4audio.usbstreamer",
+            "audio.channels" => "1",
+            "audio.position" => "MONO",
+            "node.always-process" => "true",
+        };
+        if !args.managed {
+            capture_props.insert("target.object", &*args.capture_target);
+        }
 
-    let capture_stream =
-        pipewire::stream::Stream::new(&core, "pi4audio-signal-gen-capture", capture_props)
-            .expect("Failed to create PipeWire capture stream");
+        let capture_stream =
+            pipewire::stream::Stream::new(&core, "pi4audio-signal-gen-capture", capture_props)
+                .expect("Failed to create PipeWire capture stream");
 
-    // SPA format params: mono F32LE at configured rate with MONO
-    // position (BUG-SG12-5 / TK-236).
-    let capture_fmt_bytes = build_audio_format(1, args.rate, &spa_channel::CAPTURE_MONO);
-    let capture_fmt_pod = unsafe {
-        &*(capture_fmt_bytes.as_ptr() as *const libspa::pod::Pod)
-    };
-    let mut capture_params: [&libspa::pod::Pod; 1] = [capture_fmt_pod];
+        // SPA format params: mono F32LE at configured rate with MONO
+        // position (BUG-SG12-5 / TK-236).
+        let capture_fmt_bytes = build_audio_format(1, args.rate, &spa_channel::CAPTURE_MONO);
+        let capture_fmt_pod = unsafe {
+            &*(capture_fmt_bytes.as_ptr() as *const libspa::pod::Pod)
+        };
+        let mut capture_params: [&libspa::pod::Pod; 1] = [capture_fmt_pod];
 
-    let cap_buf_for_cb = capture_buf.clone();
+        let cap_buf_for_cb = capture_buf.clone();
 
-    // Register the capture process callback.
-    let _capture_listener = capture_stream
-        .add_local_listener()
-        .process(move |stream: &pipewire::stream::StreamRef, _: &mut ()| {
-            unsafe {
-                let raw_buf =
-                    pipewire_sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
-                if raw_buf.is_null() {
-                    return;
+        // Register the capture process callback.
+        let listener = capture_stream
+            .add_local_listener()
+            .process(move |stream: &pipewire::stream::StreamRef, _: &mut ()| {
+                unsafe {
+                    let raw_buf =
+                        pipewire_sys::pw_stream_dequeue_buffer(stream.as_raw_ptr());
+                    if raw_buf.is_null() {
+                        return;
+                    }
+
+                    let spa_buf = (*raw_buf).buffer;
+                    if spa_buf.is_null() || (*spa_buf).n_datas == 0 {
+                        pipewire_sys::pw_stream_queue_buffer(
+                            stream.as_raw_ptr(),
+                            raw_buf,
+                        );
+                        return;
+                    }
+
+                    let data = &*(*spa_buf).datas;
+                    let data_ptr = data.data;
+                    if data_ptr.is_null() {
+                        pipewire_sys::pw_stream_queue_buffer(
+                            stream.as_raw_ptr(),
+                            raw_buf,
+                        );
+                        return;
+                    }
+
+                    let chunk = data.chunk;
+                    if chunk.is_null() {
+                        pipewire_sys::pw_stream_queue_buffer(
+                            stream.as_raw_ptr(),
+                            raw_buf,
+                        );
+                        return;
+                    }
+
+                    // Read captured samples (mono F32).
+                    let size = (*chunk).size as usize;
+                    let n_frames = size / std::mem::size_of::<f32>();
+
+                    if n_frames > 0 {
+                        let input = std::slice::from_raw_parts(
+                            data_ptr as *const f32,
+                            n_frames,
+                        );
+
+                        // Always update live metering (even when not recording).
+                        cap_buf_for_cb.update_levels(input);
+
+                        // Write to ring buffer if recording is active.
+                        cap_buf_for_cb.write_samples(input);
+                    }
+
+                    pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
                 }
+            })
+            .state_changed(|_stream, _data, old, new| {
+                info!("PipeWire capture stream state: {:?} -> {:?}", old, new);
+            })
+            .register()
+            .expect("Failed to register capture stream listener");
 
-                let spa_buf = (*raw_buf).buffer;
-                if spa_buf.is_null() || (*spa_buf).n_datas == 0 {
-                    pipewire_sys::pw_stream_queue_buffer(
-                        stream.as_raw_ptr(),
-                        raw_buf,
-                    );
-                    return;
-                }
+        let capture_flags = if args.managed {
+            // Managed mode: GraphManager creates links. No AUTOCONNECT.
+            pipewire::stream::StreamFlags::MAP_BUFFERS
+                | pipewire::stream::StreamFlags::RT_PROCESS
+        } else {
+            // Standalone mode: PipeWire auto-links to target.
+            pipewire::stream::StreamFlags::AUTOCONNECT
+                | pipewire::stream::StreamFlags::MAP_BUFFERS
+                | pipewire::stream::StreamFlags::RT_PROCESS
+        };
 
-                let data = &*(*spa_buf).datas;
-                let data_ptr = data.data;
-                if data_ptr.is_null() {
-                    pipewire_sys::pw_stream_queue_buffer(
-                        stream.as_raw_ptr(),
-                        raw_buf,
-                    );
-                    return;
-                }
+        capture_stream
+            .connect(
+                libspa::utils::Direction::Input,
+                None,
+                capture_flags,
+                &mut capture_params,
+            )
+            .expect("Failed to connect PipeWire capture stream");
 
-                let chunk = data.chunk;
-                if chunk.is_null() {
-                    pipewire_sys::pw_stream_queue_buffer(
-                        stream.as_raw_ptr(),
-                        raw_buf,
-                    );
-                    return;
-                }
+        if args.managed {
+            info!("PipeWire capture stream connected (managed mode, no AUTOCONNECT)");
+        } else {
+            info!("PipeWire capture stream connected (target: {})", args.capture_target);
+        }
 
-                // Read captured samples (mono F32).
-                let size = (*chunk).size as usize;
-                let n_frames = size / std::mem::size_of::<f32>();
-
-                if n_frames > 0 {
-                    let input = std::slice::from_raw_parts(
-                        data_ptr as *const f32,
-                        n_frames,
-                    );
-
-                    // Always update live metering (even when not recording).
-                    cap_buf_for_cb.update_levels(input);
-
-                    // Write to ring buffer if recording is active.
-                    cap_buf_for_cb.write_samples(input);
-                }
-
-                pipewire_sys::pw_stream_queue_buffer(stream.as_raw_ptr(), raw_buf);
-            }
-        })
-        .state_changed(|_stream, _data, old, new| {
-            info!("PipeWire capture stream state: {:?} -> {:?}", old, new);
-        })
-        .register()
-        .expect("Failed to register capture stream listener");
-
-    let capture_flags = if args.managed {
-        // Managed mode: GraphManager creates links. No AUTOCONNECT.
-        pipewire::stream::StreamFlags::MAP_BUFFERS
-            | pipewire::stream::StreamFlags::RT_PROCESS
+        (Some(capture_stream), Some(listener))
     } else {
-        // Standalone mode: PipeWire auto-links to target.
-        pipewire::stream::StreamFlags::AUTOCONNECT
-            | pipewire::stream::StreamFlags::MAP_BUFFERS
-            | pipewire::stream::StreamFlags::RT_PROCESS
+        info!("Capture stream disabled (--capture-target is empty)");
+        (None, None)
     };
-
-    capture_stream
-        .connect(
-            libspa::utils::Direction::Input,
-            None,
-            capture_flags,
-            &mut capture_params,
-        )
-        .expect("Failed to connect PipeWire capture stream");
-
-    if args.managed {
-        info!("PipeWire capture stream connected (managed mode, no AUTOCONNECT)");
-    } else {
-        info!("PipeWire capture stream connected (target: {})", args.capture_target);
-    }
 
     // -----------------------------------------------------------------------
     // PipeWire registry listener for device hot-plug (Section 8.1)
@@ -913,7 +922,7 @@ fn run_pipewire(
     drop(_registry_listener);
     drop(_registry);
     drop(_capture_listener);
-    drop(capture_stream);
+    drop(_capture_stream);
     drop(_playback_listener);
     drop(playback_stream);
     drop(core);
