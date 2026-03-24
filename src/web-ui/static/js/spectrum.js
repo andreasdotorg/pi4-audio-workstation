@@ -134,6 +134,9 @@
     // Dirty flag: set by onmessage, consumed by render() (F-026 fix)
     var dirty = false;
 
+    // US-077: track graph clock from v2 PCM header for gap / discontinuity detection
+    var prevGraphPos = 0;
+
     // Legacy 1/3-octave fallback
     var legacyBands = null;
 
@@ -394,7 +397,38 @@
             if (data.byteLength < 4) return;
             // v2 header: [version:1][pad:3][frame_count:4][pos:8][nsec:8] = 24 bytes
             // v1 header: [frame_count:4] = 4 bytes
-            var headerSize = (new Uint8Array(data, 0, 1))[0] === 2 ? 24 : 4;
+            var isV2 = (new Uint8Array(data, 0, 1))[0] === 2;
+            var headerSize = isV2 ? 24 : 4;
+
+            // US-077: parse graph_pos from v2 header for gap/discontinuity detection
+            if (isV2) {
+                var dv = new DataView(data);
+                // graph_pos at bytes 8..16 (little-endian u64). Read low 32 bits —
+                // sufficient for gap detection (wraps after ~24h at 48kHz).
+                var graphPos = dv.getUint32(8, true);
+                var frameCount = dv.getUint32(4, true);
+
+                if (prevGraphPos > 0) {
+                    if (graphPos < prevGraphPos) {
+                        // Backward jump (PW restart) — reset all spectrum state
+                        accumPos = 0;
+                        smoothedDB = null;
+                        freqData = null;
+                        dirty = false;
+                        prevGraphPos = graphPos;
+                        return;
+                    }
+                    // Gap detection: frame counter advanced more than 2x expected
+                    var advance = graphPos - prevGraphPos;
+                    if (advance > frameCount * 2) {
+                        // Data gap — discard FFT accumulator to avoid cross-gap FFT
+                        accumPos = 0;
+                        dirty = false;
+                    }
+                }
+                prevGraphPos = graphPos;
+            }
+
             var pcm = new Float32Array(data, headerSize);
             // Floor to whole frames to avoid misaligned channel reads
             var frames = Math.floor(pcm.length / NUM_CHANNELS);
@@ -726,6 +760,7 @@
         freqData = null;
         smoothedDB = null;
         accumPos = 0;
+        prevGraphPos = 0;
     }
 
     // =====================================================================

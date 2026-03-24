@@ -84,6 +84,15 @@
     // Track previous monitoring DSP data for event detection
     var prevMonXruns = null;
 
+    // Graph clock staleness: skip render when data hasn't changed (US-077)
+    var prevGraphPos = 0;
+    // Graph clock nsec: use PW clock deltas for peak hold/decay timing
+    var prevGraphNsec = 0;
+    // Monotonic audio clock (ms) — incremented by PW nsec deltas on each
+    // new data message. Used instead of performance.now() for peak hold
+    // and clip latch timing so behavior is deterministic w.r.t. audio time.
+    var audioClockMs = 0;
+
     // Per-channel last-signal-time tracking for dim logic
     // Indexed by group key + local index
     var lastSignalTime = {};
@@ -323,7 +332,10 @@
 
     function renderFrame() {
         if (!animating) return;
-        var now = performance.now();
+        // audioClockMs for peak hold / clip latch (deterministic w.r.t. audio);
+        // wallNow for dim logic (visual UX timing, independent of audio clock).
+        var now = audioClockMs;
+        var wallNow = performance.now();
 
         var ch, idx, state;
 
@@ -331,7 +343,7 @@
         for (idx = 0; idx < MAIN_CHANNELS.length; idx++) {
             ch = MAIN_CHANNELS[idx];
             state = captureState[ch];
-            updateChannelDim("meters-main", idx, mainColumns, state, now);
+            updateChannelDim("meters-main", idx, mainColumns, state, wallNow);
             drawMeter(mainCanvases[idx], state, now, "main");
             updateClipIndicator("meters-main", idx, state, now);
             updateDbReadout("meters-main-db-" + idx, state.peak);
@@ -341,7 +353,7 @@
         for (idx = 0; idx < APP_CHANNELS.length; idx++) {
             ch = APP_CHANNELS[idx];
             state = captureState[ch];
-            updateChannelDim("meters-app", idx, appColumns, state, now);
+            updateChannelDim("meters-app", idx, appColumns, state, wallNow);
             drawMeter(appCanvases[idx], state, now, "app");
             updateClipIndicator("meters-app", idx, state, now);
             updateDbReadout("meters-app-db-" + idx, state.peak);
@@ -351,7 +363,7 @@
         for (idx = 0; idx < DSPOUT_CHANNELS.length; idx++) {
             ch = DSPOUT_CHANNELS[idx];
             state = playbackState[ch];
-            updateChannelDim("meters-dspout", idx, dspoutColumns, state, now);
+            updateChannelDim("meters-dspout", idx, dspoutColumns, state, wallNow);
             drawMeter(dspoutCanvases[idx], state, now, "dspout");
             updateClipIndicator("meters-dspout", idx, state, now);
             updateDbReadout("meters-dspout-db-" + idx, state.peak);
@@ -361,7 +373,7 @@
         for (idx = 0; idx < PHYSIN_CHANNELS.length; idx++) {
             ch = PHYSIN_CHANNELS[idx];
             state = physinState[ch];
-            updateChannelDim("meters-physin", idx, physinColumns, state, now);
+            updateChannelDim("meters-physin", idx, physinColumns, state, wallNow);
             drawMeter(physinCanvases[idx], state, now, "physin");
             updateClipIndicator("meters-physin", idx, state, now);
             updateDbReadout("meters-physin-db-" + idx, state.peak);
@@ -385,7 +397,21 @@
     }
 
     function onMonitoringData(data) {
-        var now = performance.now();
+        // US-077: staleness detection — skip meter update if graph clock
+        // position hasn't changed (server re-sent the same snapshot).
+        var pos = data.pos || 0;
+        var nsec = data.nsec || 0;
+        if (pos > 0 && pos === prevGraphPos) {
+            return; // data hasn't changed, skip
+        }
+        // Advance audio clock by PW nsec delta for deterministic decay
+        if (nsec > 0 && prevGraphNsec > 0 && nsec > prevGraphNsec) {
+            audioClockMs += (nsec - prevGraphNsec) / 1e6;
+        }
+        prevGraphPos = pos;
+        prevGraphNsec = nsec;
+
+        var now = audioClockMs;
 
         for (var ch = 0; ch < 8; ch++) {
             updateChannel(captureState[ch], data.capture_rms[ch], data.capture_peak[ch], now);

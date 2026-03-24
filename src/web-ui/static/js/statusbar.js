@@ -63,6 +63,14 @@
 
     var animating = false;
 
+    // -- Graph clock staleness + deterministic timing (US-077) --
+
+    var prevGraphPos = 0;
+    var prevGraphNsec = 0;
+    // Monotonic audio clock (ms) — incremented by PW nsec deltas.
+    // Used for peak hold / clip latch instead of performance.now().
+    var audioClockMs = 0;
+
     // -- Measurement state tracking --
 
     var ACTIVE_MEASUREMENT_STATES = ["setup", "gain_cal", "measuring", "filter_gen", "deploy", "verify"];
@@ -143,7 +151,8 @@
 
     function renderMeters() {
         if (!animating) return;
-        var now = performance.now();
+        // US-077: use audio clock for peak hold / clip latch decay
+        var now = audioClockMs;
 
         renderGroup("main", now);
         renderGroup("app", now);
@@ -156,8 +165,21 @@
     // -- Data handlers --
 
     function onMonitoring(data) {
+        // US-077: staleness detection — skip if graph clock pos unchanged
+        var pos = data.pos || 0;
+        var nsec = data.nsec || 0;
+        if (pos > 0 && pos === prevGraphPos) {
+            return; // same snapshot, skip meter update
+        }
+        // Advance audio clock by PW nsec delta
+        if (nsec > 0 && prevGraphNsec > 0 && nsec > prevGraphNsec) {
+            audioClockMs += (nsec - prevGraphNsec) / 1e6;
+        }
+        prevGraphPos = pos;
+        prevGraphNsec = nsec;
+
         // Update per-channel peak state for mini meters
-        var now = performance.now();
+        var now = audioClockMs;
         for (var ch = 0; ch < 8; ch++) {
             updateChannel(captureState[ch], data.capture_peak[ch], now);
             updateChannel(playbackState[ch], data.playback_peak[ch], now);
