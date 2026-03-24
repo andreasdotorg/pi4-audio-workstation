@@ -174,7 +174,7 @@ var PiAudio = (function () {
         var el = document.getElementById(id);
         if (!el) return;
         el.textContent = text;
-        el.className = el.className.replace(/\bc-(safe|warning|danger|primary|accent|green|yellow|red|blue|cyan|grey)\b/g, "").replace(/\bno-data\b/g, "").trim();
+        el.className = el.className.replace(/\bc-(safe|warning|danger|primary|accent|grey)\b/g, "").replace(/\bno-data\b/g, "").trim();
         if (colorClass) el.classList.add(colorClass);
     }
 

@@ -58,15 +58,6 @@
     /* -- Meter -- */
     --meter-peak: #ffffff;
 
-    /* -- Legacy aliases (transitional — remove after full migration) -- */
-    --green: var(--safe);
-    --yellow: var(--warning);
-    --red: var(--danger);
-    --blue: var(--primary);
-    --cyan: var(--primary);
-    --orange: var(--accent);
-    --amber: var(--accent);
-
     /* -- Layout -- */
     --nav-height: 28px;
     --status-bar-height: 36px;
@@ -104,6 +95,13 @@ html, body {
 
 .nav-left {
     flex-shrink: 0;
+}
+
+.nav-logo {
+    width: 20px;
+    height: 20px;
+    margin-right: 6px;
+    vertical-align: middle;
 }
 
 .nav-title {
@@ -921,14 +919,6 @@ html, body {
 .c-primary { color: var(--primary) !important; }
 .c-accent { color: var(--accent) !important; }
 
-/* Legacy aliases (transitional — remove after full migration) */
-.c-green { color: var(--safe) !important; }
-.c-yellow { color: var(--warning) !important; }
-.c-orange { color: var(--accent) !important; }
-.c-red { color: var(--danger) !important; }
-.c-blue { color: var(--primary) !important; }
-.c-cyan { color: var(--primary) !important; }
-.c-amber { color: var(--accent) !important; }
 .c-grey { color: var(--text-dim) !important; }
 .no-data { color: var(--text-dim) !important; font-style: italic; }
 
