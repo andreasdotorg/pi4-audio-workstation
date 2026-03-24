@@ -149,10 +149,10 @@
         if (!el) return;
         if (status === "connected") {
             el.textContent = "connected";
-            el.className = "c-green";
+            el.className = "c-safe";
         } else if (status === "disconnected") {
             el.textContent = "not available";
-            el.className = "c-red";
+            el.className = "c-danger";
             setPlaying(false);
         } else {
             el.textContent = status;
@@ -909,11 +909,11 @@
         var label = source || "unknown";
         if (status === "connected") {
             el.textContent = label + " (streaming)";
-            el.className = "c-green";
+            el.className = "c-safe";
             if (overlay) overlay.classList.add("hidden");
         } else {
             el.textContent = label + " (not available)";
-            el.className = "c-red";
+            el.className = "c-danger";
             // Show mic-specific overlay when UMIK-1 source is disconnected.
             if (overlay) {
                 var isMicSource = source === "umik1" || source === "capture-usb";

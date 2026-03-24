@@ -32,7 +32,7 @@
     var DEBOUNCE_MS = 30000;
 
     // Track previous color per indicator for color-change event detection.
-    // Values are PiAudio CSS class strings ("c-green", "c-yellow", "c-red").
+    // Values are PiAudio CSS class strings ("c-safe", "c-warning", "c-danger").
     // null = not yet initialized.
     var prevColors = {
         cpu: null,
@@ -42,8 +42,8 @@
 
     // Map PiAudio CSS color class to event severity.
     function colorToSeverity(cssColor) {
-        if (cssColor === "c-red") return "error";
-        if (cssColor === "c-yellow") return "warning";
+        if (cssColor === "c-danger") return "error";
+        if (cssColor === "c-warning") return "warning";
         return null;
     }
 
@@ -352,7 +352,7 @@
         var cdspOk = cdspState === "running";
         var cdspWarn = cdspState === "degraded";
         PiAudio.setText("sys-cdsp-state", cdsp.state,
-            cdspOk ? "c-green" : cdspWarn ? "c-yellow" : "c-red");
+            cdspOk ? "c-safe" : cdspWarn ? "c-warning" : "c-danger");
         // Links: desired/actual/missing (replaces processing_load)
         // F-088: fallback shows em-dash — processing_load is hardcoded 0 (no data source).
         var linksText = (cdsp.gm_links_actual != null)
@@ -379,7 +379,7 @@
         // F-088: xruns come from PipeWireCollector — show em-dash when GM offline.
         if (pwConnected) {
             PiAudio.setText("sys-cdsp-xruns", String(cdsp.xruns),
-                cdsp.xruns > 0 ? "c-red" : "c-green");
+                cdsp.xruns > 0 ? "c-danger" : "c-safe");
         } else {
             PiAudio.setText("sys-cdsp-xruns", "\u2014", "no-data");
         }
@@ -388,19 +388,19 @@
         var sched = data.pipewire.scheduling;
         PiAudio.setText("sys-sched-pw",
             sched.pipewire_policy + "/" + sched.pipewire_priority,
-            sched.pipewire_policy === "SCHED_FIFO" ? "c-green" : "c-red");
+            sched.pipewire_policy === "SCHED_FIFO" ? "c-safe" : "c-danger");
         // D-040: GraphManager scheduling from PipeWireCollector
         // F-043: SCHED_OTHER is correct for GM (control-plane, not RT)
         var gmPolicy = sched.graphmgr_policy;
         var gmSchedOk = gmPolicy === "SCHED_OTHER" || gmPolicy === "SCHED_FIFO";
         PiAudio.setText("sys-sched-cdsp",
             gmPolicy + "/" + sched.graphmgr_priority,
-            gmSchedOk ? "c-green" : "c-red");
+            gmSchedOk ? "c-safe" : "c-danger");
         // F-9 FIX: Graph state color-coding — green for running, red for anything else
         // F-088: show em-dash when GM offline (graph_state="unknown" is fallback).
         if (pwConnected) {
             PiAudio.setText("sys-sched-graph", data.pipewire.graph_state,
-                data.pipewire.graph_state === "running" ? "c-green" : "c-red");
+                data.pipewire.graph_state === "running" ? "c-safe" : "c-danger");
         } else {
             PiAudio.setText("sys-sched-graph", "\u2014", "no-data");
         }
