@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pi Audio Workstation</title>
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -11,6 +12,7 @@
 <!-- Navigation bar (28px) -->
 <nav class="nav-bar">
     <div class="nav-left">
+        <img src="/static/logo.svg" alt="" class="nav-logo">
         <span class="nav-title">Pi Audio</span>
     </div>
     <div class="nav-tabs">
@@ -74,7 +76,7 @@
     <!-- Safety alerts (F-072: watchdog mute, gain integrity) -->
     <span class="sb-item sb-safety-alert hidden" id="sb-safety-alert"
           title="Safety alert active">
-        <span class="sb-label">SAFE</span><span class="sb-value c-green" id="sb-safety-text">OK</span>
+        <span class="sb-label">SAFE</span><span class="sb-value c-safe" id="sb-safety-text">OK</span>
     </span>
 
     <!-- Measurement progress (hidden when idle) -->
@@ -388,7 +390,7 @@
             <div class="mw-screen-center">
                 <div class="mw-title">ROOM MEASUREMENT</div>
                 <div class="mw-idle-summary hidden" id="mw-idle-summary"></div>
-                <div class="mw-idle-warning hidden c-yellow" id="mw-idle-warning"></div>
+                <div class="mw-idle-warning hidden c-warning" id="mw-idle-warning"></div>
                 <button class="mw-btn-hero" id="mw-start-btn" data-testid="start-measurement">
                     START NEW MEASUREMENT
                 </button>
@@ -418,7 +420,7 @@
             </div>
             <div class="mw-section">
                 <div class="mw-section-title">Pre-flight</div>
-                <div class="mw-preflight-status c-yellow">Checking prerequisites...</div>
+                <div class="mw-preflight-status c-warning">Checking prerequisites...</div>
             </div>
         </div>
 
@@ -504,7 +506,7 @@
         <div class="mw-screen hidden" id="mw-filter_gen">
             <div class="mw-screen-center">
                 <div class="mw-title">GENERATING FILTERS</div>
-                <div class="mw-pipeline-status c-yellow" id="mw-filter_gen-status">
+                <div class="mw-pipeline-status c-warning" id="mw-filter_gen-status">
                     Pending...
                 </div>
                 <div class="mw-results-summary">
@@ -519,7 +521,7 @@
         <div class="mw-screen hidden" id="mw-deploy">
             <div class="mw-screen-center">
                 <div class="mw-title">DEPLOYING FILTERS</div>
-                <div class="mw-pipeline-status c-yellow" id="mw-deploy-status">
+                <div class="mw-pipeline-status c-warning" id="mw-deploy-status">
                     Pending...
                 </div>
             </div>
@@ -529,7 +531,7 @@
         <div class="mw-screen hidden" id="mw-verify">
             <div class="mw-screen-center">
                 <div class="mw-title">VERIFICATION</div>
-                <div class="mw-pipeline-status c-yellow" id="mw-verify-status">
+                <div class="mw-pipeline-status c-warning" id="mw-verify-status">
                     Pending...
                 </div>
             </div>
@@ -539,7 +541,7 @@
         <div class="mw-screen hidden" id="mw-complete">
             <div class="mw-screen-center">
                 <div class="mw-title">MEASUREMENT COMPLETE</div>
-                <div class="mw-complete-summary c-green">
+                <div class="mw-complete-summary c-safe">
                     Session finished successfully.
                 </div>
                 <button class="mw-btn-hero mw-return-btn">NEW MEASUREMENT</button>
@@ -549,7 +551,7 @@
         <!-- ABORTED screen -->
         <div class="mw-screen hidden" id="mw-aborted">
             <div class="mw-screen-center">
-                <div class="mw-title c-yellow">MEASUREMENT ABORTED</div>
+                <div class="mw-title c-warning">MEASUREMENT ABORTED</div>
                 <div class="mw-aborted-reason" id="mw-aborted-reason">
                     Session was aborted by the operator.
                 </div>
@@ -560,7 +562,7 @@
         <!-- ERROR screen -->
         <div class="mw-screen hidden" id="mw-error">
             <div class="mw-screen-center">
-                <div class="mw-title c-red">MEASUREMENT ERROR</div>
+                <div class="mw-title c-danger">MEASUREMENT ERROR</div>
                 <div class="mw-error-message" id="mw-error-message">
                     An error occurred during measurement.
                 </div>

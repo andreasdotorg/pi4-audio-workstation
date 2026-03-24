@@ -5,31 +5,64 @@
  * Dense single-screen layout — no scrolling, no wasted pixels.
  */
 
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("fonts/JetBrainsMono-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("fonts/JetBrainsMono-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
 :root {
-    --bg: #0c0e12;
-    --bg-panel: #14161a;
-    --bg-meter: #181b20;
-    --bg-bar: #2a2e38;
+    /* -- Surfaces -- */
+    --bg: #0a0d14;
+    --bg-panel: #111621;
+    --bg-meter: #151a26;
+    --bg-bar: #252d3a;
+    --bg-elevated: #1c2230;
     --border: #556;
+
+    /* -- Text -- */
     --text: #c8cdd6;
     --text-dim: #8a94a4;
     --text-micro: #6b7585;
     --text-label: #a0aab8;
 
-    --green: #79e25b;
-    --yellow: #e2c039;
-    --red: #e5453a;
-    --blue: #42a5f5;
-    --cyan: #00acc1;
-    --orange: #ff6f00;
-    --amber: var(--orange);
+    /* -- Semantic signal -- */
+    --safe: #79e25b;
+    --warning: #e2c039;
+    --danger: #e5453a;
+    --danger-bg: rgba(229, 69, 58, 0.15);
 
+    /* -- Brand / interactive -- */
+    --primary: #00bcd4;
+    --primary-dim: #00838f;
+    --accent: #f0a030;
+    --accent-bright: #ffb74d;
+
+    /* -- Pipeline groups -- */
+    --group-main: #a0aab8;
+    --group-app: #00bcd4;
+    --group-dsp: #43a047;
+    --group-hw: #e2a639;
+    --group-gain: #2e7d32;
+
+    /* -- Meter -- */
     --meter-peak: #ffffff;
 
+    /* -- Layout -- */
     --nav-height: 28px;
     --status-bar-height: 36px;
-    --font-body: "Inter", "JetBrains Mono", system-ui, sans-serif;
-    --font-numeric: "Space Mono", "JetBrains Mono", "Fira Code", monospace;
+    --font-body: "JetBrains Mono", system-ui, monospace;
+    --font-numeric: "JetBrains Mono", monospace;
 }
 
 * {
@@ -62,6 +95,13 @@ html, body {
 
 .nav-left {
     flex-shrink: 0;
+}
+
+.nav-logo {
+    width: 20px;
+    height: 20px;
+    margin-right: 6px;
+    vertical-align: middle;
 }
 
 .nav-title {
@@ -100,7 +140,7 @@ html, body {
 
 .nav-tab.active {
     color: var(--text);
-    border-bottom-color: var(--blue);
+    border-bottom-color: var(--primary);
 }
 
 .nav-right {
@@ -114,13 +154,13 @@ html, body {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--red);
+    background: var(--danger);
     transition: background 0.3s;
     flex-shrink: 0;
 }
 
 .connection-dot.connected {
-    background: var(--green);
+    background: var(--safe);
 }
 
 /* -- View containers ------------------------------------------------------ */
@@ -218,7 +258,7 @@ html, body {
 .sb-measure-step {
     font-size: 10px;
     font-weight: 700;
-    color: var(--yellow);
+    color: var(--warning);
     white-space: nowrap;
     max-width: 120px;
     overflow: hidden;
@@ -235,7 +275,7 @@ html, body {
 
 .sb-measure-bar-fill {
     height: 100%;
-    background: var(--cyan);
+    background: var(--primary);
     border-radius: 2px;
     transition: width 0.4s ease;
 }
@@ -293,12 +333,17 @@ html, body {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background: var(--blue);
+    background: var(--primary);
     color: #fff;
     padding: 1px 6px;
     border-radius: 8px;
     line-height: 1.4;
 }
+
+.sb-mode-badge--dj { background: var(--accent); }
+.sb-mode-badge--live { background: var(--primary); }
+.sb-mode-badge--monitoring { background: var(--group-main); color: #111; }
+.sb-mode-badge--measurement { background: var(--warning); color: #111; }
 
 /* -- Panic button (MUTE / ABORT) ----------------------------------------- */
 
@@ -309,10 +354,10 @@ html, body {
     text-transform: uppercase;
     letter-spacing: 0.06em;
     padding: 4px 12px;
-    border: 2px solid var(--red);
+    border: 2px solid var(--danger);
     border-radius: 3px;
     background: rgba(229, 69, 58, 0.15);
-    color: var(--red);
+    color: var(--danger);
     cursor: pointer;
     min-width: 56px;
     min-height: 30px;
@@ -328,7 +373,7 @@ html, body {
 }
 
 .sb-panic-btn.muted {
-    background: var(--red);
+    background: var(--danger);
     color: #fff;
     animation: pulse-panic 1.5s ease-in-out infinite;
 }
@@ -345,7 +390,7 @@ html, body {
 }
 
 .sb-panic-btn.error {
-    background: var(--red);
+    background: var(--danger);
     color: #fff;
     animation: flash-error 0.3s ease-in-out 3;
 }
@@ -565,7 +610,7 @@ html, body {
 }
 
 .meter-clip-indicator.active {
-    color: var(--red);
+    color: var(--danger);
 }
 
 /* -- dB scale (left edge) ------------------------------------------------- */
@@ -867,20 +912,20 @@ html, body {
 
 /* -- Color utilities ------------------------------------------------------ */
 
-.c-green { color: var(--green) !important; }
-.c-yellow { color: var(--yellow) !important; }
-.c-orange { color: var(--orange) !important; }
-.c-red { color: var(--red) !important; }
-.c-blue { color: var(--blue) !important; }
-.c-cyan { color: var(--cyan) !important; }
-.c-amber { color: var(--amber) !important; }
+/* Semantic utility classes (canonical) */
+.c-safe { color: var(--safe) !important; }
+.c-warning { color: var(--warning) !important; }
+.c-danger { color: var(--danger) !important; }
+.c-primary { color: var(--primary) !important; }
+.c-accent { color: var(--accent) !important; }
+
 .c-grey { color: var(--text-dim) !important; }
 .no-data { color: var(--text-dim) !important; font-style: italic; }
 
 /* -- Keyboard focus indicators (F-047) ------------------------------------ */
 
 :focus-visible {
-    outline: 2px solid var(--blue);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
@@ -889,7 +934,7 @@ html, body {
 }
 
 .sb-panic-btn:focus-visible {
-    outline-color: var(--red);
+    outline-color: var(--danger);
 }
 
 .tt-signal-btn:focus-visible,
@@ -902,7 +947,7 @@ html, body {
 .mw-btn-hero:focus-visible,
 .event-filter-btn:focus-visible,
 .event-clear-btn:focus-visible {
-    outline: 2px solid var(--blue);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
@@ -1035,17 +1080,17 @@ html, body {
 }
 
 .event-severity-warning {
-    border-left-color: var(--yellow);
+    border-left-color: var(--warning);
 }
 .event-severity-warning .event-message {
-    color: var(--yellow);
+    color: var(--warning);
 }
 
 .event-severity-error {
-    border-left-color: var(--red);
+    border-left-color: var(--danger);
 }
 .event-severity-error .event-message {
-    color: var(--red);
+    color: var(--danger);
 }
 
 .event-time {
@@ -1061,24 +1106,24 @@ html, body {
 .event-cat-xrun,
 .event-cat-clip,
 .event-cat-disconnect {
-    color: var(--red);
+    color: var(--danger);
 }
 
 .event-cat-dsp_load,
 .event-cat-temp {
-    color: var(--yellow);
+    color: var(--warning);
 }
 
 .event-cat-mode {
-    color: var(--blue);
+    color: var(--primary);
 }
 
 .event-cat-connect {
-    color: var(--green);
+    color: var(--safe);
 }
 
 .event-cat-system {
-    color: var(--yellow);
+    color: var(--warning);
 }
 
 /* -- Measurement wizard (TK-170, WP-F) --------------------------------- */
@@ -1118,8 +1163,8 @@ html, body {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    background: rgba(66, 165, 245, 0.15);
-    color: var(--blue);
+    background: rgba(0, 188, 212, 0.15);
+    color: var(--primary);
     padding: 2px 8px;
     border-radius: 8px;
     font-variant-numeric: tabular-nums;
@@ -1161,7 +1206,7 @@ html, body {
 }
 
 .mw-progress-segment.mw-progress-active .mw-progress-label {
-    color: var(--yellow);
+    color: var(--warning);
 }
 
 .mw-progress-segment.mw-progress-done {
@@ -1169,7 +1214,7 @@ html, body {
 }
 
 .mw-progress-segment.mw-progress-done .mw-progress-label {
-    color: var(--green);
+    color: var(--safe);
 }
 
 /* Abort button (hidden in IDLE / terminal states) */
@@ -1182,7 +1227,7 @@ html, body {
     text-transform: uppercase;
     letter-spacing: 0.06em;
     background: rgba(229, 69, 58, 0.15);
-    color: var(--red);
+    color: var(--danger);
     border: 1px solid rgba(229, 69, 58, 0.3);
     border-radius: 3px;
     padding: 3px 10px;
@@ -1238,10 +1283,10 @@ html, body {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     padding: 16px 32px;
-    border: 2px solid rgba(66, 165, 245, 0.5);
+    border: 2px solid rgba(0, 188, 212, 0.5);
     border-radius: 6px;
-    background: rgba(66, 165, 245, 0.12);
-    color: var(--blue);
+    background: rgba(0, 188, 212, 0.12);
+    color: var(--primary);
     cursor: pointer;
     min-width: 240px;
     min-height: 56px;
@@ -1249,12 +1294,12 @@ html, body {
 }
 
 .mw-btn-hero:hover {
-    background: rgba(66, 165, 245, 0.25);
-    border-color: rgba(66, 165, 245, 0.7);
+    background: rgba(0, 188, 212, 0.25);
+    border-color: rgba(0, 188, 212, 0.7);
 }
 
 .mw-btn-hero:active {
-    background: rgba(66, 165, 245, 0.35);
+    background: rgba(0, 188, 212, 0.35);
 }
 
 .mw-btn-hero:disabled {
@@ -1305,7 +1350,7 @@ html, body {
     border-radius: 4px;
     font-size: 12px;
     font-weight: 600;
-    color: var(--yellow);
+    color: var(--warning);
     text-align: center;
 }
 
@@ -1346,7 +1391,7 @@ html, body {
 
 .mw-form-input:focus {
     outline: none;
-    border-color: var(--blue);
+    border-color: var(--primary);
 }
 
 .mw-setup-channel-list {
@@ -1407,13 +1452,13 @@ html, body {
 
 .mw-level-fill {
     height: 100%;
-    background: var(--green);
+    background: var(--safe);
     border-radius: 3px;
     transition: width 0.3s, background-color 0.3s;
 }
 
 .mw-level-fill-spl {
-    background: var(--cyan);
+    background: var(--primary);
 }
 
 .mw-level-text {
@@ -1441,7 +1486,7 @@ html, body {
 
 .mw-progress-fill {
     height: 100%;
-    background: var(--cyan);
+    background: var(--primary);
     border-radius: 3px;
     transition: width 0.4s ease;
     min-width: 2px;
@@ -1481,12 +1526,12 @@ html, body {
 }
 
 .mw-chip-done {
-    color: var(--green);
+    color: var(--safe);
     border: 1px solid rgba(121, 226, 91, 0.3);
 }
 
 .mw-chip-active {
-    color: var(--yellow);
+    color: var(--warning);
     border: 1px solid rgba(226, 192, 57, 0.3);
     background: rgba(226, 192, 57, 0.08);
 }
@@ -1560,7 +1605,7 @@ html, body {
     border-radius: 4px;
     font-size: 12px;
     font-weight: 700;
-    color: var(--yellow);
+    color: var(--warning);
     text-align: center;
     letter-spacing: 0.04em;
 }
@@ -1703,9 +1748,9 @@ html, body {
 }
 
 .tt-signal-btn.active {
-    background: rgba(66, 165, 245, 0.15);
-    color: var(--blue);
-    border-color: var(--blue);
+    background: rgba(0, 188, 212, 0.15);
+    color: var(--primary);
+    border-color: var(--primary);
 }
 
 /* Frequency slider */
@@ -1732,7 +1777,7 @@ html, body {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--blue);
+    background: var(--primary);
     cursor: pointer;
     border: 2px solid var(--bg);
 }
@@ -1741,7 +1786,7 @@ html, body {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--blue);
+    background: var(--primary);
     cursor: pointer;
     border: 2px solid var(--bg);
 }
@@ -1788,13 +1833,13 @@ html, body {
 
 .tt-channel-btn.selected {
     background: rgba(46, 125, 50, 0.2);
-    color: var(--green);
+    color: var(--safe);
     border-color: rgba(46, 125, 50, 0.5);
 }
 
 .tt-channel-btn.sub-channel.selected {
     background: rgba(255, 111, 0, 0.15);
-    color: var(--orange);
+    color: var(--accent);
     border-color: rgba(255, 111, 0, 0.4);
 }
 
@@ -1812,17 +1857,17 @@ html, body {
 }
 
 .tt-multi-toggle input[type="checkbox"] {
-    accent-color: var(--blue);
+    accent-color: var(--primary);
 }
 
 /* Level slider */
 
 .tt-level-slider::-webkit-slider-thumb {
-    background: var(--green);
+    background: var(--safe);
 }
 
 .tt-level-slider::-moz-range-thumb {
-    background: var(--green);
+    background: var(--safe);
 }
 
 /* Duration controls */
@@ -1844,7 +1889,7 @@ html, body {
 }
 
 .tt-radio input[type="radio"] {
-    accent-color: var(--blue);
+    accent-color: var(--primary);
 }
 
 .tt-burst-input {
@@ -1862,7 +1907,7 @@ html, body {
 
 .tt-burst-input:focus {
     outline: none;
-    border-color: var(--blue);
+    border-color: var(--primary);
 }
 
 .tt-burst-input:disabled {
@@ -1886,23 +1931,23 @@ html, body {
     padding: 16px 24px;
     min-height: 56px;
     flex: 2;
-    border: 2px solid rgba(66, 165, 245, 0.5);
+    border: 2px solid rgba(0, 188, 212, 0.5);
     border-radius: 4px;
-    background: rgba(66, 165, 245, 0.12);
-    color: var(--blue);
+    background: rgba(0, 188, 212, 0.12);
+    color: var(--primary);
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
 }
 
 .tt-play-btn:hover:not(:disabled) {
-    background: rgba(66, 165, 245, 0.25);
-    border-color: rgba(66, 165, 245, 0.7);
+    background: rgba(0, 188, 212, 0.25);
+    border-color: rgba(0, 188, 212, 0.7);
 }
 
 .tt-play-btn.playing {
     background: rgba(121, 226, 91, 0.12);
     border-color: rgba(121, 226, 91, 0.5);
-    color: var(--green);
+    color: var(--safe);
     animation: pulse-play 2s ease-in-out infinite;
 }
 
@@ -1944,8 +1989,8 @@ html, body {
 
 .tt-stop-btn.flash-stop {
     background: rgba(239, 83, 80, 0.3);
-    border-color: var(--red);
-    color: var(--red);
+    border-color: var(--danger);
+    color: var(--danger);
 }
 
 /* Tappable readout inline input */
@@ -1954,7 +1999,7 @@ html, body {
     font-size: inherit;
     color: var(--text);
     background: var(--bg-card);
-    border: 1px solid var(--blue);
+    border: 1px solid var(--primary);
     border-radius: 3px;
     padding: 2px 4px;
     width: 6em;
@@ -1985,7 +2030,7 @@ html, body {
 
 .tt-source-select:focus {
     outline: none;
-    border-color: var(--blue);
+    border-color: var(--primary);
 }
 
 .tt-spectrum-container {
@@ -2037,7 +2082,7 @@ html, body {
     background: rgba(226, 192, 57, 0.1);
     border: 1px solid rgba(226, 192, 57, 0.3);
     border-radius: 3px;
-    color: var(--yellow);
+    color: var(--warning);
     text-align: center;
 }
 
@@ -2084,18 +2129,18 @@ html, body {
 }
 
 /* TT-2: Level slider warning/danger zones */
-.tt-level-slider.warning::-webkit-slider-thumb { background: var(--yellow); }
-.tt-level-slider.danger::-webkit-slider-thumb { background: var(--red); }
+.tt-level-slider.warning::-webkit-slider-thumb { background: var(--warning); }
+.tt-level-slider.danger::-webkit-slider-thumb { background: var(--danger); }
 
 /* TT-2: Flash animation for "select a channel" validation */
 .tt-channel-grid.flash-warn {
-    outline: 2px solid var(--red);
+    outline: 2px solid var(--danger);
     outline-offset: 2px;
     animation: flash-border 0.3s ease 2;
 }
 
 @keyframes flash-border {
-    0%, 100% { outline-color: var(--red); }
+    0%, 100% { outline-color: var(--danger); }
     50% { outline-color: transparent; }
 }
 
@@ -2211,10 +2256,10 @@ html, body {
 /* -- Graph Visualization (US-064) ---------------------------------------- */
 
 :root {
-    --gv-color-app: #00acc1;
-    --gv-color-dsp: #43a047;
-    --gv-color-hw: #e2a639;
-    --gv-color-main: #a0aab8;
+    --gv-color-app: var(--group-app);
+    --gv-color-dsp: var(--group-dsp);
+    --gv-color-hw: var(--group-hw);
+    --gv-color-main: var(--group-main);
     --gv-node-bg: #1a1d23;
     --gv-border: #556;
     --gv-border-absent: #778;
@@ -2224,7 +2269,7 @@ html, body {
     --gv-port-idle: #667;
     --gv-text-port: #aab;
     --gv-text-ghost: #667;
-    --gv-bypass: var(--blue);
+    --gv-bypass: var(--primary);
 }
 
 .gv-container {
@@ -2316,7 +2361,7 @@ html, body {
 }
 
 .gv-node--error .gv-node-rect {
-    stroke: var(--red);
+    stroke: var(--danger);
     stroke-width: 2;
 }
 
@@ -2336,12 +2381,12 @@ html, body {
 /* GM-managed highlighting */
 
 .gv-node--managed .gv-node-rect {
-    stroke: var(--green);
+    stroke: var(--primary);
     stroke-width: 2;
 }
 
 .gv-link--managed {
-    stroke: var(--green);
+    stroke: var(--primary);
 }
 
 /* -- Ports -- */
@@ -2395,7 +2440,7 @@ html, body {
 }
 
 .gv-link--failed {
-    stroke: var(--red);
+    stroke: var(--danger);
     stroke-width: 2;
     stroke-dasharray: 4 3;
 }
@@ -2428,7 +2473,7 @@ html, body {
 /* -- Error icon -- */
 
 .gv-error-icon circle {
-    fill: var(--red);
+    fill: var(--danger);
 }
 
 .gv-error-icon text {
@@ -2451,11 +2496,11 @@ html, body {
 }
 
 .gv-arrowhead-red {
-    fill: var(--red);
+    fill: var(--danger);
 }
 
 .gv-arrowhead-gm {
-    fill: var(--green);
+    fill: var(--primary);
 }
 
 /* -- Fade transitions for mode switching -- */
@@ -2577,7 +2622,7 @@ html, body {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--blue);
+    background: var(--primary);
     cursor: pointer;
     border: 2px solid var(--bg);
 }
@@ -2586,7 +2631,7 @@ html, body {
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--blue);
+    background: var(--primary);
     cursor: pointer;
     border: 2px solid var(--bg);
 }
@@ -2628,17 +2673,17 @@ html, body {
     padding: 12px 20px;
     min-height: 44px;
     flex: 2;
-    border: 2px solid rgba(66, 165, 245, 0.5);
+    border: 2px solid rgba(0, 188, 212, 0.5);
     border-radius: 4px;
-    background: rgba(66, 165, 245, 0.12);
-    color: var(--blue);
+    background: rgba(0, 188, 212, 0.12);
+    color: var(--primary);
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
 }
 
 .cfg-apply-btn:hover:not(:disabled) {
-    background: rgba(66, 165, 245, 0.25);
-    border-color: rgba(66, 165, 245, 0.7);
+    background: rgba(0, 188, 212, 0.25);
+    border-color: rgba(0, 188, 212, 0.7);
 }
 
 .cfg-apply-btn:disabled {
@@ -2718,9 +2763,9 @@ html, body {
 }
 
 .cfg-quantum-btn.active {
-    background: rgba(66, 165, 245, 0.15);
-    color: var(--blue);
-    border-color: var(--blue);
+    background: rgba(0, 188, 212, 0.15);
+    color: var(--primary);
+    border-color: var(--primary);
 }
 
 .cfg-quantum-latency {

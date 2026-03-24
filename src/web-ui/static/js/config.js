@@ -176,7 +176,7 @@
                 setStatus("cfg-gain-status", "", "");
             })
             .catch(function (err) {
-                setStatus("cfg-gain-status", "Failed to load config: " + err.message, "c-red");
+                setStatus("cfg-gain-status", "Failed to load config: " + err.message, "c-danger");
             });
     }
 
@@ -190,7 +190,7 @@
         }
         if (Object.keys(payload).length === 0) return;
 
-        setStatus("cfg-gain-status", "Applying...", "c-yellow");
+        setStatus("cfg-gain-status", "Applying...", "c-warning");
         var applyBtn = document.getElementById("cfg-gain-apply");
         if (applyBtn) applyBtn.disabled = true;
 
@@ -209,14 +209,14 @@
                     updateDirtyState();
                     var msg = "Applied";
                     if (data.warnings) msg += " (warnings: " + data.warnings.join(", ") + ")";
-                    setStatus("cfg-gain-status", msg, data.warnings ? "c-yellow" : "c-green");
+                    setStatus("cfg-gain-status", msg, data.warnings ? "c-warning" : "c-safe");
                 } else {
-                    setStatus("cfg-gain-status", "Error: " + (data.error || "unknown"), "c-red");
+                    setStatus("cfg-gain-status", "Error: " + (data.error || "unknown"), "c-danger");
                     if (applyBtn) applyBtn.disabled = false;
                 }
             })
             .catch(function (err) {
-                setStatus("cfg-gain-status", "Request failed: " + err.message, "c-red");
+                setStatus("cfg-gain-status", "Request failed: " + err.message, "c-danger");
                 if (applyBtn) applyBtn.disabled = false;
             });
     }
@@ -235,7 +235,7 @@
     }
 
     function setQuantum(quantum) {
-        setStatus("cfg-quantum-status", "Setting quantum to " + quantum + "...", "c-yellow");
+        setStatus("cfg-quantum-status", "Setting quantum to " + quantum + "...", "c-warning");
 
         fetch("/api/v1/config/quantum", {
             method: "POST",
@@ -246,13 +246,13 @@
             .then(function (data) {
                 if (data.ok) {
                     updateQuantumButtons(data.quantum, currentSampleRate);
-                    setStatus("cfg-quantum-status", "Quantum set to " + data.quantum, "c-green");
+                    setStatus("cfg-quantum-status", "Quantum set to " + data.quantum, "c-safe");
                 } else {
-                    setStatus("cfg-quantum-status", "Error: " + (data.error || "unknown"), "c-red");
+                    setStatus("cfg-quantum-status", "Error: " + (data.error || "unknown"), "c-danger");
                 }
             })
             .catch(function (err) {
-                setStatus("cfg-quantum-status", "Request failed: " + err.message, "c-red");
+                setStatus("cfg-quantum-status", "Request failed: " + err.message, "c-danger");
             });
     }
 

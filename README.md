@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/web-ui/static/logo.svg" width="128" alt="pi4-audio-workstation logo">
+</p>
+
 # Pi 4B Portable Audio Workstation
 
 A [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) that runs an entire live sound system -- crossover filtering,

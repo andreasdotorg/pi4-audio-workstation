@@ -388,7 +388,7 @@
         setText("mw-gcal-channel-name",
             "Ch" + msg.channel + " -- " + msg.channel_name);
         setText("mw-gcal-status", "Calibrating...");
-        setTextColor("mw-gcal-status", "Calibrating...", "c-yellow");
+        setTextColor("mw-gcal-status", "Calibrating...", "c-warning");
 
         // Update level indicators
         var levelBar = $("mw-gcal-level-fill");
@@ -430,7 +430,7 @@
 
     function updateGainCalDone(msg) {
         setText("mw-gcal-status", "Done");
-        setTextColor("mw-gcal-status", "Done", "c-green");
+        setTextColor("mw-gcal-status", "Done", "c-safe");
 
         if (msg.calibrated_level_dbfs != null) {
             setText("mw-gcal-level-text",
@@ -453,7 +453,7 @@
                 (msg.measured_spl_db != null ? msg.measured_spl_db.toFixed(1) + " dB" : "--") +
             '</span>' +
             '<span class="mw-gcal-result-status ' +
-                (msg.passed !== false ? 'c-green' : 'c-red') + '">' +
+                (msg.passed !== false ? 'c-safe' : 'c-danger') + '">' +
                 (msg.passed !== false ? "OK" : "FAIL") +
             '</span>';
 
@@ -502,12 +502,12 @@
         }
 
         setText("mw-sweep-status", "Sweeping...");
-        setTextColor("mw-sweep-status", "Sweeping...", "c-yellow");
+        setTextColor("mw-sweep-status", "Sweeping...", "c-warning");
     }
 
     function updateSweepDone(msg) {
         setText("mw-sweep-status", "Done");
-        setTextColor("mw-sweep-status", "Done", "c-green");
+        setTextColor("mw-sweep-status", "Done", "c-safe");
 
         setText("mw-sweep-count",
             "Sweep " + msg.sweep_num + " of " + msg.sweep_total);
@@ -522,7 +522,7 @@
         item.className = "mw-sweep-result-item";
         item.innerHTML =
             '<span>' + escapeHtml(msg.channel_name) + ' @ Pos ' + msg.position + '</span>' +
-            '<span class="c-green">Done</span>';
+            '<span class="c-safe">Done</span>';
 
         var list = $("mw-sweep-results-list");
         if (list) list.appendChild(item);
@@ -546,7 +546,7 @@
                 item.className = "mw-sweep-result-item";
                 item.innerHTML =
                     '<span>Ch' + key + ' @ Pos ' + (s.position != null ? s.position + 1 : "?") + '</span>' +
-                    '<span class="c-green">Done</span>';
+                    '<span class="c-safe">Done</span>';
                 list.appendChild(item);
             }
         }
@@ -557,16 +557,16 @@
         if (statusEl) {
             if (msg.phase === "pending") {
                 statusEl.textContent = msg.message || "Pending...";
-                statusEl.className = "mw-pipeline-status c-yellow";
+                statusEl.className = "mw-pipeline-status c-warning";
             } else if (msg.phase === "complete") {
                 statusEl.textContent = "Complete";
-                statusEl.className = "mw-pipeline-status c-green";
+                statusEl.className = "mw-pipeline-status c-safe";
             } else if (msg.phase === "error") {
                 statusEl.textContent = msg.message || "Error";
-                statusEl.className = "mw-pipeline-status c-red";
+                statusEl.className = "mw-pipeline-status c-danger";
             } else {
                 statusEl.textContent = msg.message || msg.phase || "In progress...";
-                statusEl.className = "mw-pipeline-status c-yellow";
+                statusEl.className = "mw-pipeline-status c-warning";
             }
         }
     }
