@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # Local demo stack — launches the full pi4-audio workstation locally.
 #
-# Starts:  PipeWire (no WP) → GraphManager → signal-gen → pcm-bridge → web-ui
+# Starts:  PipeWire + WirePlumber → GraphManager → signal-gen → pcm-bridge → web-ui
 # Cleanup: Ctrl+C kills all child processes
 #
 # The PipeWire test environment mirrors the Pi's production topology with
 # a null audio sink matching the USBStreamer name, a real filter-chain
 # convolver with dirac passthrough coefficients, and GraphManager as the
-# sole link manager (D-039). No WirePlumber. signal-gen and pcm-bridge
-# run in managed mode.
+# sole link manager (D-039). WirePlumber activates nodes and creates ports
+# but does not auto-link (managed streams have no AUTOCONNECT). signal-gen
+# and pcm-bridge run in managed mode.
 #
 # Usage:
 #   nix run .#local-demo      # preferred (all deps resolved by Nix)
 #   ./scripts/local-demo.sh   # if already in nix develop
 #
 # Prerequisites:
-#   - PipeWire available (via Nix or system) — NO WirePlumber needed
+#   - PipeWire + WirePlumber available (via Nix or system)
 #   - Rust binaries built (script builds them automatically via nix build)
 #   - Python with FastAPI/uvicorn (provided by nix run .#local-demo)
 
@@ -206,6 +207,7 @@ export PI4AUDIO_GM_HOST=127.0.0.1
 export PI4AUDIO_GM_PORT=4002
 export PI4AUDIO_LEVELS_HOST=127.0.0.1
 export PI4AUDIO_LEVELS_PORT=9100
+export PI4AUDIO_SKIP_GM_RECOVERY=1
 
 cd "$REPO_DIR/src/web-ui"
 "$PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload &

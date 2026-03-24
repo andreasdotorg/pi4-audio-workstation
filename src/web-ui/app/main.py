@@ -123,12 +123,18 @@ async def lifespan(app: FastAPI):
     app.state.audio_mute = AudioMuteManager()
 
     # 2. Startup recovery check (blocks until complete).
-    if not MOCK_MODE:
+    # PI4AUDIO_SKIP_GM_RECOVERY=1 disables the orphan-measurement recovery.
+    # local-demo.sh sets this because it intentionally starts GM in
+    # measurement mode — the web-UI must not switch it back.
+    skip_recovery = os.environ.get("PI4AUDIO_SKIP_GM_RECOVERY", "") == "1"
+    if not MOCK_MODE and not skip_recovery:
         log.info("Running startup recovery check...")
         await mode_manager.check_and_recover_gm_state()
         if mode_manager.recovery_warning:
             log.warning("Recovery warning: %s", mode_manager.recovery_warning)
         log.info("Startup recovery check complete")
+    elif skip_recovery:
+        log.info("PI4AUDIO_SKIP_GM_RECOVERY=1 — skipping GM recovery check")
     else:
         log.info("Mock mode — skipping GraphManager recovery check")
 

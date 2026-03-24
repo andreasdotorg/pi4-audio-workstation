@@ -98,7 +98,18 @@ pub enum WatchdogAction {
 /// Tracks whether the safety mute is latched and which nodes were missing
 /// when the latch was triggered. Pure state — no PW API calls. The caller
 /// (registry listener) applies the returned actions.
+///
+/// ## Startup grace period
+///
+/// The watchdog starts **unarmed**. It arms automatically once all 6
+/// monitored nodes have been seen in a single `check()` call. Until
+/// armed, `check()` returns `AllPresent` even if nodes are missing.
+/// This prevents false latches during PipeWire startup when nodes
+/// register incrementally. Once armed, any node disappearance triggers
+/// immediately.
 pub struct Watchdog {
+    /// Whether the watchdog is armed (all nodes seen at least once).
+    armed: bool,
     /// Whether the safety mute is currently latched.
     latched: bool,
     /// Node names that were missing when the latch was triggered.
@@ -109,13 +120,19 @@ pub struct Watchdog {
 }
 
 impl Watchdog {
-    /// Create a new watchdog in the unlatched state.
+    /// Create a new watchdog in the unarmed, unlatched state.
     pub fn new() -> Self {
         Self {
+            armed: false,
             latched: false,
             missing_at_latch: Vec::new(),
             pre_mute_gains: Vec::new(),
         }
+    }
+
+    /// Whether the watchdog is armed (all monitored nodes seen at least once).
+    pub fn is_armed(&self) -> bool {
+        self.armed
     }
 
     /// Whether the safety mute is currently latched.
@@ -159,6 +176,18 @@ impl Watchdog {
             .collect();
 
         if missing.is_empty() {
+            if !self.armed {
+                self.armed = true;
+                log::info!(
+                    "WATCHDOG: Armed — all {} monitored nodes present",
+                    MONITORED_NODES.len(),
+                );
+            }
+            return WatchdogAction::AllPresent;
+        }
+
+        // Grace period: don't latch until armed (all nodes seen once).
+        if !self.armed {
             return WatchdogAction::AllPresent;
         }
 
@@ -233,6 +262,7 @@ impl Watchdog {
     /// Get the current watchdog status for RPC responses.
     pub fn status(&self) -> WatchdogStatus {
         WatchdogStatus {
+            armed: self.armed,
             latched: self.latched,
             missing_nodes: self.missing_at_latch.clone(),
             pre_mute_gains: self.pre_mute_gains.clone(),
@@ -243,6 +273,7 @@ impl Watchdog {
 /// Serializable watchdog status for RPC responses.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WatchdogStatus {
+    pub armed: bool,
     pub latched: bool,
     pub missing_nodes: Vec<String>,
     pub pre_mute_gains: Vec<(String, f64)>,
@@ -265,6 +296,15 @@ mod tests {
             media_class: class.to_string(),
             properties: HashMap::new(),
         }
+    }
+
+    /// Create a watchdog that has been armed (all nodes seen once).
+    fn armed_watchdog() -> Watchdog {
+        let mut wd = Watchdog::new();
+        let g = graph_all_present();
+        assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
+        assert!(wd.is_armed());
+        wd
     }
 
     /// Build a graph with all 6 monitored nodes present.
@@ -332,9 +372,10 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn new_watchdog_is_not_latched() {
+    fn new_watchdog_is_not_latched_and_not_armed() {
         let wd = Watchdog::new();
         assert!(!wd.is_latched());
+        assert!(!wd.is_armed());
         assert!(wd.missing_at_latch().is_empty());
     }
 
@@ -343,11 +384,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn all_nodes_present_returns_all_present() {
+    fn all_nodes_present_returns_all_present_and_arms() {
         let mut wd = Watchdog::new();
         let g = graph_all_present();
         assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
         assert!(!wd.is_latched());
+        assert!(wd.is_armed());
     }
 
     // -----------------------------------------------------------------------
@@ -356,7 +398,7 @@ mod tests {
 
     #[test]
     fn convolver_disappears_triggers_gain_mute() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100); // Remove pi4audio-convolver
 
@@ -378,7 +420,7 @@ mod tests {
 
     #[test]
     fn convolver_out_disappears_triggers_gain_mute() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(200); // Remove pi4audio-convolver-out
 
@@ -394,7 +436,7 @@ mod tests {
 
     #[test]
     fn single_gain_node_disappears_triggers_mute() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(301); // Remove gain_left_hp
 
@@ -419,7 +461,7 @@ mod tests {
 
     #[test]
     fn all_gain_nodes_gone_triggers_usb_link_destroy() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_with_usb_links();
 
         // Remove all gain nodes AND the convolver (triggering the watchdog).
@@ -446,8 +488,8 @@ mod tests {
 
     #[test]
     fn fallback_with_no_usb_links_returns_empty() {
-        let mut wd = Watchdog::new();
-        let mut g = GraphState::new();
+        let mut wd = armed_watchdog();
+        let g = GraphState::new();
         // No nodes at all — all monitored nodes missing, no gain nodes,
         // no USBStreamer links.
 
@@ -468,7 +510,7 @@ mod tests {
 
     #[test]
     fn latched_watchdog_returns_already_latched() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100); // Trigger latch.
 
@@ -485,7 +527,7 @@ mod tests {
 
     #[test]
     fn latch_persists_after_nodes_return() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100); // Trigger latch.
         let _ = wd.check(&g);
@@ -503,7 +545,7 @@ mod tests {
 
     #[test]
     fn unlatch_clears_latch_and_returns_gains() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100);
         let _ = wd.check(&g);
@@ -532,7 +574,7 @@ mod tests {
 
     #[test]
     fn after_unlatch_watchdog_can_trigger_again() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
 
         // First trigger.
@@ -544,7 +586,7 @@ mod tests {
         wd.unlatch();
         assert!(!wd.is_latched());
 
-        // Nodes still missing — triggers again.
+        // Nodes still missing — triggers again (still armed).
         let action = wd.check(&g);
         assert!(wd.is_latched());
         assert!(matches!(action, WatchdogAction::SetGainMute { .. }));
@@ -556,9 +598,10 @@ mod tests {
 
     #[test]
     fn status_reflects_state() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let status = wd.status();
         assert!(!status.latched);
+        assert!(status.armed);
         assert!(status.missing_nodes.is_empty());
 
         let mut g = graph_all_present();
@@ -576,6 +619,7 @@ mod tests {
         let status = wd.status();
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"latched\":false"));
+        assert!(json.contains("\"armed\":false"));
     }
 
     // -----------------------------------------------------------------------
@@ -584,7 +628,7 @@ mod tests {
 
     #[test]
     fn missing_at_latch_tracks_all_missing_nodes() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100); // convolver
         g.remove_node(200); // convolver-out
@@ -602,7 +646,7 @@ mod tests {
 
     #[test]
     fn pre_mute_gains_stored_and_cleared_on_unlatch() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100);
         let _ = wd.check(&g);
@@ -622,7 +666,7 @@ mod tests {
 
     #[test]
     fn multiple_nodes_missing_still_single_latch() {
-        let mut wd = Watchdog::new();
+        let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(100); // convolver
         g.remove_node(301); // gain_left_hp
@@ -640,5 +684,68 @@ mod tests {
 
         // Second check → already latched.
         assert_eq!(wd.check(&g), WatchdogAction::AlreadyLatched);
+    }
+
+    // -----------------------------------------------------------------------
+    // Startup grace period (arming)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn unarmed_watchdog_does_not_latch_on_missing_nodes() {
+        let mut wd = Watchdog::new();
+        assert!(!wd.is_armed());
+
+        // Graph with only some nodes — unarmed watchdog should not latch.
+        let mut g = GraphState::new();
+        g.add_node(make_node(100, "pi4audio-convolver", "Audio/Sink"));
+        // Only 1 of 6 nodes present.
+
+        assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
+        assert!(!wd.is_latched());
+        assert!(!wd.is_armed());
+    }
+
+    #[test]
+    fn watchdog_arms_when_all_nodes_first_seen() {
+        let mut wd = Watchdog::new();
+        assert!(!wd.is_armed());
+
+        // Partial graph — not armed yet.
+        let mut g = GraphState::new();
+        g.add_node(make_node(100, "pi4audio-convolver", "Audio/Sink"));
+        g.add_node(make_node(200, "pi4audio-convolver-out", "Stream/Output/Audio"));
+        assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
+        assert!(!wd.is_armed());
+
+        // Complete graph — arms.
+        let g2 = graph_all_present();
+        assert_eq!(wd.check(&g2), WatchdogAction::AllPresent);
+        assert!(wd.is_armed());
+    }
+
+    #[test]
+    fn armed_watchdog_latches_immediately_on_node_loss() {
+        let mut wd = Watchdog::new();
+        // Arm it.
+        let g = graph_all_present();
+        assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
+        assert!(wd.is_armed());
+
+        // Remove a node — should latch immediately.
+        let mut g2 = graph_all_present();
+        g2.remove_node(100);
+        let action = wd.check(&g2);
+        assert!(wd.is_latched());
+        assert!(matches!(action, WatchdogAction::SetGainMute { .. }));
+    }
+
+    #[test]
+    fn empty_graph_does_not_latch_when_unarmed() {
+        let mut wd = Watchdog::new();
+        let g = GraphState::new();
+        // Empty graph, all nodes missing — but unarmed.
+        assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
+        assert!(!wd.is_latched());
+        assert!(!wd.is_armed());
     }
 }

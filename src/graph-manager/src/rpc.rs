@@ -655,6 +655,7 @@ fn handle_watchdog_status(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
     {
         // PW thread not available — return stub.
         let status = crate::watchdog::WatchdogStatus {
+            armed: false,
             latched: false,
             missing_nodes: Vec::new(),
             pre_mute_gains: Vec::new(),
@@ -928,6 +929,7 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
         }
         RpcCommand::WatchdogStatus { reply } => {
             let _ = reply.send(crate::watchdog::WatchdogStatus {
+                armed: false,
                 latched: false,
                 missing_nodes: Vec::new(),
                 pre_mute_gains: Vec::new(),

@@ -1,20 +1,26 @@
 #!/bin/bash
 # Local PipeWire test environment — mirrors production audio topology.
-# Starts PipeWire (NO WirePlumber) with a null audio sink that replicates
+# Starts PipeWire + WirePlumber with a null audio sink that replicates
 # the Pi's production USBStreamer node name, port layout, and channel
 # assignment so GraphManager can reconcile the local graph identically
-# to production. GM is the sole link manager (D-039) — no session manager.
+# to production. GM is the sole link manager (D-039).
+#
+# WirePlumber handles node activation and port creation (required by PW
+# 1.6+ for adapter nodes) but does NOT create links — our nodes use
+# node.autoconnect=false / no AUTOCONNECT flag, so WP's linking policy
+# leaves them alone. GM creates all links via its reconciler.
 #
 # Usage:
-#   ./scripts/local-pw-test-env.sh start   # Start PipeWire daemon
-#   ./scripts/local-pw-test-env.sh stop    # Stop PipeWire
+#   ./scripts/local-pw-test-env.sh start   # Start PipeWire + WirePlumber
+#   ./scripts/local-pw-test-env.sh stop    # Stop PipeWire + WirePlumber
 #   ./scripts/local-pw-test-env.sh status  # Show current state
 #   ./scripts/local-pw-test-env.sh env     # Print env vars for sourcing
 #
-# Requires: nix (PipeWire fetched from nixpkgs)
+# Requires: nix (PipeWire + WirePlumber fetched from nixpkgs)
 #
 # Architecture:
-#   PipeWire daemon (custom config, no dbus, no ALSA, no WirePlumber) with:
+#   PipeWire daemon (custom config, no dbus, no ALSA) with WirePlumber for
+#   node lifecycle management:
 #   - alsa_output.usb-MiniDSP_USBStreamer: 8ch null Audio/Sink (graph driver)
 #   - Filter-chain convolver: injected by local-demo.sh (separate drop-in)
 
@@ -27,6 +33,7 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 PW_RUNTIME_DIR="/tmp/pw-runtime-$(id -u)"
 XDG_CONFIG_DIR="/tmp/pw-test-xdg-config"
 PW_PIDFILE="/tmp/pw-test-pipewire.pid"
+WP_PIDFILE="/tmp/pw-test-wireplumber.pid"
 
 # Resolve nix store paths (cached after first run)
 resolve_nix_paths() {
@@ -37,10 +44,21 @@ resolve_nix_paths() {
         }
     fi
 
-    # Ensure package is in the store
+    if [ -z "${WP_STORE:-}" ]; then
+        WP_STORE=$(nix eval --raw nixpkgs#wireplumber.outPath 2>/dev/null) || {
+            echo "ERROR: Cannot resolve wireplumber from nixpkgs. Is nix available?" >&2
+            exit 1
+        }
+    fi
+
+    # Ensure packages are in the store
     if [ ! -d "$PW_STORE/bin" ]; then
         echo "Fetching pipewire..."
         nix build --no-link nixpkgs#pipewire 2>&1
+    fi
+    if [ ! -d "$WP_STORE/bin" ]; then
+        echo "Fetching wireplumber..."
+        nix build --no-link nixpkgs#wireplumber 2>&1
     fi
 }
 
@@ -51,7 +69,8 @@ setup_env() {
     export SPA_PLUGIN_DIR="$PW_STORE/lib/spa-0.2"
     export PIPEWIRE_MODULE_DIR="$PW_STORE/lib/pipewire-0.3"
     export XDG_CONFIG_HOME="$XDG_CONFIG_DIR"
-    export XDG_DATA_DIRS="$PW_STORE/share:${XDG_DATA_DIRS:-/usr/share}"
+    export XDG_DATA_DIRS="$WP_STORE/share:$PW_STORE/share:${XDG_DATA_DIRS:-/usr/share}"
+    export WIREPLUMBER_MODULE_DIR="$WP_STORE/lib/wireplumber-0.5"
     # Don't override PIPEWIRE_CONFIG_DIR -- use PW defaults from nix store
     unset PIPEWIRE_CONFIG_DIR 2>/dev/null || true
 }
@@ -65,11 +84,11 @@ create_configs() {
     # PipeWire: disable dbus, create production-matching USBStreamer node.
     # Node name and port layout match the Pi's production topology so
     # GraphManager's routing table resolves all endpoints correctly.
-    # No WirePlumber — GM is the sole link manager (D-039).
+    # WirePlumber activates nodes/ports; GM manages all links (D-039).
     cat > "$XDG_CONFIG_DIR/pipewire/pipewire.conf.d/00-headless-test.conf" << 'EOF'
 # Headless test environment — production topology with null audio nodes.
 # Node names match GraphManager's compiled routing table (routing.rs).
-# No WirePlumber — GM manages all links (D-039).
+# WirePlumber handles node activation; GM manages all links (D-039).
 context.properties = {
     support.dbus = false
 }
@@ -90,6 +109,7 @@ context.objects = [
             audio.rate       = 48000
             audio.position   = [ AUX0 AUX1 AUX2 AUX3 AUX4 AUX5 AUX6 AUX7 ]
             node.autoconnect = false
+            node.always-process = true
             session.suspend-timeout-seconds = 0
             node.pause-on-idle = false
         }
@@ -110,7 +130,7 @@ context.properties = {
 EOF
 }
 
-# Start PipeWire (no WirePlumber — GM is the sole link manager)
+# Start PipeWire + WirePlumber (WP activates nodes; GM manages links per D-039)
 cmd_start() {
     # Check if already running
     if [ -f "$PW_PIDFILE" ] && kill -0 "$(cat "$PW_PIDFILE")" 2>/dev/null; then
@@ -137,8 +157,25 @@ cmd_start() {
     fi
     echo "  PipeWire running (PID $pw_pid)"
 
+    # Start WirePlumber for node activation and port creation.
+    # WP's default linking policy respects node.autoconnect=false on our
+    # static nodes and the absence of AUTOCONNECT on managed streams, so
+    # it won't create links — GM remains the sole link manager (D-039).
+    echo "Starting WirePlumber (node activation only)..."
+    "$WP_STORE/bin/wireplumber" 2>/tmp/wp-test-stderr.log &
+    local wp_pid=$!
+    echo "$wp_pid" > "$WP_PIDFILE"
+    sleep 2
+
+    if ! kill -0 "$wp_pid" 2>/dev/null; then
+        echo "ERROR: WirePlumber failed to start. Logs:" >&2
+        cat /tmp/wp-test-stderr.log >&2
+        return 1
+    fi
+    echo "  WirePlumber running (PID $wp_pid)"
+
     echo ""
-    echo "Local PipeWire test environment ready (no WirePlumber — GM manages links)."
+    echo "Local PipeWire test environment ready (WP activates nodes, GM manages links)."
     echo ""
     echo "To use pw-cli/pw-dump/pw-link, source the env vars:"
     echo "  eval \"\$($(realpath "${BASH_SOURCE[0]}") env)\""
@@ -149,6 +186,21 @@ cmd_start() {
 # Stop all processes
 cmd_stop() {
     local stopped=0
+
+    # Stop WirePlumber first
+    if [ -f "$WP_PIDFILE" ]; then
+        local wp_pid
+        wp_pid=$(cat "$WP_PIDFILE")
+        if kill -0 "$wp_pid" 2>/dev/null; then
+            kill "$wp_pid" 2>/dev/null
+            echo "Stopped WirePlumber (PID $wp_pid)"
+            stopped=1
+        fi
+        rm -f "$WP_PIDFILE"
+    fi
+    pkill -u "$(id -u)" -x wireplumber 2>/dev/null || true
+
+    # Then stop PipeWire
     if [ -f "$PW_PIDFILE" ]; then
         local pw_pid
         pw_pid=$(cat "$PW_PIDFILE")
@@ -159,7 +211,6 @@ cmd_stop() {
         fi
         rm -f "$PW_PIDFILE"
     fi
-    # Also kill any stray processes
     pkill -u "$(id -u)" -x pipewire 2>/dev/null || true
     rm -f "$PW_RUNTIME_DIR/pipewire"*
 
@@ -177,7 +228,13 @@ cmd_status() {
         pw_alive=true
     fi
 
-    echo "PipeWire:    $(if $pw_alive; then echo "running (PID $(cat "$PW_PIDFILE"))"; else echo "stopped"; fi)"
+    local wp_alive=false
+    if [ -f "$WP_PIDFILE" ] && kill -0 "$(cat "$WP_PIDFILE")" 2>/dev/null; then
+        wp_alive=true
+    fi
+
+    echo "PipeWire:      $(if $pw_alive; then echo "running (PID $(cat "$PW_PIDFILE"))"; else echo "stopped"; fi)"
+    echo "WirePlumber:   $(if $wp_alive; then echo "running (PID $(cat "$WP_PIDFILE"))"; else echo "stopped"; fi)"
 
     if $pw_alive; then
         echo ""
@@ -203,10 +260,11 @@ cmd_env() {
 export XDG_RUNTIME_DIR="$PW_RUNTIME_DIR"
 export SPA_PLUGIN_DIR="$PW_STORE/lib/spa-0.2"
 export PIPEWIRE_MODULE_DIR="$PW_STORE/lib/pipewire-0.3"
+export WIREPLUMBER_MODULE_DIR="$WP_STORE/lib/wireplumber-0.5"
 export XDG_CONFIG_HOME="$XDG_CONFIG_DIR"
-export XDG_DATA_DIRS="$PW_STORE/share:\${XDG_DATA_DIRS:-/usr/share}"
+export XDG_DATA_DIRS="$WP_STORE/share:$PW_STORE/share:\${XDG_DATA_DIRS:-/usr/share}"
 unset PIPEWIRE_CONFIG_DIR 2>/dev/null || true
-export PATH="$PW_STORE/bin:\$PATH"
+export PATH="$PW_STORE/bin:$WP_STORE/bin:\$PATH"
 ENVEOF
 }
 
@@ -219,8 +277,8 @@ case "${1:-help}" in
     *)
         echo "Usage: $0 {start|stop|status|env}"
         echo ""
-        echo "  start   Start PipeWire headless test environment (no WirePlumber)"
-        echo "  stop    Stop all test PipeWire processes"
+        echo "  start   Start PipeWire + WirePlumber headless test environment"
+        echo "  stop    Stop all test PipeWire + WirePlumber processes"
         echo "  status  Show running state, nodes, ports, links"
         echo "  env     Print env vars (eval to set up shell for pw-cli etc.)"
         exit 1
