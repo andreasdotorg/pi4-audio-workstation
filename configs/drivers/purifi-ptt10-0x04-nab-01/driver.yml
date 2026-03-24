@@ -31,7 +31,7 @@ thiele_small:
   fs_hz: 24.0
   re_ohm: 3.9
   z_nom_ohm: 4
-  qts: 0.33
+  qts: 0.39
   qes: 0.42
   qms: 5.5
   vas_liters: null
