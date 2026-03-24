@@ -2975,13 +2975,35 @@ real PipeWire data:
 6. **Mixxx not visible:** Mixxx node not appearing in the graph despite being a
    connected PW client
 
+**Additional owner feedback (2026-03-24):**
+
+7. **Pan+zoom support needed:** Graph is not usable without pan and zoom.
+   Current static rendering can't show the full topology at readable scale.
+   This is a usability blocker — without it, the graph tab is not functional
+   for real topologies.
+8. **Filter node internal elements render as top-level nodes:** The convolver's
+   internal components (gain nodes, filter stages) must render INSIDE the
+   filter-chain node boundary, not as separate top-level nodes. The
+   filter-chain is one PW node with internal structure — the visualization
+   must reflect this containment relationship. Relates to #3 and #5 above.
+9. **Label overflow:** Some node labels exceed the graphical boundaries of
+   their node boxes. Text needs clipping, ellipsis, or box resizing.
+10. **Signal generator shows 4 outputs:** ~~Owner questions why signal-gen shows
+    4 output ports.~~ **RECLASSIFIED (2026-03-24):** Owner clarifies signal-gen
+    should be **1 mono output channel**, not 4. GM handles routing to whichever
+    convolver input(s) the measurement targets. This is NOT a graph rendering
+    issue — it's a signal-gen design change. AE reviewing measurement
+    methodology implications. **Tracked separately as F-097.** F-085 #10
+    retained as cross-reference only.
+
 **Root cause hypothesis:** The graph.js D3 rendering was developed and tested against
 mock data and E2E test fixtures. Real pw-dump output from the Pi has different node
 names, port counts, and topology than the mock data assumed. The SPA config parser
-may also be misclassifying filter-chain internal nodes.
+may also be misclassifying filter-chain internal nodes. Pan+zoom and label overflow
+are missing UX fundamentals that weren't caught without real-topology testing.
 
 **Files:**
-- `src/web-ui/static/js/graph.js` (D3 rendering, layout algorithm)
+- `src/web-ui/static/js/graph.js` (D3 rendering, layout algorithm, pan+zoom)
 - `src/web-ui/app/graph_routes.py` (topology API endpoint)
 - `src/web-ui/app/pw_helpers.py` (pw-dump parsing)
 - `src/web-ui/app/spa_config_parser.py` (filter-chain internal topology)
@@ -3363,3 +3385,42 @@ fixed or quarantined with `@pytest.mark.skip` referencing this defect ID.
 
 **Related:** F-049 (measurement wizard session isolation — resolved
 `914add6`, but may not have fully addressed all timing issues)
+
+---
+
+## F-097: Signal-gen should output 1 mono channel, not 4 (OPEN)
+
+**Severity:** Medium (architecture/measurement methodology — incorrect channel count)
+**Status:** Open — AE endorsed mono design (2026-03-24). Scoped as US-052 amendment.
+**Found in:** Owner graph review (2026-03-24)
+**Affects:** US-052 (signal-gen), GM routing table (measurement mode), local-demo
+**Found by:** Owner (via graph visualization feedback on US-064)
+
+**Description:** Signal-gen currently creates 4 output ports (one per channel,
+matching `--channels 4` in managed mode). Owner directive: signal-gen should
+produce **1 mono output channel**. GraphManager handles routing that mono
+signal to whichever convolver input(s) the current measurement targets.
+
+**AE review (2026-03-24): ENDORSED mono design.** Key findings:
+- Current 4-channel design is already a mono source pretending to be 4-channel
+  (same sample fanned to all channels via bitmask)
+- PW fan-out from one port to multiple destinations is zero-mix, no artifacts
+- Per-channel measurement: GM links signal-gen to one convolver input at a time
+- Time alignment: GM links to all inputs simultaneously, coherent source
+  ensures correct delay detection
+- RPC `channels` field becomes meaningless with 1-channel source — simplify
+  or remove
+
+**Scope (US-052 amendment, NOT a new story):**
+1. **Signal-gen:** Change `--channels` default to 1. Simplify or remove RPC
+   `channels` field (single mono output, routing is GM's job)
+2. **GM routing table:** Measurement mode links change from 4 (signal-gen
+   ports 0-3 → convolver inputs 0-3) to 1 (signal-gen:output_0 → target
+   convolver input). GM needs per-speaker measurement target selection.
+3. **Local-demo:** Update `local-demo.sh` signal-gen invocation from
+   `--channels 4` to `--channels 1`. Update RPC play command.
+4. **pcm-bridge:** No change needed (monitors all 4 convolver outputs
+   regardless of excitation source)
+
+**Related:** F-085 #10 (originally filed as graph rendering issue, reclassified),
+US-052 (signal-gen story — amend), D-040 (PW filter-chain architecture)
