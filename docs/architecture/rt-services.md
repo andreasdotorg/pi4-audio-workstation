@@ -460,7 +460,175 @@ shared crate structure is agreed.
 
 ---
 
-## 10. Relationship to Other Documents
+## 10. Clock Architecture (D-044, US-077)
+
+The data pipeline from PipeWire process callback to browser rendering spans
+5 clock domains. This section describes the problem, the solution, and the
+implementation approach. See D-044 in `docs/project/decisions.md` for the
+formal decision record.
+
+### 10.1 The Problem: 5 Independent Clocks
+
+| # | Clock | Location | Rate | Domain |
+|---|-------|----------|------|--------|
+| 1 | PW graph clock | `spa_io_position.clock` in process callback | Per-quantum (256 or 1024 frames) | RT thread, hardware-locked |
+| 2 | Levels server poll | `tokio::time::interval(100ms)` in `server.rs` | 100ms wall-clock | Tokio runtime |
+| 3 | PCM broadcast timer | `send_interval` in `server.rs` | Per-quantum (configurable) | Tokio runtime |
+| 4 | Python WS relay | `asyncio.sleep(0.1)` in `ws_monitoring.py` | ~100ms wall-clock | Python asyncio |
+| 5 | Browser rAF | `requestAnimationFrame` in JS | ~16.7ms (60fps) | Browser compositor |
+
+Clock 1 is the authoritative audio clock, driven by the graph driver
+(USBStreamer hardware DMA in production, software `timerfd` in local
+demo). Clocks 2-5 are free-running wall-clock timers with no
+synchronization to clock 1. When data crosses a domain boundary, its
+temporal relationship to the original audio is lost.
+
+The observable symptom: a steady 1 kHz sine produces visually stable
+audio, but meters show ~1px peak dips at irregular intervals and the
+spectrum analyzer shows line jitter. The root cause is that level
+snapshots from clock 2 and PCM chunks from clock 3 arrive at the browser
+at different times with no way to correlate them to specific graph
+cycles.
+
+### 10.2 Consistency vs Coherence
+
+Two independent problems require two independent solutions:
+
+**Data consistency** (double-buffer): The RT thread overwrites level
+accumulators while the server thread reads them, causing torn reads. A
+double-buffer in `LevelTracker` ensures the reader always gets a
+complete, self-consistent snapshot. But a consistent snapshot with no
+timestamp is a snapshot of unknown provenance -- you know the data is
+internally coherent, but not when in the audio stream it was captured.
+
+**Temporal coherence** (timestamps): Attach the authoritative graph
+clock position to each data unit so downstream consumers can correlate
+data across independent transport paths. "This level snapshot covers
+graph position P" and "this PCM chunk starts at graph position P" -- now
+the frontend can align them even though they arrived at different
+wall-clock times.
+
+Without double-buffer, timestamps on torn data are meaningless. Without
+timestamps, consistent data from multiple paths cannot be correlated.
+Both are needed.
+
+### 10.3 The Solution: Graph Clock Propagation
+
+Propagate the PW graph clock through the entire data pipeline in 4
+phases. Each phase follows the data flow direction (source -> transport
+-> consumer -> optimization) and is independently deployable.
+
+**Phase 1 -- Capture graph clock in process callback:**
+
+pcm-bridge reads `spa_io_position->clock.position` (monotonic sample
+counter, u64) and `clock.nsec` (wall-clock nanoseconds, u64) in every
+process callback. These values are stored alongside each quantum of PCM
+data in the ring buffer and alongside each level snapshot in
+`LevelTracker`. New fields default to sentinel (0, 0), so existing
+consumers see zeros and behave identically to before.
+
+`pw_stream_get_time_n()` is confirmed RT-safe: it reads shared memory
+mapped into the stream, with no syscall, no allocation, and no lock.
+Zero latency overhead.
+
+Atomic ordering: `graph_position` and `graph_nsec` AtomicU64 fields use
+Relaxed stores from the RT writer thread. Visibility is guaranteed by a
+`fence(SeqCst)` before the buffer flip's `fetch_xor(1, AcqRel)`. On
+ARM's weak memory model, without this fence, prior Relaxed stores are
+not formally guaranteed to be visible to the reader after the flip.
+
+**Phase 2 -- Propagate timestamps through wire formats:**
+
+- PCM binary protocol: 20-byte header extended with `clock.position`
+  (u64) and `clock.nsec` (u64). Version byte added so old consumers can
+  detect and skip unknown fields.
+- Levels JSON: `pos` (u64) and `nsec` (u64) fields added to each
+  snapshot object. Existing fields unchanged. Additive change.
+- Python WebSocket relay (`ws_monitoring.py`, collectors): timestamps
+  passed through transparently -- no stripping or modification.
+
+**Phase 3 -- Frontend timestamp consumption:**
+
+Dashboard JS reads timestamps from level and PCM data for:
+
+- **Staleness detection:** Data older than N graph cycles dims the meter
+  (visual indicator rather than showing old values as current).
+- **Decay timing:** Meter peak hold and spectrum smoothing use
+  graph-cycle count instead of `requestAnimationFrame` timing, making
+  decay rate independent of browser frame rate.
+- **Spectrum alignment:** Display the most recent complete quantum's FFT,
+  not whatever data arrives mid-rAF.
+
+**Phase 4 -- Eliminate independent poll timers:**
+
+Replace free-running timers in the data path:
+
+- pcm-bridge levels server: Replace `tokio::time::interval(100ms)` with
+  SPSC queue. The RT process callback maintains accumulation state as
+  local (non-atomic) variables. Every N quanta (e.g., 5 quanta at q1024
+  = ~106ms = ~9.4 Hz), it freezes the accumulator into a completed
+  `LevelSnapshot`, stamps it with the graph clock, and pushes it into a
+  lock-free SPSC ring queue. The levels server thread drains this queue
+  and sends to clients. Benefits: no atomics needed (single writer owns
+  all state), no race (snapshot boundaries determined by writer, not
+  reader), no timer (emission rate derived from graph clock), SPSC
+  queues are O(1) with no syscalls (RT-safe).
+
+- pcm-bridge PCM broadcast: Replace `thread::sleep(send_interval)` with
+  condvar/eventfd notification from the process callback. Broadcast
+  thread wakes when new data is written, not on a fixed timer.
+
+- `ws_monitoring.py`: Replace `asyncio.sleep(0.1)` with queue-driven
+  push. Python relay forwards data as soon as it arrives, not on a
+  100ms poll.
+
+After Phase 4, only 2 clocks remain: PW graph clock (authoritative) and
+browser rAF (display refresh -- unavoidable but now consuming
+timestamped data rather than generating its own timing).
+
+### 10.4 Timestamp Format
+
+u64 nanoseconds from `spa_io_position->clock.nsec`:
+
+- Monotonic within a PW session (no NTP/PTP wall-clock jumps)
+- Directly comparable between level snapshots, spectrum data, and PCM
+  chunks -- all share the same clock domain
+- u64 nanoseconds avoids floating-point rounding; provides microsecond
+  precision without overhead
+- Quantum-accurate resolution is sufficient for the UI (60 Hz max =
+  16.7ms; quantum at q1024 = 21.3ms)
+- Sample-accurate timestamps via `clock.position` (u64 sample counter)
+  remain available for the measurement pipeline where sub-quantum
+  correlation matters (see Section 8, Measurement Orchestration)
+
+Wire protocol additions:
+- Levels JSON: `"t"` field (u64 nsec)
+- PCM stream: 8-byte timestamp header per quantum (extending the
+  existing 4-byte frame count header; version byte for detection)
+
+### 10.5 Clock Source Differences (Production vs Local Demo)
+
+| Property | USBStreamer (production) | Null sink (local demo) |
+|----------|------------------------|----------------------|
+| Driver | Hardware DMA (crystal oscillator) | Software `timerfd` |
+| Jitter | Effectively zero (+/-1ppm) | 1-5ms (non-RT), <100us (PREEMPT_RT) |
+| Variable quantum | Rare | More likely |
+| Clock reset | USB disconnect/reconnect resets clock domain | Process restart resets |
+
+Both produce valid `clock.nsec` timestamps. The code paths are
+identical. The local demo is functionally equivalent for testing the
+timestamp pipeline; the only difference is jitter, which affects
+production stability testing but not functional correctness.
+
+Code must never assume fixed `n_frames` per callback -- the software
+timer may deliver variable quantum sizes. The UI must detect timestamp
+discontinuities (jumps backward or large gaps forward) and reset its
+state (clear meters, restart FFT windows). This is analogous to a word
+clock unlock in professional audio.
+
+---
+
+## 11. Relationship to Other Documents
 
 | Document | Relationship |
 |----------|-------------|
@@ -470,3 +638,5 @@ shared crate structure is agreed.
 | [web-ui.md](web-ui.md) | Web UI architecture. FilterChainCollector and LevelsCollector will be replaced by direct browser-to-RT-service WebSocket connections (Phase 3). Measurement session code manages audio-recorder lifecycle. |
 | [safety.md](../operations/safety.md) | Operational safety constraints. Signal-gen's -20 dBFS cap (D-009), GM watchdog mute (<21ms), gain staging limits. |
 | `docs/project/status.md` | F-064 entry contains the full Q1-Q8 discussion transcript and design rationale. |
+| `docs/project/decisions.md` (D-044) | Formal decision record for single-clock timestamp architecture. Includes alternatives considered (AD counterargument) and rationale. |
+| US-077 in `docs/project/user-stories.md` | Implementation story for clock propagation. 4-phase acceptance criteria and Definition of Done. |

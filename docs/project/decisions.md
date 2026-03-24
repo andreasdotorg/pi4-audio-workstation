@@ -1061,3 +1061,138 @@ Supersedes C-008 (WP masking). US-059 DoD #5 wording updated.
 **Related:** D-039 (original), GM-12 Finding 2 (no ports without WP),
 GM-12 Finding 11 (WP auto-linking bypass), US-062 D-001 (reboot test),
 C-008 (WP masking), F-033 (JACK bridge RT promotion).
+
+---
+
+## D-044: Single-clock timestamp architecture — PW graph clock propagation (2026-03-24)
+
+**Context:** The data pipeline from PipeWire process callback to browser
+rendering uses 5 independent unsynchronized clocks:
+
+| # | Clock | Source | Tick rate |
+|---|-------|--------|-----------|
+| 1 | PW graph clock | `spa_io_position.clock` via `pw_stream_get_time_n()` | Graph quantum (256 or 1024 frames @ 48kHz) |
+| 2 | Levels server poll timer | `tokio::time::interval(100ms)` in `server.rs` | 100ms wall-clock |
+| 3 | PCM broadcast timer | `send_interval` timer in `server.rs` | Configurable, typically per-quantum |
+| 4 | ws_monitoring.py relay loop | `asyncio.sleep(0.1)` | ~100ms wall-clock |
+| 5 | Browser rAF | `requestAnimationFrame` in spectrum.js / app.js | ~16.7ms (60fps) |
+
+Clocks 2-5 are free-running wall-clock timers with no synchronization to
+clock 1 (the authoritative audio clock). When data crosses a domain
+boundary, its temporal relationship to the original audio is lost. A
+steady 1 kHz sine produces visually stable audio, but meters show ~1px
+peak dips and the spectrum shows line jitter because each pipeline stage
+introduces its own timing quantization. No data carries a "which graph
+cycle produced this" timestamp, so consumers cannot detect staleness or
+align data from different paths.
+
+A separate double-buffer fix (in `level_tracker.rs`) addresses data
+consistency (preventing torn reads of shared accumulators). This decision
+addresses timing coherence. Both are needed independently: without
+double-buffer, timestamps on torn data are meaningless; without
+timestamps, consistent data from multiple paths cannot be correlated.
+
+**Decision:** Propagate the PW graph clock through the entire data
+pipeline in 4 independently deployable phases. All level snapshots, PCM
+chunks, and spectrum data carry u64 nanosecond timestamps from
+`spa_io_position->clock.nsec`. Free-running poll timers in the data path
+are replaced by quantum-driven event emission.
+
+**The 4 phases:**
+
+1. **Capture:** pcm-bridge reads `clock.position` and `clock.nsec` in
+   every process callback, stores alongside level snapshots and ring
+   buffer data. All new fields default to sentinel (0, 0) so existing
+   consumers behave identically. No wire format or API change.
+
+2. **Wire format:** PCM binary protocol extended with version byte and
+   8-byte timestamp header. Levels JSON gains `pos` (u64) and `nsec`
+   (u64) fields. Additive changes; old clients unaffected.
+
+3. **Frontend consumption:** Dashboard JS uses timestamps for staleness
+   detection (dim stale meters), graph-cycle-based decay timing, and
+   spectrum frame alignment. Visible jitter with steady-state signals
+   measurably reduced.
+
+4. **Eliminate poll timers:** Replace `tokio::time::interval` and
+   `asyncio.sleep` in data paths with event-driven wakeups (condvar /
+   eventfd from RT callback, queue-driven push in Python relay). After
+   this phase, only 2 clocks remain: PW graph clock (authoritative) and
+   browser rAF (display refresh, unavoidable but now consuming
+   timestamped data).
+
+Phases follow data flow direction (source -> transport -> consumer ->
+optimization). Each phase is independently deployable and testable. The
+system is correct at every intermediate state.
+
+**RT safety:** `pw_stream_get_time_n()` is confirmed RT-safe. It reads
+shared memory (`spa_io_position`) mapped into the stream -- no syscall,
+no allocation, no lock. Zero latency overhead. Atomic ordering for
+clock fields in AccumulatorBuffer: Relaxed stores from the RT writer,
+visibility guaranteed by a `fence(SeqCst)` before the buffer flip's
+`fetch_xor(1, AcqRel)`. This ensures ARM's weak memory model makes
+prior Relaxed stores visible to the reader after the flip.
+
+**Timestamp format:** u64 nanoseconds from `clock.nsec` (PW graph
+clock). Monotonic within a PW session (no NTP/PTP jumps). Directly
+comparable across level snapshots, spectrum data, and PCM chunks -- all
+share the same clock domain. Quantum-accurate resolution is sufficient
+for the UI (60 Hz max = 16.7ms; quantum at q1024 = 21.3ms).
+Sample-accurate timestamps via `clock.position` remain available for the
+measurement pipeline where sub-quantum correlation matters.
+
+**Clock source differences:** The null sink (local demo) uses a software
+`timerfd` as its graph driver; the USBStreamer (production) uses hardware
+DMA from its crystal oscillator. Both produce valid `clock.nsec`
+timestamps. The difference is jitter (1-5ms software vs effectively zero
+hardware) and clock discontinuity behavior (USBStreamer disconnect resets
+the clock domain; the UI must detect timestamp jumps and reset state).
+The local demo environment is functionally equivalent for testing the
+timestamp pipeline.
+
+**Rationale:** Professional audio systems (AES67, Dante, RAVENNA)
+universally derive all timing from the master word clock. An independent
+timer in a digital audio data path is a design error. The PW graph clock
+is the single authoritative time source for all audio processing on this
+system. Propagating it through the data pipeline eliminates the root
+cause of display jitter (mixed clock domains) and enables future
+capabilities: precise latency measurement for automated room correction,
+drift detection for long-running gigs, and correlated debugging across
+pipeline stages.
+
+**Alternatives considered:** The AD proposed three targeted fixes that
+would address the user-visible display jitter without the full
+4-phase architectural change:
+
+1. Replace `thread::sleep` polling in pcm-bridge with condvar/eventfd
+   signaling from the PW callback (eliminates the primary server-side
+   jitter source).
+2. Add a JS presentation buffer that absorbs WebSocket delivery jitter
+   and feeds the FFT at a fixed rate.
+3. Decouple FFT execution from data arrival (run at display refresh rate,
+   pulling from whatever data is available).
+
+The AD cited industry precedent: Ardour, JACK meter utilities, Web Audio
+API's `AnalyserNode`, and OBS Studio all use independent clocks with
+display-side smoothing for metering. None timestamp individual audio
+frames for metering display.
+
+The AD's targeted fixes would solve display jitter at lower cost and
+risk. They were judged insufficient because the project also needs
+precise latency measurement for automated room correction (the next
+major deliverable), drift detection for long-running gigs (3-5 hour
+psytrance sets), and correlated debugging across pipeline stages during
+development. These broader requirements justify the architectural
+investment beyond the immediate display jitter symptom.
+
+**Impact:** US-077 implements the 4 phases. Wire format changes require
+version byte for backward compatibility. pcm-bridge, levels server,
+ws_monitoring.py, and frontend JS all modified across the phases. The
+SPSC queue pattern (lock-free, no atomics in the RT path, no syscalls)
+replaces the current shared-atomic-accumulator + timer-polled-snapshot
+design in Phase 4.
+
+**Related:** US-077 (implementation story), D-040 (PW filter-chain
+architecture), D-043 (GM-managed links), F-064 (asyncio saturation root
+cause), Section 11 of `docs/architecture/rt-services.md` (detailed clock
+architecture).
