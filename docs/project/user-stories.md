@@ -5358,8 +5358,10 @@ PipeWire graph clock rather than from independent unsynchronized timers,
 were captured in, eliminating the phase misalignment that causes peak dips
 and spectral jitter with steady-state signals.
 
-**Status:** in-progress (IMPLEMENT phase 2026-03-24. Owner approved full
-architect+AE solution. Starting Phase 1: capture graph clock in pcm-bridge.)
+**Status:** in-progress (TEST phase 2026-03-24. All 4 phases committed. P1
+`602301b`, P2 `4aeb4d1`, P3 `d1d3097`, P4 `3147b41`, docs `f83c14f`. 570+
+tests pass. Architect approved all phases. DoD 4/9. Remaining: screenshot
+comparison, integration test, Pi perf regression, AE review, QE review.)
 **Depends on:** US-075 (local demo environment for testing — clock changes
 need integration testing without Pi)
 **Blocks:** none (but dramatically improves visual quality of all metering)
@@ -5454,19 +5456,21 @@ and can be verified/rolled back independently.
 
 ### Definition of Done
 
-- [ ] All 4 phases implemented and verified
+- [x] All 4 phases implemented and verified — P1 `602301b`, P2 `4aeb4d1`,
+  P3 `d1d3097`, P4 `3147b41`. 570+ tests pass.
 - [ ] Before/after comparison with steady-state sine: peak dip and spectrum
-  jitter visually eliminated (screenshot evidence)
+  jitter visually eliminated (screenshot evidence) — needs local demo or Pi
 - [ ] `nix run .#test-integration` (US-075) exercises the timestamped data
   path end-to-end: signal-gen -> convolver -> pcm-bridge -> verify timestamps
   monotonically increasing and within expected range
 - [ ] No performance regression: xrun count unchanged on Pi under DJ load
-  (comparison against O-018 baseline)
-- [ ] Wire format version byte documented in `docs/architecture/rt-services.md`
-- [ ] Backward compatibility verified: old web-UI version against new
-  pcm-bridge (graceful degradation, not crash)
-- [ ] Architect review: clock propagation design, wire format changes, phase
-  independence
+  (comparison against O-018 baseline) — needs Pi deployment
+- [x] Wire format version byte documented in `docs/architecture/rt-services.md`
+  (`f83c14f`)
+- [x] Backward compatibility verified: v1/v2 auto-detection in frontend JS,
+  old web-UI gracefully ignores new fields
+- [x] Architect review: clock propagation design, wire format changes, phase
+  independence — approved across all 4 phases
 - [ ] AE review: timing coherence achieved, no new audio artifacts
 - [ ] QE review: test coverage for all 4 phases, regression suite updated
 

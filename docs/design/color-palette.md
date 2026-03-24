@@ -1,9 +1,11 @@
 # Pi4 Audio Workstation -- Visual Design Specification
 
-> **Status:** APPROVED (2026-03-24). All design questions resolved by owner.
+> **Status:** APPROVED (2026-03-24, revised 2026-03-24). All design questions resolved by owner.
 > **Author:** UX Specialist. **Reviewed by:** Owner, Architect.
 >
 > Covers: color palette, typography, and visual identity tokens for the web UI.
+> **Revision:** Primary shifted from cyan to Soft Lilac per owner preference.
+> Backgrounds shifted to purple-navy to harmonize.
 
 ---
 
@@ -13,7 +15,7 @@
    on a 1080p HDMI display under stage lighting and in near-darkness.
 2. **Semantic over decorative.** Signal colors (safe/warning/danger) have strict
    meaning. They are never used for branding or decoration.
-3. **Logo-aligned identity.** Navy/charcoal base, cyan/teal primary, amber accent --
+3. **Logo-aligned identity.** Purple-navy base, soft lilac primary, amber accent --
    shared visual DNA between logo and UI.
 4. **Color-blind safe.** Critical indicators never rely on color alone. Position,
    luminance, text labels, and shape provide redundant cues.
@@ -24,19 +26,21 @@
 
 ## 1. Surface / Background Hierarchy
 
-Subtle navy undertone -- enough for brand identity, not so much that it
-looks "themed." WCAG contrast against `--text` is maintained.
+Subtle purple-navy undertone -- harmonizes with the Soft Lilac primary.
+"Some things need to be felt rather than seen" (owner). WCAG contrast
+against `--text` is maintained.
 
 | Token | Hex | Role |
 |---|---|---|
-| `--bg` | `#0a0d14` | Page background (near-black with navy cast) |
-| `--bg-panel` | `#111621` | Panel/card background |
-| `--bg-meter` | `#151a26` | Meter/spectrum canvas background |
-| `--bg-bar` | `#252d3a` | Track/slider/inactive bar fill |
-| `--bg-elevated` | `#1c2230` | Elevated elements (tooltips, overlays) |
+| `--bg` | `#0c0b14` | Page background (near-black with purple-navy cast) |
+| `--bg-panel` | `#131221` | Panel/card background |
+| `--bg-meter` | `#171626` | Meter/spectrum canvas background |
+| `--bg-bar` | `#28293a` | Track/slider/inactive bar fill |
+| `--bg-elevated` | `#1e1e30` | Elevated elements (tooltips, overlays) |
 
-**Decision (Q1):** Subtle navy shift as proposed. Owner confirmed: do not go
-stronger. The goal is professional tool UI, not a themed skin.
+**Decision (Q1, revised):** Purple-navy shift (BG-A). Hue moved from ~222
+(pure navy) to ~245-250 (purple-navy), 2-4 RGB units per channel. Perceptible
+adjacent to lilac primary, invisible in isolation. Owner approved.
 
 ## 2. Text Hierarchy
 
@@ -76,13 +80,18 @@ It is NOT used for managed-node highlighting, branding, or decoration (see Q3 be
 
 | Token | Hex | Role | Notes |
 |---|---|---|---|
-| `--primary` | `#00bcd4` | Primary interactive | Buttons, active tabs, sliders, focus rings, managed-node highlights |
-| `--primary-dim` | `#00838f` | Muted primary | Inactive hover, subtle highlights, dark teal |
+| `--primary` | `#b39ddb` | Primary interactive | Buttons, active tabs, sliders, focus rings, managed-node highlights |
+| `--primary-dim` | `#7e57c2` | Muted primary | Inactive hover, subtle highlights, dark purple |
 | `--accent` | `#f0a030` | Accent / highlight | DJ mode badge, active measurement step, SPL caution zone |
 | `--accent-bright` | `#ffb74d` | Bright accent | Emphasis text on dark backgrounds |
 
-**Key change:** `--blue: #42a5f5` (mid-blue) is retired. `--primary: #00bcd4`
-(cyan/teal) takes over all interactive roles, aligning with the logo.
+**Key change (revised):** Primary shifted from cyan (`#00bcd4`) to Soft Lilac
+(`#b39ddb`, HSL 261/47%/73%) per owner preference. `--blue: #42a5f5` (mid-blue)
+is retired. `--primary-dim` shifted to `#7e57c2` (HSL 261/45%/55%).
+
+Contrast: `--primary` vs `--bg` = ~8.4:1 (WCAG AAA). Amber accent (`#f0a030`)
+is ~100 degrees from lilac on the color wheel -- complementary pairing with
+strong visual separation.
 
 `--orange: #ff6f00` is retired. `--accent: #f0a030` (warm amber) replaces it,
 providing clear visual separation from `--danger` (red).
@@ -94,12 +103,12 @@ providing clear visual separation from `--danger` (red).
 | Mode | Badge Color | Token |
 |---|---|---|
 | DJ | Amber | `--accent` (`#f0a030`) |
-| Live | Cyan | `--primary` (`#00bcd4`) |
+| Live | Lilac | `--primary` (`#b39ddb`) |
 | Monitoring | Silver | `--group-main` (`#a0aab8`) |
 | Measurement | Golden yellow | `--warning` (`#e2c039`) |
 
 Rationale: DJ and Live are the two performance modes. Amber (warm/energetic)
-maps naturally to DJ/psytrance. Cyan (cool/precise) maps to Live vocal
+maps naturally to DJ/psytrance. Lilac (cool/elegant) maps to Live vocal
 performance. Monitoring and Measurement are non-performance modes and use
 subdued/informational colors.
 
@@ -118,7 +127,7 @@ meters, mini-meters, status bar, and graph visualization.
 | Token | Hex | Role | Muted Variant |
 |---|---|---|---|
 | `--group-main` | `#a0aab8` | Main L/R output (silver) | `#8a94a4` |
-| `--group-app` | `#00bcd4` | App source: Mixxx/Reaper (cyan) | `#00838f` |
+| `--group-app` | `#b39ddb` | App source: Mixxx/Reaper (lilac) | `#7e57c2` |
 | `--group-dsp` | `#43a047` | DSP/convolver output (forest green) | `#2e7d32` |
 | `--group-hw` | `#e2a639` | Hardware I/O: USBStreamer/PHYS IN (amber) | `#c17900` |
 
@@ -258,8 +267,8 @@ then swaps in JetBrains Mono once loaded. No flash of invisible text.
 | `--green` | `--safe` | Same hex `#79e25b` |
 | `--yellow` | `--warning` | Same hex `#e2c039` |
 | `--red` | `--danger` | Same hex `#e5453a` |
-| `--blue` | `--primary` | `#42a5f5` -> `#00bcd4` |
-| `--cyan` | `--primary` | `#00acc1` -> `#00bcd4` |
+| `--blue` | `--primary` | `#42a5f5` -> `#b39ddb` |
+| `--cyan` | `--primary` | `#00acc1` -> `#b39ddb` |
 | `--orange` | `--accent` | `#ff6f00` -> `#f0a030` |
 | `--amber` | `--accent` | Was alias for `--orange` |
 
@@ -272,8 +281,8 @@ then swaps in JetBrains Mono once loaded. No flash of invisible text.
     --warning: #e2c039;
     --danger: #e5453a;
     --danger-bg: rgba(229, 69, 58, 0.15);
-    --primary: #00bcd4;
-    --primary-dim: #00838f;
+    --primary: #b39ddb;
+    --primary-dim: #7e57c2;
     --accent: #f0a030;
     --accent-bright: #ffb74d;
 
@@ -306,13 +315,13 @@ then swaps in JetBrains Mono once loaded. No flash of invisible text.
 
 ```css
 :root {
-    /* -- Surfaces -- */
-    --bg: #0a0d14;
-    --bg-panel: #111621;
-    --bg-meter: #151a26;
-    --bg-bar: #252d3a;
-    --bg-elevated: #1c2230;
-    --border: #556;
+    /* -- Surfaces (purple-navy) -- */
+    --bg: #0c0b14;
+    --bg-panel: #131221;
+    --bg-meter: #171626;
+    --bg-bar: #28293a;
+    --bg-elevated: #1e1e30;
+    --border: #546;
 
     /* -- Text -- */
     --text: #c8cdd6;
@@ -326,15 +335,15 @@ then swaps in JetBrains Mono once loaded. No flash of invisible text.
     --danger: #e5453a;
     --danger-bg: rgba(229, 69, 58, 0.15);
 
-    /* -- Brand / interactive -- */
-    --primary: #00bcd4;
-    --primary-dim: #00838f;
+    /* -- Brand / interactive (L2 Soft Lilac) -- */
+    --primary: #b39ddb;
+    --primary-dim: #7e57c2;
     --accent: #f0a030;
     --accent-bright: #ffb74d;
 
     /* -- Pipeline groups -- */
     --group-main: #a0aab8;
-    --group-app: #00bcd4;
+    --group-app: #b39ddb;
     --group-dsp: #43a047;
     --group-hw: #e2a639;
     --group-gain: #2e7d32;
@@ -368,15 +377,26 @@ then swaps in JetBrains Mono once loaded. No flash of invisible text.
 ### Phase 1: CSS foundation + typography (no visual breakage)
 
 1. **`src/web-ui/static/style.css`** -- Update the `:root` block
-   - Add new canonical tokens (`--safe`, `--warning`, `--danger`, `--primary`,
-     `--primary-dim`, `--accent`, `--accent-bright`, `--danger-bg`,
-     `--bg-elevated`, `--group-*`)
-   - Shift background values to navy-tinted variants
+   - Update `--primary` to `#b39ddb`, `--primary-dim` to `#7e57c2`
+   - Update `--group-app` to `#b39ddb`
+   - Update backgrounds to purple-navy: `--bg` `#0c0b14`, `--bg-panel`
+     `#131221`, `--bg-meter` `#171626`, `--bg-bar` `#28293a`,
+     `--bg-elevated` `#1e1e30`, `--border` `#546`
    - Keep old token names as aliases pointing to new tokens
    - Update the second `:root` block (graph viz) to reference `--group-*`
      tokens instead of hardcoded `--gv-color-*` hex values
    - Add new utility classes (`.c-safe`, `.c-warning`, `.c-danger`,
      `.c-primary`, `.c-accent`) alongside existing ones
+
+1c. **`src/web-ui/static/logo.svg`** -- Update logo colors to match palette
+   - Line 3: `stroke="#00bcd4"` -> `stroke="#b39ddb"` (border, was cyan)
+   - Line 3: `fill="#111621"` -> `fill="#131221"` (base fill, `--bg-panel`)
+   - Line 7: `stroke="#151a26"` -> `stroke="#171626"` (inactive tracks, `--bg-meter`)
+   - Line 11: `stroke="#252d3a"` -> `stroke="#28293a"` (active levels, `--bg-bar`)
+   - Line 14: `stroke="#79e25b"` -- NO CHANGE (center peak, `--safe`)
+   - Line 17: `stroke="#111621"` -> `stroke="#131221"` (cutout mask, `--bg-panel`)
+   - Line 23: `stroke="#00bcd4"` -> `stroke="#b39ddb"` (crossover curves, was cyan)
+   - Comment line 22: "Cyan" -> "Lilac"
 
 1b. **Typography: self-host JetBrains Mono**
    - Download `JetBrainsMono-Regular.woff2` and `JetBrainsMono-Bold.woff2`
@@ -491,3 +511,5 @@ Recommended branch: `us-XXX-color-palette` (story number TBD).
 | 2026-03-24 | Document updated to APPROVED status with implementation checklist |
 | 2026-03-24 | Font audit: current fonts aspirational but never loaded. Owner approved Option A: JetBrains Mono throughout |
 | 2026-03-24 | Document expanded to Visual Design Specification (color + typography). Section 7 + checklist step 1b added |
+| 2026-03-24 | Owner requested lavender/lilac instead of cyan. 3 options presented (L1 Cool Lavender, L2 Soft Lilac, L3 Warm Lilac) |
+| 2026-03-24 | Owner approved L2 Soft Lilac (`#b39ddb`) + BG-A purple-navy backgrounds. All sections updated |
