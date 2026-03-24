@@ -392,8 +392,10 @@
         pcmWs.onmessage = function (ev) {
             var data = ev.data;
             if (data.byteLength < 4) return;
-            // Skip 4-byte header (frame count LE uint32)
-            var pcm = new Float32Array(data, 4);
+            // v2 header: [version:1][pad:3][frame_count:4][pos:8][nsec:8] = 24 bytes
+            // v1 header: [frame_count:4] = 4 bytes
+            var headerSize = (new Uint8Array(data, 0, 1))[0] === 2 ? 24 : 4;
+            var pcm = new Float32Array(data, headerSize);
             // Floor to whole frames to avoid misaligned channel reads
             var frames = Math.floor(pcm.length / NUM_CHANNELS);
 

@@ -4,9 +4,9 @@ Generates synthetic 3-channel interleaved float32 audio data that produces
 a visible spectrum when processed by spectrum.js. Uses only stdlib modules
 (no numpy dependency).
 
-Wire format (matches real PcmStreamCollector):
+Wire format v2 (matches real pcm-bridge, US-077):
     - Binary WebSocket messages (arraybuffer)
-    - First 4 bytes: LE uint32 frame count header
+    - 24-byte header: [version:1][pad:3][frame_count:4][graph_pos:8][graph_nsec:8]
     - Remainder: interleaved float32 for 3 channels (L, R, Sub)
 
 The synthetic signal mixes several sine tones at different frequencies
@@ -38,9 +38,9 @@ _TONES = [
     (2500.0, 0.10),
 ]
 
-# Header: 4 bytes LE uint32 frame count
-_HEADER_FMT = "<I"
-_HEADER_SIZE = struct.calcsize(_HEADER_FMT)
+# v2 header: version(1) + pad(3) + frame_count(4) + graph_pos(8) + graph_nsec(8) = 24 bytes
+_HEADER_FMT = "<BBBBIqq"
+_HEADER_SIZE = struct.calcsize(_HEADER_FMT)  # 24
 
 
 def _db_to_linear(db: float) -> float:
@@ -150,8 +150,8 @@ async def mock_pcm_stream(ws: WebSocket, scenario_key: str) -> None:
             if mod_phase > 2.0 * math.pi:
                 mod_phase -= 2.0 * math.pi
 
-            # Pack header + interleaved float32 data
-            header = struct.pack(_HEADER_FMT, FRAMES_PER_CHUNK)
+            # Pack v2 header + interleaved float32 data
+            header = struct.pack(_HEADER_FMT, 2, 0, 0, 0, FRAMES_PER_CHUNK, 0, 0)
             payload = struct.pack(chunk_fmt, *samples)
 
             await ws.send_bytes(header + payload)

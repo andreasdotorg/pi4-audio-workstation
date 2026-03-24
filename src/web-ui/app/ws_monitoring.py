@@ -54,10 +54,13 @@ async def ws_monitoring(
                 data = cdsp.monitoring_snapshot()
             else:
                 data = _empty_monitoring()
-            # Overlay real peak/RMS from pcm-bridge LevelsCollector
+            # Overlay real peak/RMS and graph clock from pcm-bridge LevelsCollector
             if levels is not None:
                 data["capture_peak"] = levels.peak()
                 data["capture_rms"] = levels.rms()
+                pos, nsec = levels.graph_clock()
+                data["pos"] = pos
+                data["nsec"] = nsec
             await ws.send_text(json.dumps(data))
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:

@@ -70,9 +70,9 @@ class TestTK128ProcessingLoadPercentage:
 
 FRAMES_PER_CHUNK = 256
 NUM_CHANNELS = 3
-HEADER_SIZE = 4  # 4-byte LE uint32
+HEADER_SIZE = 24  # v2: version(1) + pad(3) + frame_count(4) + pos(8) + nsec(8)
 EXPECTED_PAYLOAD_SIZE = FRAMES_PER_CHUNK * NUM_CHANNELS * 4  # float32 = 4 bytes
-EXPECTED_TOTAL_SIZE = HEADER_SIZE + EXPECTED_PAYLOAD_SIZE  # 4 + 3072 = 3076
+EXPECTED_TOTAL_SIZE = HEADER_SIZE + EXPECTED_PAYLOAD_SIZE  # 24 + 3072 = 3096
 
 
 class TestTK132MockPCMStream:
@@ -150,7 +150,7 @@ class TestTK132MockPCMStream:
         asyncio.run(_test())
 
     def test_pcm_first_message_header_format(self, pcm_server):
-        """First 4 bytes must be LE uint32 with value 256 (frame count)."""
+        """v2 header: byte 0 = version 2, bytes 4..8 = LE uint32 frame count."""
         port = pcm_server
 
         async def _test():
@@ -162,7 +162,8 @@ class TestTK132MockPCMStream:
                     f"Message too short for header: {len(msg)} bytes"
                 )
 
-                frame_count = struct.unpack("<I", msg[:4])[0]
+                assert msg[0] == 2, f"Expected version 2, got {msg[0]}"
+                frame_count = struct.unpack("<I", msg[4:8])[0]
                 assert frame_count == FRAMES_PER_CHUNK, (
                     f"Header frame count should be {FRAMES_PER_CHUNK}, "
                     f"got {frame_count}"
@@ -171,7 +172,7 @@ class TestTK132MockPCMStream:
         asyncio.run(_test())
 
     def test_pcm_first_message_total_size(self, pcm_server):
-        """Total message: 4 + (256 * 3 * 4) = 3076 bytes."""
+        """Total message: 24 + (256 * 3 * 4) = 3096 bytes."""
         port = pcm_server
 
         async def _test():
@@ -181,7 +182,7 @@ class TestTK132MockPCMStream:
                 msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
                 assert len(msg) == EXPECTED_TOTAL_SIZE, (
                     f"Expected {EXPECTED_TOTAL_SIZE} bytes, got {len(msg)}. "
-                    f"Header(4) + {FRAMES_PER_CHUNK} frames * "
+                    f"Header(24) + {FRAMES_PER_CHUNK} frames * "
                     f"{NUM_CHANNELS} channels * 4 bytes = {EXPECTED_TOTAL_SIZE}"
                 )
 

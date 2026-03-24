@@ -5,8 +5,13 @@
 //! (drop-oldest). If no client is connected, frames are silently dropped
 //! by the ring buffer (no backpressure to PipeWire).
 //!
-//! Wire format (matches existing web UI PcmStreamCollector):
+//! Wire format v2 (US-077):
+//!   - 1-byte version (0x02)
+//!   - 3-byte padding (0x00) — aligns subsequent fields and ensures
+//!     PCM data starts at byte 24 (4-byte aligned for Float32Array)
 //!   - 4-byte LE uint32: frame count in this chunk
+//!   - 8-byte LE uint64: graph clock position (frames)
+//!   - 8-byte LE uint64: graph clock nsec (monotonic nanoseconds)
 //!   - N * channels * 4 bytes: interleaved float32 PCM samples
 
 use std::io::Write;
@@ -142,9 +147,14 @@ where
     Accept: Fn(&L) -> Option<(S, String)>,
 {
     let payload_bytes = quantum * channels * std::mem::size_of::<f32>();
-    let mut out_buf = vec![0u8; 4 + payload_bytes];
+    // Wire format v2: [version:1][pad:3][frame_count:4][graph_pos:8][graph_nsec:8][PCM data]
+    // 24-byte header ensures PCM data is 4-byte aligned (Float32Array compatible).
+    let header_bytes: usize = 24; // 1 + 3 + 4 + 8 + 8
+    let mut out_buf = vec![0u8; header_bytes + payload_bytes];
+    out_buf[0] = 2; // version; bytes 1..4 are zero padding
     let frame_count = quantum as u32;
-    out_buf[0..4].copy_from_slice(&frame_count.to_le_bytes());
+    out_buf[4..8].copy_from_slice(&frame_count.to_le_bytes());
+    // graph_pos and graph_nsec are written per-quantum below
 
     let send_interval = Duration::from_micros((quantum as u64 * 1_000_000) / 48000);
 
@@ -180,13 +190,26 @@ where
         // is the same for all. We read once per quantum and broadcast.
         match ring.read_interleaved(min_read, quantum) {
             Some(samples) => {
+                // Stamp metadata from ring buffer's latest chunk.
+                // NOTE: latest_meta() may return metadata from a quantum newer
+                // than the PCM data being sent (skew <= 1 quantum). Acceptable
+                // for Phase 2 display use — the clock is informational, not
+                // sample-accurate for this consumer.
+                let meta = ring.latest_meta();
+                let (graph_pos, graph_nsec) = match meta {
+                    Some(m) => (m.graph_position, m.graph_nsec),
+                    None => (0u64, 0u64),
+                };
+                out_buf[8..16].copy_from_slice(&graph_pos.to_le_bytes());
+                out_buf[16..24].copy_from_slice(&graph_nsec.to_le_bytes());
+
                 let sample_bytes = unsafe {
                     std::slice::from_raw_parts(
                         samples.as_ptr() as *const u8,
                         samples.len() * std::mem::size_of::<f32>(),
                     )
                 };
-                out_buf[4..].copy_from_slice(sample_bytes);
+                out_buf[header_bytes..].copy_from_slice(sample_bytes);
 
                 // Broadcast to all clients; drop any that fail.
                 clients.retain_mut(|client| {
@@ -376,7 +399,11 @@ fn format_level_json(snap: &crate::levels::LevelSnapshot) -> String {
         write_f32_1dp(&mut s, snap.rms_dbfs[i]);
     }
 
-    s.push_str("]}\n");
+    s.push_str("],\"pos\":");
+    s.push_str(&snap.graph_clock.position.to_string());
+    s.push_str(",\"nsec\":");
+    s.push_str(&snap.graph_clock.nsec.to_string());
+    s.push_str("}\n");
     s
 }
 
@@ -395,7 +422,7 @@ mod tests {
     fn format_level_json_empty_channels() {
         let snap = LevelSnapshot::default();
         let json = format_level_json(&snap);
-        assert_eq!(json, "{\"channels\":0,\"peak\":[],\"rms\":[]}\n");
+        assert_eq!(json, "{\"channels\":0,\"peak\":[],\"rms\":[],\"pos\":0,\"nsec\":0}\n");
     }
 
     #[test]
@@ -405,7 +432,7 @@ mod tests {
         snap.peak_dbfs[0] = -3.1;
         snap.rms_dbfs[0] = -12.5;
         let json = format_level_json(&snap);
-        assert_eq!(json, "{\"channels\":1,\"peak\":[-3.1],\"rms\":[-12.5]}\n");
+        assert_eq!(json, "{\"channels\":1,\"peak\":[-3.1],\"rms\":[-12.5],\"pos\":0,\"nsec\":0}\n");
     }
 
     #[test]
@@ -417,7 +444,7 @@ mod tests {
         snap.rms_dbfs[0] = -10.0;
         snap.rms_dbfs[1] = -20.0;
         let json = format_level_json(&snap);
-        assert_eq!(json, "{\"channels\":2,\"peak\":[-0.5,-6.0],\"rms\":[-10.0,-20.0]}\n");
+        assert_eq!(json, "{\"channels\":2,\"peak\":[-0.5,-6.0],\"rms\":[-10.0,-20.0],\"pos\":0,\"nsec\":0}\n");
     }
 
     #[test]
@@ -426,7 +453,7 @@ mod tests {
         snap.channels = 2;
         // Default values are -120.0
         let json = format_level_json(&snap);
-        assert_eq!(json, "{\"channels\":2,\"peak\":[-120.0,-120.0],\"rms\":[-120.0,-120.0]}\n");
+        assert_eq!(json, "{\"channels\":2,\"peak\":[-120.0,-120.0],\"rms\":[-120.0,-120.0],\"pos\":0,\"nsec\":0}\n");
     }
 
     #[test]
@@ -455,5 +482,19 @@ mod tests {
         assert!(trimmed.contains("\"channels\":3"));
         assert!(trimmed.contains("\"peak\":["));
         assert!(trimmed.contains("\"rms\":["));
+        assert!(trimmed.contains("\"pos\":"));
+        assert!(trimmed.contains("\"nsec\":"));
+    }
+
+    #[test]
+    fn format_level_json_with_graph_clock() {
+        use crate::levels::GraphClock;
+        let mut snap = LevelSnapshot::default();
+        snap.channels = 1;
+        snap.peak_dbfs[0] = -6.0;
+        snap.rms_dbfs[0] = -12.0;
+        snap.graph_clock = GraphClock { position: 48000, nsec: 1_000_000_000 };
+        let json = format_level_json(&snap);
+        assert_eq!(json, "{\"channels\":1,\"peak\":[-6.0],\"rms\":[-12.0],\"pos\":48000,\"nsec\":1000000000}\n");
     }
 }

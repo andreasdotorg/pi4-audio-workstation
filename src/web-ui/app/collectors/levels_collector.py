@@ -3,10 +3,12 @@
 Connects to pcm-bridge's levels TCP server (default 127.0.0.1:9100)
 which pushes newline-delimited JSON at 10 Hz:
 
-    {"channels":8,"peak":[-3.1,-6.0,...],"rms":[-12.5,-20.0,...]}\n
+    {"channels":8,"peak":[-3.1,-6.0,...],"rms":[-12.5,-20.0,...],"pos":48000,"nsec":1000000000}\n
 
 The collector stores the latest snapshot for consumption by
-FilterChainCollector.monitoring_snapshot().
+FilterChainCollector.monitoring_snapshot(). The ``pos`` (graph clock
+frame position) and ``nsec`` (monotonic nanoseconds) fields are
+passed through from pcm-bridge (US-077).
 
 Connection lifecycle: connect on startup, reconnect with exponential
 backoff (1s -> 2s -> 4s, capped at 8s). Connect/read timeouts
@@ -79,6 +81,13 @@ class LevelsCollector:
             return [-120.0] * 8
         rms_vals = snap.get("rms", [])
         return _pad_to_8(rms_vals)
+
+    def graph_clock(self) -> tuple[int, int]:
+        """Return (pos, nsec) from the latest snapshot, or (0, 0)."""
+        snap = self._snapshot
+        if snap is None:
+            return (0, 0)
+        return (snap.get("pos", 0), snap.get("nsec", 0))
 
     # -- Internal --
 

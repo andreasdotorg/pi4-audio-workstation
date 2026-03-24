@@ -445,9 +445,9 @@ class TestPcmSourcesREST:
 
 FRAMES_PER_CHUNK = 256
 NUM_CHANNELS = 3
-HEADER_SIZE = 4  # LE uint32
+HEADER_SIZE = 24  # v2: version(1) + pad(3) + frame_count(4) + pos(8) + nsec(8)
 EXPECTED_PAYLOAD_SIZE = FRAMES_PER_CHUNK * NUM_CHANNELS * 4  # float32
-EXPECTED_TOTAL_SIZE = HEADER_SIZE + EXPECTED_PAYLOAD_SIZE  # 3076 bytes
+EXPECTED_TOTAL_SIZE = HEADER_SIZE + EXPECTED_PAYLOAD_SIZE  # 3096 bytes
 
 
 class TestWsPcmSourceMock:
@@ -465,10 +465,11 @@ class TestWsPcmSourceMock:
             assert len(msg) == EXPECTED_TOTAL_SIZE
 
     def test_monitor_source_header_frame_count(self, client):
-        """First 4 bytes must be LE uint32 with value 256."""
+        """v2 header bytes 4..8 must be LE uint32 with value 256."""
         with client.websocket_connect("/ws/pcm/monitor?scenario=A") as ws:
             msg = ws.receive_bytes()
-            frame_count = struct.unpack("<I", msg[:HEADER_SIZE])[0]
+            assert msg[0] == 2, f"Expected version 2, got {msg[0]}"
+            frame_count = struct.unpack("<I", msg[4:8])[0]
             assert frame_count == FRAMES_PER_CHUNK
 
     def test_monitor_source_payload_is_float32(self, client):
@@ -520,7 +521,7 @@ class TestWsPcmSourceMock:
         ) as ws:
             msg = ws.receive_bytes()
             assert len(msg) == EXPECTED_TOTAL_SIZE
-            frame_count = struct.unpack("<I", msg[:HEADER_SIZE])[0]
+            frame_count = struct.unpack("<I", msg[4:8])[0]
             assert frame_count == FRAMES_PER_CHUNK
 
 
@@ -564,10 +565,11 @@ class TestWsPcmLegacy:
             assert len(msg) == EXPECTED_TOTAL_SIZE
 
     def test_legacy_endpoint_header(self, client):
-        """Legacy endpoint should have same wire format as parameterized."""
+        """Legacy endpoint should have same v2 wire format as parameterized."""
         with client.websocket_connect("/ws/pcm?scenario=A") as ws:
             msg = ws.receive_bytes()
-            frame_count = struct.unpack("<I", msg[:HEADER_SIZE])[0]
+            assert msg[0] == 2, f"Expected version 2, got {msg[0]}"
+            frame_count = struct.unpack("<I", msg[4:8])[0]
             assert frame_count == FRAMES_PER_CHUNK
 
     def test_legacy_endpoint_continuous(self, client):
@@ -586,9 +588,9 @@ class TestWsPcmLegacy:
             param_msg = ws_param.receive_bytes()
 
         assert len(legacy_msg) == len(param_msg)
-        # Both should have valid frame count headers
-        assert struct.unpack("<I", legacy_msg[:4])[0] == FRAMES_PER_CHUNK
-        assert struct.unpack("<I", param_msg[:4])[0] == FRAMES_PER_CHUNK
+        # Both should have valid v2 frame count headers
+        assert struct.unpack("<I", legacy_msg[4:8])[0] == FRAMES_PER_CHUNK
+        assert struct.unpack("<I", param_msg[4:8])[0] == FRAMES_PER_CHUNK
 
     @pytest.mark.parametrize("scenario", ["A", "B", "C", "D", "E"])
     def test_legacy_all_scenarios(self, client, scenario):
