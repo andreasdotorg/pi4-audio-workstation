@@ -830,3 +830,72 @@ failure mode. Every protocol violation in this project traces back to
 "the agent isn't responding, let me just..." The correct response to
 silence is always: wait, then ask the owner. Keep a cool head, especially
 under pressure.
+
+---
+
+## L-052: Worktree silent failure — orchestrator must stop, not wave through results
+
+**Date:** 2026-03-24
+**Context:** US-070 CI fix — Agent tool `isolation: "worktree"` silently failed,
+agent fell back to operating in the shared repo, orchestrator proceeded anyway.
+
+The orchestrator spawned `worker-ci-fix` with `isolation: "worktree"` to fix
+`flake.nix` on the `us-070/ci-pipeline` branch. The worktree was never created
+(confirmed by `git worktree list` showing only the main repo). The agent
+silently fell back to the shared working directory, switching it from `main`
+to `us-070/ci-pipeline` — while `worker-demo-fix` was concurrently running
+QE test suites in the same repo.
+
+**What the orchestrator did wrong:**
+
+1. **Confirmed the worktree failed** (`git worktree list` showed no worktree,
+   main repo was on `us-070/ci-pipeline`) — correctly diagnosed the failure.
+2. **Did not stop.** Instead of halting and investigating, the orchestrator
+   observed "oh the changes are already there" and asked the CM to commit
+   and push from the branch-switched repo.
+3. **Did not check impact on other agents.** `worker-demo-fix` was running
+   `nix run .#test-*` suites concurrently. The branch switch could have
+   corrupted their test results. (It didn't — Nix snapshots source at eval
+   time — but this was luck, not design. Non-Nix workflows would have been
+   affected.)
+4. **Treated the outcome as acceptable** because the commit landed correctly
+   on the branch. But the process was wrong: an uncontrolled branch switch
+   in a shared repo while another agent is active is exactly L-050.
+
+**What should have happened:**
+
+1. Confirm worktree failed (done correctly)
+2. **STOP.** Do not proceed with the work in the shared repo.
+3. Check whether the branch switch affected any active agents
+4. Either: (a) manually create a worktree via Bash and direct the agent there,
+   or (b) wait for worker-demo-fix to finish, then have CM switch branches
+   safely, or (c) ask the owner how to proceed
+5. Never wave through results from a failed isolation mechanism
+
+**Why L-015 didn't prevent this:** L-015 (2026-03-14) documents the worktree
+silent failure and says "never use `isolation: worktree`." The orchestrator
+used it anyway (12 days later), confirming that documentation alone does not
+prevent recurrence. L-015's fix ("verify strictly disjoint file sets or run
+sequentially") was not followed either — the orchestrator launched the agent
+without checking whether worker-demo-fix was active in the repo.
+
+**Structural gap:** The Agent tool's `isolation: "worktree"` parameter
+silently degrades to shared-repo operation on failure. There is no error,
+no warning, no indication that isolation was not achieved. The orchestrator
+must assume worktree isolation will fail and plan accordingly.
+
+**Fix:**
+1. **Do not use `isolation: "worktree"`.** L-015 already said this. This
+   time, actually follow it.
+2. **If worktree isolation is attempted anyway:** verify it succeeded
+   (`git worktree list`) BEFORE proceeding. If it failed, STOP.
+3. **Never wave through results from a failed safety mechanism.** The fact
+   that the outcome was correct does not make the process acceptable.
+   Failed isolation + concurrent agents = uncontrolled state, even if
+   no damage occurred this time.
+4. **Before spawning any agent that touches git:** confirm no other agent
+   is actively using the repo. One message to the active agent, wait for
+   acknowledgment that they're between operations.
+5. **Prompting improvement needed.** The Agent tool should surface worktree
+   creation failures as errors rather than silently falling back. To be
+   addressed in future prompt engineering work.

@@ -2720,7 +2720,7 @@ session.
 and gain calibration (US-012) can be tested end-to-end without requiring
 physical hardware.
 
-**Status:** active (resumed per owner directive 2026-03-20. Was deferred 2026-03-16. CI tier done, E2E tier needs D-040 adaptation. Blocked on US-060.)
+**Status:** in-progress (DEPLOY phase — TEST PASS 2026-03-24, 1,304 tests / 0 failures. Awaiting Pi deployment.)
 **Depends on:** US-045 (hardware config schema provides device definitions), US-060 (PW monitoring replacement — D-040 adaptation)
 **Blocks:** US-047 implementation (owner directive: mock backend required for local testing)
 **Decisions:** D-035 (measurement safety)
@@ -2797,7 +2797,7 @@ every web UI view,
 which tab I'm using — especially during measurement sessions when I'm not on
 the Dashboard.
 
-**Status:** active (resumed per owner directive 2026-03-20. Was deferred 2026-03-16. UI structure done (SB-1-7), data source wiring blocked on US-060.)
+**Status:** in-progress (DEPLOY phase — TEST PASS 2026-03-24, 194 E2E passed / 2 skipped / 9 xpassed. Awaiting Pi deployment.)
 **Depends on:** D-020 (web UI infrastructure), TK-097 (24-channel metering spec defines channel mapping), US-060 (PW monitoring replacement — data source wiring)
 **Blocks:** US-053 (manual test tool needs the persistent frame)
 **Decisions:** D-020

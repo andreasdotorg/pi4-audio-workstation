@@ -62,8 +62,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-004 | done | 4/4 | **done** (owner-accepted 2026-03-21). Assumption register (A1-A28), cross-references documented, CLAUDE.md updated. |
 | US-005 | done | 3/3 | **done** (owner-accepted, implicit 2026-03-12). Basic DJ functionality works. Residual mapping work deferred. |
 | US-006 | done | 3/3 | **done** (owner-accepted, implicit 2026-03-12). Owner actively DJing on Mixxx with Hercules on Pi. |
-| US-050 | TEST | 6/6 | **TEST phase (advanced 2026-03-21).** QE test plan: T-050-1 (CI regression), T-050-2 (E2E harness self-validation on Linux+PW), T-050-3 (D-040 adaptation inspection), T-050-4 (AC coverage check). QE reviewing T-050-3/4 on commit. CM committing code. |
-| US-051 | TEST | 4/4 | **TEST phase (advanced 2026-03-21).** QE test plan: T-051-1 (Playwright E2E, 20+ tests), T-051-2 (CI regression), T-051-3 (D-040 inspection), T-051-4 (Pi hardware, deferred to VERIFY). TP-003 protocol exists. Committed `8975b5b`. |
+| US-050 | **DEPLOY** | 6/6 | **TEST PASS (2026-03-24).** All QE test plans passed: 1,304 tests, 0 failures. T-050-1 CI regression PASS (537 test-all + 194 test-e2e), T-050-2 E2E harness PASS, T-050-3 D-040 inspection PASS, T-050-4 AC coverage PASS. Ready for DEPLOY (Pi integration). |
+| US-051 | **DEPLOY** | 4/4 | **TEST PASS (2026-03-24).** All QE test plans passed: T-051-1 Playwright E2E PASS (194 passed, 2 skipped, 9 xpassed), T-051-2 CI regression PASS, T-051-3 D-040 inspection PASS. T-051-4 (Pi hardware) deferred to VERIFY per QE. Ready for DEPLOY. |
 | US-052 | VERIFY | 4/6 | **VERIFY PASS** (S-001 2026-03-21). Signal-gen running on Pi. F-034/F-035 repo fixes committed (`33b5577`). Responds to RPC. |
 | US-053 | IMPLEMENT | 4/7 | Code complete (`94103c3`). 7 UX spec fixes applied. Remaining: UX visual verification (#3, new gate), integration test (#4), hot-plug test (#5), AD sign-off (#6), AE sign-off (#7) — all need Pi access. |
 | US-056 | CANCELLED | 0/0 | **cancelled** (owner directive 2026-03-16, D-040: CamillaDSP abandoned. JACK backend migration no longer needed.) |
@@ -98,8 +98,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-052** (Phase: **VERIFY, DoD 4/6** — S-001 PASS 2026-03-21): RT Signal Generator. Running on Pi, responds to RPC. F-034/F-035 repo fixes committed (`33b5577`). SG-13 deferred (graceful startup). US-053 unblocked.
 - **US-060** (Phase: **VERIFY, DoD 3/7** — S-002 PASS 2026-03-21): PipeWire Monitoring Replacement (Phase B). FilterChainCollector running, GM RPC working, 0 xruns. `56ef3f0` LevelsCollector adds PW-native level data. Known gaps: AC #3 processing load (F-039, needs US-063 pw-top parsing), AC #7 xrun counter (needs US-063 PW metadata).
 - **US-061** (Phase: **VERIFY, DoD 1/8** — S-002 PASS 2026-03-21): Measurement Pipeline Adaptation (Phase C). Client files deployed, imports OK on Pi. Known gaps resolved: deploy.py path fixed (`3dcccc2`), measure_nearfield.py pycamilladsp removed (`d368c76`).
-- **US-050** (Phase: **TEST, DoD 6/6** — advanced 2026-03-21): Measurement Pipeline Mock Backend. QE test plan delivered: T-050-1 (CI regression), T-050-2 (E2E harness on Linux+PW), T-050-3 (D-040 inspection), T-050-4 (AC coverage). QE will review T-050-3/4 on commit. T-050-1/2: worker evidence from implementation may suffice. Stale AC (line 2718 "Real CamillaDSP") flagged as doc cleanup. CM committing code.
-- **US-051** (Phase: **TEST, DoD 4/4** — advanced 2026-03-21): Persistent System Status Bar. QE test plan delivered: T-051-1 (Playwright E2E, 20+ tests in `test_status_bar.py`), T-051-2 (CI regression), T-051-3 (D-040 inspection — QE reviewing), T-051-4 (Pi hardware — deferred to VERIFY per QE recommendation). TP-003 protocol exists. Committed `8975b5b`. T-051-1/2 need worker execution.
+- **US-050** (Phase: **DEPLOY, DoD 6/6** — TEST PASS 2026-03-24): Measurement Pipeline Mock Backend. **All QE test plans PASSED.** 1,304 tests, 0 failures. T-050-1 (CI regression: 537 test-all), T-050-2 (E2E harness: 194 test-e2e), T-050-3 (D-040 inspection), T-050-4 (AC coverage) — all PASS. Ready for Pi deployment. Stale AC (line 2718 "Real CamillaDSP") flagged as doc cleanup.
+- **US-051** (Phase: **DEPLOY, DoD 4/4** — TEST PASS 2026-03-24): Persistent System Status Bar. **All QE test plans PASSED.** T-051-1 (Playwright E2E: 194 passed, 2 skipped, 9 xpassed), T-051-2 (CI regression), T-051-3 (D-040 inspection) — all PASS. T-051-4 (Pi hardware) deferred to VERIFY per QE. 9 measurement wizard xfail markers now passing (F-049 resolved) — cleanup item filed. Ready for Pi deployment.
 - **US-053** (Phase: **IMPLEMENT, DoD 4/6** — code complete 2026-03-21): Manual Test Tool Page. Code committed (`94103c3`): 7 UX spec fixes, signal-gen env var. Remaining DoD: #3 integration test (Pi), #4 hot-plug test (Pi), #5 AD sign-off (safety controls), #6 AE sign-off (signal quality). All remaining items need Pi access.
 - **US-065** (Phase: **IMPLEMENT, DoD 6/10** — committed `965f501` + `5dad57e` + `30a25e1`): Configuration Tab. Code + E2E test + F-046 quantum confirm dialog all committed. Remaining DoD: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10).
 - **US-064** (Phase: **IMPLEMENT, DoD 5/8** — Phase 3 merged to main): PW Graph Visualization Tab. Phase 1: SPA config parser (`e72de9b`). Phase 2: backend topology API (`2370ff9`). Phase 3: data-driven graph.js rewrite (merged `54ef78b`). F-076 + F-074 committed (`d44921c`). Rule 13: Architect + QE APPROVED. Remaining: UX screenshot gate, Pi integration test.
@@ -147,6 +147,23 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
 - **US-004** (**DONE** — owner-accepted 2026-03-21): Assumption register (A1-A28). CLAUDE.md reference corrected.
 - **US-000a** (**DONE** — owner-accepted 2026-03-21): Platform security hardening. F-002/F-011 resolved, reboot-verified.
+
+### Session Progress (2026-03-23 / 2026-03-24)
+
+**Commits (`cd94e0b`..`179dafa`):**
+- `179dafa` — F-083/F-084: correct SPA_AUDIO_FORMAT_F32LE constant and stream flags
+- `ca52456` — F-072: GM safety alerts surfaced to web UI status bar
+- `c859d80` — F-067: SETUP-MANUAL prose rewrite + CamillaDSP scrub
+- `f54ae54` — US-070: CI workflow rewrite for GitHub-hosted runners with Nix caching
+- `cd94e0b` — docs: F-083 defect status and story tracking update
+
+**US-075 merged to main** (`9d31713` + `73af529` + `2749695`): Local PW integration test environment. Production-replica topology, virtual USBStreamer/ADA8200, filter-chain convolver with Dirac impulses, GM measurement mode. `nix run .#local-demo` operational. E2E verified: 12 links, -20/-23 dBFS, web-ui connected.
+
+**US-050/US-051 TEST PASS (2026-03-24):** 1,304 tests, 0 failures across all suites. Both advanced to DEPLOY phase. 9 measurement wizard xfail markers now passing (F-049 fully resolved) — xfail cleanup needed.
+
+**US-070 CI pipeline pushed** (`295aded`): GitHub Actions ran but **FAILED** — `flake.nix` `eachSystem` missing `x86_64-linux` (GitHub runners are x86_64-linux). Fix needed before merge.
+
+**Defects resolved:** F-083, F-084, F-072, F-067 all marked Resolved in tracking.
 
 ### Session Progress (2026-03-22)
 
@@ -289,7 +306,7 @@ needs classification (code bug / test bug / environment gap) and a tracked defec
 **Reconciliation (2026-03-22 late session):**
 
 *Stalled items (no progress since 2026-03-21):*
-- US-050 TEST, US-051 TEST — no QE activity, no worker assigned
+- ~~US-050 TEST, US-051 TEST — no QE activity, no worker assigned~~ **RESOLVED 2026-03-24:** TEST PASS, advanced to DEPLOY
 - US-052 VERIFY, US-060 VERIFY, US-061 VERIFY — need next Pi VERIFY session
 - US-053, US-065 — code complete, remaining items need Pi
 - F-056 xrun research, F-057 Pi verification — unblocked but no worker assigned
