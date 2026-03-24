@@ -17,11 +17,12 @@
       "x86_64-darwin"   # macOS Intel dev
       "aarch64-darwin"  # macOS Apple Silicon dev
       "aarch64-linux"   # Pi 4B deployment target
+      "x86_64-linux"    # GitHub Actions CI runners
     ] (system:
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = nixpkgs.lib.optionals (system == "aarch64-linux") [
+          overlays = nixpkgs.lib.optionals (builtins.match ".*-linux" system != null) [
             nixgl.overlay
           ];
         };
@@ -133,7 +134,7 @@
             # pw-jack provides libjack.so that routes JACK calls through
             # PipeWire. Mixxx links against JACK, so it needs to find
             # the host's pw-jack library.
-            HOST_LIB="/usr/lib/aarch64-linux-gnu"
+            HOST_LIB="/usr/lib/${system}-gnu"
             if [ -d "$HOST_LIB/pipewire-0.3/jack" ]; then
               export LD_LIBRARY_PATH="$HOST_LIB/pipewire-0.3/jack''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             fi

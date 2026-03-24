@@ -270,3 +270,62 @@ pi4-audio-workstation/
     guide/howto/                  This file and future HOWTOs
     theory/                       Design rationale, signal processing theory
 ```
+
+
+## 7. Continuous Integration (US-070)
+
+The project uses GitHub Actions for CI. The workflow is defined in
+`.github/workflows/ci.yml`.
+
+### 7.1 What Triggers CI
+
+| Event | Scope | Behavior |
+|-------|-------|----------|
+| `push` | Any branch (`**`) | Runs on every push to any branch |
+| `pull_request` | `main` branch | Runs on PR creation and each subsequent push |
+
+A concurrency group (`ci-<ref>`) cancels in-progress runs when a newer commit
+is pushed to the same branch, so you do not waste CI minutes on superseded
+commits.
+
+### 7.2 CI Jobs
+
+CI runs two parallel jobs on `ubuntu-latest` (GitHub-hosted) runners:
+
+| Job | What it runs | Typical duration |
+|-----|-------------|-----------------|
+| **`test-all`** | `nix run .#test-all` (web-ui unit, room-correction, midi, drivers, graph-manager via cargo), then individual Rust targets: `test-graph-manager`, `test-pcm-bridge`, `test-signal-gen` | 5-15 min |
+| **`test-e2e`** | `nix run .#test-e2e` (Playwright browser tests against mock server) | 7-20 min |
+
+Both jobs install Nix via `cachix/install-nix-action` and cache the Nix store
+via `nix-community/cache-nix-action` (keyed on `flake.lock` hash). The first
+run after a cache miss is slow (full Nix build); subsequent runs use cached
+store paths.
+
+### 7.3 Reading CI Results
+
+- **GitHub PR page:** Check the "Checks" tab for per-job status.
+- **GitHub Actions tab:** See full logs for each step.
+- **Failed step:** Expand the failed step to see pytest or cargo test output.
+  The test name and assertion message are usually sufficient to identify the
+  failure.
+
+### 7.4 Branch Protection
+
+Branch protection on `main` requires both `test-all` and `test-e2e` to pass
+before a PR can be merged. Force-push to `main` is disabled. Squash merge is
+the default merge strategy (clean main history).
+
+Workers create feature branches for their work (naming convention:
+`<story-id>/<short-description>`, e.g., `us-064/graph-rework`), open PRs
+against `main`, and merge only after CI passes.
+
+### 7.5 Flaky Test Policy
+
+A flaky test is a bug, not an inconvenience:
+
+- **Do not** add retry logic or "re-run until green" workflows.
+- **Do** file a defect and quarantine the test (`@pytest.mark.skip` with the
+  defect ID) until fixed.
+- CI failure on a flaky test blocks the PR until the test is fixed or properly
+  quarantined.

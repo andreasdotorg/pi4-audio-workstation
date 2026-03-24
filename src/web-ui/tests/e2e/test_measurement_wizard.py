@@ -35,7 +35,7 @@ sequentially against a session-scoped mock server.  Three contributing factors:
    crash entirely ("Target crashed").  This is an environmental issue, not
    a code bug -- the same tests pass reliably when run individually.
 
-Tests affected by issue #3 are marked ``xfail(reason="F-049")``.
+Issue #3 was resolved; xfail markers removed.
 """
 
 import json
@@ -54,13 +54,6 @@ SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Timeout for waiting for state transitions (mock backend takes ~5-15s)
 STATE_TIMEOUT = 30_000  # ms
-
-# xfail marker for tests affected by F-049 browser-side state delivery.
-# strict=False: passing is OK (the fix may work), failing is expected.
-_f049_xfail = pytest.mark.xfail(
-    reason="F-049: browser-side WS/polling unreliable under resource pressure",
-    strict=False,
-)
 
 
 def _screenshot(page, name: str) -> None:
@@ -162,7 +155,6 @@ def test_idle_screenshot(page):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_happy_path_completes(page):
     """Start a measurement and verify it reaches COMPLETE state."""
     _navigate_to_measure(page)
@@ -178,7 +170,6 @@ def test_happy_path_completes(page):
     expect(badge).to_have_text("COMPLETE")
 
 
-@_f049_xfail
 def test_happy_path_abort_visible_during_active(page):
     """Verify abort button becomes visible during active measurement phases."""
     _navigate_to_measure(page)
@@ -191,7 +182,6 @@ def test_happy_path_abort_visible_during_active(page):
     expect(abort_btn).not_to_have_class(re.compile(r".*\bhidden\b.*"))
 
 
-@_f049_xfail
 def test_happy_path_progress_segments(page):
     """Verify progress bar segments update during the session."""
     _navigate_to_measure(page)
@@ -214,7 +204,6 @@ def test_happy_path_progress_segments(page):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_gain_cal_screen(page):
     """Verify gain calibration screen elements exist during GAIN_CAL phase.
 
@@ -246,7 +235,6 @@ def test_gain_cal_screen(page):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_measuring_screen(page):
     """Verify measuring screen elements during MEASURING phase."""
     _navigate_to_measure(page)
@@ -276,7 +264,6 @@ def test_measuring_screen(page):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_complete_screen(page):
     """Verify completion screen after session finishes."""
     _navigate_to_measure(page)
@@ -306,7 +293,6 @@ def test_complete_screen(page):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_abort_flow(page):
     """Start a measurement, abort during an active phase, verify ABORTED screen."""
     _navigate_to_measure(page)
@@ -341,7 +327,6 @@ def test_abort_flow(page):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_error_screen(page, mock_server):
     """Verify error screen display when a session fails.
 
@@ -402,7 +387,6 @@ def test_error_screen(page, mock_server):
 # ---------------------------------------------------------------------------
 
 
-@_f049_xfail
 def test_return_to_idle_from_complete(page):
     """After completion, clicking NEW MEASUREMENT returns to IDLE screen."""
     _navigate_to_measure(page)
