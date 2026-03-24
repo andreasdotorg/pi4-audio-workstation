@@ -1,20 +1,24 @@
-# Pi4 Audio Workstation -- Color Palette
+# Pi4 Audio Workstation -- Visual Design Specification
 
 > **Status:** APPROVED (2026-03-24). All design questions resolved by owner.
 > **Author:** UX Specialist. **Reviewed by:** Owner, Architect.
+>
+> Covers: color palette, typography, and visual identity tokens for the web UI.
 
 ---
 
 ## Design Principles
 
-1. **Dark venue first.** Every color must be readable at arm's length on a 1080p
-   HDMI display under stage lighting and in near-darkness.
+1. **Dark venue first.** Every color and typeface must be readable at arm's length
+   on a 1080p HDMI display under stage lighting and in near-darkness.
 2. **Semantic over decorative.** Signal colors (safe/warning/danger) have strict
    meaning. They are never used for branding or decoration.
 3. **Logo-aligned identity.** Navy/charcoal base, cyan/teal primary, amber accent --
    shared visual DNA between logo and UI.
 4. **Color-blind safe.** Critical indicators never rely on color alone. Position,
    luminance, text labels, and shape provide redundant cues.
+5. **Instrument-panel typography.** A single monospace font reinforces the
+   professional audio tool aesthetic and ensures numeric readouts never "dance."
 
 ---
 
@@ -156,7 +160,96 @@ cool-to-warm. The cold end shifts slightly toward navy to match backgrounds.
 Only positions 0.00 and 0.15 changed (cold-end navy nudge). The warm end
 (amber/yellow/white) naturally aligns with the brand palette.
 
-## 7. Token Migration
+## 7. Typography
+
+### Current State (broken)
+
+The CSS declares two font stacks:
+
+```css
+--font-body: "Inter", "JetBrains Mono", system-ui, sans-serif;
+--font-numeric: "Space Mono", "JetBrains Mono", "Fira Code", monospace;
+```
+
+**None of these fonts are loaded.** No `@font-face` declarations, no web font
+imports, no `.woff2` files bundled. The UI silently falls through to
+`system-ui` (body) and generic `monospace` (numeric), which resolve to whatever
+the platform provides -- DejaVu Sans / Noto Sans on the Pi, San Francisco on
+iOS, Roboto on Android. This means:
+
+- Inconsistent rendering across Pi display, phone, and tablet
+- No guaranteed digit differentiation (`0` vs `O`, `1` vs `l`) at 8-10px
+- No OpenType `tnum` feature in DejaVu Sans Mono (though monospace is
+  inherently tabular)
+- Visual mismatch between what was designed and what ships
+
+### Decision: JetBrains Mono throughout
+
+**Owner approved Option A (2026-03-24):** Self-hosted JetBrains Mono as the
+single font for both body text and numeric readouts.
+
+| Weight | File | Size (approx) |
+|---|---|---|
+| Regular (400) | `static/fonts/JetBrainsMono-Regular.woff2` | ~50 KB |
+| Bold (700) | `static/fonts/JetBrainsMono-Bold.woff2` | ~50 KB |
+
+**License:** Apache 2.0 (open source, no restrictions).
+
+### Font Stacks (target state)
+
+```css
+--font-body: "JetBrains Mono", system-ui, monospace;
+--font-numeric: "JetBrains Mono", monospace;
+```
+
+Both stacks lead with JetBrains Mono. The `system-ui` fallback in `--font-body`
+provides graceful degradation if the font file fails to load. The `monospace`
+generic ensures tabular digits even in the worst case.
+
+### @font-face Declarations
+
+```css
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("/static/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "JetBrains Mono";
+    src: url("/static/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+```
+
+`font-display: swap` ensures the UI renders immediately with fallback fonts,
+then swaps in JetBrains Mono once loaded. No flash of invisible text.
+
+### Rationale
+
+1. **Stage readability.** Monospace fonts are inherently more readable at a
+   glance -- every character occupies the same space, eliminating variable-width
+   kerning that slows visual parsing.
+2. **Data-heavy UI.** The dashboard is ~80% numeric data (dB, Hz, %, timestamps).
+   Using a proportional font for the remaining 20% of labels creates visual
+   inconsistency for no benefit.
+3. **Professional audio precedent.** Hardware analyzers, mixing consoles, and
+   audio plugin UIs overwhelmingly use monospace or fixed-width displays.
+   JetBrains Mono looks "right" for the domain.
+4. **Digit clarity.** JetBrains Mono has distinctive glyphs for `0`/`O`, `1`/`l`,
+   and clear tabular figure support -- critical for dB readouts at 8-10px.
+5. **Simplicity.** One font to load, one font to maintain, consistent rendering
+   on Pi, phone, and tablet.
+6. **Offline-safe.** Self-hosted woff2 files -- no CDN dependency. The Pi may
+   have no internet access at a venue.
+
+---
+
+## 8. Token Migration
 
 ### Old -> New mapping
 
@@ -209,7 +302,7 @@ Only positions 0.00 and 0.15 changed (cold-end navy nudge). The warm end
 
 ---
 
-## 8. Complete `:root` Block (target state)
+## 9. Complete `:root` Block (target state)
 
 ```css
 :root {
@@ -261,8 +354,10 @@ Only positions 0.00 and 0.15 changed (cold-end navy nudge). The warm end
     /* -- Layout -- */
     --nav-height: 28px;
     --status-bar-height: 36px;
-    --font-body: "Inter", "JetBrains Mono", system-ui, sans-serif;
-    --font-numeric: "Space Mono", "JetBrains Mono", "Fira Code", monospace;
+
+    /* -- Typography (self-hosted JetBrains Mono) -- */
+    --font-body: "JetBrains Mono", system-ui, monospace;
+    --font-numeric: "JetBrains Mono", monospace;
 }
 ```
 
@@ -270,7 +365,7 @@ Only positions 0.00 and 0.15 changed (cold-end navy nudge). The warm end
 
 ## Implementation Checklist
 
-### Phase 1: CSS foundation (no visual change yet)
+### Phase 1: CSS foundation + typography (no visual breakage)
 
 1. **`src/web-ui/static/style.css`** -- Update the `:root` block
    - Add new canonical tokens (`--safe`, `--warning`, `--danger`, `--primary`,
@@ -282,6 +377,18 @@ Only positions 0.00 and 0.15 changed (cold-end navy nudge). The warm end
      tokens instead of hardcoded `--gv-color-*` hex values
    - Add new utility classes (`.c-safe`, `.c-warning`, `.c-danger`,
      `.c-primary`, `.c-accent`) alongside existing ones
+
+1b. **Typography: self-host JetBrains Mono**
+   - Download `JetBrainsMono-Regular.woff2` and `JetBrainsMono-Bold.woff2`
+     from https://github.com/JetBrains/JetBrainsMono/releases
+   - Place in `src/web-ui/static/fonts/`
+   - Add `@font-face` declarations at the top of `style.css` (before `:root`)
+     per the declarations in Section 7 above
+   - Update `--font-body` and `--font-numeric` in `:root` to the new stacks:
+     ```css
+     --font-body: "JetBrains Mono", system-ui, monospace;
+     --font-numeric: "JetBrains Mono", monospace;
+     ```
 
 2. **`src/web-ui/static/style.css`** -- Update mode badge
    - `.sb-mode-badge` default stays `--primary`
@@ -382,3 +489,5 @@ Recommended branch: `us-XXX-color-palette` (story number TBD).
 | 2026-03-24 | UX Specialist: initial audit and proposal with 3 open questions |
 | 2026-03-24 | Owner decisions: (Q1) subtle navy, (Q2) differentiated mode badges, (Q3) managed=primary |
 | 2026-03-24 | Document updated to APPROVED status with implementation checklist |
+| 2026-03-24 | Font audit: current fonts aspirational but never loaded. Owner approved Option A: JetBrains Mono throughout |
+| 2026-03-24 | Document expanded to Visual Design Specification (color + typography). Section 7 + checklist step 1b added |
