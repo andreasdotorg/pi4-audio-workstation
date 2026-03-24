@@ -5317,7 +5317,7 @@ node names, no WirePlumber, GM integration, managed-mode services.
 **so that** visual elements have clear semantic meaning, mode identification
 is instant, and the interface looks professional and cohesive.
 
-**Status:** selected (owner resolved all 3 open palette questions 2026-03-24. UX specialist preparing implementation checklist.)
+**Status:** in-progress (IMPLEMENT phase 2026-03-24. Owner resolved all 3 open palette questions. UX checklist delivered: 4 phases, 17 steps. worker-demo-fix assigned.)
 **Depends on:** none (CSS/JS only, no backend changes)
 **Blocks:** none (visual polish, can land independently)
 
