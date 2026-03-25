@@ -1,6 +1,6 @@
 """WebSocket handler for the Monitor view.
 
-Pushes combined level-meter + DSP health data at ~10 Hz.
+Pushes combined level-meter + DSP health data at ~30 Hz (US-081).
 
 In mock mode (PI_AUDIO_MOCK=1): each connected client gets its own
 MockDataGenerator instance.
@@ -26,7 +26,7 @@ async def ws_monitoring(
     scenario: str = Query("A"),
     freeze_time: str = Query("false"),
 ):
-    """Push monitoring data (levels + filter-chain health) at ~10 Hz."""
+    """Push monitoring data (levels + filter-chain health) at ~30 Hz (US-081)."""
     await ws.accept()
 
     if MOCK_MODE:
@@ -37,7 +37,7 @@ async def ws_monitoring(
             while True:
                 data = gen.monitoring()
                 await ws.send_text(json.dumps(data))
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.033)
         except WebSocketDisconnect:
             log.info("Monitoring WS disconnected")
         except Exception:

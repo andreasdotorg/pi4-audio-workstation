@@ -18,8 +18,7 @@
 
     var DB_MIN = -60;
     var DB_MAX = 0;
-    var PEAK_HOLD_MS = 1500;
-    var CLIP_LATCH_MS = 3000;
+    var PEAK_HOLD_MS = 2000;        // US-081: 2-second peak hold
     var CLIP_THRESHOLD_DB = -0.5;
 
     // -- Canvas contexts for mini meters --
@@ -39,9 +38,9 @@
 
     var i;
     for (i = 0; i < 8; i++) {
-        captureState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
-        playbackState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
-        physinState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
+        captureState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        playbackState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        physinState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
     }
 
     // -- Group rendering configs (colors resolved from CSS vars at init) --
@@ -100,8 +99,9 @@
             state.peakHold = peak;
             state.peakHoldTime = now;
         }
+        // US-081: Latching clip
         if (peak >= CLIP_THRESHOLD_DB) {
-            state.clipTime = now;
+            state.clipLatched = true;
         }
     }
 
@@ -131,9 +131,9 @@
                 ctx.fillRect(x, h - fillH, g.barW, fillH);
             }
 
-            // Clip latch: flash entire bar red
-            if (state.clipTime > 0 && (now - state.clipTime) < CLIP_LATCH_MS) {
-                ctx.fillStyle = "rgba(229, 69, 58, 0.6)";
+            // US-081: Latching clip — stays until cleared
+            if (state.clipLatched) {
+                ctx.fillStyle = "rgba(255, 23, 68, 0.6)";
                 ctx.fillRect(x, 0, g.barW, h);
             }
 

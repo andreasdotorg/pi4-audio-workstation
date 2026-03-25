@@ -37,11 +37,17 @@
 
     var DB_MIN = -60;
     var DB_MAX = 0;
-    var PEAK_HOLD_MS = 1500;
-    var CLIP_LATCH_MS = 3000;
+    var PEAK_HOLD_MS = 2000;        // US-081: 2-second peak hold
+    var PEAK_DECAY_DB_PER_S = 20;   // US-081: 20 dB/s decay after hold
     var CLIP_THRESHOLD_DB = -0.5;
     var SILENT_THRESHOLD_DB = -60;
     var SILENT_DIM_MS = 5000;
+
+    // IEC 60268-18 PPM ballistics (applied to displayed peak)
+    // Rise: 10ms to reach -1dB of steady-state
+    // Fall: 1.5s for 20dB drop
+    var PPM_RISE_COEFF = 1.0 - Math.exp(-1.0 / (0.01 * 30));  // ~30Hz data rate
+    var PPM_FALL_COEFF = 1.0 - Math.exp(-1.0 / (1.5 * 30));
 
     var FRAC_12 = (-12 - DB_MIN) / (DB_MAX - DB_MIN);
     var FRAC_6 = (-6 - DB_MIN) / (DB_MAX - DB_MIN);
@@ -99,9 +105,9 @@
 
     var i;
     for (i = 0; i < 8; i++) {
-        captureState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
-        playbackState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
-        physinState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipTime: 0 });
+        captureState.push({ rms: -120, peak: -120, ppmPeak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        playbackState.push({ rms: -120, peak: -120, ppmPeak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        physinState.push({ rms: -120, peak: -120, ppmPeak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
     }
 
     // -- Helpers --
@@ -141,6 +147,11 @@
         if (!container) return;
         container.innerHTML = "";
 
+        // Resolve which state array this group uses (for clip clear)
+        var stateArr = source === "playback" ? playbackState
+            : source === "physin" ? physinState
+            : captureState;
+
         for (var idx = 0; idx < labels.length; idx++) {
             var col = document.createElement("div");
             col.className = "meter-channel";
@@ -149,6 +160,12 @@
             clipInd.className = "meter-clip-indicator";
             clipInd.id = containerId + "-clip-" + idx;
             clipInd.textContent = "CLIP";
+            // US-081: Click to clear latched clip
+            (function (arr, ch) {
+                clipInd.addEventListener("click", function () {
+                    arr[ch].clipLatched = false;
+                });
+            })(stateArr, channels[idx]);
 
             var wrapper = document.createElement("div");
             wrapper.className = "meter-canvas-wrapper";
@@ -169,15 +186,23 @@
             lbl.className = "meter-label";
             lbl.textContent = labels[idx];
 
+            // US-081: Peak readout (primary)
             var dbVal = document.createElement("div");
             dbVal.className = "meter-db-value";
             dbVal.id = containerId + "-db-" + idx;
             dbVal.textContent = "-inf";
 
+            // US-081: RMS readout (secondary, smaller)
+            var rmsVal = document.createElement("div");
+            rmsVal.className = "meter-db-value meter-rms-value";
+            rmsVal.id = containerId + "-db-" + idx + "-rms";
+            rmsVal.textContent = "";
+
             col.appendChild(clipInd);
             col.appendChild(wrapper);
             col.appendChild(lbl);
             col.appendChild(dbVal);
+            col.appendChild(rmsVal);
             container.appendChild(col);
 
             canvasArray.push({ canvas: canvas, ctx: null, w: 0, h: 0 });
@@ -242,12 +267,12 @@
         ctx.fillStyle = "#181b20";
         ctx.fillRect(0, 0, w, h);
 
-        // Peak fill — unified gradient for all groups:
-        // base color → brighter base at -12dB → yellow at -6dB → red at -3dB
-        var peakFillFrac = dbToFraction(state.peak);
-        var peakFillH = peakFillFrac * h;
-        if (peakFillH > 0.5) {
-            var gc = GROUP_COLORS[group] || GROUP_COLORS.main;
+        var gc = GROUP_COLORS[group] || GROUP_COLORS.main;
+
+        // RMS fill — main filled region (shows sustained energy)
+        var rmsFrac = dbToFraction(state.rms);
+        var rmsFillH = rmsFrac * h;
+        if (rmsFillH > 0.5) {
             var grad = ctx.createLinearGradient(0, h, 0, 0);
             grad.addColorStop(0, gc.base);
             grad.addColorStop(Math.min(FRAC_12, 1), gc.bright);
@@ -255,23 +280,29 @@
             grad.addColorStop(Math.min(FRAC_3, 1), PiAudio.cssVar("--danger"));
             grad.addColorStop(1, PiAudio.cssVar("--danger"));
             ctx.fillStyle = grad;
-            ctx.fillRect(0, h - peakFillH, w, peakFillH);
+            ctx.fillRect(0, h - rmsFillH, w, rmsFillH);
         }
 
-        // Peak indicator
-        var peakFrac = dbToFraction(state.peak);
-        if (peakFrac > 0) {
-            var peakY = h - peakFrac * h;
-            ctx.fillStyle = "rgba(255,255,255,0.5)";
-            ctx.fillRect(0, peakY, w, 1);
-        }
-
-        // Peak hold
-        var holdFrac = dbToFraction(state.peakHold);
-        if (holdFrac > 0 && (now - state.peakHoldTime) < PEAK_HOLD_MS) {
-            var holdY = h - holdFrac * h;
+        // PPM peak marker — thin line above RMS (shows transient peaks)
+        var ppmFrac = dbToFraction(state.ppmPeak);
+        if (ppmFrac > 0) {
+            var ppmY = h - ppmFrac * h;
             ctx.fillStyle = "#ffffff";
-            ctx.fillRect(1, holdY, w - 2, 2);
+            ctx.fillRect(1, ppmY, w - 2, 2);
+        }
+
+        // Peak hold with decay — stays for PEAK_HOLD_MS then decays at 20 dB/s
+        var holdDb = state.peakHold;
+        var holdAge = now - state.peakHoldTime;
+        if (holdAge > PEAK_HOLD_MS) {
+            var decayS = (holdAge - PEAK_HOLD_MS) / 1000;
+            holdDb = state.peakHold - PEAK_DECAY_DB_PER_S * decayS;
+        }
+        var holdFrac = dbToFraction(holdDb);
+        if (holdFrac > 0) {
+            var holdY = h - holdFrac * h;
+            ctx.fillStyle = "rgba(255,255,255,0.45)";
+            ctx.fillRect(0, holdY, w, 1);
         }
 
         // dB scale lines
@@ -283,14 +314,11 @@
         }
     }
 
-    function updateClipIndicator(containerId, idx, state, now) {
+    function updateClipIndicator(containerId, idx, state) {
         var clipEl = document.getElementById(containerId + "-clip-" + idx);
         if (!clipEl) return;
-        // F-1 FIX: Only show CLIP when peak actually exceeded threshold
-        // and latch for CLIP_LATCH_MS. clipTime is only set when peak >= CLIP_THRESHOLD_DB.
-        // If clipTime is 0 (never clipped), never show active.
-        var clipping = state.clipTime > 0 && (now - state.clipTime) < CLIP_LATCH_MS;
-        clipEl.classList.toggle("active", clipping);
+        // US-081: Latching clip — stays red until user clicks to clear.
+        clipEl.classList.toggle("active", state.clipLatched);
     }
 
     // -- Silent channel dimming (applies to ALL groups) --
@@ -317,16 +345,27 @@
         }
     }
 
-    function updateDbReadout(id, peak) {
+    function updateDbReadout(id, peak, rms) {
         var el = document.getElementById(id);
         if (!el) return;
         if (peak <= DB_MIN) {
             el.textContent = "-inf";
             el.style.color = "";
         } else {
-            el.textContent = peak.toFixed(1);
-            // F-6 FIX: Use correct thresholds: green < -12, yellow -12 to -3, red > -3
+            // US-081: Show both peak (primary) and RMS (secondary)
+            var peakStr = peak.toFixed(1);
+            var rmsStr = rms > DB_MIN ? rms.toFixed(1) : "-inf";
+            el.textContent = peakStr;
             el.style.color = dbReadoutColor(peak);
+        }
+        // Update RMS sub-readout if it exists
+        var rmsEl = document.getElementById(id + "-rms");
+        if (rmsEl) {
+            if (rms <= DB_MIN) {
+                rmsEl.textContent = "";
+            } else {
+                rmsEl.textContent = rms.toFixed(1);
+            }
         }
     }
 
@@ -345,8 +384,8 @@
             state = captureState[ch];
             updateChannelDim("meters-main", idx, mainColumns, state, wallNow);
             drawMeter(mainCanvases[idx], state, now, "main");
-            updateClipIndicator("meters-main", idx, state, now);
-            updateDbReadout("meters-main-db-" + idx, state.peak);
+            updateClipIndicator("meters-main", idx, state);
+            updateDbReadout("meters-main-db-" + idx, state.peak, state.rms);
         }
 
         // APP→CONV meters (capture ch 2-7)
@@ -355,8 +394,8 @@
             state = captureState[ch];
             updateChannelDim("meters-app", idx, appColumns, state, wallNow);
             drawMeter(appCanvases[idx], state, now, "app");
-            updateClipIndicator("meters-app", idx, state, now);
-            updateDbReadout("meters-app-db-" + idx, state.peak);
+            updateClipIndicator("meters-app", idx, state);
+            updateDbReadout("meters-app-db-" + idx, state.peak, state.rms);
         }
 
         // CONV→OUT meters (playback ch 0-7)
@@ -365,8 +404,8 @@
             state = playbackState[ch];
             updateChannelDim("meters-dspout", idx, dspoutColumns, state, wallNow);
             drawMeter(dspoutCanvases[idx], state, now, "dspout");
-            updateClipIndicator("meters-dspout", idx, state, now);
-            updateDbReadout("meters-dspout-db-" + idx, state.peak);
+            updateClipIndicator("meters-dspout", idx, state);
+            updateDbReadout("meters-dspout-db-" + idx, state.peak, state.rms);
         }
 
         // PHYS IN meters (placeholder — no data source yet)
@@ -375,8 +414,8 @@
             state = physinState[ch];
             updateChannelDim("meters-physin", idx, physinColumns, state, wallNow);
             drawMeter(physinCanvases[idx], state, now, "physin");
-            updateClipIndicator("meters-physin", idx, state, now);
-            updateDbReadout("meters-physin-db-" + idx, state.peak);
+            updateClipIndicator("meters-physin", idx, state);
+            updateDbReadout("meters-physin-db-" + idx, state.peak, state.rms);
         }
 
         requestAnimationFrame(renderFrame);
@@ -387,12 +426,34 @@
     function updateChannel(state, rms, peak, now) {
         state.rms = rms;
         state.peak = peak;
-        if (peak > state.peakHold || (now - state.peakHoldTime) > PEAK_HOLD_MS) {
+
+        // IEC 60268-18 PPM ballistics on peak display
+        if (peak > state.ppmPeak) {
+            // Fast attack: move toward peak
+            state.ppmPeak = state.ppmPeak + (peak - state.ppmPeak) * PPM_RISE_COEFF;
+        } else {
+            // Slow release
+            state.ppmPeak = state.ppmPeak + (peak - state.ppmPeak) * PPM_FALL_COEFF;
+        }
+
+        // Peak hold: update when new peak exceeds hold, or after hold+decay period
+        if (peak > state.peakHold) {
             state.peakHold = peak;
             state.peakHoldTime = now;
         }
+        // Reset hold after it has decayed below minimum
+        var holdAge = now - state.peakHoldTime;
+        if (holdAge > PEAK_HOLD_MS) {
+            var decayed = state.peakHold - PEAK_DECAY_DB_PER_S * ((holdAge - PEAK_HOLD_MS) / 1000);
+            if (decayed <= DB_MIN) {
+                state.peakHold = peak;
+                state.peakHoldTime = now;
+            }
+        }
+
+        // US-081: Latching clip — set once, stays until user clicks to clear
         if (peak >= CLIP_THRESHOLD_DB) {
-            state.clipTime = now;
+            state.clipLatched = true;
         }
     }
 

@@ -299,10 +299,10 @@ fn run_levels_tcp(
     let clients: Arc<std::sync::Mutex<Vec<TcpStream>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    // US-077 Phase 4: ~10 Hz rate maintained by accumulating quanta
-    // notifications. Wait up to 100ms for the next notification; take
-    // a snapshot when woken or on timeout.
-    let snapshot_interval = Duration::from_millis(100);
+    // US-081: ~30 Hz snapshot rate for smooth meter rendering.
+    // Was 100ms (10 Hz); now 33ms (30 Hz) to support PPM ballistics
+    // and 60fps interpolation on the frontend.
+    let snapshot_interval = Duration::from_millis(33);
     let mut last_snapshot = std::time::Instant::now();
 
     while !shutdown.load(Ordering::Relaxed) {
@@ -372,7 +372,7 @@ fn run_levels_unix(
     let clients: Arc<std::sync::Mutex<Vec<UnixStream>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    let snapshot_interval = Duration::from_millis(100);
+    let snapshot_interval = Duration::from_millis(33);
     let mut last_snapshot = std::time::Instant::now();
 
     while !shutdown.load(Ordering::Relaxed) {
