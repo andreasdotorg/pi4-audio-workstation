@@ -358,7 +358,10 @@ async def _pcm_tcp_relay(ws: WebSocket, host: str, port: int,
 
         buf = bytearray()
         while True:
-            data = await asyncio.to_thread(tcp_sock.recv, 65536)
+            try:
+                data = await asyncio.to_thread(tcp_sock.recv, 65536)
+            except socket.timeout:
+                continue
             if not data:
                 break
             buf.extend(data)

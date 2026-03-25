@@ -472,15 +472,21 @@
 
         var baseline = plotY + plotH;
 
+        // Threshold: bins at or below the display floor are "no signal" —
+        // skip them to avoid a visible flat line at the bottom of the plot.
+        var floorDb = autoDbMin + 1;
+
         // Per-column fill: each bin gets a uniform color based on its dB level
         for (var x = 0; x < lutLen; x++) {
             var db = interpolateDB(freqData, freqLUT[x]);
-            var y = dbToY(db);
-            var colH = baseline - y;
 
-            if (colH > 0) {
-                ctx.fillStyle = dbToColor(db);
-                ctx.fillRect(plotX + x, y, 1, colH);
+            if (db > floorDb) {
+                var y = dbToY(db);
+                var colH = baseline - y;
+                if (colH > 0) {
+                    ctx.fillStyle = dbToColor(db);
+                    ctx.fillRect(plotX + x, y, 1, colH);
+                }
             }
 
             // Peak hold update
@@ -492,13 +498,19 @@
             }
         }
 
-        // Outline stroke
+        // Outline stroke — break the path at bins below the floor
+        var inStroke = false;
         ctx.beginPath();
         for (var x2 = 0; x2 < lutLen; x2++) {
             var db2 = interpolateDB(freqData, freqLUT[x2]);
+            if (db2 <= floorDb) {
+                inStroke = false;
+                continue;
+            }
             var y2 = dbToY(db2);
-            if (x2 === 0) {
+            if (!inStroke) {
                 ctx.moveTo(plotX + x2, y2);
+                inStroke = true;
             } else {
                 ctx.lineTo(plotX + x2, y2);
             }
@@ -507,13 +519,19 @@
         ctx.lineWidth = OUTLINE_WIDTH;
         ctx.stroke();
 
-        // Peak hold line
+        // Peak hold line — same floor-skip logic
         if (PEAK_HOLD_ENABLED && peakEnvelope) {
+            var inPeakStroke = false;
             ctx.beginPath();
             for (var x3 = 0; x3 < lutLen; x3++) {
+                if (peakEnvelope[x3] <= floorDb) {
+                    inPeakStroke = false;
+                    continue;
+                }
                 var peakY = dbToY(peakEnvelope[x3]);
-                if (x3 === 0) {
+                if (!inPeakStroke) {
                     ctx.moveTo(plotX + x3, peakY);
+                    inPeakStroke = true;
                 } else {
                     ctx.lineTo(plotX + x3, peakY);
                 }
