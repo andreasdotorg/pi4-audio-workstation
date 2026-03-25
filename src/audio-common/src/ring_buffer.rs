@@ -119,6 +119,11 @@ impl RingBuffer {
         if n_frames == 0 {
             return;
         }
+        debug_assert!(
+            n_frames <= self.capacity,
+            "write_interleaved: n_frames ({}) exceeds capacity ({})",
+            n_frames, self.capacity,
+        );
 
         let wp = self.write_pos.load(Ordering::Relaxed);
         let mask = self.capacity - 1; // capacity is power-of-2
@@ -316,7 +321,9 @@ mod tests {
 
     #[test]
     fn meta_captured_on_write() {
-        let ring = RingBuffer::new(8, 1);
+        // Capacity must be >= n_frames written in a single call.
+        // Previous capacity of 8 with 256 samples caused a heap overflow (F-116).
+        let ring = RingBuffer::new(256, 1);
         let clk = GraphClock { position: 1024, nsec: 21_333_333 };
         ring.write_interleaved(&[0.5; 256], 1, clk);
 
