@@ -148,6 +148,11 @@
     var accumBuf = new Float32Array(FFT_SIZE);
     var accumPos = 0;
 
+    // Snapshot buffer: frozen copy of accumBuf at the moment the window is
+    // complete. processFFT reads from this, not from the live accumBuf which
+    // the onmessage handler continues to modify.
+    var fftInputBuf = new Float32Array(FFT_SIZE);
+
     // Pre-computed Blackman-Harris window
     var windowFunc = new Float32Array(FFT_SIZE);
 
@@ -333,9 +338,9 @@
     // =====================================================================
 
     function processFFT() {
-        // Apply window
+        // Apply window to the frozen snapshot (not the live accumBuf)
         for (var i = 0; i < FFT_SIZE; i++) {
-            windowed[i] = accumBuf[i] * windowFunc[i];
+            windowed[i] = fftInputBuf[i] * windowFunc[i];
         }
 
         // Run FFT
@@ -463,6 +468,7 @@
                     accumPos++;
 
                     if (accumPos >= FFT_SIZE) {
+                        fftInputBuf.set(accumBuf);
                         dirty = true;
                         accumBuf.copyWithin(0, FFT_SIZE / 2);
                         accumPos = FFT_SIZE / 2;
