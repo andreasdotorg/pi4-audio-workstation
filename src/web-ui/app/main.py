@@ -497,6 +497,14 @@ def _siggen_sanitize(msg: dict) -> dict | None:
             return None
         msg["level_dbfs"] = min(level, SIGGEN_HARD_CAP_DBFS)
 
+    # Validate file path for file playback: must be absolute, no traversal.
+    if "path" in msg:
+        path = msg["path"]
+        if not isinstance(path, str) or not path.startswith("/"):
+            return None
+        if ".." in path.split("/"):
+            return None
+
     return msg
 
 

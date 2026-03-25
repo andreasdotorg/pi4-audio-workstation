@@ -49,7 +49,7 @@ HARD_CAP_DBFS = -0.5
 MIN_LEVEL_DBFS = -60.0
 MIN_FREQ_HZ = 20.0
 MAX_FREQ_HZ = 20000.0
-VALID_SIGNALS = {"sine", "white", "pink", "sweep", "silence"}
+VALID_SIGNALS = {"sine", "white", "pink", "sweep", "silence", "file"}
 VALID_CHANNELS = set(range(1, 9))
 
 router = APIRouter(prefix="/api/v1/test-tool", tags=["test-tool"])
@@ -66,6 +66,7 @@ class PlayRequest(BaseModel):
     freq: float = 1000.0
     duration: Optional[float] = None
     sweep_end: float = 20000.0
+    path: Optional[str] = None
 
     @field_validator("signal")
     @classmethod
@@ -263,6 +264,8 @@ async def play(body: PlayRequest):
     }
     if body.signal == "sweep":
         cmd["sweep_end"] = body.sweep_end
+    if body.signal == "file" and body.path:
+        cmd["path"] = body.path
 
     return await _rpc_or_error(cmd)
 

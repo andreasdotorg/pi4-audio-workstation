@@ -18,6 +18,7 @@ pub(crate) mod capture {
     pub use audio_common::capture_ring_buffer::*;
 }
 mod command;
+mod file_playback;
 mod generator;
 mod ramp;
 mod registry;
@@ -28,7 +29,7 @@ use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::net::{TcpListener, TcpStream};
 use std::process;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use audio_common::audio_format::build_audio_format;
@@ -40,6 +41,7 @@ use capture::CaptureRingBuffer;
 use command::{
     Command, CommandKind, CommandQueue, PlayState, SignalType, StateQueue, StateSnapshot,
 };
+use file_playback::{FileBuffer, FilePlaybackGenerator};
 use generator::{
     PinkNoiseGenerator, SignalGenerator, SilenceGenerator, SineGenerator, SweepGenerator,
     WhiteNoiseGenerator,
@@ -147,6 +149,12 @@ fn parse_listen_addr(listen: &str) -> (&str, &str) {
 // Process state — shared between PW callback and command application
 // ---------------------------------------------------------------------------
 
+/// Shared slot for pre-decoded file playback samples.
+///
+/// The RPC thread writes decoded audio into this slot; the RT thread
+/// reads it (briefly locking the Mutex) only when switching to file mode.
+pub(crate) type SharedFileSamples = Arc<Mutex<Arc<Vec<f32>>>>;
+
 /// All mutable state for the PW process callback.
 ///
 /// Lives on the PW data thread. Commands arrive via the SPSC queue.
@@ -165,6 +173,9 @@ pub(crate) struct ProcessState {
     gen_white: WhiteNoiseGenerator,
     gen_pink: PinkNoiseGenerator,
     // Sweep is always freshly created (different params each time)
+
+    // Shared file samples slot (RPC thread writes, RT thread reads on switch)
+    file_samples: SharedFileSamples,
 
     // Playback state
     play_state: PlayState,
@@ -206,6 +217,7 @@ impl ProcessState {
         rate: u32,
         max_level_dbfs: f64,
         ramp_ms: u32,
+        file_samples: SharedFileSamples,
     ) -> Self {
         let ramp_samples = FadeRamp::ms_to_samples(ramp_ms, rate);
         let safety = SafetyLimits::from_dbfs(max_level_dbfs);
@@ -220,6 +232,7 @@ impl ProcessState {
             gen_sine: SineGenerator::new(1000.0, rate as f64),
             gen_white: WhiteNoiseGenerator::new(42),
             gen_pink: PinkNoiseGenerator::new(42),
+            file_samples,
             play_state: PlayState::Stopped,
             active_signal: SignalType::Silence,
             active_channels: 0,
@@ -375,6 +388,16 @@ impl ProcessState {
                     dur,
                     self.rate,
                 ));
+            }
+            SignalType::File => {
+                // Read pre-decoded samples from the shared slot.
+                // This briefly locks the Mutex — acceptable since it only
+                // happens on signal switch, not every quantum.
+                let samples = match self.file_samples.lock() {
+                    Ok(guard) => Arc::clone(&*guard),
+                    Err(poisoned) => Arc::clone(&*poisoned.into_inner()),
+                };
+                self.generator = Box::new(FilePlaybackGenerator::new(samples));
             }
         }
     }
@@ -576,6 +599,7 @@ fn run_pipewire(
     event_queue: Arc<DeviceEventQueue>,
     conn_state: Arc<CaptureConnectionState>,
     shutdown: Arc<AtomicBool>,
+    file_samples: SharedFileSamples,
 ) {
     pipewire::init();
 
@@ -639,6 +663,7 @@ fn run_pipewire(
         args.rate,
         args.max_level_dbfs,
         args.ramp_ms,
+        file_samples,
     );
 
     let cmd_q = cmd_queue;
@@ -967,6 +992,8 @@ fn run_rpc_server(
     conn_state: Arc<CaptureConnectionState>,
     shutdown: Arc<AtomicBool>,
     max_level_dbfs: f64,
+    file_samples: SharedFileSamples,
+    sample_rate: u32,
 ) {
     let listener = match TcpListener::bind(listen_addr) {
         Ok(l) => l,
@@ -1005,6 +1032,8 @@ fn run_rpc_server(
                     &shutdown,
                     max_level_dbfs,
                     &mut latest_state,
+                    &file_samples,
+                    sample_rate,
                 );
                 info!("RPC client disconnected: {}", addr);
             }
@@ -1039,6 +1068,8 @@ fn handle_client(
     shutdown: &AtomicBool,
     max_level_dbfs: f64,
     latest_state: &mut StateSnapshot,
+    file_samples: &SharedFileSamples,
+    sample_rate: u32,
 ) {
     if let Err(e) = stream.set_nonblocking(true) {
         warn!("Failed to set non-blocking on client stream: {}", e);
@@ -1103,7 +1134,7 @@ fn handle_client(
                 let response = match rpc::parse_line(line) {
                     Ok(req) => {
                         let result =
-                            rpc::handle_request(&req, cmd_queue, max_level_dbfs, latest_state, conn_state.is_connected());
+                            rpc::handle_request(&req, cmd_queue, max_level_dbfs, latest_state, conn_state.is_connected(), file_samples, sample_rate);
                         match result {
                             rpc::HandleResult::Ack(cmd) => rpc::format_ack(&cmd),
                             rpc::HandleResult::Error(cmd, msg) => {
@@ -1221,6 +1252,9 @@ fn main() {
     let cmd_queue = Arc::new(CommandQueue::new());
     let state_queue = Arc::new(StateQueue::new());
 
+    // Shared file playback samples (RPC thread writes, RT thread reads).
+    let file_samples: SharedFileSamples = Arc::new(Mutex::new(Arc::new(Vec::new())));
+
     // Shared capture ring buffer (D-037 Section 5.3).
     let capture_buf = Arc::new(CaptureRingBuffer::new(
         args.capture_buffer_secs,
@@ -1250,6 +1284,8 @@ fn main() {
     let rpc_conn_state = conn_state.clone();
     let rpc_shutdown = shutdown.clone();
     let max_level_dbfs = args.max_level_dbfs;
+    let rpc_file_samples = file_samples.clone();
+    let rpc_sample_rate = args.rate;
     let rpc_thread = std::thread::Builder::new()
         .name("rpc-server".into())
         .spawn(move || {
@@ -1262,6 +1298,8 @@ fn main() {
                 rpc_conn_state,
                 rpc_shutdown,
                 max_level_dbfs,
+                rpc_file_samples,
+                rpc_sample_rate,
             );
         })
         .expect("Failed to spawn RPC server thread");
@@ -1275,6 +1313,7 @@ fn main() {
         event_queue.clone(),
         conn_state.clone(),
         shutdown.clone(),
+        file_samples.clone(),
     );
 
     info!("PipeWire loop exited, waiting for RPC server thread...");
@@ -1290,6 +1329,10 @@ fn main() {
 mod tests {
     use super::*;
     use command::{CommandKind, SignalType, PlayState};
+
+    fn test_file_samples() -> SharedFileSamples {
+        Arc::new(Mutex::new(Arc::new(Vec::new())))
+    }
 
     fn make_args(listen: &str, max_level_dbfs: f64) -> Args {
         Args {
@@ -1405,7 +1448,7 @@ mod tests {
 
     #[test]
     fn process_state_initial_is_stopped() {
-        let state = ProcessState::new(8, 48000, -20.0, 20);
+        let state = ProcessState::new(8, 48000, -20.0, 20, test_file_samples());
         assert_eq!(state.play_state, PlayState::Stopped);
         assert_eq!(state.active_signal, SignalType::Silence);
         assert_eq!(state.active_channels, 0);
@@ -1413,7 +1456,7 @@ mod tests {
 
     #[test]
     fn play_command_activates_generator() {
-        let mut state = ProcessState::new(2, 48000, -20.0, 20);
+        let mut state = ProcessState::new(2, 48000, -20.0, 20, test_file_samples());
         state.apply_command(Command {
             kind: CommandKind::Play {
                 signal: SignalType::Sine,
@@ -1434,7 +1477,7 @@ mod tests {
 
     #[test]
     fn stop_command_initiates_fade_out() {
-        let mut state = ProcessState::new(2, 48000, -20.0, 20);
+        let mut state = ProcessState::new(2, 48000, -20.0, 20, test_file_samples());
         // First start playback.
         state.apply_command(Command {
             kind: CommandKind::Play {
@@ -1458,7 +1501,7 @@ mod tests {
 
     #[test]
     fn set_frequency_updates_state() {
-        let mut state = ProcessState::new(2, 48000, -20.0, 20);
+        let mut state = ProcessState::new(2, 48000, -20.0, 20, test_file_samples());
         state.apply_command(Command {
             kind: CommandKind::SetFrequency { frequency: 440.0 },
         });
@@ -1467,7 +1510,7 @@ mod tests {
 
     #[test]
     fn set_channel_updates_state() {
-        let mut state = ProcessState::new(8, 48000, -20.0, 20);
+        let mut state = ProcessState::new(8, 48000, -20.0, 20, test_file_samples());
         state.apply_command(Command {
             kind: CommandKind::SetChannel { channels: 0b1111_0000 },
         });
@@ -1478,7 +1521,7 @@ mod tests {
     fn multi_command_drain_in_process() {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
-        let mut state = ProcessState::new(2, 48000, -20.0, 20);
+        let mut state = ProcessState::new(2, 48000, -20.0, 20, test_file_samples());
 
         // Push multiple commands to simulate rapid-fire from RPC.
         cmd_queue
@@ -1513,7 +1556,7 @@ mod tests {
     fn process_generates_silence_when_stopped() {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
-        let mut state = ProcessState::new(2, 48000, -20.0, 20);
+        let mut state = ProcessState::new(2, 48000, -20.0, 20, test_file_samples());
 
         let mut buf = vec![1.0f32; 512]; // pre-fill with non-zero
         state.process(&mut buf, 256, &cmd_queue, &state_queue, None, None);
@@ -1529,7 +1572,7 @@ mod tests {
     fn process_pushes_state_snapshot() {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
-        let mut state = ProcessState::new(2, 48000, -20.0, 20);
+        let mut state = ProcessState::new(2, 48000, -20.0, 20, test_file_samples());
 
         let mut buf = vec![0.0f32; 512];
         state.process(&mut buf, 256, &cmd_queue, &state_queue, None, None);
@@ -1545,7 +1588,7 @@ mod tests {
     fn burst_auto_stop_triggers_fade_out() {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
-        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         // Play a 0.01s burst (480 samples at 48kHz).
         state.apply_command(Command {
@@ -1627,7 +1670,7 @@ mod tests {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
         let capture = CaptureRingBuffer::new(1, 48000);
-        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         cmd_queue
             .push(Command {
@@ -1655,7 +1698,7 @@ mod tests {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
         let capture = CaptureRingBuffer::new(1, 48000);
-        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         cmd_queue
             .push(Command {
@@ -1674,7 +1717,7 @@ mod tests {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
         let capture = CaptureRingBuffer::new(1, 48000);
-        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         // Start capture.
         cmd_queue
@@ -1705,7 +1748,7 @@ mod tests {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
         let capture = CaptureRingBuffer::new(1, 48000);
-        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         // Start playrec.
         cmd_queue
@@ -1748,7 +1791,7 @@ mod tests {
         let cmd_queue = CommandQueue::new();
         let state_queue = StateQueue::new();
         let capture = CaptureRingBuffer::new(1, 48000);
-        let mut state = ProcessState::new(1, 48000, -20.0, 20);
+        let mut state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         // Very short burst: 0.005s (240 samples at 48kHz).
         // Zero-length ramp so fade completes instantly within the same quantum.
@@ -1796,7 +1839,7 @@ mod tests {
     #[test]
     fn snapshot_includes_capture_levels() {
         let capture = CaptureRingBuffer::new(1, 48000);
-        let state = ProcessState::new(1, 48000, -20.0, 20);
+        let state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         capture.update_levels(&[0.5; 100]);
         let snap = state.snapshot(Some(&capture), None);
@@ -1807,7 +1850,7 @@ mod tests {
 
     #[test]
     fn snapshot_without_capture_has_zero_levels() {
-        let state = ProcessState::new(1, 48000, -20.0, 20);
+        let state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
         let snap = state.snapshot(None, None);
 
         assert_eq!(snap.capture_peak, 0.0);
@@ -1818,7 +1861,7 @@ mod tests {
     fn snapshot_with_connected_capture() {
         let capture = CaptureRingBuffer::new(1, 48000);
         let conn = CaptureConnectionState::new();
-        let state = ProcessState::new(1, 48000, -20.0, 20);
+        let state = ProcessState::new(1, 48000, -20.0, 20, test_file_samples());
 
         conn.set_connected(47);
         let snap = state.snapshot(Some(&capture), Some(&conn));
