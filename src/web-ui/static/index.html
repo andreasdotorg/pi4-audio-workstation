@@ -195,6 +195,12 @@
     <div class="spectrum-zone" id="spectrum-zone">
         <div class="spectrum-container">
             <span class="spectrum-title">SPECTRUM</span>
+            <select class="spectrum-fft-select" id="spectrum-fft-size">
+                <option value="2048">Performance (2048)</option>
+                <option value="4096" selected>Balanced (4096)</option>
+                <option value="8192">Analysis (8192)</option>
+                <option value="16384">Measurement (16384)</option>
+            </select>
             <canvas class="spectrum-canvas" id="spectrum-canvas"></canvas>
         </div>
     </div>
@@ -585,6 +591,17 @@
                     <button class="tt-signal-btn" data-signal="white">White</button>
                     <button class="tt-signal-btn" data-signal="pink">Pink</button>
                     <button class="tt-signal-btn" data-signal="sweep">Sweep</button>
+                    <button class="tt-signal-btn" data-signal="file">File</button>
+                </div>
+            </div>
+
+            <!-- File path (visible for file playback only) -->
+            <div class="tt-section" id="tt-file-section" style="display:none">
+                <div class="tt-section-title">FILE PATH</div>
+                <div class="tt-slider-row">
+                    <input type="text" class="tt-file-input" id="tt-file-path"
+                           placeholder="/path/to/audio.mp3"
+                           style="flex:1; background:#1a1d24; color:#e0e0e0; border:1px solid #333; border-radius:4px; padding:4px 8px; font-family:monospace; font-size:12px">
                 </div>
             </div>
 
@@ -654,6 +671,12 @@
             <div class="tt-section">
                 <div class="tt-section-title-row">
                     <span class="tt-section-title">SPECTRUM ANALYZER</span>
+                    <select class="tt-source-select" id="tt-fft-size">
+                        <option value="2048">Perf (2048)</option>
+                        <option value="4096" selected>Bal (4096)</option>
+                        <option value="8192">Anl (8192)</option>
+                        <option value="16384">Meas (16384)</option>
+                    </select>
                     <select class="tt-source-select" id="tt-spectrum-source">
                         <option value="monitor">Monitor (Dashboard)</option>
                         <option value="capture-usb" selected>UMIK-1 (USB capture)</option>
@@ -713,6 +736,7 @@
 
 <script src="/static/js/app.js"></script>
 <script src="/static/js/statusbar.js"></script>
+<script src="/static/js/fft-pipeline.js"></script>
 <script src="/static/js/spectrum.js"></script>
 <script src="/static/js/dashboard.js"></script>
 <script src="/static/js/system.js"></script>

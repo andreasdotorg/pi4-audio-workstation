@@ -213,6 +213,11 @@
             freqSection.style.display =
                 (signal === "sine" || signal === "sweep") ? "" : "none";
         }
+        // Show/hide file path section.
+        var fileSection = $("tt-file-section");
+        if (fileSection) {
+            fileSection.style.display = (signal === "file") ? "" : "none";
+        }
     }
 
     function highlightSignalBtn(signal) {
@@ -431,14 +436,19 @@
 
                 // Pre-action confirmation (TK-203 pattern).
                 if (!hasConfirmedThisSession) {
-                    var ok = confirm(
+                    var confirmMsg =
                         "This will play audio through the selected speaker " +
                         "channel(s).\n\nLevel: " + currentLevel.toFixed(1) +
                         " dBFS\nChannel(s): " +
                         selectedChannels.map(function (c) {
                             return c + " " + (CHANNEL_LABELS[c] || "");
-                        }).join(", ") +
-                        "\n\nProceed?");
+                        }).join(", ");
+                    if (selectedSignal === "file") {
+                        var pathInput = $("tt-file-path");
+                        confirmMsg += "\nFile: " + (pathInput ? pathInput.value : "");
+                    }
+                    confirmMsg += "\n\nProceed?";
+                    var ok = confirm(confirmMsg);
                     if (!ok) return;
                     hasConfirmedThisSession = true;
                 }
@@ -453,6 +463,15 @@
                 };
                 if (selectedSignal === "sweep") {
                     cmd.sweep_end = 20000;
+                }
+                if (selectedSignal === "file") {
+                    var pathInput = $("tt-file-path");
+                    var filePath = pathInput ? pathInput.value.trim() : "";
+                    if (!filePath) {
+                        if (pathInput) pathInput.focus();
+                        return;
+                    }
+                    cmd.path = filePath;
                 }
                 sendCmd(cmd);
             });
@@ -497,17 +516,14 @@
 
     // -- Capture spectrum analyzer (PCM-MODE-3) --
 
-    // Reuse constants and utilities from PiAudioSpectrum (spectrum.js).
     var SPEC_SAMPLE_RATE = 48000;
-    var SPEC_FFT_SIZE = 2048;
-    var SPEC_NUM_CHANNELS = 4;
+    var SPEC_FFT_SIZE = 4096;  // US-080: default "Balanced"
     var SPEC_DB_MIN = -80;
     var SPEC_DB_MAX = 0;
     var SPEC_FREQ_LO = 20;
     var SPEC_FREQ_HI = 20000;
     var SPEC_LOG_LO = Math.log10(SPEC_FREQ_LO);
     var SPEC_LOG_HI = Math.log10(SPEC_FREQ_HI);
-    var SPEC_SMOOTHING = 0.3;
 
     // State
     var specCanvas = null;
@@ -519,16 +535,8 @@
     var specCurrentSource = null;
     var specActive = false;  // True when Test tab is visible.
 
-    // FFT pipeline buffers
-    var specAccumBuf = new Float32Array(SPEC_FFT_SIZE);
-    var specAccumPos = 0;
-    var specFftInputBuf = new Float32Array(SPEC_FFT_SIZE);
-    var specDirty = false;
-    var specWindowFunc = new Float32Array(SPEC_FFT_SIZE);
-    var specFftReal = new Float32Array(SPEC_FFT_SIZE);
-    var specFftImag = new Float32Array(SPEC_FFT_SIZE);
-    var specWindowed = new Float32Array(SPEC_FFT_SIZE);
-    var specSmoothedDB = null;
+    // Shared FFT pipeline instance (created at initSpectrum)
+    var specPipeline = null;
     var specFreqData = null;
 
     // Layout
@@ -543,87 +551,30 @@
     // Color LUT (shared with PiAudioSpectrum if available, else built locally)
     var specColorLUT = null;
 
-    function specInitWindow() {
-        var N = SPEC_FFT_SIZE;
-        var a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
-        for (var i = 0; i < N; i++) {
-            specWindowFunc[i] = a0
-                - a1 * Math.cos(2 * Math.PI * i / (N - 1))
-                + a2 * Math.cos(4 * Math.PI * i / (N - 1))
-                - a3 * Math.cos(6 * Math.PI * i / (N - 1));
-        }
-    }
-
-    function specFFT(input) {
-        var N = input.length;
-        var halfN = N / 2;
-        for (var i = 0; i < N; i++) {
-            specFftReal[i] = input[i];
-            specFftImag[i] = 0;
-        }
-        var j = 0;
-        for (var i = 0; i < N - 1; i++) {
-            if (i < j) {
-                var tr = specFftReal[i]; specFftReal[i] = specFftReal[j]; specFftReal[j] = tr;
-                var ti = specFftImag[i]; specFftImag[i] = specFftImag[j]; specFftImag[j] = ti;
-            }
-            var k = halfN;
-            while (k <= j) { j -= k; k >>= 1; }
-            j += k;
-        }
-        for (var step = 1; step < N; step <<= 1) {
-            var halfStep = step;
-            var tableStep = Math.PI / halfStep;
-            for (var group = 0; group < halfStep; group++) {
-                var angle = group * tableStep;
-                var wr = Math.cos(angle);
-                var wi = -Math.sin(angle);
-                for (var pair = group; pair < N; pair += step << 1) {
-                    var match = pair + halfStep;
-                    var tr2 = wr * specFftReal[match] - wi * specFftImag[match];
-                    var ti2 = wr * specFftImag[match] + wi * specFftReal[match];
-                    specFftReal[match] = specFftReal[pair] - tr2;
-                    specFftImag[match] = specFftImag[pair] - ti2;
-                    specFftReal[pair] += tr2;
-                    specFftImag[pair] += ti2;
-                }
-            }
-        }
-    }
-
-    function specProcessFFT() {
-        var i;
-        for (i = 0; i < SPEC_FFT_SIZE; i++) {
-            specWindowed[i] = specFftInputBuf[i] * specWindowFunc[i];
-        }
-        specFFT(specWindowed);
-        var binCount = SPEC_FFT_SIZE / 2 + 1;
-        if (!specSmoothedDB) {
-            specSmoothedDB = new Float32Array(binCount);
-            for (i = 0; i < binCount; i++) specSmoothedDB[i] = SPEC_DB_MIN;
-        }
-        for (i = 0; i < binCount; i++) {
-            var re = specFftReal[i];
-            var im = specFftImag[i];
-            var mag = Math.sqrt(re * re + im * im);
-            var db = mag > 0 ? 20 * Math.log10(mag / SPEC_FFT_SIZE) : SPEC_DB_MIN;
-            db = Math.max(SPEC_DB_MIN, Math.min(SPEC_DB_MAX, db));
-            specSmoothedDB[i] = SPEC_SMOOTHING * specSmoothedDB[i] + (1 - SPEC_SMOOTHING) * db;
-        }
-        if (!specFreqData || specFreqData.length !== binCount) {
-            specFreqData = new Float32Array(binCount);
-        }
-        for (i = 0; i < binCount; i++) {
-            specFreqData[i] = specSmoothedDB[i];
-        }
-    }
-
     function specFreqToNorm(freq) {
         return (Math.log10(freq) - SPEC_LOG_LO) / (SPEC_LOG_HI - SPEC_LOG_LO);
     }
 
     function specFreqToBin(freq) {
         return freq * SPEC_FFT_SIZE / SPEC_SAMPLE_RATE;
+    }
+
+    /** (Re)create the test tab FFT pipeline with current SPEC_FFT_SIZE. */
+    function specRecreatePipeline() {
+        if (specPipeline) specPipeline.reset();
+        specPipeline = PiAudioFFT.create({
+            fftSize: SPEC_FFT_SIZE,
+            sampleRate: 48000,
+            numChannels: 4,
+            dbMin: SPEC_DB_MIN,
+            dbMax: SPEC_DB_MAX,
+            smoothing: 0.3
+        });
+        specFreqData = null;
+        // Rebuild freq LUT for new bin count
+        if (specPlotW > 0) {
+            specBuildFreqLUT(Math.floor(specPlotW));
+        }
     }
 
     function specBuildFreqLUT(width) {
@@ -810,10 +761,10 @@
             return;
         }
         specDrawBackground();
-        if (specDirty) {
-            specProcessFFT();
-            specDirty = false;
+        if (specPipeline && specPipeline.dirty) {
+            specPipeline.processFFT();
         }
+        specFreqData = specPipeline ? specPipeline.freqData : null;
         if (specFreqData && specPcmConnected) {
             specDrawMountainRange();
         } else {
@@ -851,44 +802,8 @@
         };
 
         specPcmWs.onmessage = function (ev) {
-            var data = ev.data;
-            var V2_HEADER = 24;
-            var offset = 0;
-            while (offset < data.byteLength) {
-                var remaining = data.byteLength - offset;
-                if (remaining < 4) break;
-                var version = (new Uint8Array(data, offset, 1))[0];
-                var isV2 = version === 2;
-                var headerSize = isV2 ? V2_HEADER : 4;
-                if (remaining < headerSize) break;
-                var dv = new DataView(data, offset);
-                var frameCount = dv.getUint32(isV2 ? 4 : 0, true);
-                var pcmBytes = frameCount * SPEC_NUM_CHANNELS * 4;
-                var msgSize = headerSize + pcmBytes;
-                if (msgSize > remaining) {
-                    pcmBytes = remaining - headerSize;
-                    msgSize = remaining;
-                }
-                var pcm = new Float32Array(data, offset + headerSize,
-                    Math.floor(pcmBytes / 4));
-                var frames = Math.floor(pcm.length / SPEC_NUM_CHANNELS);
-                for (var i = 0; i < frames; i++) {
-                    var L = pcm[i * SPEC_NUM_CHANNELS];
-                    var R = pcm[i * SPEC_NUM_CHANNELS + 1];
-                    if (L !== L || R !== R || L > 2 || L < -2 || R > 2 || R < -2) {
-                        continue;
-                    }
-                    var mono = 0.5 * L + 0.5 * R;
-                    specAccumBuf[specAccumPos] = mono;
-                    specAccumPos++;
-                    if (specAccumPos >= SPEC_FFT_SIZE) {
-                        specFftInputBuf.set(specAccumBuf);
-                        specDirty = true;
-                        specAccumBuf.copyWithin(0, SPEC_FFT_SIZE / 2);
-                        specAccumPos = SPEC_FFT_SIZE / 2;
-                    }
-                }
-                offset += msgSize;
+            if (specPipeline) {
+                specPipeline.feedPcmMessage(ev.data);
             }
         };
 
@@ -917,9 +832,7 @@
         specPcmConnected = false;
         updateMicStatus("disconnected", specCurrentSource);
         // Reset FFT state for clean source switch.
-        specAccumPos = 0;
-        specDirty = false;
-        specSmoothedDB = null;
+        if (specPipeline) specPipeline.reset();
         specFreqData = null;
     }
 
@@ -1017,13 +930,25 @@
         specCanvas = $("tt-spectrum-canvas");
         if (!specCanvas) return;
         specCtx = specCanvas.getContext("2d");
-        specInitWindow();
+        specRecreatePipeline();
         specBuildColorLUT();
 
         window.addEventListener("resize", function () {
             specCachedW = 0;
             specCachedH = 0;
         });
+
+        // US-080: Wire up FFT size selector
+        var fftSelect = $("tt-fft-size");
+        if (fftSelect) {
+            fftSelect.addEventListener("change", function () {
+                var newSize = parseInt(this.value, 10);
+                if (newSize && newSize !== SPEC_FFT_SIZE && (newSize & (newSize - 1)) === 0) {
+                    SPEC_FFT_SIZE = newSize;
+                    specRecreatePipeline();
+                }
+            });
+        }
 
         specActive = true;
         specAnimFrame = requestAnimationFrame(specRender);

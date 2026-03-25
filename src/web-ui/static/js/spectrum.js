@@ -2,9 +2,10 @@
  * D-020 Web UI — FFT spectrum analyzer module (mountain range display).
  *
  * High-resolution FFT display driven by raw PCM data from a binary WebSocket
- * (/ws/pcm). Uses a JavaScript radix-2 Cooley-Tukey FFT for 2048-point
- * analysis with Blackman-Harris window, rendered as a filled "mountain range"
- * area with amplitude-based vertical heat palette on a log-frequency x-axis.
+ * (/ws/pcm). Uses a JavaScript radix-2 Cooley-Tukey FFT (default 4096-point,
+ * selectable 2048/4096/8192/16384 via US-080) with Blackman-Harris window,
+ * rendered as a filled "mountain range" area with amplitude-based vertical
+ * heat palette on a log-frequency x-axis. Auto-ranging Y axis (US-080).
  *
  * Data flow:
  *   Pi audio -> binary WebSocket /ws/pcm (raw PCM, 4ch float32)
@@ -36,8 +37,10 @@
     // =====================================================================
 
     var SAMPLE_RATE = 48000;
-    var FFT_SIZE = 2048;
-    var NUM_CHANNELS = 4;
+    var FFT_SIZE = 4096;  // US-080: default "Balanced"
+
+    // Shared FFT pipeline (created at init)
+    var fftPipeline = null;
 
     // Frequency range for log x-axis
     var FREQ_LO = 30;
@@ -45,11 +48,21 @@
     var LOG_LO = Math.log10(FREQ_LO);
     var LOG_HI = Math.log10(FREQ_HI);
 
-    // dB range for y-axis
+    // dB range for y-axis (static defaults; overridden by auto-ranging)
     var DB_MIN = -60;
     var DB_MAX = 0;
     var DB_GRID_LINES = [-12, -24, -36, -48];
     var DB_GRID_LINES_MINOR = [-6, -18, -30, -42, -54];
+
+    // US-080: Auto-ranging Y axis state
+    var autoDbMin = -60;
+    var autoDbMax = 0;
+    var AUTO_ATTACK_MS = 200;   // fast expansion
+    var AUTO_RELEASE_MS = 2000; // slow contraction
+    var AUTO_MARGIN_DB = 6;     // headroom above peak
+    var AUTO_FLOOR_DB = -90;    // absolute minimum floor
+    var AUTO_MIN_RANGE_DB = 30; // minimum display range
+    var lastAutoTime = 0;
 
     // Frequency labels along the bottom
     var FREQ_LABELS = [
@@ -131,38 +144,10 @@
     var peakEnvelope = null;   // Float32Array(plotW) — peak dB per x pixel
     var peakTimes = null;      // Float64Array(plotW) — last peak time per x pixel
 
-    // Dirty flag: set by onmessage, consumed by render() (F-026 fix)
-    var dirty = false;
-
-    // US-077: track graph clock from v2 PCM header for gap / discontinuity detection
-    var prevGraphPos = 0;
-
     // Legacy 1/3-octave fallback
     var legacyBands = null;
 
-    // =====================================================================
-    // FFT pipeline state
-    // =====================================================================
-
-    // Mono accumulator: L+R summed at -6dB each
-    var accumBuf = new Float32Array(FFT_SIZE);
-    var accumPos = 0;
-
-    // Snapshot buffer: frozen copy of accumBuf at the moment the window is
-    // complete. processFFT reads from this, not from the live accumBuf which
-    // the onmessage handler continues to modify.
-    var fftInputBuf = new Float32Array(FFT_SIZE);
-
-    // Pre-computed Blackman-Harris window
-    var windowFunc = new Float32Array(FFT_SIZE);
-
-    // FFT working buffers
-    var fftReal = new Float32Array(FFT_SIZE);
-    var fftImag = new Float32Array(FFT_SIZE);
-    var windowed = new Float32Array(FFT_SIZE);
-
-    // Smoothed magnitude in dB
-    var smoothedDB = null; // Float32Array(FFT_SIZE/2 + 1), lazily initialized
+    // FFT pipeline state is managed by fftPipeline (PiAudioFFT)
 
     // =====================================================================
     // Log-frequency utilities (reusable for TK-109, TK-110)
@@ -217,10 +202,13 @@
 
     /**
      * Convert a dB value to a y-pixel position within the plot area.
+     * Uses auto-ranged bounds when active.
      */
     function dbToY(db) {
-        var clamped = Math.max(DB_MIN, Math.min(DB_MAX, db));
-        var frac = (clamped - DB_MIN) / (DB_MAX - DB_MIN);
+        var lo = autoDbMin;
+        var hi = autoDbMax;
+        var clamped = Math.max(lo, Math.min(hi, db));
+        var frac = (clamped - lo) / (hi - lo);
         return plotY + plotH - frac * plotH;
     }
 
@@ -265,113 +253,17 @@
     }
 
     function dbToColor(db) {
-        var clamped = Math.max(DB_MIN, Math.min(DB_MAX, db));
-        var idx = Math.floor((clamped - DB_MIN) / (DB_MAX - DB_MIN) * 255);
+        var lo = autoDbMin;
+        var hi = autoDbMax;
+        var clamped = Math.max(lo, Math.min(hi, db));
+        var range = hi - lo;
+        var idx = range > 0 ? Math.floor((clamped - lo) / range * 255) : 0;
         if (idx > 255) idx = 255;
+        if (idx < 0) idx = 0;
         return colorLUT[idx];
     }
 
-    // =====================================================================
-    // Blackman-Harris window (computed once at init)
-    // =====================================================================
-
-    function initWindow() {
-        var N = FFT_SIZE;
-        var a0 = 0.35875, a1 = 0.48829, a2 = 0.14128, a3 = 0.01168;
-        for (var i = 0; i < N; i++) {
-            windowFunc[i] = a0
-                - a1 * Math.cos(2 * Math.PI * i / (N - 1))
-                + a2 * Math.cos(4 * Math.PI * i / (N - 1))
-                - a3 * Math.cos(6 * Math.PI * i / (N - 1));
-        }
-    }
-
-    // =====================================================================
-    // Radix-2 Cooley-Tukey FFT (in-place, decimation-in-time)
-    // =====================================================================
-
-    function fft(input) {
-        var N = input.length;
-        var halfN = N / 2;
-
-        // Copy input to real part, zero imag
-        for (var i = 0; i < N; i++) {
-            fftReal[i] = input[i];
-            fftImag[i] = 0;
-        }
-
-        // Bit reversal permutation
-        var j = 0;
-        for (var i = 0; i < N - 1; i++) {
-            if (i < j) {
-                var tr = fftReal[i]; fftReal[i] = fftReal[j]; fftReal[j] = tr;
-                var ti = fftImag[i]; fftImag[i] = fftImag[j]; fftImag[j] = ti;
-            }
-            var k = halfN;
-            while (k <= j) { j -= k; k >>= 1; }
-            j += k;
-        }
-
-        // Cooley-Tukey butterflies
-        for (var step = 1; step < N; step <<= 1) {
-            var halfStep = step;
-            var tableStep = Math.PI / halfStep;
-            for (var group = 0; group < halfStep; group++) {
-                var angle = group * tableStep;
-                var wr = Math.cos(angle);
-                var wi = -Math.sin(angle);
-                for (var pair = group; pair < N; pair += step << 1) {
-                    var match = pair + halfStep;
-                    var tr = wr * fftReal[match] - wi * fftImag[match];
-                    var ti = wr * fftImag[match] + wi * fftReal[match];
-                    fftReal[match] = fftReal[pair] - tr;
-                    fftImag[match] = fftImag[pair] - ti;
-                    fftReal[pair] += tr;
-                    fftImag[pair] += ti;
-                }
-            }
-        }
-    }
-
-    // =====================================================================
-    // FFT processing: window -> FFT -> magnitude dB -> smoothing
-    // =====================================================================
-
-    function processFFT() {
-        // Apply window to the frozen snapshot (not the live accumBuf)
-        for (var i = 0; i < FFT_SIZE; i++) {
-            windowed[i] = fftInputBuf[i] * windowFunc[i];
-        }
-
-        // Run FFT
-        fft(windowed);
-
-        // Compute magnitude in dB
-        var binCount = FFT_SIZE / 2 + 1;
-        if (!smoothedDB) {
-            smoothedDB = new Float32Array(binCount);
-            for (var i = 0; i < binCount; i++) smoothedDB[i] = DB_MIN;
-        }
-
-        for (var i = 0; i < binCount; i++) {
-            var re = fftReal[i];
-            var im = fftImag[i];
-            var mag = Math.sqrt(re * re + im * im);
-            var db = mag > 0 ? 20 * Math.log10(mag / FFT_SIZE) : DB_MIN;
-            db = Math.max(DB_MIN, Math.min(DB_MAX, db));
-
-            // Exponential smoothing
-            smoothedDB[i] = ANALYSER_SMOOTHING * smoothedDB[i] + (1 - ANALYSER_SMOOTHING) * db;
-        }
-
-        // Update freqData for the renderer
-        if (!freqData || freqData.length !== binCount) {
-            freqData = new Float32Array(binCount);
-        }
-        for (var i = 0; i < binCount; i++) {
-            freqData[i] = smoothedDB[i];
-        }
-    }
+    // FFT window, FFT, and processFFT are provided by fftPipeline (PiAudioFFT)
 
     // =====================================================================
     // Binary WebSocket: /ws/pcm
@@ -398,84 +290,8 @@
         };
 
         pcmWs.onmessage = function (ev) {
-            var data = ev.data;
-            // The TCP relay may coalesce multiple pcm-bridge frames into
-            // one WebSocket message. Process each frame individually by
-            // walking the buffer with the v2 wire format structure:
-            //   [version:1][pad:3][frame_count:4][pos:8][nsec:8][pcm...]
-            var V2_HEADER = 24;
-            var offset = 0;
-            while (offset < data.byteLength) {
-                var remaining = data.byteLength - offset;
-                if (remaining < 4) break;
-
-                var version = (new Uint8Array(data, offset, 1))[0];
-                var isV2 = version === 2;
-                var headerSize = isV2 ? V2_HEADER : 4;
-                if (remaining < headerSize) break;
-
-                var dv = new DataView(data, offset);
-                var frameCount = dv.getUint32(isV2 ? 4 : 0, true);
-                var pcmBytes = frameCount * NUM_CHANNELS * 4;
-                var msgSize = headerSize + pcmBytes;
-
-                // Sanity: if frame_count yields a message larger than
-                // remaining bytes, treat the rest as one partial frame.
-                if (msgSize > remaining) {
-                    pcmBytes = remaining - headerSize;
-                    msgSize = remaining;
-                }
-
-                // US-077: gap/discontinuity detection from v2 graph clock
-                if (isV2) {
-                    var graphPos = dv.getUint32(8, true);
-
-                    if (prevGraphPos > 0) {
-                        if (graphPos < prevGraphPos) {
-                            accumPos = 0;
-                            smoothedDB = null;
-                            freqData = null;
-                            dirty = false;
-                            prevGraphPos = graphPos;
-                            offset += msgSize;
-                            continue;
-                        }
-                        var advance = graphPos - prevGraphPos;
-                        if (frameCount > 0 && advance > frameCount * 2) {
-                            accumPos = 0;
-                            dirty = false;
-                        }
-                    }
-                    prevGraphPos = graphPos;
-                }
-
-                // Process PCM samples from this frame only
-                var pcm = new Float32Array(data, offset + headerSize,
-                    Math.floor(pcmBytes / 4));
-                var frames = Math.floor(pcm.length / NUM_CHANNELS);
-
-                for (var i = 0; i < frames; i++) {
-                    var L = pcm[i * NUM_CHANNELS];
-                    var R = pcm[i * NUM_CHANNELS + 1];
-                    // Defense-in-depth: skip corrupted samples (e.g. header
-                    // bytes misinterpreted as float32 produce huge values).
-                    // Any real audio is well within [-2, 2] (0 dBFS = 1.0).
-                    if (L !== L || R !== R || L > 2 || L < -2 || R > 2 || R < -2) {
-                        continue;
-                    }
-                    var mono = 0.5 * L + 0.5 * R;
-                    accumBuf[accumPos] = mono;
-                    accumPos++;
-
-                    if (accumPos >= FFT_SIZE) {
-                        fftInputBuf.set(accumBuf);
-                        dirty = true;
-                        accumBuf.copyWithin(0, FFT_SIZE / 2);
-                        accumPos = FFT_SIZE / 2;
-                    }
-                }
-
-                offset += msgSize;
+            if (fftPipeline) {
+                fftPipeline.feedPcmMessage(ev.data, { detectGaps: true });
             }
         };
 
@@ -549,22 +365,30 @@
         ctx.fillStyle = BG_COLOR;
         ctx.fillRect(0, 0, cssW, cssH);
 
-        // --- dB grid lines: major (12dB) ---
+        // --- dB grid lines: auto-ranged, 12dB major / 6dB minor ---
+        // Compute grid lines dynamically from current auto-range
+        var gridStep = 12;
+        var lo = autoDbMin;
+        var hi = autoDbMax;
+        var firstMajor = Math.ceil(lo / gridStep) * gridStep;
+
         ctx.strokeStyle = GRID_COLOR;
         ctx.lineWidth = 1;
-        for (var i = 0; i < DB_GRID_LINES.length; i++) {
-            var y = dbToY(DB_GRID_LINES[i]);
+        for (var gd = firstMajor; gd <= hi; gd += gridStep) {
+            var y = dbToY(gd);
             ctx.beginPath();
             ctx.moveTo(plotX, y);
             ctx.lineTo(plotX + plotW, y);
             ctx.stroke();
         }
 
-        // --- dB grid lines: minor (6dB intermediates) ---
+        // Minor (6dB intermediates)
         ctx.strokeStyle = "rgba(200, 205, 214, 0.12)";
         ctx.lineWidth = 0.5;
-        for (var im = 0; im < DB_GRID_LINES_MINOR.length; im++) {
-            var ym = dbToY(DB_GRID_LINES_MINOR[im]);
+        var firstMinor = Math.ceil(lo / 6) * 6;
+        for (var gm = firstMinor; gm <= hi; gm += 6) {
+            if (gm % gridStep === 0) continue; // skip majors
+            var ym = dbToY(gm);
             ctx.beginPath();
             ctx.moveTo(plotX, ym);
             ctx.lineTo(plotX + plotW, ym);
@@ -576,12 +400,15 @@
         ctx.font = "8px monospace";
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
-        for (var m = 0; m < DB_GRID_LINES.length; m++) {
-            var ly = dbToY(DB_GRID_LINES[m]);
-            ctx.fillText(DB_GRID_LINES[m] + " dB", plotX - 3, ly);
+        for (var gl = firstMajor; gl <= hi; gl += gridStep) {
+            var ly = dbToY(gl);
+            ctx.fillText(gl + " dB", plotX - 3, ly);
         }
-        ctx.fillText("0 dB", plotX - 3, dbToY(0));
-        ctx.fillText("-60 dB", plotX - 3, dbToY(-60));
+        // Always label the top and bottom of range
+        ctx.fillText(Math.round(hi) + " dB", plotX - 3, dbToY(hi));
+        if (Math.round(lo) !== firstMajor) {
+            ctx.fillText(Math.round(lo) + " dB", plotX - 3, dbToY(lo));
+        }
 
         // --- Vertical frequency grid: minor (lightest) ---
         ctx.strokeStyle = "rgba(200, 205, 214, 0.10)";
@@ -708,6 +535,49 @@
         ctx.fillText("No live audio", cssW / 2, cssH / 2);
     }
 
+    // US-080: Auto-ranging Y axis — track peak dB, smooth expand/contract
+    function updateAutoRange(now) {
+        if (!freqData) return;
+        var dt = lastAutoTime > 0 ? (now - lastAutoTime) / 1000 : 0.016;
+        lastAutoTime = now;
+        if (dt <= 0 || dt > 1) dt = 0.016; // clamp for sanity
+
+        // Find peak dB across all bins
+        var peakDb = AUTO_FLOOR_DB;
+        for (var i = 0; i < freqData.length; i++) {
+            if (freqData[i] > peakDb) peakDb = freqData[i];
+        }
+
+        // Target range: floor to peak + margin, minimum AUTO_MIN_RANGE_DB
+        var targetMax = Math.min(0, peakDb + AUTO_MARGIN_DB);
+        var targetMin = Math.min(targetMax - AUTO_MIN_RANGE_DB, autoDbMin);
+        // Don't let floor go below absolute minimum
+        if (targetMin < AUTO_FLOOR_DB) targetMin = AUTO_FLOOR_DB;
+
+        // Smoothing: fast attack (expand), slow release (contract)
+        var attackCoeff = 1.0 - Math.exp(-dt / (AUTO_ATTACK_MS / 1000));
+        var releaseCoeff = 1.0 - Math.exp(-dt / (AUTO_RELEASE_MS / 1000));
+
+        // dbMax: expand up fast, contract down slow
+        if (targetMax > autoDbMax) {
+            autoDbMax += (targetMax - autoDbMax) * attackCoeff;
+        } else {
+            autoDbMax += (targetMax - autoDbMax) * releaseCoeff;
+        }
+
+        // dbMin: expand down fast, contract up slow
+        if (targetMin < autoDbMin) {
+            autoDbMin += (targetMin - autoDbMin) * attackCoeff;
+        } else {
+            autoDbMin += (targetMin - autoDbMin) * releaseCoeff;
+        }
+
+        // Ensure minimum range
+        if (autoDbMax - autoDbMin < AUTO_MIN_RANGE_DB) {
+            autoDbMin = autoDbMax - AUTO_MIN_RANGE_DB;
+        }
+    }
+
     function render() {
         if (!ctx || !canvas) {
             animFrame = requestAnimationFrame(render);
@@ -725,12 +595,15 @@
 
         drawBackground();
 
-        if (dirty) {
-            processFFT();
-            dirty = false;
+        if (fftPipeline && fftPipeline.dirty) {
+            fftPipeline.processFFT();
         }
 
+        freqData = fftPipeline ? fftPipeline.freqData : null;
+
+        // US-080: auto-ranging Y axis
         if (freqData && pcmConnected) {
+            updateAutoRange(now);
             drawMountainRange(now);
         } else {
             drawNoSignalMessage();
@@ -742,6 +615,38 @@
     // =====================================================================
     // Public API
     // =====================================================================
+
+    /**
+     * (Re)create the FFT pipeline with current FFT_SIZE.
+     * Resets accumulator and auto-range state.
+     */
+    function recreatePipeline() {
+        if (fftPipeline) fftPipeline.reset();
+        fftPipeline = PiAudioFFT.create({
+            fftSize: FFT_SIZE,
+            sampleRate: SAMPLE_RATE,
+            numChannels: 4,
+            dbMin: DB_MIN,
+            dbMax: DB_MAX,
+            smoothing: ANALYSER_SMOOTHING
+        });
+        freqData = null;
+        // Reset auto-range
+        autoDbMin = DB_MIN;
+        autoDbMax = DB_MAX;
+        lastAutoTime = 0;
+        // Rebuild freq LUT for new bin count
+        if (plotW > 0) {
+            buildFreqLUT(Math.floor(plotW));
+        }
+        // Reset peak hold
+        if (peakEnvelope) {
+            for (var i = 0; i < peakEnvelope.length; i++) {
+                peakEnvelope[i] = autoDbMin;
+                peakTimes[i] = 0;
+            }
+        }
+    }
 
     function init(canvasId) {
         initSpectrumColors();
@@ -757,8 +662,20 @@
             cachedH = 0;
         });
 
-        // Initialize Blackman-Harris window coefficients
-        initWindow();
+        // Create shared FFT pipeline
+        recreatePipeline();
+
+        // US-080: Wire up FFT size selector
+        var fftSelect = document.getElementById("spectrum-fft-size");
+        if (fftSelect) {
+            fftSelect.addEventListener("change", function () {
+                var newSize = parseInt(this.value, 10);
+                if (newSize && newSize !== FFT_SIZE && (newSize & (newSize - 1)) === 0) {
+                    FFT_SIZE = newSize;
+                    recreatePipeline();
+                }
+            });
+        }
 
         // Connect WebSocket immediately (no user gesture required)
         connectPcmWebSocket();
@@ -789,9 +706,10 @@
             pcmReconnectTimer = null;
         }
         freqData = null;
-        smoothedDB = null;
-        accumPos = 0;
-        prevGraphPos = 0;
+        if (fftPipeline) fftPipeline.reset();
+        autoDbMin = DB_MIN;
+        autoDbMax = DB_MAX;
+        lastAutoTime = 0;
     }
 
     // =====================================================================
@@ -808,7 +726,7 @@
     var LABELS = ["31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
     var LABEL_INDICES = [2, 5, 8, 11, 14, 17, 20, 23, 26, 29];
 
-    window.PiAudioSpectrum = {
+    var spectrumApi = {
         init: init,
         updateData: updateData,
         destroy: destroy,
@@ -825,11 +743,15 @@
         FREQ_LO: FREQ_LO,
         FREQ_HI: FREQ_HI,
         SAMPLE_RATE: SAMPLE_RATE,
-        FFT_SIZE: FFT_SIZE,
         COLOR_STOPS: COLOR_STOPS,
         freqToNorm: freqToNorm,
         normToFreq: normToFreq,
         freqToBin: freqToBin
     };
+    // FFT_SIZE is mutable (US-080) so expose as getter
+    Object.defineProperty(spectrumApi, "FFT_SIZE", {
+        get: function () { return FFT_SIZE; }
+    });
+    window.PiAudioSpectrum = spectrumApi;
 
 })();
