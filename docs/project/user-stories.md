@@ -5697,7 +5697,7 @@ remaining taps. This table is the reference for both stories.
 | # | Tap point | PW ports | Use case | Story |
 |---|-----------|----------|----------|-------|
 | 1 | **Pre-convolver (full-range L+R)** | `convolver:playback_AUX0..3` | Room correction testing, sweep verification, source material QC. **Default view.** | **US-079** |
-| 2 | Post-FIR pre-gain | *Derived from Tap 3 via display-side gain compensation* | Verify crossover shape, inspect per-driver signal. **Owner rejected unity-gain workaround (safety risk).** AE Option A: spectrum adds `20*log10(1/Mult)` dB offset to Tap 3 — mathematically exact for linear gain, no signal path changes. | US-080 |
+| 2 | Post-FIR pre-gain | *Deferred — auto-ranging Y axis supersedes gain compensation* | Verify crossover shape, inspect per-driver signal. **Owner rejected unity-gain (safety risk).** Option A (display gain compensation) **superseded by auto-ranging Y axis** — handles level differences naturally. Distinct tap deferred unless monitor ports added later. | US-080 (deferred) |
 | 3 | **Post-gain / final output** | `USBStreamer:playback_AUX0..7` | Verify final signal to amplifiers, confirm gain staging, safety check. | US-080 |
 | 4 | **Source output** | `Mixxx:output_*` / `Reaper:output_*` / `signal-gen:output_*` | Verify source material before any processing. Mode-dependent source node. | US-080 |
 | 5 | **UMIK-1 capture** | `ADA8200:capture_AUX0` (UMIK-1 on ch 1) | Room measurement mic — core of correction workflow. View room response in real-time during sweeps. | US-080 |
@@ -5759,14 +5759,14 @@ US-080 delivers taps 2-6 (US-079 delivers tap 1).
 
 1. **Selectable tap points** (AE-defined, see US-079 table):
    - Tap 1: Pre-convolver (full-range L+R) — delivered by US-079, default
-   - Tap 2: Post-FIR pre-gain — **solved via display-side gain compensation
-     (Option A).** AE initially suggested setting gains to unity during tuning,
-     but **owner REJECTED as safety risk** (forgetting to restore attenuation
-     → full-power output to speakers). AE revised recommendation: spectrum
-     display adds `20*log10(1/Mult)` dB offset to the Y-axis when viewing
-     Tap 3 (post-gain), showing the effective pre-gain spectrum without
-     touching the actual signal path. Mathematically exact for linear gain.
-     No monitor ports needed — Tap 2 is derived from Tap 3 in software.
+   - Tap 2: Post-FIR pre-gain — **superseded by auto-ranging Y axis.**
+     History: AE initially suggested unity gain during tuning → **owner
+     REJECTED as safety risk.** AE then proposed Option A (display-side
+     `20*log10(1/Mult)` dB offset) → **owner superseded with auto-range Y
+     axis** (2026-03-25). Auto-range naturally handles the level difference
+     between tap points, making explicit gain compensation unnecessary.
+     Tap 2 remains available as a distinct tap point if monitor ports are
+     added in the future, but is not required for the initial delivery.
    - Tap 3: Post-gain / final output to USBStreamer
    - Tap 4: Source output (Mixxx/Reaper/signal-gen — mode-dependent)
    - Tap 5: UMIK-1 capture (room measurement mic, core of correction workflow)
@@ -5780,6 +5780,28 @@ US-080 delivers taps 2-6 (US-079 delivers tap 1).
    its spectrum. This connects US-080 with F-085 (graph rendering
    improvements) and US-064 (graph visualization tab). The graph becomes
    an interactive signal chain inspector, not just a topology display.
+5. **Auto-ranging Y axis** (owner directive 2026-03-25, supersedes Option A
+   display-side gain compensation): The spectrum Y axis auto-ranges to the
+   actual signal level at each tap point. Different taps have very different
+   levels (e.g., pre-convolver full-range vs post-gain attenuated).
+   - **Slow attack** on range expansion (don't jump instantly when signal
+     gets louder — smooth upward transition)
+   - **Even slower release** on range contraction (don't shrink range
+     erratically when signal drops — hold wider range longer)
+   - This naturally handles the level difference between tap points without
+     requiring explicit gain compensation math.
+6. **Selectable FFT size** (owner approved 2026-03-25):
+   - Default: **4096** (23 fps with 50% overlap, 11.7 Hz resolution at 48 kHz)
+   - User-selectable presets with human-readable labels (no raw FFT sizes):
+     - **Performance** (2048) — ~46 fps, 23.4 Hz resolution. Fast updates.
+     - **Balanced** (4096) — ~23 fps, 11.7 Hz resolution. Default.
+     - **Analysis** (8192) — ~12 fps, 5.9 Hz resolution. Fine detail.
+     - **Measurement** (16384) — ~6 fps, 2.9 Hz resolution. Maximum.
+   - **Mode-aware defaults:** DJ → Performance, Live → Balanced,
+     Measurement → Analysis or Measurement
+   - 50% overlap standard for all sizes
+   - **Hann window mandatory** (no user selection — Hann is correct for
+     continuous spectrum analysis)
 
 ### Architecture (AE recommendation)
 
@@ -5790,11 +5812,10 @@ RPC. No multiple instances needed.
 Architect consultation required before PLAN phase to confirm:
 - GM RPC design for tap point switching
 - Whether `node.passive=true` is needed on monitor taps
-- **Tap 2 approach (RESOLVED):** Display-side gain compensation — spectrum
-  adds `20*log10(1/Mult)` dB offset when viewing Tap 3. No signal path
-  changes, no monitor ports. Owner rejected unity-gain workaround as
-  safety risk. AE revised to Option A (display compensation). Architect
-  to confirm Mult values are accessible via GM RPC for the offset calc.
+- **Tap 2 approach (SUPERSEDED):** Option A (display-side gain compensation)
+  superseded by auto-ranging Y axis. Auto-range handles level differences
+  between tap points naturally. Tap 2 as a distinct tap point deferred
+  unless monitor ports are added in the future.
 - Graph UI integration feasibility (click-to-tap, connects with F-085/US-064)
 - Channel count handling (taps have different channel counts: 4ch convolver
   vs 8ch USBStreamer vs 1ch UMIK-1)
@@ -5810,6 +5831,12 @@ Architect consultation required before PLAN phase to confirm:
 - [ ] L-R difference overlay (optional, togglable)
 - [ ] Tap point change is near-instant (< 500ms GM rewire)
 - [ ] Channel count adapts to selected tap point
+- [ ] Y axis auto-ranges to signal level (slow attack, slower release)
+- [ ] Auto-range handles tap point transitions smoothly (no erratic jumps)
+- [ ] FFT size selector with 4 presets (Performance/Balanced/Analysis/Measurement)
+- [ ] Default FFT size is 4096 (Balanced)
+- [ ] Mode-aware defaults applied on mode change (DJ→Performance, etc.)
+- [ ] 50% overlap and Hann window applied at all FFT sizes
 - [ ] Local demo demonstrates at least taps 1, 3, 4
 - [ ] Tests cover tap switching and multi-channel-count handling
 
@@ -5849,6 +5876,7 @@ recommendation.)
 - Both always displayed together — never one without the other
 
 **Peak behavior:**
+- **PPM ballistics per IEC 60268-18** (standard peak programme meter)
 - 2-second peak hold (marker stays at maximum for 2s after transient)
 - Then 20 dB/s decay back toward RMS level
 
@@ -5860,8 +5888,18 @@ recommendation.)
 - Analogous to industrial alarm latching (see also ENH-003)
 
 **Numeric readout:**
-- Primary: peak level in dBFS (1 decimal place, e.g., "-12.3")
-- Secondary: RMS level (smaller text or tooltip)
+- Show **BOTH** RMS and peak values (owner directive 2026-03-25)
+- Peak level in dBFS (1 decimal place, e.g., "-12.3") — primary/larger
+- RMS level in dBFS (1 decimal place) — secondary/smaller but always visible
+  (not just tooltip)
+
+**Refresh rate** (owner approved 2026-03-25):
+- **Server snapshot rate:** increase from 10 Hz (100ms) to **25-30 Hz**
+  (33-40ms). This requires updating pcm-bridge's levels emission interval.
+- **Render rate:** **60 fps** via `requestAnimationFrame` with interpolation
+  between server snapshots. Smooth bar movement even at 25-30 Hz data rate.
+- Interpolation: linear between last two snapshots for RMS bar. Peak marker
+  uses max-hold logic (no interpolation — always shows true peak).
 
 **Not needed (AE confirmed):**
 - LUFS (broadcast standard, irrelevant for PA)
@@ -5874,26 +5912,33 @@ recommendation.)
 
 ### Implementation note
 
-**This is primarily UI work.** The server-side infrastructure already exists:
+**Mostly UI work, with one server-side change.** The server-side
+infrastructure mostly exists:
 - `LevelTracker` in pcm-bridge already computes both peak and RMS per channel
   per chunk (US-077 double-buffer architecture)
 - Levels JSON v2 already transmits peak and RMS values with timestamps
 - Web-UI already has meter elements in the dashboard
 
 The work is:
-1. Update meter rendering: segmented bar with RMS fill + peak marker
-2. Add peak hold logic (2s hold, 20 dB/s decay) in JavaScript
-3. Add latching clip indicator (red dot/segment, click to clear)
-4. Add numeric readout (peak dBFS primary, RMS secondary)
-5. Update E2E tests for new meter appearance
+1. **Server:** Increase pcm-bridge levels emission rate from 10 Hz to 25-30 Hz
+   (change the Notifier/timer interval in server.rs)
+2. Update meter rendering: segmented bar with RMS fill + peak marker
+3. Add PPM ballistics (IEC 60268-18) and peak hold logic (2s hold, 20 dB/s
+   decay) in JavaScript
+4. Add 60 fps rAF render loop with interpolation between snapshots
+5. Add latching clip indicator (red dot/segment, click to clear)
+6. Add numeric readout (peak dBFS + RMS dBFS, both always visible)
+7. Update E2E tests for new meter appearance
 
 ### Acceptance criteria
 
 - [ ] Meters show both peak (thin marker) and RMS (filled bar) simultaneously
+- [ ] PPM ballistics per IEC 60268-18
 - [ ] Peak holds for 2 seconds, then decays at 20 dB/s
 - [ ] Clip indicator turns red at 0 dBFS and latches until user click
-- [ ] Numeric readout shows peak in dBFS (1 decimal place)
-- [ ] RMS shown as secondary readout (tooltip or smaller text)
+- [ ] Numeric readout shows BOTH peak and RMS in dBFS (1 decimal place)
+- [ ] Server snapshot rate increased to 25-30 Hz
+- [ ] Render at 60 fps (rAF) with interpolation between snapshots
 - [ ] Same meter behavior in DJ, Live, and Measurement modes
 - [ ] Meters work with local demo (`nix run .#local-demo`)
 

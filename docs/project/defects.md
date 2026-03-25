@@ -3525,3 +3525,43 @@ configure the shared module rather than duplicating the code.
 - Update E2E tests if selectors change
 
 **Related:** F-098 (root cause 3 was this duplication)
+
+---
+
+## F-100: local-demo.sh leaves orphan processes on PipeWire startup failure
+
+**Filed:** 2026-03-25
+**Severity:** Low
+**Status:** OPEN
+**Affects:** `scripts/local-demo.sh`
+**Found by:** worker-demo-fix (during F-098 investigation)
+
+### Description
+
+When PipeWire fails to start during `nix run .#local-demo`, the script exits
+via `set -e` but the cleanup trap does not catch all child processes. Orphan
+signal-gen, pcm-bridge, and uvicorn processes remain running, holding ports
+and consuming resources.
+
+The cleanup function (lines 33-55) kills PIDs tracked in the `PIDS` array
+and calls `local-pw-test-env.sh stop`, but processes launched after the
+failure point may not have been added to `PIDS` yet. Additionally, uvicorn's
+`--reload` spawns a multiprocessing child that can survive parent cleanup
+(already noted in the script comments at line 38-39).
+
+### Fix
+
+Harden the cleanup function to:
+1. Kill all child processes of the script's process group (e.g., `kill -- -$$`
+   or `pkill -P $$`) in addition to the tracked PID list
+2. Explicitly kill known service processes by name as a fallback (signal-gen,
+   pcm-bridge, uvicorn on port 8080)
+3. Ensure cleanup runs on all exit paths including `set -e` failures
+
+### Priority
+
+Low — only affects local development, not production. Workaround: manually
+kill orphan processes (`pkill -f signal-gen; pkill -f pcm-bridge; pkill -f
+'uvicorn.*8080'`).
+
+**Related:** US-075 (local demo environment)
