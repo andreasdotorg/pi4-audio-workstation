@@ -522,6 +522,8 @@
     // FFT pipeline buffers
     var specAccumBuf = new Float32Array(SPEC_FFT_SIZE);
     var specAccumPos = 0;
+    var specFftInputBuf = new Float32Array(SPEC_FFT_SIZE);
+    var specDirty = false;
     var specWindowFunc = new Float32Array(SPEC_FFT_SIZE);
     var specFftReal = new Float32Array(SPEC_FFT_SIZE);
     var specFftImag = new Float32Array(SPEC_FFT_SIZE);
@@ -592,7 +594,7 @@
     function specProcessFFT() {
         var i;
         for (i = 0; i < SPEC_FFT_SIZE; i++) {
-            specWindowed[i] = specAccumBuf[i] * specWindowFunc[i];
+            specWindowed[i] = specFftInputBuf[i] * specWindowFunc[i];
         }
         specFFT(specWindowed);
         var binCount = SPEC_FFT_SIZE / 2 + 1;
@@ -808,6 +810,10 @@
             return;
         }
         specDrawBackground();
+        if (specDirty) {
+            specProcessFFT();
+            specDirty = false;
+        }
         if (specFreqData && specPcmConnected) {
             specDrawMountainRange();
         } else {
@@ -846,22 +852,43 @@
 
         specPcmWs.onmessage = function (ev) {
             var data = ev.data;
-            if (data.byteLength < 4) return;
-            // v2 header: [version:1][pad:3][frame_count:4][pos:8][nsec:8] = 24 bytes
-            // v1 header: [frame_count:4] = 4 bytes
-            var headerSize = (new Uint8Array(data, 0, 1))[0] === 2 ? 24 : 4;
-            var pcm = new Float32Array(data, headerSize);
-            var frames = Math.floor(pcm.length / SPEC_NUM_CHANNELS);
-            for (var i = 0; i < frames; i++) {
-                var mono = 0.5 * pcm[i * SPEC_NUM_CHANNELS] +
-                           0.5 * pcm[i * SPEC_NUM_CHANNELS + 1];
-                specAccumBuf[specAccumPos] = mono;
-                specAccumPos++;
-                if (specAccumPos >= SPEC_FFT_SIZE) {
-                    specProcessFFT();
-                    specAccumBuf.copyWithin(0, SPEC_FFT_SIZE / 2);
-                    specAccumPos = SPEC_FFT_SIZE / 2;
+            var V2_HEADER = 24;
+            var offset = 0;
+            while (offset < data.byteLength) {
+                var remaining = data.byteLength - offset;
+                if (remaining < 4) break;
+                var version = (new Uint8Array(data, offset, 1))[0];
+                var isV2 = version === 2;
+                var headerSize = isV2 ? V2_HEADER : 4;
+                if (remaining < headerSize) break;
+                var dv = new DataView(data, offset);
+                var frameCount = dv.getUint32(isV2 ? 4 : 0, true);
+                var pcmBytes = frameCount * SPEC_NUM_CHANNELS * 4;
+                var msgSize = headerSize + pcmBytes;
+                if (msgSize > remaining) {
+                    pcmBytes = remaining - headerSize;
+                    msgSize = remaining;
                 }
+                var pcm = new Float32Array(data, offset + headerSize,
+                    Math.floor(pcmBytes / 4));
+                var frames = Math.floor(pcm.length / SPEC_NUM_CHANNELS);
+                for (var i = 0; i < frames; i++) {
+                    var L = pcm[i * SPEC_NUM_CHANNELS];
+                    var R = pcm[i * SPEC_NUM_CHANNELS + 1];
+                    if (L !== L || R !== R || L > 2 || L < -2 || R > 2 || R < -2) {
+                        continue;
+                    }
+                    var mono = 0.5 * L + 0.5 * R;
+                    specAccumBuf[specAccumPos] = mono;
+                    specAccumPos++;
+                    if (specAccumPos >= SPEC_FFT_SIZE) {
+                        specFftInputBuf.set(specAccumBuf);
+                        specDirty = true;
+                        specAccumBuf.copyWithin(0, SPEC_FFT_SIZE / 2);
+                        specAccumPos = SPEC_FFT_SIZE / 2;
+                    }
+                }
+                offset += msgSize;
             }
         };
 
@@ -891,6 +918,7 @@
         updateMicStatus("disconnected", specCurrentSource);
         // Reset FFT state for clean source switch.
         specAccumPos = 0;
+        specDirty = false;
         specSmoothedDB = null;
         specFreqData = null;
     }
