@@ -1318,3 +1318,44 @@ still tracking sustained level shifts quickly.
 backend changes.
 
 **Related:** US-080 (implementation story), US-079 (pre-convolver tap)
+
+## D-049: Level-bridge / pcm-bridge separation for 24-channel metering (2026-03-25)
+
+**Context:** The existing pcm-bridge serves dual duty: level metering (JSON,
+always-on) and raw PCM streaming (binary, on-demand for spectrum). The
+24-channel metering design (TK-097, US-051) requires 3 x 8-channel level
+sources running continuously. Combining levels + PCM in one binary creates
+lifecycle complexity (GM-managed vs always-on) and wastes resources streaming
+full PCM when only levels are needed.
+
+**Decision:** Split into two binaries. Confirmed by AE + Architect. Aligned
+with the rt-services architecture doc (Section 2) which already specifies
+this separation.
+
+1. **level-bridge** (new binary `pi4audio-level-bridge`): Levels-only,
+   always-on via systemd, self-linking (no GM management). 3 instances:
+   - `level-bridge-sw`: taps app/signal-gen outputs (SW Out, 8ch, port 9100)
+   - `level-bridge-hw-out`: taps USBStreamer monitor ports (HW Out, 8ch, port 9101)
+   - `level-bridge-hw-in`: taps USBStreamer capture ports (HW In, 8ch, port 9102)
+
+2. **pcm-bridge** (existing binary, refactored): PCM-only, on-demand,
+   GM-managed. Spawned when spectrum view needs raw audio from a selectable
+   tap point. 0-1 instances at any time.
+
+3. **signal-gen goes mono** (F-097 confirmed): 1 output channel, GM routes
+   to convolver inputs.
+
+**Rationale:** level-bridge is always-on infrastructure (like a mixing
+console's meter bridge) — it must not depend on GM being alive or in the
+right mode. pcm-bridge is an on-demand diagnostic tool that only runs when
+someone is actively viewing the spectrum. Separating them gives each binary
+a single clear lifecycle: level-bridge = systemd always-on, pcm-bridge =
+GM-managed on-demand.
+
+**Impact:** US-084 (implementation story). Shared `audio-common::LevelTracker`
+crate used by both. Web UI wires 3 level-bridge WebSocket connections to the
+existing 24-channel meter layout (TK-097/US-051). D-047 PPM ballistics apply
+to all 24 channels.
+
+**Related:** TK-097 (24-channel layout), US-051 (persistent status bar meters),
+D-047 (PPM ballistics), rt-services.md Section 2, US-084 (implementation)

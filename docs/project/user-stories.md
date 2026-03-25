@@ -6116,6 +6116,75 @@ been caught by integration tests against the real stack.
 
 ---
 
+## US-084: Level-Bridge Extraction and 24-Channel Metering
+
+**As** the system operator,
+**I want** 24 always-on level meters (8 SW Out + 8 HW Out + 8 HW In) fed by
+dedicated level-bridge instances,
+**so that** I have continuous metering of the entire signal chain regardless
+of which GraphManager mode is active or whether spectrum analysis is running.
+
+**Status:** draft (PM-filed 2026-03-25 per D-049 AE+Architect decision)
+**Depends on:** D-049 (level-bridge/pcm-bridge separation), TK-097 (24-channel
+layout), US-051 (persistent status bar meters), D-047 (PPM ballistics)
+**Blocks:** none (but enables full 24-channel metering that TK-097/US-051
+designed for)
+**Decisions:** D-049
+
+### Background
+
+The rt-services architecture doc (Section 2) already specifies level-bridge
+as a separate binary from pcm-bridge. D-049 confirms: level-bridge is
+always-on systemd infrastructure (self-linking, no GM management); pcm-bridge
+is on-demand GM-managed spectrum taps. The existing pcm-bridge in monitor mode
+currently serves both roles but cannot scale to 3 x 8-channel without
+lifecycle conflicts.
+
+### Architecture
+
+3 level-bridge instances, each 8 channels:
+
+| Instance | systemd unit | Port | Tap point | Meter group |
+|----------|-------------|------|-----------|-------------|
+| `level-bridge-sw` | `level-bridge@sw.service` | 9100 | App/signal-gen outputs (pre-convolver) | APP>DSP (cyan) |
+| `level-bridge-hw-out` | `level-bridge@hw-out.service` | 9101 | USBStreamer monitor ports (post-DAC) | DSP>OUT (green) |
+| `level-bridge-hw-in` | `level-bridge@hw-in.service` | 9102 | USBStreamer capture ports (ADC input) | PHYS IN (amber) |
+
+Each instance: PW capture stream with `node.passive = true`, lock-free
+`LevelTracker` (from `audio-common`), WebSocket JSON output at 25-30 Hz
+(D-047 snapshot rate). Self-linking: each instance knows its target node name
+and creates its own PW links on startup (no GM involvement).
+
+pcm-bridge refactored: PCM-only, on-demand, GM-managed. 0-1 instances.
+Spawned via GM `start_tap`/`stop_tap` RPC when spectrum view is active.
+
+### Acceptance criteria
+
+- [ ] `level-bridge` binary extracted from pcm-bridge code (shares `audio-common::LevelTracker`)
+- [ ] 3 systemd user service templates (`level-bridge@{sw,hw-out,hw-in}.service`)
+- [ ] Each instance self-links to correct PW nodes on startup (no GM dependency)
+- [ ] `node.passive = true` on all level-bridge streams (never drives graph)
+- [ ] WebSocket JSON output at 25-30 Hz per D-047 snapshot rate
+- [ ] PPM ballistics per D-047 (IEC 60268-18, 2s peak hold, 20 dB/s decay, latching clip at 0 dBFS)
+- [ ] Web UI connects to 3 level-bridge WebSocket endpoints
+- [ ] 24 meters rendered in TK-097 layout (MAIN + APP>DSP + DSP>OUT + PHYS IN)
+- [ ] Persistent status bar mini meters (US-051) wired to level-bridge data
+- [ ] pcm-bridge refactored to PCM-only, on-demand, GM-managed
+- [ ] signal-gen mono output (F-097) — 1 channel, GM routes to convolver inputs
+- [ ] Local-demo environment updated with 3 level-bridge instances
+- [ ] `nix run .#test-level-bridge` unit tests (LevelTracker, self-linking, JSON format)
+
+### Definition of Done
+
+- [ ] All acceptance criteria met
+- [ ] 3 level-bridge instances running on Pi, all 24 meters active
+- [ ] Architect review (binary separation, self-linking design)
+- [ ] AE review (meter accuracy, signal chain tap points correct)
+- [ ] QE review (test coverage)
+- [ ] Owner visual acceptance (24 meters in TK-097 layout)
+
+---
+
 ## Process Gate: Measurement UI Development Cycle (owner directive 2026-03-14)
 
 **GATE:** US-047, US-048, and US-049 implementation is blocked until the
@@ -6254,4 +6323,5 @@ US-077 ──> US-081 (Peak + RMS Level Meters with Latching Clip Indicator — 
 US-052 ──> US-082 (Audio File Playback in signal-gen — MP3/WAV/FLAC, play_file RPC, D-009 level cap)
 US-082 ──> US-053 (test tab file playback controls depend on signal-gen file support)
 US-075 ──> US-083 (Integration Smoke Tests Against Local-Demo Stack — real data pipeline testing, catches F-098/F-101/F-102/F-103/F-105 class)
+D-049 + TK-097 + US-051 + D-047 ──> US-084 (Level-Bridge Extraction and 24-Channel Metering — 3 instances, self-linking, always-on)
 ```

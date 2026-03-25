@@ -194,13 +194,17 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - F-112 (peak hold drops to bottom, PPM ballistics incorrect, HIGH, blocks US-081, continuation of F-103)
 - F-113 (levels at wrong meters — routing mismatch after US-079, HIGH, blocks US-079/US-080)
 
-**Decisions recorded:** D-045 (project identity: mugge), D-046 (FFT 4096 default, 4 presets), D-047 (peak+RMS meters, PPM IEC 60268-18, latching clip), D-048 (auto-ranging Y axis supersedes gain compensation).
+**Decisions recorded:** D-045 (project identity: mugge), D-046 (FFT 4096 default, 4 presets), D-047 (peak+RMS meters, PPM IEC 60268-18, latching clip), D-048 (auto-ranging Y axis supersedes gain compensation), D-049 (level-bridge/pcm-bridge separation for 24-channel metering).
 
 **Lessons learned:** L-053 (don't kill workers before owner validation), L-054 (browser cache causes phantom bugs — hard reload mandatory after JS changes).
 
 **US-083 filed:** Integration Smoke Tests Against Local-Demo Stack (HIGH priority). QE test gap analysis: E2E tests run against mock server, bypassing real data pipeline where all recent bugs live. New `nix run .#test-integration` target recommended.
 
 **Process change: Local-Demo Verification Gate** added to DoD (user-stories.md). Workers must run `nix run .#local-demo` and visually verify before reporting "done" on any story touching web UI, pcm-bridge, signal-gen, or WebSocket code.
+
+**D-049 recorded:** Level-bridge / pcm-bridge separation for 24-channel metering (AE + Architect confirmed). level-bridge = always-on systemd (3 instances x 8ch, self-linking, ports 9100-9102). pcm-bridge = PCM-only, on-demand, GM-managed. signal-gen mono (F-097).
+
+**US-084 filed:** Level-Bridge Extraction and 24-Channel Metering. Implements D-049. Depends on TK-097, US-051, D-047. 13 acceptance criteria, 6 DoD items.
 
 ### Session Progress (2026-03-23 / 2026-03-24)
 
