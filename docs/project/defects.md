@@ -3388,10 +3388,10 @@ fixed or quarantined with `@pytest.mark.skip` referencing this defect ID.
 
 ---
 
-## F-097: Signal-gen should output 1 mono channel, not 4 (OPEN)
+## F-097: Signal-gen should output 1 mono channel, not 4 (RESOLVED)
 
 **Severity:** Medium (architecture/measurement methodology — incorrect channel count)
-**Status:** Open — AE endorsed mono design (2026-03-24). Scoped as US-052 amendment.
+**Status:** RESOLVED (2026-03-26, commit `468533e`). Signal-gen defaults to 1 output channel.
 **Found in:** Owner graph review (2026-03-24)
 **Affects:** US-052 (signal-gen), GM routing table (measurement mode), local-demo
 **Found by:** Owner (via graph visualization feedback on US-064)
@@ -3532,7 +3532,7 @@ configure the shared module rather than duplicating the code.
 
 **Filed:** 2026-03-25
 **Severity:** Low
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-26, commit `af2372f`). Robust preflight cleanup added.
 **Affects:** `scripts/local-demo.sh`
 **Found by:** worker-demo-fix (during F-098 investigation)
 
@@ -3692,7 +3692,7 @@ Deep investigation of the meter rendering loop:
 
 **Filed:** 2026-03-25
 **Severity:** Medium
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-26, commit `5269fe7`). Play button state syncs on connect.
 **Affects:** Web UI test tab (`test.js`)
 **Found by:** Owner (validation of US-082, tested against `8b84518`)
 
@@ -3985,11 +3985,11 @@ Rule 13 review.
 
 ---
 
-## F-113: Levels appear at wrong meters — routing mismatch after US-079
+## F-113: Levels appear at wrong meters — routing mismatch after US-079 (RESOLVED)
 
 **Filed:** 2026-03-25
 **Severity:** High
-**Status:** OPEN (reclassified 2026-03-26: not a web-UI bug — architecture gap blocked on US-084 web UI wiring phase)
+**Status:** RESOLVED (2026-03-26, commit `dd0bc3a`). US-084 web UI wiring to 3 level-bridge instances replaces single pcm-bridge tap.
 **Affects:** GraphManager routing / pcm-bridge tap point / web UI meters
 **Found by:** Owner (validation of US-079/US-080, tested against `8b84518`)
 **Blocks:** US-079 validation, US-080 validation
@@ -4157,7 +4157,7 @@ This is a memory safety concern for production pcm-bridge. Tracked for fix.
 
 **Filed:** 2026-03-26
 **Severity:** High
-**Status:** OPEN
+**Status:** MITIGATED (2026-03-26, commit `8fdf26a`). Compile-time `size_of` canary added. Proper fix (upstream pipewire-rs accessor) tracked as future work.
 **Affects:** `src/graph-manager/src/registry.rs:70-74`
 **Found by:** worker-3 (memory safety audit), Architect confirmed
 **Pre-existing:** Yes — present since initial GM implementation
@@ -4198,7 +4198,7 @@ depend on internal layout.
 
 **Filed:** 2026-03-26
 **Severity:** Medium (grouped)
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-26, commit `8fdf26a`). `checked_mul` with assert added to both locations.
 **Affects:** `src/audio-common/` — ring_buffer.rs, capture_ring_buffer.rs
 **Found by:** worker-3 (memory safety audit), Architect confirmed
 
@@ -4260,3 +4260,32 @@ Wrap the data buffer in `UnsafeCell<Box<[f32]>>` (or use
 makes the interior mutability explicit and correct under all Rust memory
 models. The existing `unsafe impl Send + Sync` remains valid with the
 `UnsafeCell` wrapper.
+
+---
+
+## F-121: level-bridge and pcm-bridge TcpListener::bind() lacks SO_REUSEADDR (NOT-A-BUG)
+
+**Filed:** 2026-03-26
+**Severity:** Low
+**Status:** NOT-A-BUG (2026-03-26). Rust's `TcpListener::bind()` already sets `SO_REUSEADDR=1` on Linux. The port conflicts were from live orphan processes (fixed by F-100 preflight cleanup), not TIME_WAIT sockets.
+**Affects:** `src/level-bridge/`, `src/pcm-bridge/` — TCP listener setup
+**Found by:** worker-3 (US-084 local-demo verification)
+
+### Description
+
+Originally filed as missing `SO_REUSEADDR` on TCP listeners. Investigation
+confirmed that Rust's standard library `TcpListener::bind()` already sets
+`SO_REUSEADDR=1` on Linux by default. The `Address already in use` errors
+were caused by live orphan processes still holding the port, not by
+TIME_WAIT sockets. F-100 (`af2372f`) fixes the root cause by adding robust
+preflight cleanup to `local-demo.sh`.
+
+---
+
+## F-120: E2E test Chromium headless_shell crash on aarch64 `<select>` interaction
+
+**Filed:** 2026-03-26
+**Severity:** Medium
+**Status:** RESOLVED (2026-03-26). Chromium headless_shell crashes on `<select>` element interaction on aarch64. Fix applied, 202/203 E2E tests pass.
+**Affects:** E2E test suite (Playwright + Chromium headless)
+**Found by:** worker-1 (T-084-13 E2E investigation)

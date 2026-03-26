@@ -84,11 +84,11 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-076 | done | **5/5** | **done** (owner-accepted 2026-03-25). Merged to main (`7388170`). All 4 phases complete: CSS variable consolidation, navy background, JS hardcoded color removal, mode badge differentiation (amber DJ / cyan Live), managed-node cyan highlight. 20 files, 447+/227-. 194 E2E pass. Rule 13: Architect APPROVED. Owner visual acceptance: APPROVED. |
 | US-077 | **TEST** | **8/9** | **All 4 phases committed** (2026-03-24). P1 `602301b` (clock capture), P2 `4aeb4d1` (wire format), P3 `d1d3097` (frontend), P4 `3147b41` (event-driven). D-044 + rt-services docs `f83c14f`. 570+ tests pass. Only 2 clocks remain (PW graph + browser rAF). Architect approved all phases. DoD met: #1 (all phases), **#2 (screenshot comparison PASS — evidence in docs/test-evidence/US-077/)**, **#3 (integration test PASS — 50 snapshots, monotonic pos+nsec)**, #5 (wire format docs), #6 (backward compat v1/v2 auto-detect), #7 (architect), #8 (AE APPROVED), #9 (QE APPROVED). Remaining: **#4 (Pi perf regression — blocked on Pi access)**. |
 | US-078 | **IMPLEMENT** | **TBD** | **Phase A (docs) IMPLEMENT complete** (2026-03-25). Docs-only rename to mugge. Phase B (code) deferred after current sprint. D-045. |
-| US-079 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). GM routing table updated but F-113 (levels at wrong meters — routing mismatch) blocks acceptance. |
-| US-080 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). Originally blocked by 6 defects. F-101, F-102, F-105 RESOLVED. F-110 BY-DESIGN (pink-spectrum physics). F-111 RESOLVED (auto-range already implemented). **Remaining blocker: F-113** (routing mismatch, blocked on US-084 level-bridge-sw wiring). |
-| US-081 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `c4fc54b`+`8b84518`). F-103 RESOLVED. **F-112 FIXED** (pending commit) — PPM ballistics corrected: 20 dB/s decay, hold-to-current-peak floor, reconnect clamp. Ready for re-validation after commit. |
-| US-082 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). symphonia decoder works. 5 test tab defects: F-104, F-106 (no mode indicator), F-107 (sweep controls), F-108 (sweep never ends), F-109 (level control broken). |
-| US-084 | **IMPLEMENT** | **3/13** | Phase 1 DONE: level-bridge crate extracted, 45/45 tests. Phase 2 DONE: pcm-bridge stripped, 42/42 tests. Phase 3 DONE: local-demo.sh + flake.nix updated. Remaining: systemd templates (Pi), web UI wiring, signal-gen mono, self-linking verification. |
+| US-079 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). GM routing table updated. F-113 **RESOLVED** (`dd0bc3a`). **Ready for owner re-validation.** |
+| US-080 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). Originally blocked by 6 defects. F-101, F-102, F-105 RESOLVED. F-110 BY-DESIGN (pink-spectrum physics). F-111 RESOLVED (auto-range already implemented). F-113 **RESOLVED** (`dd0bc3a`). **All blockers cleared — ready for owner re-validation.** |
+| US-081 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `c4fc54b`+`8b84518`). F-103 RESOLVED. F-112 FIXED (`9a8bae2`). F-113 **RESOLVED** (`dd0bc3a`). **All blockers cleared — ready for owner re-validation.** |
+| US-082 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). symphonia decoder works. F-104 RESOLVED (`5269fe7`), F-106 RESOLVED, F-107 RESOLVED, F-108 RESOLVED, F-109 RESOLVED. **All blockers cleared — ready for owner re-validation.** |
+| US-084 | **IMPLEMENT** | **7/13** | Phases 1-6 DONE (crate extraction, pcm-bridge strip, local-demo, web UI 3 LB wiring `dd0bc3a`, local-demo 3 instances `468533e`, signal-gen mono `468533e`). **T-084-10 local-demo verification PASSED** (24 meters, 3 LB instances). F-104 RESOLVED (`5269fe7`). F-100 RESOLVED (`af2372f`). Systemd template (T-084-8) awaiting diff confirmation. Remaining: Pi deployment (T-084-9), Pi self-link verification (T-084-11). |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -155,6 +155,30 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
 - **US-004** (**DONE** — owner-accepted 2026-03-21): Assumption register (A1-A28). CLAUDE.md reference corrected.
 - **US-000a** (**DONE** — owner-accepted 2026-03-21): Platform security hardening. F-002/F-011 resolved, reboot-verified.
+
+### Session Progress (2026-03-26, continued)
+
+**Commits (`468533e`..`af2372f`):**
+- `468533e` — US-084 local-demo 3 level-bridge instances + F-097 signal-gen mono
+- `89f9325` — audio-common debug_assert → runtime assert (F-116 follow-up)
+- `dd0bc3a` — US-084 web UI 3 level-bridge wiring (**resolves F-113**)
+- `8fdf26a` — F-117 size_of canary + F-118 checked_mul overflow guards
+- `5269fe7` — F-104 play button state sync
+- `af2372f` — F-100 local-demo.sh orphan cleanup
+
+**F-113 RESOLVED** (`dd0bc3a`): Architecture gap fixed — web UI now wires to 3 level-bridge instances (sw:9100, hw-out:9101, hw-in:9102) instead of single pcm-bridge tap. **US-079, US-080, US-081 unblocked for owner re-validation.**
+
+**F-104 RESOLVED** (`5269fe7`): Play button state syncs on connect. US-082 re-validation unblocked.
+
+**F-100 RESOLVED** (`af2372f`): local-demo.sh robust preflight cleanup. F-100 follow-up bugfix (ss→/proc/net/tcp, zombie filtering) in Rule 13 review.
+
+**T-084-10 PASSED:** All 3 level-bridge instances verified on local-demo — 24 meters served via WebSocket.
+
+**Defects resolved/mitigated this session:** F-097 RESOLVED (`468533e`), F-100 RESOLVED (`af2372f`), F-104 RESOLVED (`5269fe7`), F-113 RESOLVED (`dd0bc3a`), F-117 MITIGATED (`8fdf26a` — compile-time canary, proper fix future), F-118 RESOLVED (`8fdf26a`). F-121 NOT-A-BUG (Rust TcpListener already sets SO_REUSEADDR). F-120 RESOLVED (Chromium headless_shell `<select>` crash on aarch64, 202/203 E2E pass).
+
+**US-084 progress:** AC advanced to ~7/13. Web UI wiring done, local-demo 3 instances done, signal-gen mono done, local-demo verification PASSED. Remaining: Pi deployment (T-084-9), Pi self-link verification (T-084-11). Systemd template (T-084-8) awaiting worker-3 diff confirmation.
+
+**Memory safety audit (worker-3):** F-117, F-118, F-119 filed from audit findings. F-117 mitigated, F-118 resolved. F-119 (LOW, RingBuffer UnsafeCell) remains open. Positive: zero transmute/mem::forget/get_unchecked across codebase, all FFI null-checked, safety-critical code is pure safe Rust.
 
 ### Session Progress (2026-03-25)
 
@@ -238,7 +262,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 **Rule 13 retroactive review COMPLETE (2026-03-26):** All overnight commits reviewed. Architect: `53ff2a1` APPROVED, `94b1ea4` CONCERN (debug_assert → runtime check, worker-rust fixing), `1190796` APPROVED. QE: `53ff2a1`, `151bf48`, `db85f53`, `01519e7` all APPROVED. F-112 fix cleared for commit. Remaining: `300342a` (US-082 file playback) AE+AD, `ca35bf0` (US-081 meters) AE, `f78f72e` (US-080 FFT) AE+AD — these are feature commits still awaiting AE/AD sign-off.
 
-**Session defect tally (updated 2026-03-26):** 18 filed (F-099-F-116). 12 RESOLVED (F-099, F-101, F-102, F-103, F-105, F-106, F-107, F-108, F-109, F-111, F-115, F-116). 1 CANNOT-REPRODUCE (F-114). 1 BY-DESIGN (F-110). 1 FIXED pending commit (F-112). 2 OPEN (F-100 Low, F-104 Medium). F-113 OPEN but reclassified as architecture gap blocked on US-084 (level-bridge-sw wiring).
+**Session defect tally (updated 2026-03-26):** 21 filed (F-097 amendment, F-099-F-119). 16 RESOLVED (F-097, F-099, F-101, F-102, F-103, F-105, F-106, F-107, F-108, F-109, F-111, F-113, F-115, F-116, F-118). 1 MITIGATED (F-117 — canary added, proper fix future). 1 CANNOT-REPRODUCE (F-114). 1 BY-DESIGN (F-110). 1 FIXED committed (F-112, `9a8bae2`). 2 OPEN (F-100 Low, F-104 Medium). 1 OPEN (F-119 Low — RingBuffer UnsafeCell).
 
 ### Session Progress (2026-03-23 / 2026-03-24)
 
