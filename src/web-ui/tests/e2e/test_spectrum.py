@@ -121,7 +121,7 @@ def test_spectrum_label_count(page):
 
 
 def test_spectrum_db_range(page):
-    """dB range is -60 to 0."""
+    """dB range is -90 to 0."""
     page.evaluate("""() => {
         return new Promise((resolve, reject) => {
             var s = document.createElement('script');
@@ -133,7 +133,7 @@ def test_spectrum_db_range(page):
     }""")
     db_min = page.evaluate("PiAudioSpectrum.DB_MIN")
     db_max = page.evaluate("PiAudioSpectrum.DB_MAX")
-    assert db_min == -60
+    assert db_min == -90
     assert db_max == 0
 
 

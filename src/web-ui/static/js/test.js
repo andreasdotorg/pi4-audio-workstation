@@ -590,7 +590,7 @@
 
     var SPEC_SAMPLE_RATE = 48000;
     var SPEC_FFT_SIZE = 4096;  // US-080: default "Balanced"
-    var SPEC_DB_MIN = -80;
+    var SPEC_DB_MIN = -90;
     var SPEC_DB_MAX = 0;
 
     // State
