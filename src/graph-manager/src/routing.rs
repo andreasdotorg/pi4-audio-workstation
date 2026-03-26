@@ -369,9 +369,10 @@ impl RoutingTable {
 
     /// DJ mode: Mixxx → convolver → USBStreamer (speakers + headphones).
     ///
-    /// Mixxx outputs 4 channels via pw-jack (verified on Pi, GM-12):
+    /// Mixxx outputs 6 channels via pw-jack (verified on Pi, soundconfig.xml):
     ///   ch 1 = Master L, ch 2 = Master R,
-    ///   ch 3 = Headphone L, ch 4 = Headphone R.
+    ///   ch 3-4 = unused (channel offset gap),
+    ///   ch 5 = Headphone L, ch 6 = Headphone R.
     ///
     /// Master L/R go 1:1 to convolver mains (ch 1-2) AND fan-out to
     /// both sub convolver inputs (ch 3-4) for mono-sum (TK-239). PipeWire
@@ -425,9 +426,10 @@ impl RoutingTable {
         ));
 
         // Mixxx headphones → USBStreamer direct (bypass convolver).
-        // Ch 3 (Headphone L) → USBStreamer ch 5
-        // Ch 4 (Headphone R) → USBStreamer ch 6
-        for (mx_ch, usb_ch) in [(3, 5), (4, 6)] {
+        // Ch 5 (Headphone L) → USBStreamer ch 5
+        // Ch 6 (Headphone R) → USBStreamer ch 6
+        // Mixxx soundconfig.xml: channel offset 4, so HP is out_4/out_5.
+        for (mx_ch, usb_ch) in [(5, 5), (6, 6)] {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
                 output_port: mx.port_name(mx_ch),
@@ -439,11 +441,12 @@ impl RoutingTable {
 
         // D-043/US-084: level-bridge always active.
         links.extend(Self::level_bridge_hw_links());
-        // F-124: level-bridge-sw taps Mixxx outputs (4ch: Master L/R + HP L/R).
+        // F-124: level-bridge-sw taps Mixxx outputs (8ch: consistent with 8-ch metering layout).
+        // Mixxx populates 6 (Master L/R + gap 3-4 + HP L/R); ch 7-8 show silence.
         links.extend(Self::level_bridge_sw_links(
             NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
             AppPortNaming::MixxxOutput,
-            4,
+            8,
         ));
 
         links
@@ -924,14 +927,14 @@ mod tests {
     }
 
     #[test]
-    fn dj_has_38_links() {
+    fn dj_has_42_links() {
         // Mixxx → convolver mains (2) + Mixxx → convolver subs fan-out (4)
         // + convolver → USBStreamer (4) + Mixxx → pcm-bridge pre-conv (6)
         // + Mixxx → USBStreamer HP (2)
         // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
-        // + F-124: Mixxx → level-bridge-sw (4) = 38.
+        // + F-124: Mixxx → level-bridge-sw (8: consistent 8-ch metering) = 42.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Dj).len(), 38);
+        assert_eq!(table.links_for(Mode::Dj).len(), 42);
     }
 
     #[test]
@@ -1111,7 +1114,7 @@ mod tests {
                 .collect();
             let expected_sw = match mode {
                 Mode::Monitoring => 0,   // no app to tap
-                Mode::Dj => 4,           // Mixxx 4ch
+                Mode::Dj => 8,           // Mixxx 8ch (consistent with 8-ch metering layout)
                 Mode::Live => 8,         // Reaper 8ch
                 Mode::Measurement => 1,  // signal-gen mono
             };
@@ -1141,11 +1144,12 @@ mod tests {
             .collect();
         assert_eq!(mon_sw.len(), 0, "Monitoring should have 0 level-bridge-sw links");
 
-        // DJ: Mixxx 4ch (out_0..out_3 → input_1..4).
+        // DJ: Mixxx 8ch (out_0..out_7 → input_1..8, consistent 8-ch metering).
+        // Mixxx populates 6 (Master L/R + gap 3-4 + HP L/R); ch 7-8 show silence.
         let dj_sw: Vec<_> = table.links_for(Mode::Dj).iter()
             .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw"))
             .collect();
-        assert_eq!(dj_sw.len(), 4);
+        assert_eq!(dj_sw.len(), 8);
         for (i, link) in dj_sw.iter().enumerate() {
             assert_eq!(link.output_port, format!("out_{}", i));
             assert_eq!(link.input_port, format!("input_{}", i + 1));
@@ -1360,8 +1364,8 @@ mod tests {
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "Mixxx"))
             .collect();
         // 2 mains + 4 sub fan-out + 2 HP + 6 pcm-bridge pre-conv
-        // + F-124: 4 level-bridge-sw = 18
-        assert_eq!(mixxx_links.len(), 18);
+        // + F-124: 8 level-bridge-sw = 22
+        assert_eq!(mixxx_links.len(), 22);
     }
 
     #[test]

@@ -856,9 +856,11 @@ mod tests {
             ));
         }
 
-        // -- Mixxx output (Stream/Output/Audio): 4 ports (master L/R, HP L/R) --
+        // -- Mixxx output (Stream/Output/Audio): 6 ports --
+        // Ch 1-2: Master L/R, Ch 3-4: unused gap, Ch 5-6: HP L/R.
+        // Matches Mixxx soundconfig.xml: master at offset 0, HP at offset 4.
         g.add_node(make_node(400, "Mixxx", "Stream/Output/Audio"));
-        for ch in 0..4u32 {
+        for ch in 0..6u32 {
             g.add_port(make_port(
                 40000 + ch, 400,
                 &format!("out_{}", ch), "out",
@@ -1067,9 +1069,9 @@ mod tests {
         let next_id = apply_creates(&mut g, &actions, 1000);
 
         // Step 2: Mixxx crashes — both nodes disappear.
-        // Mixxx output node (400) and input node (401).
+        // Mixxx output node (400, 6 ports) and input node (401, 2 ports).
         g.remove_node(400);
-        for ch in 0..4u32 {
+        for ch in 0..6u32 {
             g.remove_port(40000 + ch);
         }
         g.remove_node(401);
@@ -1078,7 +1080,7 @@ mod tests {
 
         // Links involving Mixxx ports disappear from PW graph.
         // DJ Mixxx links: master→convolver (2) + master→sub (4) + HP→USB (2) = 8.
-        let mixxx_port_ids: Vec<u32> = (40000..40004).collect();
+        let mixxx_port_ids: Vec<u32> = (40000..40006).collect();
         let links_to_remove: Vec<u32> = g.links()
             .filter(|l| mixxx_port_ids.contains(&l.output_port) || mixxx_port_ids.contains(&l.input_port))
             .map(|l| l.id)
@@ -1100,9 +1102,9 @@ mod tests {
             "after crash: no destroys (Mixxx links already gone), got {:?}", actions,
         );
 
-        // Step 3: Mixxx restarts with new PW IDs.
+        // Step 3: Mixxx restarts with new PW IDs (6 output ports).
         g.add_node(make_node(410, "Mixxx", "Stream/Output/Audio"));
-        for ch in 0..4u32 {
+        for ch in 0..6u32 {
             g.add_port(make_port(
                 41000 + ch, 410,
                 &format!("out_{}", ch), "out",
