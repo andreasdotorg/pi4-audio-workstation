@@ -75,8 +75,8 @@ trap cleanup EXIT INT TERM
 DEMO_PROCESS_PATTERNS=(
     "pi4audio-graph-manager"
     "pi4audio-signal-gen"
-    "level-bridge"
-    "pcm-bridge"
+    "bin/level-bridge"
+    "bin/pcm-bridge"
     "uvicorn app.main:app.*8080"
 )
 
