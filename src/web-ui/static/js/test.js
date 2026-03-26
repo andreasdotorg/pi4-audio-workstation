@@ -788,7 +788,7 @@
         specRenderer = PiAudioSpectrumRenderer.create({
             dbMin: SPEC_DB_MIN,
             dbMax: SPEC_DB_MAX,
-            freqLo: 20,
+            freqLo: 10,
             freqHi: 20000,
             fftSize: SPEC_FFT_SIZE,
             sampleRate: SPEC_SAMPLE_RATE,
