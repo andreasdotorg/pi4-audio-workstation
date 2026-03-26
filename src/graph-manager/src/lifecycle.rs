@@ -15,13 +15,16 @@
 //!
 //! ## Components
 //!
-//! | Component     | Type     | Health-tracking node                           |
-//! |---------------|----------|------------------------------------------------|
-//! | signal-gen    | Managed  | `pi4audio-signal-gen` (Exact)                  |
-//! | pcm-bridge    | Managed  | `pi4audio-pcm-bridge` (Exact)                  |
-//! | convolver     | PW module| `pi4audio-convolver` (Exact)                   |
-//! | usbstreamer   | Hardware | `alsa_output.usb-MiniDSP_USBStreamer*` (Prefix) |
-//! | umik1         | Hardware | `alsa_input.usb-miniDSP_UMIK-1*` (Prefix)      |
+//! | Component          | Type     | Health-tracking node                           |
+//! |--------------------|----------|------------------------------------------------|
+//! | signal-gen         | Managed  | `pi4audio-signal-gen` (Exact)                  |
+//! | pcm-bridge         | Managed  | `pi4audio-pcm-bridge` (Exact)                  |
+//! | convolver          | PW module| `pi4audio-convolver` (Exact)                   |
+//! | usbstreamer        | Hardware | `alsa_output.usb-MiniDSP_USBStreamer*` (Prefix)|
+//! | umik1              | Hardware | `alsa_input.usb-miniDSP_UMIK-1*` (Prefix)     |
+//! | level-bridge-sw    | Managed  | `pi4audio-level-bridge-sw` (Exact)             |
+//! | level-bridge-hw-out| Managed  | `pi4audio-level-bridge-hw-out` (Exact)         |
+//! | level-bridge-hw-in | Managed  | `pi4audio-level-bridge-hw-in` (Exact)          |
 //!
 //! Mixxx and REAPER are user-launched — they are not tracked as components.
 //! Their nodes appear/disappear based on user action, not system health.
@@ -111,6 +114,22 @@ impl ComponentRegistry {
                     matcher: NodeMatch::Prefix(
                         "alsa_input.usb-miniDSP_UMIK-1".to_string(),
                     ),
+                    health: ComponentHealth::Disconnected,
+                },
+                // US-084: 3 level-bridge instances for always-on metering (D-043).
+                TrackedComponent {
+                    name: "level-bridge-sw".to_string(),
+                    matcher: NodeMatch::Exact("pi4audio-level-bridge-sw".to_string()),
+                    health: ComponentHealth::Disconnected,
+                },
+                TrackedComponent {
+                    name: "level-bridge-hw-out".to_string(),
+                    matcher: NodeMatch::Exact("pi4audio-level-bridge-hw-out".to_string()),
+                    health: ComponentHealth::Disconnected,
+                },
+                TrackedComponent {
+                    name: "level-bridge-hw-in".to_string(),
+                    matcher: NodeMatch::Exact("pi4audio-level-bridge-hw-in".to_string()),
                     health: ComponentHealth::Disconnected,
                 },
             ],
@@ -239,9 +258,10 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn production_registry_has_5_components() {
+    fn production_registry_has_8_components() {
+        // 5 original + 3 level-bridge instances (US-084).
         let reg = ComponentRegistry::production();
-        assert_eq!(reg.len(), 5);
+        assert_eq!(reg.len(), 8);
     }
 
     #[test]
@@ -446,13 +466,16 @@ mod tests {
     fn all_health_returns_all_components() {
         let reg = ComponentRegistry::production();
         let health = reg.all_health();
-        assert_eq!(health.len(), 5);
+        assert_eq!(health.len(), 8);
         let names: Vec<&str> = health.iter().map(|(n, _)| *n).collect();
         assert!(names.contains(&"signal-gen"));
         assert!(names.contains(&"pcm-bridge"));
         assert!(names.contains(&"convolver"));
         assert!(names.contains(&"usbstreamer"));
         assert!(names.contains(&"umik1"));
+        assert!(names.contains(&"level-bridge-sw"));
+        assert!(names.contains(&"level-bridge-hw-out"));
+        assert!(names.contains(&"level-bridge-hw-in"));
     }
 
     #[test]

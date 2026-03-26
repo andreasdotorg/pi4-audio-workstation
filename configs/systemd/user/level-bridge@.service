@@ -7,7 +7,8 @@ Wants=pipewire.service
 Type=simple
 EnvironmentFile=/etc/level-bridge/%i.env
 ExecStart=/home/ela/bin/level-bridge \
-    --self-link \
+    ${LINK_MODE} \
+    --node-name ${NODE_NAME} \
     --mode ${MODE} \
     --target ${TARGET} \
     --levels-listen tcp:127.0.0.1:${PORT} \

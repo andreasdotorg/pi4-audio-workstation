@@ -88,6 +88,12 @@ struct Args {
     /// Sample rate in Hz.
     #[arg(long, default_value_t = 48000)]
     rate: u32,
+
+    /// PipeWire node name. Allows unique names per instance so GM routing
+    /// can distinguish them. Defaults to "pi4audio-level-bridge" (monitor)
+    /// or "pi4audio-level-bridge-capture" (capture) if not set.
+    #[arg(long, env = "PI4AUDIO_NODE_NAME")]
+    node_name: Option<String>,
 }
 
 /// Parse listen address into (kind, address) tuple.
@@ -178,6 +184,11 @@ use audio_common::audio_format::build_audio_format;
 
 fn build_stream_props(args: &Args) -> pipewire::properties::Properties {
     let channels_str = args.channels.to_string();
+    let default_name = match args.mode {
+        Mode::Monitor => "pi4audio-level-bridge",
+        Mode::Capture => "pi4audio-level-bridge-capture",
+    };
+    let node_name = args.node_name.as_deref().unwrap_or(default_name);
 
     match args.mode {
         Mode::Monitor if args.managed => {
@@ -186,7 +197,7 @@ fn build_stream_props(args: &Args) -> pipewire::properties::Properties {
                 "media.category" => "Capture",
                 "media.role" => "Monitor",
                 "media.class" => "Stream/Input/Audio",
-                "node.name" => "pi4audio-level-bridge",
+                "node.name" => node_name,
                 "node.description" => "Level Bridge for Web UI",
                 "node.always-process" => "true",
                 "node.passive" => "true",
@@ -199,7 +210,7 @@ fn build_stream_props(args: &Args) -> pipewire::properties::Properties {
                 "media.category" => "Capture",
                 "media.role" => "Monitor",
                 "media.class" => "Stream/Input/Audio",
-                "node.name" => "pi4audio-level-bridge",
+                "node.name" => node_name,
                 "node.description" => "Level Bridge for Web UI",
                 "node.passive" => "true",
                 "audio.channels" => &*channels_str,
@@ -215,23 +226,49 @@ fn build_stream_props(args: &Args) -> pipewire::properties::Properties {
                 "media.category" => "Capture",
                 "media.role" => "Monitor",
                 "media.class" => "Stream/Input/Audio",
-                "node.name" => "pi4audio-level-bridge",
+                "node.name" => node_name,
                 "node.description" => "Level Bridge for Web UI",
                 "node.passive" => "true",
                 "audio.channels" => &*channels_str,
             }
         }
-        Mode::Capture => {
+        Mode::Capture if args.managed => {
             pipewire::properties::properties! {
                 "media.type" => "Audio",
                 "media.category" => "Capture",
                 "media.role" => "Production",
                 "media.class" => "Stream/Input/Audio",
-                "node.name" => "pi4audio-level-bridge-capture",
+                "node.name" => node_name,
+                "node.description" => "Level Bridge Capture",
+                "node.always-process" => "true",
+                "node.passive" => "true",
+                "audio.channels" => &*channels_str,
+            }
+        }
+        Mode::Capture if args.self_link => {
+            pipewire::properties::properties! {
+                "media.type" => "Audio",
+                "media.category" => "Capture",
+                "media.role" => "Production",
+                "media.class" => "Stream/Input/Audio",
+                "node.name" => node_name,
                 "node.description" => "Level Bridge Capture",
                 "node.passive" => "true",
                 "audio.channels" => &*channels_str,
                 "target.object" => &*args.target,
+            }
+        }
+        Mode::Capture => {
+            // Standalone without self-link: no auto-connect properties.
+            pipewire::properties::properties! {
+                "media.type" => "Audio",
+                "media.category" => "Capture",
+                "media.role" => "Production",
+                "media.class" => "Stream/Input/Audio",
+                "node.name" => node_name,
+                "node.description" => "Level Bridge Capture",
+                "node.passive" => "true",
+                "audio.channels" => &*channels_str,
             }
         }
     }
@@ -522,6 +559,18 @@ mod tests {
         assert!(args.self_link);
     }
 
+    #[test]
+    fn cli_node_name_default_is_none() {
+        let args = parse_args(&["level-bridge"]).unwrap();
+        assert!(args.node_name.is_none());
+    }
+
+    #[test]
+    fn cli_node_name_custom() {
+        let args = parse_args(&["level-bridge", "--node-name", "pi4audio-level-bridge-sw"]).unwrap();
+        assert_eq!(args.node_name.as_deref(), Some("pi4audio-level-bridge-sw"));
+    }
+
     // --- PipeWire property tests ---
 
     mod pw_tests {
@@ -544,6 +593,7 @@ mod tests {
                 levels_listen: "tcp:127.0.0.1:9100".to_string(),
                 channels,
                 rate: 48000,
+                node_name: None,
             }
         }
 
@@ -556,6 +606,20 @@ mod tests {
                 levels_listen: "tcp:127.0.0.1:9100".to_string(),
                 channels,
                 rate: 48000,
+                node_name: None,
+            }
+        }
+
+        fn make_named_args(mode: Mode, target: &str, channels: u32, node_name: &str) -> Args {
+            Args {
+                mode,
+                managed: true,
+                self_link: false,
+                target: target.to_string(),
+                levels_listen: "tcp:127.0.0.1:9100".to_string(),
+                channels,
+                rate: 48000,
+                node_name: Some(node_name.to_string()),
             }
         }
 
@@ -704,6 +768,78 @@ mod tests {
             let args = make_args(Mode::Monitor, "sink", 4, true);
             let props = build_stream_props(&args);
             assert_eq!(props.get("node.always-process"), None);
+        }
+
+        #[test]
+        fn props_managed_capture_no_target_object() {
+            ensure_pw_init();
+            let args = make_managed_args(Mode::Capture, "alsa_input.usb-MiniDSP", 8);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("target.object"), None);
+        }
+
+        #[test]
+        fn props_managed_capture_has_always_process() {
+            ensure_pw_init();
+            let args = make_managed_args(Mode::Capture, "alsa_input.usb-MiniDSP", 8);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("node.always-process"), Some("true"));
+        }
+
+        #[test]
+        fn props_managed_capture_node_name() {
+            ensure_pw_init();
+            let args = make_managed_args(Mode::Capture, "alsa_input.usb-MiniDSP", 8);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("node.name"), Some("pi4audio-level-bridge-capture"));
+        }
+
+        #[test]
+        fn props_self_link_capture_has_target_object() {
+            ensure_pw_init();
+            let args = make_args(Mode::Capture, "alsa_input.usb-MiniDSP", 8, true);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("target.object"), Some("alsa_input.usb-MiniDSP"));
+        }
+
+        #[test]
+        fn props_standalone_capture_no_target_object() {
+            ensure_pw_init();
+            let args = make_args(Mode::Capture, "alsa_input.usb-MiniDSP", 8, false);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("target.object"), None);
+        }
+
+        #[test]
+        fn props_custom_node_name_monitor() {
+            ensure_pw_init();
+            let args = make_named_args(Mode::Monitor, "pi4audio-convolver", 8, "pi4audio-level-bridge-sw");
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("node.name"), Some("pi4audio-level-bridge-sw"));
+        }
+
+        #[test]
+        fn props_custom_node_name_capture() {
+            ensure_pw_init();
+            let args = make_named_args(Mode::Capture, "alsa_input.usb", 8, "pi4audio-level-bridge-hw-in");
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("node.name"), Some("pi4audio-level-bridge-hw-in"));
+        }
+
+        #[test]
+        fn props_default_node_name_monitor() {
+            ensure_pw_init();
+            let args = make_args(Mode::Monitor, "sink", 4, false);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("node.name"), Some("pi4audio-level-bridge"));
+        }
+
+        #[test]
+        fn props_default_node_name_capture() {
+            ensure_pw_init();
+            let args = make_args(Mode::Capture, "src", 8, false);
+            let props = build_stream_props(&args);
+            assert_eq!(props.get("node.name"), Some("pi4audio-level-bridge-capture"));
         }
     }
 }

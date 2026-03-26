@@ -271,20 +271,21 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] signal-gen running (PID ${PIDS[-1]})"
 
-# ---- 6. Start level-bridge instances (self-linking, always-on levels) ----
+# ---- 6. Start level-bridge instances (managed mode, always-on levels) ----
 # D-049: 3 level-bridge instances for 24-channel metering.
-# Self-link mode: uses stream.capture.sink + target.object for WirePlumber
-# auto-linking. No GraphManager management needed.
+# Managed mode: GM creates links. --node-name gives each instance a unique
+# PW node name matching the GM routing table (US-084).
 
-# 6a. level-bridge-sw: taps convolver output (software/processed signal).
+# 6a. level-bridge-sw: taps convolver monitor ports (4ch processed signal).
 echo ""
-echo "[local-demo] Starting level-bridge-sw (levels on port 9100, self-link mode)..."
+echo "[local-demo] Starting level-bridge-sw (levels on port 9100, managed mode)..."
 "$LB_BIN" \
-    --self-link \
+    --managed \
+    --node-name pi4audio-level-bridge-sw \
     --mode monitor \
     --target pi4audio-convolver \
     --levels-listen tcp:0.0.0.0:9100 \
-    --channels 8 \
+    --channels 4 \
     --rate 48000 &
 PIDS+=($!)
 sleep 1
@@ -295,11 +296,12 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] level-bridge-sw running (PID ${PIDS[-1]})"
 
-# 6b. level-bridge-hw-out: taps USBStreamer sink monitor ports (DAC output).
+# 6b. level-bridge-hw-out: taps USBStreamer sink monitor ports (DAC output, 8ch).
 echo ""
-echo "[local-demo] Starting level-bridge-hw-out (levels on port 9101, self-link mode)..."
+echo "[local-demo] Starting level-bridge-hw-out (levels on port 9101, managed mode)..."
 "$LB_BIN" \
-    --self-link \
+    --managed \
+    --node-name pi4audio-level-bridge-hw-out \
     --mode monitor \
     --target alsa_output.usb-MiniDSP_USBStreamer \
     --levels-listen tcp:0.0.0.0:9101 \
@@ -314,11 +316,12 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] level-bridge-hw-out running (PID ${PIDS[-1]})"
 
-# 6c. level-bridge-hw-in: captures USBStreamer source (ADC input).
+# 6c. level-bridge-hw-in: captures ADA8200 input (ADC, 8ch).
 echo ""
-echo "[local-demo] Starting level-bridge-hw-in (levels on port 9102, self-link mode)..."
+echo "[local-demo] Starting level-bridge-hw-in (levels on port 9102, managed mode)..."
 "$LB_BIN" \
-    --self-link \
+    --managed \
+    --node-name pi4audio-level-bridge-hw-in \
     --mode capture \
     --target alsa_input.usb-MiniDSP_USBStreamer \
     --levels-listen tcp:0.0.0.0:9102 \
