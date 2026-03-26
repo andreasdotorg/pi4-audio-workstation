@@ -60,10 +60,10 @@
     function initGroupColors() {
         var cv = PiAudio.cssVar;
         GROUP_COLORS = {
-            main:   { base: cv("--group-main"),  bright: "#b0b8c8" },
+            main:   { base: cv("--primary"),     bright: "#d1c4e9" },
             app:    { base: cv("--primary-dim"), bright: cv("--group-app") },
-            dspout: { base: cv("--group-gain"),  bright: cv("--group-dsp") },
-            physin: { base: cv("--group-hw"),    bright: "#e8b84a" }
+            dspout: { base: "#1b5e20",           bright: cv("--group-dsp") },
+            physin: { base: "#b8860b",           bright: "#f0c040" }
         };
     }
 

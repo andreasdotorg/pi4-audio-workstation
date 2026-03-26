@@ -55,7 +55,7 @@
 
     function initGroupColors() {
         var cv = PiAudio.cssVar;
-        groups.main.color   = cv("--group-main");
+        groups.main.color   = cv("--primary");
         groups.app.color    = cv("--primary-dim");
         groups.dspout.color = cv("--group-gain");
         groups.physin.color = cv("--group-hw");
