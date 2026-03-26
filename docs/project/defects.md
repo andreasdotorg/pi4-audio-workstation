@@ -4150,3 +4150,113 @@ Architect flagged that `debug_assert` only guards in debug builds. The unsafe
 `ptr::copy_nonoverlapping` in `write_interleaved()` has NO bounds check in
 release builds. **Must upgrade to runtime assert or explicit length guard.**
 This is a memory safety concern for production pcm-bridge. Tracked for fix.
+
+---
+
+## F-117: graph-manager registry.rs type-punning of pipewire::Registry internals
+
+**Filed:** 2026-03-26
+**Severity:** High
+**Status:** OPEN
+**Affects:** `src/graph-manager/src/registry.rs:70-74`
+**Found by:** worker-3 (memory safety audit), Architect confirmed
+**Pre-existing:** Yes — present since initial GM implementation
+
+### Description
+
+`registry.rs:70-74` uses `ptr::read` to extract the raw `pw_registry *`
+pointer from a `pipewire::Registry` object by assuming its internal memory
+layout. This is type-punning — it relies on undocumented struct layout of
+the `pipewire-rs` crate and will break silently if `pipewire-rs` changes
+its internal representation (e.g., field reordering, added fields, repr
+changes).
+
+This code is on the **watchdog mute path** (safety-critical). A silent
+break here means the watchdog cannot mute the audio output in an emergency,
+which is a speaker/amplifier safety concern.
+
+Previously noted as a low-priority TODO in the Rule 13 retrospective
+("Document `RegistryHandle` raw-pointer layout dependency on pipewire-rs
+0.8 — check on any crate version upgrade"). Memory safety audit upgrades
+severity to HIGH due to: (1) safety-critical path, (2) silent failure
+mode, (3) undefined behavior if layout assumption is wrong.
+
+### Recommended Fix
+
+**Quick mitigation (immediate):** Add a compile-time `size_of` assertion
+that will fail the build if `pipewire::Registry` changes size, serving as
+a canary for layout changes.
+
+**Proper fix (medium-term):** Contribute an accessor upstream to
+`pipewire-rs` that exposes the raw `pw_registry *` pointer through a safe
+API, or find an alternative approach to capture the pointer that does not
+depend on internal layout.
+
+---
+
+## F-118: audio-common integer overflow risks in buffer math
+
+**Filed:** 2026-03-26
+**Severity:** Medium (grouped)
+**Status:** OPEN
+**Affects:** `src/audio-common/` — ring_buffer.rs, capture_ring_buffer.rs
+**Found by:** worker-3 (memory safety audit), Architect confirmed
+
+### Description
+
+Two multiplication operations in audio-common buffer code lack overflow
+checks:
+
+1. **`ring_buffer.rs:133`** — `n_frames * channels` in `write_interleaved`
+   (RT path). If `n_frames` and `channels` are both large, the
+   multiplication overflows silently in release mode (wrapping), leading to
+   an undersized copy that could cause incorrect audio or, combined with
+   the unsafe `ptr::copy_nonoverlapping`, a buffer overread.
+
+2. **`capture_ring_buffer.rs:60`** — `duration_secs * sample_rate` at
+   construction time. Overflow here would allocate an undersized buffer,
+   causing subsequent writes to overflow the heap.
+
+In practice, these overflows require absurd input values (e.g., millions of
+channels or hours-long buffers at extreme sample rates), so real-world
+triggering is unlikely. However, the defense-in-depth principle requires
+explicit guards on arithmetic feeding into buffer sizing and unsafe copy
+operations.
+
+### Recommended Fix
+
+Replace bare multiplication with `checked_mul` and assert/panic on
+overflow:
+- `ring_buffer.rs:133`: `let total = n_frames.checked_mul(channels).expect("frame*channel overflow");`
+- `capture_ring_buffer.rs:60`: `let capacity = duration_secs.checked_mul(sample_rate).expect("duration*rate overflow");`
+
+---
+
+## F-119: RingBuffer should use UnsafeCell for data buffer (consistency + correctness)
+
+**Filed:** 2026-03-26
+**Severity:** Low
+**Status:** OPEN
+**Affects:** `src/audio-common/` — ring_buffer.rs
+**Found by:** worker-3 (memory safety audit), Architect confirmed
+
+### Description
+
+`RingBuffer` uses `Box<[f32]>` for its data buffer and accesses it through
+raw pointer casts for lock-free SPSC read/write. Under the Rust aliasing
+model (Stacked Borrows / Tree Borrows), creating a raw pointer from a
+`&self` reference and then writing through it is technically undefined
+behavior — the shared reference asserts no mutation, but the write violates
+that invariant.
+
+`CaptureRingBuffer` in the same crate already uses `UnsafeCell` correctly
+for this pattern, which signals to the compiler that interior mutation is
+permitted.
+
+### Recommended Fix
+
+Wrap the data buffer in `UnsafeCell<Box<[f32]>>` (or use
+`UnsafeCell<Vec<f32>>`) to match `CaptureRingBuffer`'s approach. This
+makes the interior mutability explicit and correct under all Rust memory
+models. The existing `unsafe impl Send + Sync` remains valid with the
+`UnsafeCell` wrapper.
