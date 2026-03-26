@@ -55,7 +55,7 @@
     var svgEl = null;
     var pollTimer = null;
     var lastTopologyJSON = null;
-    var POLL_INTERVAL_MS = 2000;
+    var POLL_INTERVAL_MS = 5000;  // F-127: reduced from 2s to 5s to cut pw-dump subprocess rate
 
     // -- SVG helpers --
 

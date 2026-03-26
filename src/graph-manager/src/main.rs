@@ -318,10 +318,10 @@ fn run_pipewire(
         .expect("Failed to arm gain integrity timer");
     info!("Gain integrity timer armed (30s polling)");
 
-    // Graph info timer: every 1s, run pw-metadata + pw-dump to cache
+    // Graph info timer: every 5s, run pw-metadata + pw-dump to cache
     // quantum/rate/xruns (Phase 2a, F-095: reduced from N+1 to 2 subprocesses).
-    // This moves subprocess calls from the Python web-UI event loop
-    // to the GM PW thread, freeing the uvicorn asyncio loop.
+    // F-127: reduced from 1s to 5s — quantum/rate/xruns change infrequently,
+    // and 1s polling caused ~1 pw-dump/sec driving journald + PW CPU overhead.
     let _graph_info_timer = mainloop.loop_().add_timer({
         let graph_info_cache = graph_info_cache.clone();
         let graph = graph.clone();
@@ -331,12 +331,12 @@ fn run_pipewire(
     });
     _graph_info_timer
         .update_timer(
-            Some(Duration::from_secs(1)),
-            Some(Duration::from_secs(1)),
+            Some(Duration::from_secs(5)),
+            Some(Duration::from_secs(5)),
         )
         .into_result()
         .expect("Failed to arm graph info timer");
-    info!("Graph info timer armed (1s polling)");
+    info!("Graph info timer armed (5s polling)");
 
     info!("PipeWire main loop starting");
     mainloop.run();

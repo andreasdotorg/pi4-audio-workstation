@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import time
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -27,6 +28,26 @@ from .spa_config_parser import extract_filter_chain_topology, parse_spa_config
 log = logging.getLogger(__name__)
 
 MOCK_MODE = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
+
+# F-127: TTL cache for pw-dump results to avoid spawning a subprocess on
+# every graph topology poll. At 5s poll interval + 5s TTL, pw-dump runs
+# at most once per 5s from the web UI (down from ~2/sec at 2s polling).
+_PW_DUMP_CACHE_TTL = 5.0
+_pw_dump_cache: list | None = None
+_pw_dump_cache_time: float = 0.0
+
+
+async def _pw_dump_cached() -> list | None:
+    """Return pw-dump data, reusing cached result within TTL."""
+    global _pw_dump_cache, _pw_dump_cache_time
+    now = time.monotonic()
+    if _pw_dump_cache is not None and (now - _pw_dump_cache_time) < _PW_DUMP_CACHE_TTL:
+        return _pw_dump_cache
+    result = await pw_dump()
+    if result is not None:
+        _pw_dump_cache = result
+        _pw_dump_cache_time = now
+    return result
 
 # Default path to the filter-chain SPA config on the Pi.
 _DEFAULT_SPA_CONFIG = pathlib.Path(
@@ -207,8 +228,8 @@ async def get_topology(request: Request):
     if MOCK_MODE:
         return _mock_topology()
 
-    # Fetch pw-dump data.
-    pw_data = await pw_dump()
+    # Fetch pw-dump data (F-127: cached with 5s TTL).
+    pw_data = await _pw_dump_cached()
     if pw_data is None:
         return JSONResponse(
             status_code=502,
