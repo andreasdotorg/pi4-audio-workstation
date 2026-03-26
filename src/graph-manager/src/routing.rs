@@ -192,8 +192,9 @@ const UMIK1_PREFIX: &str = "alsa_input.usb-miniDSP_UMIK-1";
 /// ports to pcm-bridge's input ports.
 const PCM_BRIDGE: &str = "pi4audio-pcm-bridge";
 
-/// Level-bridge instance monitoring software source (convolver monitor ports).
-/// D-043/US-084: Always-on level metering. 4 channels (convolver has 4 outputs).
+/// Level-bridge instance monitoring software/app outputs.
+/// D-043/US-084/F-124: Always-on level metering. 8 channels max (Reaper).
+/// Links are mode-specific: taps the active app's output ports.
 const LEVEL_BRIDGE_SW: &str = "pi4audio-level-bridge-sw";
 
 /// Level-bridge instance monitoring hardware output (USBStreamer monitor ports).
@@ -361,7 +362,8 @@ impl RoutingTable {
         // detected, set volume to unity to prevent post-DSP clipping.
         let mut links = Self::convolver_to_usbstreamer_links();
         links.extend(Self::pcm_bridge_post_convolver_links());
-        links.extend(Self::level_bridge_links());
+        // F-124: No level-bridge-sw in monitoring — no app to tap.
+        links.extend(Self::level_bridge_hw_links());
         links
     }
 
@@ -436,7 +438,13 @@ impl RoutingTable {
         }
 
         // D-043/US-084: level-bridge always active.
-        links.extend(Self::level_bridge_links());
+        links.extend(Self::level_bridge_hw_links());
+        // F-124: level-bridge-sw taps Mixxx outputs (4ch: Master L/R + HP L/R).
+        links.extend(Self::level_bridge_sw_links(
+            NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
+            AppPortNaming::MixxxOutput,
+            4,
+        ));
 
         links
     }
@@ -544,7 +552,13 @@ impl RoutingTable {
         }
 
         // D-043/US-084: level-bridge always active.
-        links.extend(Self::level_bridge_links());
+        links.extend(Self::level_bridge_hw_links());
+        // F-124: level-bridge-sw taps Reaper outputs (8ch: Master L/R + unused 3-4 + HP L/R + IEM L/R).
+        links.extend(Self::level_bridge_sw_links(
+            NodeMatch::Prefix(REAPER_PREFIX.to_string()),
+            AppPortNaming::ReaperOutput,
+            8,
+        ));
 
         links
     }
@@ -601,7 +615,13 @@ impl RoutingTable {
         });
 
         // D-043/US-084: level-bridge always active.
-        links.extend(Self::level_bridge_links());
+        links.extend(Self::level_bridge_hw_links());
+        // F-124: level-bridge-sw taps signal-gen output (1ch mono).
+        links.extend(Self::level_bridge_sw_links(
+            NodeMatch::Exact(SIGNAL_GEN.to_string()),
+            AppPortNaming::SignalGenOutput,
+            1,
+        ));
 
         links
     }
@@ -697,36 +717,26 @@ impl RoutingTable {
             .collect()
     }
 
-    /// Level-bridge links — always present in every mode (D-043, US-084).
+    /// Hardware level-bridge links — always present in every mode (D-043, US-084).
     ///
-    /// Three level-bridge instances tap the audio signal chain:
+    /// Two hardware level-bridge instances tap the physical I/O:
     ///
-    /// 1. **level-bridge-sw** (4ch): convolver monitor_AUX0..3 → input_1..4.
-    ///    Taps the processed audio entering the convolver (pre-crossover).
-    /// 2. **level-bridge-hw-out** (8ch): USBStreamer monitor_AUX0..7 → input_1..8.
+    /// 1. **level-bridge-hw-out** (8ch): USBStreamer monitor_AUX0..7 → input_1..8.
     ///    Taps the exact signal reaching the DAC (post-crossover, post-gain).
-    /// 3. **level-bridge-hw-in** (8ch): ADA8200 capture_AUX0..7 → input_1..8.
+    /// 2. **level-bridge-hw-in** (8ch): ADA8200 capture_AUX0..7 → input_1..8.
     ///    Taps hardware inputs (mics, line-in).
     ///
+    /// level-bridge-sw is NOT included here — its links are mode-specific
+    /// (F-124/F-125: must tap the active app's output ports, not the convolver
+    /// monitor which only shows 4 speaker channels).
+    ///
     /// All links are optional because level-bridge instances may not be running.
-    /// Total: 4 + 8 + 8 = 20 links.
-    fn level_bridge_links() -> Vec<DesiredLink> {
-        let cv_mon = AppPortNaming::ConvolverMonitor;
+    /// Total: 8 + 8 = 16 links.
+    fn level_bridge_hw_links() -> Vec<DesiredLink> {
         let usb_mon = AppPortNaming::UsbStreamerMonitor;
         let ada = AppPortNaming::Ada8200Capture;
         let lb_in = AppPortNaming::LevelBridgeInput;
-        let mut links = Vec::with_capacity(20);
-
-        // level-bridge-sw: convolver monitor → level-bridge-sw input (4ch).
-        for ch in 1..=4 {
-            links.push(DesiredLink {
-                output_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
-                output_port: cv_mon.port_name(ch),
-                input_node: NodeMatch::Exact(LEVEL_BRIDGE_SW.to_string()),
-                input_port: lb_in.port_name(ch),
-                optional: true,
-            });
-        }
+        let mut links = Vec::with_capacity(16);
 
         // level-bridge-hw-out: USBStreamer monitor → level-bridge-hw-out input (8ch).
         for ch in 1..=8 {
@@ -751,6 +761,30 @@ impl RoutingTable {
         }
 
         links
+    }
+
+    /// level-bridge-sw links for a specific app (F-124/F-125).
+    ///
+    /// Taps the app's output ports so the SW meters show all channels
+    /// the app produces (including HP, IEM), not just the 4 convolver
+    /// speaker channels.
+    ///
+    /// All links are optional because level-bridge-sw may not be running.
+    fn level_bridge_sw_links(
+        source_node: NodeMatch,
+        source_naming: AppPortNaming,
+        num_channels: u32,
+    ) -> Vec<DesiredLink> {
+        let lb_in = AppPortNaming::LevelBridgeInput;
+        (1..=num_channels)
+            .map(|ch| DesiredLink {
+                output_node: source_node.clone(),
+                output_port: source_naming.port_name(ch),
+                input_node: NodeMatch::Exact(LEVEL_BRIDGE_SW.to_string()),
+                input_port: lb_in.port_name(ch),
+                optional: true,
+            })
+            .collect()
     }
 }
 
@@ -881,11 +915,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn monitoring_has_28_links() {
+    fn monitoring_has_24_links() {
         // convolver-out → USBStreamer ch 0-3 (4) + convolver-out → pcm-bridge (4)
-        // + level-bridge-sw (4) + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 28.
+        // + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 24.
+        // F-124: No level-bridge-sw in monitoring (no app to tap).
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Monitoring).len(), 28);
+        assert_eq!(table.links_for(Mode::Monitoring).len(), 24);
     }
 
     #[test]
@@ -893,29 +928,32 @@ mod tests {
         // Mixxx → convolver mains (2) + Mixxx → convolver subs fan-out (4)
         // + convolver → USBStreamer (4) + Mixxx → pcm-bridge pre-conv (6)
         // + Mixxx → USBStreamer HP (2)
-        // + level-bridge-sw (4) + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 38.
+        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-124: Mixxx → level-bridge-sw (4) = 38.
         let table = RoutingTable::production();
         assert_eq!(table.links_for(Mode::Dj).len(), 38);
     }
 
     #[test]
-    fn live_has_48_links() {
+    fn live_has_52_links() {
         // REAPER → convolver mains (2) + REAPER → convolver subs fan-out (4)
         // + convolver → USBStreamer (4) + REAPER → pcm-bridge pre-conv (6)
         // + REAPER → USBStreamer HP (2) + REAPER → USBStreamer IEM (2)
         // + ADA8200 → REAPER capture (8)
-        // + level-bridge-sw (4) + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 48.
+        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-124: REAPER → level-bridge-sw (8) = 52.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Live).len(), 48);
+        assert_eq!(table.links_for(Mode::Live).len(), 52);
     }
 
     #[test]
-    fn measurement_has_30_links() {
+    fn measurement_has_27_links() {
         // F-097: signal-gen mono fan-out → convolver (4) + convolver → USBStreamer (4)
         // + signal-gen → pcm-bridge (1) + UMIK-1 → signal-gen-capture (1)
-        // + level-bridge-sw (4) + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 30.
+        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-124: signal-gen → level-bridge-sw (1) = 27.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Measurement).len(), 30);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 27);
     }
 
     #[test]
@@ -923,9 +961,13 @@ mod tests {
         let table = RoutingTable::production();
         let live_links = table.links_for(Mode::Live);
         // IEM links (out7, out8 → USBStreamer AUX6, AUX7) should be optional.
+        // Filter to USBStreamer target only (F-124: out7/out8 also go to level-bridge-sw).
         let iem_links: Vec<_> = live_links
             .iter()
-            .filter(|l| l.output_port == "out7" || l.output_port == "out8")
+            .filter(|l| {
+                (l.output_port == "out7" || l.output_port == "out8")
+                    && matches!(&l.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output"))
+            })
             .collect();
         assert_eq!(iem_links.len(), 2);
         assert!(iem_links.iter().all(|l| l.optional));
@@ -1055,8 +1097,9 @@ mod tests {
 
     #[test]
     fn all_modes_have_level_bridge_links() {
-        // D-043/US-084: level-bridge links in all modes (level metering always active).
-        // 3 instances: sw (4ch), hw-out (8ch), hw-in (8ch) = 20 links per mode.
+        // D-043/US-084/F-124: level-bridge links in all modes.
+        // hw-out (8) + hw-in (8) = 16 in every mode.
+        // sw links are mode-specific: Monitoring=0, DJ=4, Live=8, Measurement=1.
         let table = RoutingTable::production();
         for mode in Mode::ALL {
             let links = table.links_for(mode);
@@ -1066,11 +1109,17 @@ mod tests {
                     matches!(&l.input_node, NodeMatch::Exact(n) if n.starts_with("pi4audio-level-bridge"))
                 })
                 .collect();
+            let expected_sw = match mode {
+                Mode::Monitoring => 0,   // no app to tap
+                Mode::Dj => 4,           // Mixxx 4ch
+                Mode::Live => 8,         // Reaper 8ch
+                Mode::Measurement => 1,  // signal-gen mono
+            };
             assert_eq!(
                 lb_links.len(),
-                20,
-                "Mode {} should have 20 level-bridge links (4+8+8)",
-                mode,
+                16 + expected_sw,
+                "Mode {} should have {} level-bridge links (16 hw + {} sw)",
+                mode, 16 + expected_sw, expected_sw,
             );
             // All level-bridge links are optional (instances may not be running).
             assert!(
@@ -1082,22 +1131,46 @@ mod tests {
     }
 
     #[test]
-    fn level_bridge_sw_taps_convolver_monitor() {
-        // level-bridge-sw taps convolver's monitor ports (4ch).
+    fn level_bridge_sw_taps_app_outputs() {
+        // F-124: level-bridge-sw taps the active app's output ports per mode.
         let table = RoutingTable::production();
-        let links = table.links_for(Mode::Monitoring);
-        let sw_links: Vec<_> = links
-            .iter()
-            .filter(|l| {
-                matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw")
-            })
+
+        // Monitoring: no level-bridge-sw links (no app).
+        let mon_sw: Vec<_> = table.links_for(Mode::Monitoring).iter()
+            .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw"))
             .collect();
-        assert_eq!(sw_links.len(), 4);
-        for (i, link) in sw_links.iter().enumerate() {
-            assert_eq!(link.output_port, format!("monitor_AUX{}", i));
+        assert_eq!(mon_sw.len(), 0, "Monitoring should have 0 level-bridge-sw links");
+
+        // DJ: Mixxx 4ch (out_0..out_3 → input_1..4).
+        let dj_sw: Vec<_> = table.links_for(Mode::Dj).iter()
+            .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw"))
+            .collect();
+        assert_eq!(dj_sw.len(), 4);
+        for (i, link) in dj_sw.iter().enumerate() {
+            assert_eq!(link.output_port, format!("out_{}", i));
             assert_eq!(link.input_port, format!("input_{}", i + 1));
-            assert!(matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver"));
+            assert!(matches!(&link.output_node, NodeMatch::Prefix(p) if p == "Mixxx"));
         }
+
+        // Live: Reaper 8ch (out1..out8 → input_1..8).
+        let live_sw: Vec<_> = table.links_for(Mode::Live).iter()
+            .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw"))
+            .collect();
+        assert_eq!(live_sw.len(), 8);
+        for (i, link) in live_sw.iter().enumerate() {
+            assert_eq!(link.output_port, format!("out{}", i + 1));
+            assert_eq!(link.input_port, format!("input_{}", i + 1));
+            assert!(matches!(&link.output_node, NodeMatch::Prefix(p) if p == "REAPER"));
+        }
+
+        // Measurement: signal-gen 1ch (output_AUX0 → input_1).
+        let meas_sw: Vec<_> = table.links_for(Mode::Measurement).iter()
+            .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw"))
+            .collect();
+        assert_eq!(meas_sw.len(), 1);
+        assert_eq!(meas_sw[0].output_port, "output_AUX0");
+        assert_eq!(meas_sw[0].input_port, "input_1");
+        assert!(matches!(&meas_sw[0].output_node, NodeMatch::Exact(n) if n == "pi4audio-signal-gen"));
     }
 
     #[test]
@@ -1235,14 +1308,15 @@ mod tests {
     #[test]
     fn signal_gen_uses_output_aux_ports() {
         // F-097: Signal-gen is mono — all links use output_AUX0.
-        // 4 fan-out links to convolver + 1 link to pcm-bridge = 5.
+        // 4 fan-out links to convolver + 1 link to pcm-bridge
+        // + F-124: 1 link to level-bridge-sw = 6.
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let siggen_links: Vec<_> = meas_links
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Exact(n) if n == "pi4audio-signal-gen"))
             .collect();
-        assert_eq!(siggen_links.len(), 5);
+        assert_eq!(siggen_links.len(), 6);
         for link in &siggen_links {
             assert_eq!(
                 link.output_port, "output_AUX0",
@@ -1285,8 +1359,9 @@ mod tests {
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "Mixxx"))
             .collect();
-        // 2 mains + 4 sub fan-out + 2 HP + 6 pcm-bridge pre-conv = 14
-        assert_eq!(mixxx_links.len(), 14);
+        // 2 mains + 4 sub fan-out + 2 HP + 6 pcm-bridge pre-conv
+        // + F-124: 4 level-bridge-sw = 18
+        assert_eq!(mixxx_links.len(), 18);
     }
 
     #[test]
@@ -1343,8 +1418,9 @@ mod tests {
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "REAPER"))
             .collect();
-        // 2 mains + 4 sub fan-out + 2 HP + 2 IEM + 6 pcm-bridge pre-conv = 16
-        assert_eq!(reaper_links.len(), 16);
+        // 2 mains + 4 sub fan-out + 2 HP + 2 IEM + 6 pcm-bridge pre-conv
+        // + F-124: 8 level-bridge-sw = 24
+        assert_eq!(reaper_links.len(), 24);
     }
 
     #[test]

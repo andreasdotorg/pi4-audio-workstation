@@ -276,16 +276,17 @@ echo "[local-demo] signal-gen running (PID ${PIDS[-1]})"
 # Managed mode: GM creates links. --node-name gives each instance a unique
 # PW node name matching the GM routing table (US-084).
 
-# 6a. level-bridge-sw: taps convolver monitor ports (4ch processed signal).
+# 6a. level-bridge-sw: taps app output ports (F-124, 8ch to cover Reaper).
+# In local-demo, GM creates links from signal-gen → level-bridge-sw (measurement mode).
 echo ""
 echo "[local-demo] Starting level-bridge-sw (levels on port 9100, managed mode)..."
 "$LB_BIN" \
     --managed \
     --node-name pi4audio-level-bridge-sw \
-    --mode monitor \
-    --target pi4audio-convolver \
+    --mode capture \
+    --target unused-managed-mode \
     --levels-listen tcp:0.0.0.0:9100 \
-    --channels 4 \
+    --channels 8 \
     --rate 48000 &
 PIDS+=($!)
 sleep 1
@@ -403,7 +404,7 @@ echo ""
 echo "  Web UI:          http://localhost:8080"
 echo "  GraphManager:    tcp://127.0.0.1:4002 (RPC, measurement mode)"
 echo "  signal-gen:      tcp://127.0.0.1:4001 (RPC, managed mode)"
-echo "  level-bridge-sw: tcp://127.0.0.1:9100 (levels, convolver tap)"
+echo "  level-bridge-sw: tcp://127.0.0.1:9100 (levels, app output tap)"
 echo "  level-bridge-hw-out: tcp://127.0.0.1:9101 (levels, USBStreamer out)"
 echo "  level-bridge-hw-in:  tcp://127.0.0.1:9102 (levels, USBStreamer in)"
 echo "  pcm-bridge:      tcp://127.0.0.1:9090 (PCM, managed mode)"
