@@ -14,6 +14,7 @@ Note: --headed is provided by pytest-playwright (do not re-declare).
 """
 
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -22,6 +23,36 @@ import time
 from pathlib import Path
 
 import pytest
+
+
+# ── Chromium headless_shell crash workaround (F-120) ─────────────
+# Chromium 141's headless_shell crashes on aarch64-linux when rendering
+# <select> elements.  The full chrome binary does not have this bug.
+# Detect aarch64 and override the executable so pytest-playwright uses
+# the full chrome instead of headless_shell.
+
+def _find_full_chrome() -> str | None:
+    """Return the full chrome binary path from PLAYWRIGHT_BROWSERS_PATH."""
+    browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    if not browsers:
+        return None
+    # playwright-browsers dir contains symlinks like chromium-NNNN -> /nix/store/...
+    for entry in sorted(Path(browsers).iterdir()):
+        if entry.name.startswith("chromium-") and "headless" not in entry.name:
+            chrome = entry / "chrome-linux" / "chrome"
+            if chrome.exists():
+                return str(chrome)
+    return None
+
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args(browser_type_launch_args):
+    """Use full chrome on aarch64 to avoid headless_shell <select> crash (F-120)."""
+    if platform.machine() == "aarch64":
+        chrome = _find_full_chrome()
+        if chrome:
+            browser_type_launch_args = {**browser_type_launch_args, "executable_path": chrome}
+    return browser_type_launch_args
 
 
 # ── Marker registration ────────────────────────────────────────────
