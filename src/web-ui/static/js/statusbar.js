@@ -95,7 +95,12 @@
 
     function updateChannel(state, peak, now) {
         state.peak = peak;
-        if (peak > state.peakHold || (now - state.peakHoldTime) > PEAK_HOLD_MS) {
+        // F-112: Only reset hold to current peak if signal is present,
+        // otherwise the hold marker jumps to the bottom.
+        if (peak > state.peakHold) {
+            state.peakHold = peak;
+            state.peakHoldTime = now;
+        } else if ((now - state.peakHoldTime) > PEAK_HOLD_MS && peak > DB_MIN) {
             state.peakHold = peak;
             state.peakHoldTime = now;
         }
@@ -178,8 +183,11 @@
             return; // same snapshot, skip meter update
         }
         // Advance audio clock by PW nsec delta (D-044: PW clock only).
+        // F-112: Clamp delta to 1s to prevent peak-hold expiry on reconnect.
         if (nsec > 0 && prevGraphNsec > 0 && nsec > prevGraphNsec) {
-            audioClockMs += (nsec - prevGraphNsec) / 1e6;
+            var deltaNsec = nsec - prevGraphNsec;
+            if (deltaNsec > 1e9) deltaNsec = 1e9;
+            audioClockMs += deltaNsec / 1e6;
         }
         prevGraphPos = pos;
         prevGraphNsec = nsec;

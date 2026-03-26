@@ -128,6 +128,7 @@
 
         // Peak hold state
         var PEAK_DECAY_MS = 2000;
+        var PEAK_DECAY_DB_PER_S = 20; // dB/s decay rate after hold period
         var peakEnvelope = null;
         var peakTimes = null;
 
@@ -439,11 +440,26 @@
                     }
                 }
 
-                // Peak hold update
+                // Peak hold update: hold for PEAK_DECAY_MS, then decay
                 if (peakHoldEnabled && peakEnvelope) {
-                    if (db > peakEnvelope[x] || (now - peakTimes[x]) > PEAK_DECAY_MS) {
+                    if (db > peakEnvelope[x]) {
+                        // New peak exceeds held value — capture it
                         peakEnvelope[x] = db;
                         peakTimes[x] = now;
+                    } else {
+                        var holdAge = now - peakTimes[x];
+                        if (holdAge > PEAK_DECAY_MS) {
+                            // Decay at PEAK_DECAY_DB_PER_S after hold period
+                            var decayDb = PEAK_DECAY_DB_PER_S * (holdAge - PEAK_DECAY_MS) / 1000;
+                            var decayed = peakEnvelope[x] - decayDb;
+                            if (db > decayed) {
+                                // Current signal is above decayed peak — recapture
+                                peakEnvelope[x] = db;
+                                peakTimes[x] = now;
+                            }
+                            // Otherwise peakEnvelope[x] stays at original value;
+                            // drawMountainRange computes decayed position at render time.
+                        }
                     }
                 }
             }
@@ -469,16 +485,21 @@
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // Peak hold line
+            // Peak hold line (with gradual decay after hold period)
             if (peakHoldEnabled && peakEnvelope) {
                 var inPeakStroke = false;
                 ctx.beginPath();
                 for (var x3 = 0; x3 < lutLen; x3++) {
-                    if (peakEnvelope[x3] <= floorDb) {
+                    var peakDb = peakEnvelope[x3];
+                    var peakAge = now - peakTimes[x3];
+                    if (peakAge > PEAK_DECAY_MS) {
+                        peakDb -= PEAK_DECAY_DB_PER_S * (peakAge - PEAK_DECAY_MS) / 1000;
+                    }
+                    if (peakDb <= floorDb) {
                         inPeakStroke = false;
                         continue;
                     }
-                    var peakY = dbToY(peakEnvelope[x3]);
+                    var peakY = dbToY(peakDb);
                     if (!inPeakStroke) {
                         ctx.moveTo(plotX + x3, peakY);
                         inPeakStroke = true;

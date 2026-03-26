@@ -441,11 +441,13 @@
             state.peakHold = peak;
             state.peakHoldTime = now;
         }
-        // Reset hold after it has decayed below minimum
+        // Reset hold after it has decayed below minimum.
+        // F-112: Only reset to current peak if signal is present (above DB_MIN).
+        // Otherwise the hold marker jumps to the bottom of the meter.
         var holdAge = now - state.peakHoldTime;
         if (holdAge > PEAK_HOLD_MS) {
             var decayed = state.peakHold - PEAK_DECAY_DB_PER_S * ((holdAge - PEAK_HOLD_MS) / 1000);
-            if (decayed <= DB_MIN) {
+            if (decayed <= DB_MIN && peak > DB_MIN) {
                 state.peakHold = peak;
                 state.peakHoldTime = now;
             }
@@ -471,8 +473,11 @@
             return; // data hasn't changed, skip
         }
         // Advance audio clock by PW nsec delta (D-044: PW clock only).
+        // F-112: Clamp delta to 1s to prevent peak-hold expiry on reconnect.
         if (nsec > 0 && prevGraphNsec > 0 && nsec > prevGraphNsec) {
-            audioClockMs += (nsec - prevGraphNsec) / 1e6;
+            var deltaNsec = nsec - prevGraphNsec;
+            if (deltaNsec > 1e9) deltaNsec = 1e9;
+            audioClockMs += deltaNsec / 1e6;
         }
         prevGraphPos = pos;
         prevGraphNsec = nsec;
