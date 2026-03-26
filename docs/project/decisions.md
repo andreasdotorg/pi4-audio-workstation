@@ -1319,7 +1319,7 @@ backend changes.
 
 **Related:** US-080 (implementation story), US-079 (pre-convolver tap)
 
-## D-049: Level-bridge / pcm-bridge separation for 24-channel metering (2026-03-25)
+## D-049: Level-bridge / pcm-bridge separation for 24-channel metering (2026-03-25, REVISED 2026-03-26)
 
 **Context:** The existing pcm-bridge serves dual duty: level metering (JSON,
 always-on) and raw PCM streaming (binary, on-demand for spectrum). The
@@ -1333,10 +1333,14 @@ with the rt-services architecture doc (Section 2) which already specifies
 this separation.
 
 1. **level-bridge** (new binary `pi4audio-level-bridge`): Levels-only,
-   always-on via systemd, self-linking (no GM management). 3 instances:
-   - `level-bridge-sw`: taps app/signal-gen outputs (SW Out, 8ch, port 9100)
-   - `level-bridge-hw-out`: taps USBStreamer monitor ports (HW Out, 8ch, port 9101)
-   - `level-bridge-hw-in`: taps USBStreamer capture ports (HW In, 8ch, port 9102)
+   always-on via systemd. **GM-managed links** (revised 2026-03-26). 3
+   instances with unique node names:
+   - `level-bridge-sw` (node: `pi4audio-level-bridge-sw`): taps convolver
+     output (SW Out, 8ch, port 9100)
+   - `level-bridge-hw-out` (node: `pi4audio-level-bridge-hw-out`): taps
+     USBStreamer sink monitor ports (HW Out, 8ch, port 9101)
+   - `level-bridge-hw-in` (node: `pi4audio-level-bridge-hw-in`): taps
+     USBStreamer source capture ports (HW In, 8ch, port 9102)
 
 2. **pcm-bridge** (existing binary, refactored): PCM-only, on-demand,
    GM-managed. Spawned when spectrum view needs raw audio from a selectable
@@ -1346,16 +1350,489 @@ this separation.
    to convolver inputs.
 
 **Rationale:** level-bridge is always-on infrastructure (like a mixing
-console's meter bridge) — it must not depend on GM being alive or in the
-right mode. pcm-bridge is an on-demand diagnostic tool that only runs when
-someone is actively viewing the spectrum. Separating them gives each binary
-a single clear lifecycle: level-bridge = systemd always-on, pcm-bridge =
-GM-managed on-demand.
+console's meter bridge). pcm-bridge is an on-demand diagnostic tool that only
+runs when someone is actively viewing the spectrum. Separating them gives each
+binary a single clear lifecycle: level-bridge = systemd always-on, pcm-bridge
+= GM-managed on-demand. Both use GM-managed links (see revision below).
 
 **Impact:** US-084 (implementation story). Shared `audio-common::LevelTracker`
-crate used by both. Web UI wires 3 level-bridge WebSocket connections to the
+crate used by both. Web UI wires 3 level-bridge TCP connections to the
 existing 24-channel meter layout (TK-097/US-051). D-047 PPM ballistics apply
 to all 24 channels.
 
 **Related:** TK-097 (24-channel layout), US-051 (persistent status bar meters),
-D-047 (PPM ballistics), rt-services.md Section 2, US-084 (implementation)
+D-047 (PPM ballistics), rt-services.md Section 2, US-084 (implementation),
+D-039 (GM sole link manager), D-050 (session state architecture)
+
+### D-049 Revision: Self-linking SUPERSEDED — GM manages all level-bridge links (2026-03-26)
+
+**What changed:** The original D-049 specified level-bridge as "self-linking
+via WirePlumber" using PipeWire stream properties (`stream.capture.sink=true`
++ `target.object`). This design is **superseded**. Level-bridge now runs in
+`--managed` mode with GM-managed links in all routing modes.
+
+**Why the original design failed:** Self-linking relies on WirePlumber's
+auto-linking policy engine to read the `stream.capture.sink` and
+`target.object` properties and create links automatically. These are
+WirePlumber-interpreted properties, not PipeWire core features — PW core
+ignores them entirely; only WP's policy scripts act on them. However, D-039
+explicitly states: *"No WirePlumber — GraphManager is the sole PipeWire
+session manager."* On the production Pi, WP auto-linking is disabled (GM
+owns all link creation/destruction). The self-linking properties are inert
+when WP auto-linking is off. Result: all 3 level-bridge instances sat in
+Paused with zero links on the production Pi — 24 dead meters.
+
+Self-linking only worked in the local-demo environment because the local PW
+test environment runs WirePlumber with default auto-linking enabled. This
+masked the architectural incompatibility during development and testing.
+
+**The fundamental error:** D-049's self-linking design directly contradicted
+D-039's "GM is sole link manager" principle. The rationale was "level-bridge
+should survive a GM crash." But this independence is illusory: if GM is the
+only component that creates links, then a component that refuses GM link
+management gets zero links. Independence from the link manager means
+independence from having links.
+
+**Revised design:**
+
+1. **Level-bridge runs in `--managed` mode.** No `stream.capture.sink`, no
+   `target.object`, no AUTOCONNECT. Same PW stream property pattern as
+   signal-gen and pcm-bridge under GM management.
+
+2. **Each instance has a unique PW node name** via `--node-name` CLI arg:
+   `pi4audio-level-bridge-sw`, `pi4audio-level-bridge-hw-out`,
+   `pi4audio-level-bridge-hw-in`. GM's routing table uses these for
+   unambiguous link targeting.
+
+3. **GM's routing tables include level-bridge links in ALL modes.** 24 links
+   (8 per instance) are added to every mode (Monitoring, DJ, Live,
+   Measurement). All are `optional: true` so that missing level-bridge
+   instances (e.g., during startup) don't block reconciliation. The
+   reconciler creates links as soon as the level-bridge node appears in the
+   PW registry.
+
+4. **Link topology:**
+   - **sw**: `pi4audio-convolver-out:output_AUX0..7` →
+     `pi4audio-level-bridge-sw:input_1..8` (8 links, monitor mode)
+   - **hw-out**: `alsa_output.usb-MiniDSP_USBStreamer:monitor_AUX0..7` →
+     `pi4audio-level-bridge-hw-out:input_1..8` (8 links, monitor mode)
+   - **hw-in**: `alsa_input.usb-MiniDSP_USBStreamer:capture_AUX0..7` →
+     `pi4audio-level-bridge-hw-in:input_1..8` (8 links, capture mode)
+
+5. **systemd still manages process lifecycle.** Level-bridge instances are
+   always-on via systemd template units (`level-bridge@.service`). GM
+   manages their links, not their existence. If a level-bridge process
+   restarts (systemd `Restart=on-failure`), GM's reconciler detects the
+   node reappearance and re-creates links automatically.
+
+6. **`--self-link` flag removed.** The self-link code path
+   (`stream.capture.sink`, `target.object` properties) is deleted. It
+   created a second, untestable-on-production code path. One code path,
+   one behavior, everywhere.
+
+**Principle established:** No PipeWire node in the pi4audio ecosystem may
+create its own links via WP auto-linking properties. ALL link topology is
+GM's exclusive domain (D-039). If a node needs links, those links go in GM's
+routing table. There are no exceptions and no escape hatches.
+
+## D-050: GM as audio session state manager — unified mode transitions (2026-03-26)
+
+**Context:** The workstation's runtime state is fragmented across multiple
+owners with no single source of truth:
+
+| Concern | Owner before D-050 | Problem |
+|---------|--------------------|---------|
+| PW link topology | GM (Rust) | The only thing GM managed well |
+| Mode state | **Both** GM (`set_mode` RPC) AND web-UI (`ModeManager` Python class) | Two state machines that must agree. Web-UI has `DaemonMode.MONITORING/MEASUREMENT`. GM has `Mode::Monitoring/Dj/Live/Measurement`. Web-UI calls GM's `set_mode` then updates its own state. If either crashes or restarts, they disagree. |
+| PW quantum | **Nobody coherently** | DJ needs quantum 1024, Live needs 256. This was a manual `pw-metadata` command. Not part of any mode transition. |
+| Dynamic process lifecycle | **Nobody** (designed for GM in Q5 but unimplemented) | pcm-bridge on-demand taps, audio-recorder for measurement — no owner existed |
+| Measurement orchestration | Web-UI Python (`MeasurementSession`) | Web-UI creates sessions, calls signal-gen, calls GM `set_mode`, manages state machine |
+| Application lifecycle | **Nobody** ("user-launched") | Switching to DJ mode doesn't launch Mixxx; the user does it manually |
+| Level-bridge links | **WirePlumber** (D-049 self-linking) | D-039 disables WP auto-linking on production. Result: zero links, 24 dead meters. |
+
+This fragmentation produced concrete, documented failures:
+
+1. **D-049 self-linking disaster.** Level-bridge was designed to self-link
+   via WP properties, contradicting D-039 (GM is sole link manager). Worked
+   in local-demo (WP enabled), failed on production Pi (WP auto-linking
+   disabled). 24 meters dead on deployment.
+
+2. **D-044 wallclock violations.** Independent wall-clock timers in the data
+   path (Python `asyncio.sleep`, Rust `tokio::time::interval`) created
+   timing incoherence that had to be corrected in a 4-phase architectural
+   change. The root cause: no single component owned "how audio timing works
+   on this system."
+
+3. **Split-brain mode state.** Web-UI and GM each maintain independent mode
+   state. The `ModeManager` class in Python duplicates GM's mode tracking.
+   Startup recovery code in web-UI attempts to detect orphaned GM states.
+   Every mode transition requires coordinating across an RPC boundary with
+   no transactional guarantee.
+
+4. **Distributed ownership failures (defect evidence).** The distributed
+   architecture has a documented track record of cascading failures:
+   - **F-061:** `pw-dump` subprocess hangs under WebSocket load — web-UI
+     running PW subprocesses on its own event loop instead of delegating
+     to a component designed for PW interaction.
+   - **F-063:** uvicorn single-worker capacity — WebSocket connections
+     block new TLS handshakes. Web-UI taking on too many responsibilities.
+   - **F-064:** Collector timeout cycles block event loop — web-UI
+     unreachable. Backend collectors for GM/pcm-bridge run as async
+     coroutines that monopolize the event loop when services are slow.
+   - **F-095:** journald consuming 62% CPU on Pi — GM spawns `pw-cli
+     info` in a tight loop for node polling. GM's lack of native PW
+     integration forces expensive subprocess polling.
+   - **F-100:** local-demo.sh leaves orphan processes on PipeWire startup
+     failure. No single component tracks what is running; cleanup is
+     ad-hoc and incomplete.
+
+   These are not isolated bugs. They share a root cause: session state
+   (what's running, what's connected, what's healthy) is scattered across
+   components that lack visibility into each other's state.
+
+The common root cause: the original GM design rejected node management and
+process lifecycle as "too complex," limiting GM to link-only management.
+Every subsequent requirement (dynamic instances, process lifecycle, quantum
+switching, application launching) hit this artificial boundary and was solved
+with ad-hoc workarounds in whichever component happened to be convenient.
+
+**Decision:** GM owns the complete audio session state. A mode transition is
+a session transition that includes link topology, PipeWire quantum, dynamic
+process lifecycle, and readiness verification. The web-UI is the workflow
+and presentation layer — it tells GM *what mode to enter*, not *how to
+configure the audio graph*.
+
+**What GM owns (after D-050):**
+
+1. **All PipeWire link topology.** This is unchanged from D-039. GM is the
+   sole creator and destroyer of links between managed nodes. No node may
+   self-link via WP properties. No manual `pw-link` between managed nodes.
+   Level-bridge, pcm-bridge, signal-gen, convolver, USBStreamer — all links
+   are in GM's routing tables.
+
+2. **PipeWire quantum.** Each mode has a required quantum (DJ: 1024, Live:
+   256, Monitoring: 256, Measurement: 256). `set_mode` sets the quantum via
+   `pw-metadata -n settings 0 clock.force-quantum <N>` as part of the
+   transition. GM already calls `pw-metadata` for quantum reads; adding
+   writes is trivial.
+
+3. **Signal-chain application lifecycle.** GM owns the lifecycle of ALL
+   applications involved in the audio signal chain. When the engineer
+   selects a mode, GM ensures the complete session is running:
+   - **signal-gen**: spawned when entering measurement mode, killed on
+     exit. GM waits for the PW node to appear before reporting readiness.
+     D-009 safety cap (-20 dBFS) is enforced within signal-gen's own code
+     regardless of who spawns it — the safety guarantee is in the binary,
+     not in systemd.
+   - **Mixxx**: spawned when entering DJ mode. GM waits for Mixxx's PW
+     nodes to appear, creates links, reports readiness. GM does NOT kill
+     Mixxx on mode exit — the user closes it manually (unsaved state,
+     running playlist). GM's role: "ensure the app is running."
+   - **Reaper**: spawned when entering Live mode. Same lifecycle as Mixxx:
+     spawn, wait for PW nodes, link, readiness. No kill on mode exit.
+   - **pcm-bridge taps**: spawned via `start_tap` RPC, killed via
+     `stop_tap` or on mode exit. GM allocates ports, creates links,
+     monitors health.
+   - **audio-recorder**: spawned when entering measurement mode, killed
+     on exit. GM waits for the recorder's PW node to appear.
+
+4. **Readiness verification.** `set_mode` is not fire-and-forget. GM
+   performs the full transition (quantum, process spawning, wait for node
+   registration, link reconciliation) and responds with a readiness status.
+   The caller (web-UI) knows the workstation is fully configured before
+   proceeding.
+
+5. **Component health tracking.** GM observes node appearances and
+   disappearances via PW registry events and derives component health
+   (Connected/Disconnected). Level-bridge instances (x3) are added to
+   health tracking alongside existing components (signal-gen, pcm-bridge,
+   convolver, USBStreamer, UMIK-1).
+
+**What changes (D-050):**
+
+- **GM owns mode transitions end-to-end.** `set_mode` is a session
+  transition: quantum + process spawning + link reconciliation + readiness
+  verification. The web-UI sends `set_mode("dj")` and waits for readiness.
+- **GM owns PW quantum.** Each mode has a required quantum (DJ: 1024, Live:
+  256, Monitoring: 256, Measurement: 256). No more manual `pw-metadata`.
+- **GM owns signal-chain application lifecycle.** Signal-gen, Mixxx,
+  Reaper, pcm-bridge taps, audio-recorder — all spawned as part of mode
+  transitions. Signal-gen moves from systemd always-on to GM-managed
+  (measurement mode only). Mixxx and Reaper are GM-launched (DJ/Live modes).
+- **GM owns all level-bridge links.** 24 links (8 per instance x 3) in ALL
+  modes' routing tables. No self-linking. (D-049 revision.)
+- **Web-UI `ModeManager` class removed.** GM's mode is the single source of
+  truth. Web-UI queries `get_state` RPC — no local mode tracking, no
+  split-brain.
+- **Web-UI measurement routes simplified.** `enter_measurement_mode` tells
+  GM to transition; GM handles quantum, links, readiness. Web-UI
+  orchestrates the measurement workflow (sweeps, recording) within that mode.
+
+**What doesn't change:**
+
+- **systemd for infrastructure services only.** GM itself, level-bridge
+  (x3), and web-UI are systemd-managed. They start at boot and run
+  regardless of mode — they are infrastructure that must exist BEFORE GM
+  starts or that operates independently of the audio signal chain. systemd
+  ensures they *exist*; GM ensures they *participate* in the audio graph.
+  Signal-chain applications (signal-gen, Mixxx, Reaper, pcm-bridge,
+  audio-recorder) are NOT systemd-managed — GM owns their lifecycle.
+- **D-009 safety enforcement is intrinsic.** The -20 dBFS hard cap is
+  enforced in signal-gen's own code, not by its process supervisor. Whether
+  systemd or GM spawns signal-gen, the safety guarantee is identical —
+  it's compiled into the binary. The web-UI additionally validates gain
+  parameters before proxying commands. GM does not send audio commands to
+  signal-gen.
+- **Measurement workflow logic in web-UI.** Sweep sequences, deconvolution,
+  filter generation, calibration file management — this is application
+  logic. GM transitions to measurement mode (spawning signal-gen +
+  audio-recorder); the web-UI orchestrates what happens within that mode.
+- **UI state and user interaction.** WebSocket broadcasts, dashboard
+  rendering, user preferences — all web-UI concerns.
+
+**Signal-gen lifecycle (RESOLVED — owner decision):**
+
+Signal-gen moves from systemd always-on to GM-managed. GM spawns signal-gen
+when entering measurement mode and kills it on exit.
+
+The Architect initially recommended keeping signal-gen under systemd
+(safety-critical tier, zero idle cost, independent restart). The owner
+overruled: GM owns lifecycle of ALL apps involved in the audio signal chain.
+The safety argument is addressed by D-009's hard cap being intrinsic to the
+signal-gen binary — the -20 dBFS limit is enforced in code regardless of
+process supervisor. If GM crashes during a measurement, signal-gen's child
+process is orphaned (inherited by PID 1) — it does not receive a kill signal
+and continues running with its safety cap intact. For clean shutdown, GM
+sends SIGTERM on mode exit.
+
+The Q8 security tier boundary (safety-critical vs data-plane binaries must
+never be merged) remains absolute. GM spawns signal-gen as a separate
+process — the tier boundary is between binaries, not between process
+supervisors.
+
+**Mixxx/Reaper lifecycle (RESOLVED — owner decision):**
+
+GM ALWAYS owns application lifecycle for signal-chain components. This is
+not optional, not "future maybe," not `launch_app: true/false`. When the
+engineer selects DJ mode, GM ensures Mixxx is running. When the engineer
+selects Live mode, GM ensures Reaper is running.
+
+Lifecycle details:
+- **Spawn-only on mode entry.** GM launches the application if it is not
+  already running. If the user has already opened Mixxx manually, GM
+  detects its PW nodes via the registry observer and skips spawning.
+- **No kill on mode exit.** Mixxx and Reaper have complex user state
+  (running playlists, unsaved projects). GM does NOT kill them on mode
+  transition. The user closes applications manually. This matches
+  professional audio practice: a mixing console recalls a scene and expects
+  channels to be there, but doesn't power-cycle outboard gear.
+- **Readiness gating.** `set_mode` waits for the application's PW nodes to
+  appear before creating links and reporting readiness. The reconciler's
+  existing "create links when nodes appear" behavior handles the timing.
+- **Health tracking.** GM tracks application PW nodes via registry events.
+  If Mixxx crashes mid-session, GM reports Disconnected health status to
+  the web-UI. The web-UI can offer a "relaunch" action that calls
+  `set_mode` again.
+
+**What stays under systemd (infrastructure):**
+- GM itself (must exist before it can manage anything)
+- Level-bridge x3 (metering infrastructure, independent of signal chain)
+- Web-UI (presentation layer, independent of signal chain)
+
+**What moves under GM (signal-chain applications):**
+- Signal-gen (measurement mode only)
+- Mixxx (DJ mode)
+- Reaper (Live mode)
+- pcm-bridge taps (on-demand)
+- audio-recorder (measurement mode)
+
+**Orphan-on-crash behavior for GM-spawned children:** If GM crashes, all
+its child processes (signal-gen, pcm-bridge, audio-recorder) are orphaned
+and inherited by PID 1. They continue running — they do NOT receive
+SIGTERM/SIGKILL from the GM crash. This is intentional for safety-critical
+children (signal-gen retains its -20 dBFS cap). For data-plane children
+(pcm-bridge, audio-recorder), orphaning is harmless: they consume negligible
+CPU without links (GM is dead, so no reconciler creates links), and they
+will be cleaned up when GM restarts and performs mode reconciliation. GM's
+startup should detect orphaned children by PW node name and either adopt
+them (skip re-spawning) or kill-and-respawn. Mixxx and Reaper are unaffected
+— they are desktop applications that the user manages independently once
+spawned.
+
+**Key principles (these are non-negotiable and must not be violated by
+future decisions):**
+
+1. **ALL PipeWire link topology is GM's exclusive responsibility.** No
+   self-linking. No WP auto-linking. No manual `pw-link` between managed
+   nodes. If a node needs links, those links are in GM's routing table.
+   (Established by D-039, reinforced by D-049 revision.)
+
+2. **ALL audio timing uses the PW graph clock.** No wall-clock fallbacks,
+   no independent timers in the audio data path. The PW graph clock
+   (`spa_io_position->clock`) is the single authoritative time source.
+   (Established by D-044.)
+
+3. **GM is NOT in RT context.** GM's main loop, reconciler, and RPC handler
+   run at normal scheduling priority. PipeWire's RT module promotes only
+   the data threads inside PW client streams (level-bridge, pcm-bridge,
+   signal-gen process callbacks). `fork`/`exec` from GM's supervisory
+   thread has no RT scheduling implications. GM already calls
+   `Command::new("pw-dump")` and `Command::new("pw-metadata")` — process
+   spawning is established practice. **Cautionary example:** F-095
+   (journald at 62% CPU) demonstrates subprocess management done wrong —
+   GM polled node state by spawning `pw-cli info` per node per cycle,
+   flooding journald with PW connect/disconnect logs. Subprocess spawning
+   is valid for lifecycle management (spawn once, monitor via PW registry);
+   it is NOT valid for polling loops. Use PW registry events for state
+   observation, not repeated subprocess calls.
+
+4. **Safety guarantees are intrinsic to binaries, not to process
+   supervisors.** Signal-gen's D-009 hard cap (-20 dBFS) is enforced in
+   compiled code, not by systemd or GM configuration. The Q8 security tier
+   boundary (safety-critical and data-plane binaries must never be merged)
+   is between binaries, not between process supervisors. GM spawns
+   signal-gen as a separate process — the tier boundary is preserved.
+   If GM crashes, signal-gen is orphaned (inherited by PID 1) and
+   continues running with its safety cap intact.
+
+5. **systemd manages infrastructure process lifecycle, GM manages ALL
+   link topology AND signal-chain sessions.** systemd owns process
+   existence for infrastructure that must exist before GM starts or that
+   operates independently of the signal chain: GM itself, level-bridge
+   (x3), web-UI. GM owns signal-chain application lifecycle: signal-gen,
+   Mixxx, Reaper, pcm-bridge taps, audio-recorder. The boundary for
+   process lifecycle is: if a process is part of the audio signal chain
+   and its presence depends on the current mode, GM manages it. **But
+   link topology has NO such boundary:** GM owns ALL links for ANY node
+   in the pi4audio PW namespace, regardless of who manages the process
+   lifecycle. Level-bridge is systemd-managed AND GM-linked. There is no
+   "infrastructure self-linking" category. systemd may own a process;
+   it never owns that process's PW links.
+
+**Common violation patterns to watch for:**
+
+These are the ways D-050 gets eroded. Each has happened or nearly happened
+in this project. Treat any occurrence as an architectural violation requiring
+AD review:
+
+1. **"This service is simple enough to self-link."** No. The D-049
+   self-linking disaster proved that WP-property-based linking is
+   incompatible with D-039 (GM sole link manager). Simplicity of the
+   service is irrelevant — the principle is absolute. If it has a PW node,
+   its links are in GM's routing table.
+
+2. **"This timer is just for the control path, not the audio path."**
+   Verify against Principle 2's definition: no wall-clock fallbacks, no
+   independent timers in the audio data path. "Control path" vs "data
+   path" requires careful analysis — D-044 was triggered by timers that
+   were claimed to be control-path but actually governed audio data flow
+   (poll intervals for level data, spectrum refresh). If the timer
+   affects when audio data is processed, captured, or displayed, it is
+   in the audio data path.
+
+3. **"This service doesn't need GM because it's always-on."** GM manages
+   its links. systemd may manage its process. These are separate concerns.
+   "Always-on" describes process lifecycle, not link topology. Level-bridge
+   is always-on AND GM-linked. There is no category of "infrastructure
+   that manages its own PW links."
+
+4. **"We'll add GM integration later."** No. If a new service has PW
+   nodes, it integrates with GM from day one. Shipping a service without
+   GM integration means shipping a service that either has no links
+   (broken) or self-links (violates D-039). There is no valid intermediate
+   state.
+
+5. **"The web-UI needs to spawn this process for workflow reasons."**
+   Web-UI tells GM what state it needs (`set_mode`, `start_tap`). GM
+   spawns. The web-UI is a presentation and workflow layer — it is never
+   a process supervisor for signal-chain components. F-061/F-063/F-064
+   are direct evidence of what happens when the web-UI takes on process
+   management responsibilities.
+
+**Rationale:** Professional audio systems universally use a single session
+controller. DiGiCo mixing consoles use "Scenes" — one button press
+reconfigures routing, gain, EQ, dynamics, and monitor sends atomically. The
+JACK Session Management protocol (NSM/LADISH) manages which applications
+run, how they connect, and what state they're in — as a single coordinated
+operation. An engineer thinks in modes/scenes, not subsystems. The
+workstation should too.
+
+The previous architecture — where mode transitions required coordinating
+systemd, GM, web-UI, and manual `pw-metadata` commands — failed because
+it distributed session state across components that couldn't coordinate
+transactionally. The defect record is unambiguous: F-061, F-063, F-064
+(web-UI overwhelmed by PW subprocess and collector management it shouldn't
+own), F-095 (GM polling via subprocess flood because it lacked native PW
+integration), F-100 (orphan processes because no single component tracks
+what's running), plus the D-049 self-linking disaster and D-044 wallclock
+violations. Distributed ownership has MORE failures, not fewer.
+
+D-050 consolidates session state in GM, which already has the PW registry
+observer, the link reconciler, and the mode state machine. Extending it to
+manage quantum and dynamic processes is a natural progression, not scope
+creep.
+
+**Alternatives considered and rejected:**
+
+1. **Keep self-linking, re-enable WP auto-linking for level-bridge only.**
+   Rejected. This creates two link management regimes on the same system
+   (GM for most nodes, WP for level-bridge). Debugging link issues becomes
+   a question of "which manager owns this link?" Two managers is worse than
+   one, even if one is simpler.
+
+2. **Web-UI as session manager.** The web-UI Python backend already does
+   some session management (ModeManager, measurement lifecycle). Extending
+   it to own quantum and process lifecycle would consolidate state in
+   Python. Rejected because: (a) the web-UI is a presentation layer that
+   can be restarted independently (code deploys, crashes); session state
+   must survive web-UI restarts; (b) Python's `subprocess` + `asyncio` is
+   a poor process supervisor compared to Rust's `Command` + the PW registry
+   observer that GM already has; (c) every web-UI action would require an
+   RPC round-trip to GM for link management anyway, so the web-UI can never
+   be fully independent.
+
+3. **New dedicated session manager process.** A third component between
+   GM and web-UI that owns session state. Rejected. This adds a process
+   and an RPC boundary without solving the coordination problem — it just
+   moves it. GM already has 90% of what a session manager needs (PW
+   registry, reconciler, mode state, RPC). Adding the missing 10% (quantum,
+   process spawn) to GM is far simpler than creating a new component.
+
+4. **Signal-gen stays systemd always-on, apps stay user-launched.**
+   (Architect's initial recommendation.) Rejected by owner. This creates
+   an inconsistent lifecycle model: some signal-chain components are
+   systemd-managed, others are GM-managed, others are user-managed. The
+   boundary becomes "who spawned this process?" instead of the clean
+   principle "GM owns all signal-chain lifecycle." The safety argument
+   (signal-gen must survive GM crash) is addressed by intrinsic safety
+   guarantees in the binary — the -20 dBFS cap does not depend on the
+   process supervisor. The "future maybe" framing for app launching was
+   rejected as half-measures that delay the coherent architecture.
+
+**Implementation scope:**
+
+| Change | Component | Scope |
+|--------|-----------|-------|
+| Quantum management in `set_mode` | GM rpc.rs | ~20 lines (`pw-metadata` write) |
+| Signal-chain app spawning in `set_mode` | GM lifecycle.rs / rpc.rs | ~120 lines (spawn/wait/health for signal-gen, Mixxx, Reaper) |
+| Level-bridge links in routing table | GM routing.rs | ~80 lines (3 link sets, 2 AppPortNaming variants) |
+| Level-bridge health tracking | GM lifecycle.rs | ~10 lines (3 new components) |
+| Unique node names | level-bridge main.rs | ~30 lines (add `--node-name`, remove `--self-link`) |
+| Remove signal-gen systemd unit | configs/systemd/ | Net deletion (unit + env file removed) |
+| Remove `ModeManager` | web-UI mode_manager.py | Net deletion (~150 lines removed) |
+| Update measurement routes | web-UI measurement/routes.py | ~30 lines (remove mode coordination, signal-gen spawning) |
+| Update local-demo | scripts/local-demo.sh | ~15 lines (GM spawns signal-gen, app launch stubs) |
+| Update systemd units/env | configs/ | ~10 lines (level-bridge only) |
+
+**Impact:** D-049 revised (level-bridge GM-managed). Signal-gen systemd unit
+removed. Mixxx/Reaper launching added to GM mode transitions. US-084
+implementation updated. rt-services.md Section 6 updated. web-UI ModeManager
+deprecated. Signal-gen systemd service file deprecated.
+
+**Related:** D-039 (GM sole link manager — extended from links to full
+session state), D-044 (single-clock architecture — principle 2 codifies
+D-044), D-049 revised (self-linking disaster — the triggering failure),
+F-061/F-063/F-064 (web-UI overwhelmed by responsibilities it shouldn't
+own), F-095 (GM subprocess polling flood), F-100 (orphan processes from
+lack of centralized lifecycle), rt-services.md (architecture doc update
+needed), US-059 (GraphManager story)
