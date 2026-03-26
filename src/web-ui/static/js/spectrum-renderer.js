@@ -10,7 +10,7 @@
  *   var renderer = PiAudioSpectrumRenderer.create({
  *       canvasId: "spectrum-canvas",
  *       dbMin: -60, dbMax: 0,
- *       freqLo: 30, freqHi: 20000,
+ *       freqLo: 10, freqHi: 20000,
  *       fftSize: 4096, sampleRate: 48000,
  *       peakHold: true, autoRange: true,
  *       gridDetail: "full",   // "full" or "simple"
@@ -127,7 +127,7 @@
         // Configuration
         var dbMin = opts.dbMin !== undefined ? opts.dbMin : -60;
         var dbMax = opts.dbMax !== undefined ? opts.dbMax : 0;
-        var freqLo = opts.freqLo || 30;
+        var freqLo = opts.freqLo || 10;
         var freqHi = opts.freqHi || 20000;
         var fftSize = opts.fftSize || 4096;
         var sampleRate = opts.sampleRate || 48000;
@@ -147,8 +147,12 @@
         var AUTO_RELEASE_MS = 2000;
         var AUTO_MARGIN_DB = 6;
         var AUTO_FLOOR_DB = -120;
-        var AUTO_MIN_RANGE_DB = 30;
+        var AUTO_MIN_RANGE_DB = 36;  // multiple of 12 for clean grid snap
+        var AUTO_SNAP_DB = 12;       // grid snap quantum
         var lastAutoTime = 0;
+        // Smoothed snap values — prevent instant jumps between grid lines.
+        var smoothSnapMin = dbMin;
+        var smoothSnapMax = dbMax;
 
         // Peak hold state
         var PEAK_DECAY_MS = 2000;
@@ -211,18 +215,18 @@
             }
         }
 
-        // F-133: Snap display bounds to nearest 6 dB grid line.
-        // Tracking vars (autoDbMin/Max) stay smooth; only display snaps.
+        // F-133: Snap display bounds to nearest 12 dB grid line.
+        // Tracking vars (autoDbMin/Max) stay smooth; smoothSnapMin/Max
+        // chase the snapped target with exponential smoothing to avoid
+        // instant jumps between grid lines.
         function currentDbMin() {
             if (!autoRangeEnabled) return dbMin;
-            var snapped = Math.floor(autoDbMin / 6) * 6;
-            return Math.max(snapped, AUTO_FLOOR_DB);
+            return Math.max(Math.round(smoothSnapMin), AUTO_FLOOR_DB);
         }
 
         function currentDbMax() {
             if (!autoRangeEnabled) return dbMax;
-            var snapped = Math.ceil(autoDbMax / 6) * 6;
-            return Math.min(snapped, 0);
+            return Math.min(Math.round(smoothSnapMax), 0);
         }
 
         function dbToY(db) {
@@ -565,13 +569,21 @@
             lastAutoTime = now;
             if (dt <= 0 || dt > 1) dt = 0.016;
 
+            // Find signal peak and floor across all bins.
             var peakDb = AUTO_FLOOR_DB;
+            var floorDb = 0;
             for (var i = 0; i < freqData.length; i++) {
                 if (freqData[i] > peakDb) peakDb = freqData[i];
+                if (freqData[i] < floorDb) floorDb = freqData[i];
             }
 
             var targetMax = Math.min(0, peakDb + AUTO_MARGIN_DB);
-            var targetMin = Math.min(targetMax - AUTO_MIN_RANGE_DB, autoDbMin);
+            // Floor auto-range: track signalMin - 12 dB, but never below AUTO_FLOOR_DB.
+            var targetMin = Math.max(AUTO_FLOOR_DB, floorDb - AUTO_SNAP_DB);
+            // Enforce minimum display range.
+            if (targetMax - targetMin < AUTO_MIN_RANGE_DB) {
+                targetMin = targetMax - AUTO_MIN_RANGE_DB;
+            }
             if (targetMin < AUTO_FLOOR_DB) targetMin = AUTO_FLOOR_DB;
 
             var attackCoeff = 1.0 - Math.exp(-dt / (AUTO_ATTACK_MS / 1000));
@@ -592,6 +604,15 @@
             if (autoDbMax - autoDbMin < AUTO_MIN_RANGE_DB) {
                 autoDbMin = autoDbMax - AUTO_MIN_RANGE_DB;
             }
+
+            // Snap tracking vars to 12 dB grid, then smooth toward snap targets.
+            // This gives gradual transitions between grid lines instead of jumps.
+            var snapTargetMin = Math.floor(autoDbMin / AUTO_SNAP_DB) * AUTO_SNAP_DB;
+            var snapTargetMax = Math.ceil(autoDbMax / AUTO_SNAP_DB) * AUTO_SNAP_DB;
+            // Use the same attack/release smoothing for the snap chase.
+            var snapCoeff = 1.0 - Math.exp(-dt / (AUTO_ATTACK_MS / 1000));
+            smoothSnapMin += (snapTargetMin - smoothSnapMin) * snapCoeff;
+            smoothSnapMax += (snapTargetMax - smoothSnapMax) * snapCoeff;
         }
 
         // ---- Public API ----
@@ -646,6 +667,8 @@
             if (autoRangeEnabled) {
                 autoDbMin = dbMin;
                 autoDbMax = dbMax;
+                smoothSnapMin = dbMin;
+                smoothSnapMax = dbMax;
                 lastAutoTime = 0;
             }
         }
@@ -653,6 +676,8 @@
         function resetAutoRange() {
             autoDbMin = dbMin;
             autoDbMax = dbMax;
+            smoothSnapMin = dbMin;
+            smoothSnapMax = dbMax;
             lastAutoTime = 0;
         }
 
