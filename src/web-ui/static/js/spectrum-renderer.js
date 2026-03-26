@@ -97,14 +97,24 @@
     // Spectrum skew fix: take the max dB across all bins that a display
     // pixel spans. At high frequencies, one pixel covers many bins —
     // using a single interpolated value misses energy and causes rolloff.
+    // F-143 rev: use actual bin span (not floor/ceil) to decide mode,
+    // and clamp scan to bins genuinely inside [binLo, binHi].
     function maxBinRange(data, binLo, binHi) {
-        var lo = Math.floor(binLo);
-        var hi = Math.ceil(binHi);
-        if (hi <= lo + 1) return interpolateDB(data, (binLo + binHi) * 0.5);
+        // If the pixel spans less than ~1.5 bins, interpolate at midpoint.
+        // This avoids spikes at integer-boundary crossings where floor/ceil
+        // would expand a narrow range into 3 bins.
+        if (binHi - binLo < 1.5) return interpolateDB(data, (binLo + binHi) * 0.5);
+        // Scan only bins whose centers fall within [binLo, binHi].
+        // ceil(binLo) = first integer bin >= binLo
+        // floor(binHi) = last integer bin <= binHi
+        var lo = Math.ceil(binLo);
+        var hi = Math.floor(binHi);
         var peak = -Infinity;
         for (var i = lo; i <= hi && i < data.length; i++) {
             if (data[i] > peak) peak = data[i];
         }
+        // If no integer bins fall inside the range, fall back to interpolation.
+        if (peak === -Infinity) return interpolateDB(data, (binLo + binHi) * 0.5);
         return peak;
     }
 

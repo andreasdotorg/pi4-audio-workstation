@@ -62,8 +62,8 @@
         GROUP_COLORS = {
             main:   { base: cv("--primary"),     bright: "#d1c4e9" },
             app:    { base: cv("--primary-dim"), bright: cv("--group-app") },
-            dspout: { base: "#1b5e20",           bright: cv("--group-dsp") },
-            physin: { base: "#b8860b",           bright: "#f0c040" }
+            dspout: { base: "#8b6148",           bright: cv("--group-dsp") },
+            physin: { base: "#8b5563",           bright: cv("--group-hw") }
         };
     }
 
