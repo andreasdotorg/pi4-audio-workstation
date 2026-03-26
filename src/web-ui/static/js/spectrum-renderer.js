@@ -122,7 +122,7 @@
         var AUTO_ATTACK_MS = 200;
         var AUTO_RELEASE_MS = 2000;
         var AUTO_MARGIN_DB = 6;
-        var AUTO_FLOOR_DB = -90;
+        var AUTO_FLOOR_DB = -120;
         var AUTO_MIN_RANGE_DB = 30;
         var lastAutoTime = 0;
 
@@ -558,6 +558,12 @@
             if (autoDbMax - autoDbMin < AUTO_MIN_RANGE_DB) {
                 autoDbMin = autoDbMax - AUTO_MIN_RANGE_DB;
             }
+
+            // F-133: Snap display bounds to nearest 6 dB grid line
+            autoDbMax = Math.ceil(autoDbMax / 6) * 6;
+            autoDbMin = Math.floor(autoDbMin / 6) * 6;
+            if (autoDbMax > 0) autoDbMax = 0;
+            if (autoDbMin < AUTO_FLOOR_DB) autoDbMin = AUTO_FLOOR_DB;
         }
 
         // ---- Public API ----

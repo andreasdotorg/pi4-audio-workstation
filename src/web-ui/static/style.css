@@ -349,7 +349,7 @@ html, body {
     line-height: 1.4;
 }
 
-.sb-mode-badge--dj { background: var(--accent); }
+.sb-mode-badge--dj { background: var(--primary-dim); }
 .sb-mode-badge--live { background: var(--primary); }
 .sb-mode-badge--monitoring { background: var(--group-main); color: #111; }
 .sb-mode-badge--measurement { background: var(--warning); color: #111; }

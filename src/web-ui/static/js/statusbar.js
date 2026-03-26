@@ -39,9 +39,9 @@
 
     var i;
     for (i = 0; i < 8; i++) {
-        captureState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
-        playbackState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
-        physinState.push({ peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        captureState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        playbackState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
+        physinState.push({ rms: -120, peak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
     }
 
     // -- Group rendering configs (colors resolved from CSS vars at init) --
@@ -53,11 +53,12 @@
         physin: { channels: [0, 1, 2, 3, 4, 5, 6, 7], stateArr: physinState,   barW: 5, gap: 1, color: null }
     };
 
+    // F-138: Use --group-* tokens consistently (matches dashboard + graph view).
     function initGroupColors() {
         var cv = PiAudio.cssVar;
-        groups.main.color   = cv("--primary");
-        groups.app.color    = cv("--primary-dim");
-        groups.dspout.color = cv("--group-gain");
+        groups.main.color   = cv("--group-main");
+        groups.app.color    = cv("--group-app");
+        groups.dspout.color = cv("--group-dsp");
         groups.physin.color = cv("--group-hw");
     }
 
@@ -94,7 +95,9 @@
         return groupColor || PiAudio.cssVar("--safe");
     }
 
-    function updateChannel(state, peak, now) {
+    // F-135: Mini meters show RMS for bar height (D-047), peak for hold line.
+    function updateChannel(state, rms, peak, now) {
+        state.rms = rms;
         state.peak = peak;
         // F-123: Peak hold with decay-aware re-capture (matches dashboard.js).
         if (peak >= state.peakHold) {
@@ -136,8 +139,10 @@
         for (var j = 0; j < g.channels.length; j++) {
             var ch = g.channels[j];
             var state = g.stateArr[ch];
+            // F-135: bar height from RMS (D-047), color from peak
+            var rms = state.rms !== undefined ? state.rms : state.peak;
             var peak = state.peak;
-            var frac = dbToFraction(peak);
+            var frac = dbToFraction(rms);
             var fillH = Math.round(frac * h);
 
             if (fillH > 0) {
@@ -208,12 +213,12 @@
         // Update per-channel peak state for mini meters
         var now = audioClockMs;
         for (var ch = 0; ch < 8; ch++) {
-            updateChannel(captureState[ch], data.capture_peak[ch], now);
-            updateChannel(playbackState[ch], data.playback_peak[ch], now);
+            updateChannel(captureState[ch], data.capture_rms[ch], data.capture_peak[ch], now);
+            updateChannel(playbackState[ch], data.playback_rms[ch], data.playback_peak[ch], now);
         }
         if (data.usbstreamer_peak) {
             for (var pch = 0; pch < 8; pch++) {
-                updateChannel(physinState[pch], data.usbstreamer_peak[pch], now);
+                updateChannel(physinState[pch], data.usbstreamer_rms[pch], data.usbstreamer_peak[pch], now);
             }
         }
 

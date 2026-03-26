@@ -15,7 +15,7 @@
 
     var SAMPLE_RATE = 48000;
     var FFT_SIZE = 4096;
-    var DB_MIN = -90;
+    var DB_MIN = -120;
     var DB_MAX = 0;
     var FREQ_LO = 30;
     var FREQ_HI = 20000;
