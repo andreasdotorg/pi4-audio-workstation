@@ -41,8 +41,8 @@ from bs4 import BeautifulSoup, NavigableString
 
 BASE_URL = "https://www.soundimports.eu"
 USER_AGENT = (
-    "pi4-audio-workstation-scraper/1.0 "
-    "(+https://github.com/gabriela-bogk/pi4-audio-workstation; "
+    "mugge-scraper/1.0 "
+    "(+https://github.com/gabriela-bogk/mugge; "
     "speaker driver database; respectful crawling)"
 )
 DEFAULT_DELAY = 2.0  # seconds between requests (matches robots.txt Crawl-delay: 2)

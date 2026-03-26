@@ -576,7 +576,7 @@ operator's role is microphone placement and pipeline invocation.
 
 2. **Run the room correction pipeline.**
    ```bash
-   cd ~/pi4-audio-workstation/src/room-correction/
+   cd ~/mugge/src/room-correction/
    python runner.py --stage full \
        --room-config /path/to/venue-room-config.yml \
        --profile /path/to/speaker-profile.yml \

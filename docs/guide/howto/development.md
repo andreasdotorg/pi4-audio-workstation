@@ -225,7 +225,7 @@ appropriate for changes to scripts and application code (not system configs).
 ## 6. Project Layout
 
 ```
-pi4-audio-workstation/
+mugge/
   flake.nix                       Nix flake — all deps, packages, test targets
   flake.lock                      Pinned Nix inputs
   configs/                        Version-controlled Pi configs

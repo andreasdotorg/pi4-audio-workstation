@@ -37,8 +37,8 @@ from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.parts-express.com"
 USER_AGENT = (
-    "pi4-audio-workstation-scraper/1.0 "
-    "(+https://github.com/gabriela-bogk/pi4-audio-workstation; "
+    "mugge-scraper/1.0 "
+    "(+https://github.com/gabriela-bogk/mugge; "
     "speaker driver database; respectful crawling)"
 )
 DEFAULT_DELAY = 2.0  # seconds between requests

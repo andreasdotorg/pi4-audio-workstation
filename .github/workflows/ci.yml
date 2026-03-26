@@ -1,4 +1,4 @@
-# CI Pipeline for pi4-audio-workstation (US-070, D-044)
+# CI Pipeline for mugge (US-070, D-044)
 #
 # Two parallel jobs on GitHub-hosted ubuntu-latest runners with Nix:
 #   test-all  — unit, integration, room-correction, graph-manager, pcm-bridge, signal-gen

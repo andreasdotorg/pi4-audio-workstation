@@ -35,7 +35,7 @@ BASE_URL = "https://www.loudspeakerdatabase.com"
 SEARCH_API = BASE_URL + "/search_api"
 NEXT_PAGE_API = BASE_URL + "/next_page_api"
 ROBOTS_URL = BASE_URL + "/robots.txt"
-USER_AGENT = "pi4-audio-workstation-scraper/1.0 (+https://github.com/gabriela-bogk/pi4-audio-workstation)"
+USER_AGENT = "mugge-scraper/1.0 (+https://github.com/gabriela-bogk/mugge)"
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "configs" / "drivers"
 DEFAULT_DELAY = 2.0  # seconds between requests

@@ -21,7 +21,7 @@ set -euo pipefail
 
 # --- Configuration (fill these in) -------------------------------------------
 
-REPO_URL="${REPO_URL:-https://github.com/OWNER/pi4-audio-workstation}"
+REPO_URL="${REPO_URL:-https://github.com/OWNER/mugge}"
 RUNNER_TOKEN="${RUNNER_TOKEN:?Set RUNNER_TOKEN to the registration token from GitHub}"
 RUNNER_NAME="${RUNNER_NAME:-$(hostname)}"
 RUNNER_LABELS="${RUNNER_LABELS:-self-hosted,Linux,ARM64}"

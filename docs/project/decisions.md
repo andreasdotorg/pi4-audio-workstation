@@ -1201,7 +1201,7 @@ architecture).
 
 ## D-045: Project identity — mugge (2026-03-24)
 
-**Context:** The project was named "pi4-audio-workstation" / "pi4audio" —
+**Context:** The project was originally named "pi4-audio-workstation" / "pi4audio" —
 a generic hardware description. The Pi's hostname is already `mugge`
 (German musicians' slang for "small paid gig"). AD noted the software
 outlives any individual Pi. TW countered that personal names for personal

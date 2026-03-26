@@ -327,7 +327,7 @@ cd src/web-ui && pytest tests/e2e/test_measurement_wizard.py --headed
 
 ```bash
 # Pre-deploy (T1 + T2 on Pi):
-ssh ela@192.168.178.185 "cd /home/ela/pi4-audio-workstation/src/room-correction && \
+ssh ela@192.168.178.185 "cd /home/ela/mugge/src/room-correction && \
   source /home/ela/venv/bin/activate && python3 -m pytest tests/ -x -q"
 
 # Post-deploy (T3):
