@@ -234,7 +234,11 @@
                             continue;
                         }
                         var advance = graphPos - prevGraphPos;
-                        if (frameCount > 0 && advance > frameCount * 2) {
+                        // F-128: Threshold must accommodate TCP batching —
+                        // pcm-bridge sends multiple messages per quantum,
+                        // so legitimate advances can be >> frameCount.
+                        // 16× allows up to ~85ms gap at 48kHz/q256.
+                        if (frameCount > 0 && advance > frameCount * 16) {
                             accumPos = 0;
                             dirty = false;
                         }
