@@ -42,6 +42,7 @@
     var CLIP_THRESHOLD_DB = -0.5;
     var SILENT_THRESHOLD_DB = -60;
     var SILENT_DIM_MS = 5000;
+    var DB_READOUT_HOLD_MS = 300;   // F-126: rate-limit numeric display updates
 
     // IEC 60268-18 PPM ballistics (applied to displayed peak)
     // Rise: 10ms to reach -1dB of steady-state
@@ -49,22 +50,8 @@
     var PPM_RISE_COEFF = 1.0 - Math.exp(-1.0 / (0.01 * 30));  // ~30Hz data rate
     var PPM_FALL_COEFF = 1.0 - Math.exp(-1.0 / (1.5 * 30));
 
-    var FRAC_12 = (-12 - DB_MIN) / (DB_MAX - DB_MIN);
     var FRAC_6 = (-6 - DB_MIN) / (DB_MAX - DB_MIN);
     var FRAC_3 = (-3 - DB_MIN) / (DB_MAX - DB_MIN);
-
-    // Group base colors — resolved from CSS variables at init time
-    var GROUP_COLORS = null;
-
-    function initGroupColors() {
-        var cv = PiAudio.cssVar;
-        GROUP_COLORS = {
-            main:   { base: cv("--group-main"),  bright: "#b0b8c8" },
-            app:    { base: cv("--primary-dim"), bright: cv("--group-app") },
-            dspout: { base: cv("--group-gain"),  bright: cv("--group-dsp") },
-            physin: { base: cv("--group-hw"),    bright: "#e8b84a" }
-        };
-    }
 
     var DB_SCALE_MARKS = [0, -6, -12, -24, -48];
 
@@ -103,6 +90,9 @@
     // Indexed by group key + local index
     var lastSignalTime = {};
 
+    // F-126: Per-element readout hold state { peak, rms, time }
+    var readoutHold = {};
+
     var i;
     for (i = 0; i < 8; i++) {
         captureState.push({ rms: -120, peak: -120, ppmPeak: -120, peakHold: -120, peakHoldTime: 0, clipLatched: false });
@@ -120,7 +110,7 @@
 
     function dbReadoutColor(db) {
         if (db >= -3) return PiAudio.cssVar("--danger");
-        if (db >= -12) return PiAudio.cssVar("--warning");
+        if (db >= -6) return PiAudio.cssVar("--warning");
         return PiAudio.cssVar("--safe");
     }
 
@@ -161,11 +151,15 @@
             clipInd.id = containerId + "-clip-" + idx;
             clipInd.textContent = "CLIP";
             // US-081: Click to clear latched clip
-            (function (arr, ch) {
+            (function (arr, ch, src) {
                 clipInd.addEventListener("click", function () {
                     arr[ch].clipLatched = false;
+                    // F-129: Propagate clip clear to status bar mini meters
+                    document.dispatchEvent(new CustomEvent("clipclear", {
+                        detail: { source: src, channel: ch }
+                    }));
                 });
-            })(stateArr, channels[idx]);
+            })(stateArr, channels[idx], source);
 
             var wrapper = document.createElement("div");
             wrapper.className = "meter-canvas-wrapper";
@@ -256,7 +250,7 @@
 
     // -- Canvas drawing --
 
-    function drawMeter(mc, state, now, group) {
+    function drawMeter(mc, state, now) {
         var ctx = mc.ctx;
         if (!ctx) return;
         var w = mc.w;
@@ -267,17 +261,15 @@
         ctx.fillStyle = "#181b20";
         ctx.fillRect(0, 0, w, h);
 
-        var gc = GROUP_COLORS[group] || GROUP_COLORS.main;
-
         // RMS fill — main filled region (shows sustained energy)
+        // PPM color coding: green (normal) -> yellow (-6 dB) -> red (-3 dB)
         var rmsFrac = dbToFraction(state.rms);
         var rmsFillH = rmsFrac * h;
         if (rmsFillH > 0.5) {
             var grad = ctx.createLinearGradient(0, h, 0, 0);
-            grad.addColorStop(0, gc.base);
-            grad.addColorStop(Math.min(FRAC_12, 1), gc.bright);
-            grad.addColorStop(Math.min(FRAC_6, 1), PiAudio.cssVar("--warning"));
-            grad.addColorStop(Math.min(FRAC_3, 1), PiAudio.cssVar("--danger"));
+            grad.addColorStop(0, PiAudio.cssVar("--safe"));
+            grad.addColorStop(Math.min(FRAC_6, 1), PiAudio.cssVar("--safe"));
+            grad.addColorStop(Math.min(FRAC_3, 1), PiAudio.cssVar("--warning"));
             grad.addColorStop(1, PiAudio.cssVar("--danger"));
             ctx.fillStyle = grad;
             ctx.fillRect(0, h - rmsFillH, w, rmsFillH);
@@ -348,23 +340,43 @@
     function updateDbReadout(id, peak, rms) {
         var el = document.getElementById(id);
         if (!el) return;
-        if (peak <= DB_MIN) {
+
+        // F-126: Rate-limit numeric updates to avoid flicker.
+        // Hold the displayed value for DB_READOUT_HOLD_MS, showing the
+        // highest peak seen during that window.
+        var wallNow = performance.now();
+        var hold = readoutHold[id];
+        if (!hold) {
+            hold = { peak: -120, rms: -120, time: 0 };
+            readoutHold[id] = hold;
+        }
+        // Track highest peak in window
+        if (peak > hold.peak) {
+            hold.peak = peak;
+            hold.rms = rms;
+        }
+        if ((wallNow - hold.time) < DB_READOUT_HOLD_MS) return;
+        // Window expired — display and reset
+        var displayPeak = hold.peak;
+        var displayRms = hold.rms;
+        hold.peak = peak;
+        hold.rms = rms;
+        hold.time = wallNow;
+
+        if (displayPeak <= DB_MIN) {
             el.textContent = "-inf";
             el.style.color = "";
         } else {
-            // US-081: Show both peak (primary) and RMS (secondary)
-            var peakStr = peak.toFixed(1);
-            var rmsStr = rms > DB_MIN ? rms.toFixed(1) : "-inf";
-            el.textContent = peakStr;
-            el.style.color = dbReadoutColor(peak);
+            el.textContent = displayPeak.toFixed(1);
+            el.style.color = dbReadoutColor(displayPeak);
         }
         // Update RMS sub-readout if it exists
         var rmsEl = document.getElementById(id + "-rms");
         if (rmsEl) {
-            if (rms <= DB_MIN) {
+            if (displayRms <= DB_MIN) {
                 rmsEl.textContent = "";
             } else {
-                rmsEl.textContent = rms.toFixed(1);
+                rmsEl.textContent = displayRms.toFixed(1);
             }
         }
     }
@@ -383,7 +395,7 @@
             ch = MAIN_CHANNELS[idx];
             state = captureState[ch];
             updateChannelDim("meters-main", idx, mainColumns, state, wallNow);
-            drawMeter(mainCanvases[idx], state, now, "main");
+            drawMeter(mainCanvases[idx], state, now);
             updateClipIndicator("meters-main", idx, state);
             updateDbReadout("meters-main-db-" + idx, state.peak, state.rms);
         }
@@ -393,7 +405,7 @@
             ch = APP_CHANNELS[idx];
             state = captureState[ch];
             updateChannelDim("meters-app", idx, appColumns, state, wallNow);
-            drawMeter(appCanvases[idx], state, now, "app");
+            drawMeter(appCanvases[idx], state, now);
             updateClipIndicator("meters-app", idx, state);
             updateDbReadout("meters-app-db-" + idx, state.peak, state.rms);
         }
@@ -403,7 +415,7 @@
             ch = DSPOUT_CHANNELS[idx];
             state = playbackState[ch];
             updateChannelDim("meters-dspout", idx, dspoutColumns, state, wallNow);
-            drawMeter(dspoutCanvases[idx], state, now, "dspout");
+            drawMeter(dspoutCanvases[idx], state, now);
             updateClipIndicator("meters-dspout", idx, state);
             updateDbReadout("meters-dspout-db-" + idx, state.peak, state.rms);
         }
@@ -413,7 +425,7 @@
             ch = PHYSIN_CHANNELS[idx];
             state = physinState[ch];
             updateChannelDim("meters-physin", idx, physinColumns, state, wallNow);
-            drawMeter(physinCanvases[idx], state, now, "physin");
+            drawMeter(physinCanvases[idx], state, now);
             updateClipIndicator("meters-physin", idx, state);
             updateDbReadout("meters-physin-db-" + idx, state.peak, state.rms);
         }
@@ -436,20 +448,21 @@
             state.ppmPeak = state.ppmPeak + (peak - state.ppmPeak) * PPM_FALL_COEFF;
         }
 
-        // Peak hold: update when new peak meets or exceeds hold, or after hold+decay period
+        // Peak hold: update when new peak meets or exceeds hold value.
+        // F-123: During decay phase, re-capture if current peak exceeds the
+        // decayed level — prevents the hold line dropping below active signal.
         if (peak >= state.peakHold) {
             state.peakHold = peak;
             state.peakHoldTime = now;
-        }
-        // Reset hold after it has decayed below minimum.
-        // F-112: Only reset to current peak if signal is present (above DB_MIN).
-        // Otherwise the hold marker jumps to the bottom of the meter.
-        var holdAge = now - state.peakHoldTime;
-        if (holdAge > PEAK_HOLD_MS) {
-            var decayed = state.peakHold - PEAK_DECAY_DB_PER_S * ((holdAge - PEAK_HOLD_MS) / 1000);
-            if (decayed <= DB_MIN && peak > DB_MIN) {
-                state.peakHold = peak;
-                state.peakHoldTime = now;
+        } else {
+            var holdAge = now - state.peakHoldTime;
+            if (holdAge > PEAK_HOLD_MS) {
+                var decayed = state.peakHold - PEAK_DECAY_DB_PER_S * ((holdAge - PEAK_HOLD_MS) / 1000);
+                // F-112: Only re-capture if signal present (above DB_MIN).
+                if (peak > DB_MIN && peak > decayed) {
+                    state.peakHold = peak;
+                    state.peakHoldTime = now;
+                }
             }
         }
 
@@ -557,7 +570,6 @@
     // -- View lifecycle --
 
     function init() {
-        initGroupColors();
         buildMeterGroup("meters-main", MAIN_LABELS, MAIN_CHANNELS,
             mainCanvases, mainColumns, "capture", "main");
         buildMeterGroup("meters-app", APP_LABELS, APP_CHANNELS,

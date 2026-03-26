@@ -19,6 +19,7 @@
     var DB_MIN = -60;
     var DB_MAX = 0;
     var PEAK_HOLD_MS = 2000;        // US-081: 2-second peak hold
+    var PEAK_DECAY_DB_PER_S = 20;   // F-123: 20 dB/s decay after hold
     var CLIP_THRESHOLD_DB = -0.5;
 
     // -- Canvas contexts for mini meters --
@@ -87,22 +88,28 @@
         return (db - DB_MIN) / (DB_MAX - DB_MIN);
     }
 
-    function barColor(peakDb, baseColor) {
+    function barColor(peakDb) {
         if (peakDb >= -3) return PiAudio.cssVar("--danger");
-        if (peakDb >= -12) return PiAudio.cssVar("--warning");
-        return baseColor;
+        if (peakDb >= -6) return PiAudio.cssVar("--warning");
+        return PiAudio.cssVar("--safe");
     }
 
     function updateChannel(state, peak, now) {
         state.peak = peak;
-        // F-112: Only reset hold to current peak if signal is present,
-        // otherwise the hold marker jumps to the bottom.
-        if (peak > state.peakHold) {
+        // F-123: Peak hold with decay-aware re-capture (matches dashboard.js).
+        if (peak >= state.peakHold) {
             state.peakHold = peak;
             state.peakHoldTime = now;
-        } else if ((now - state.peakHoldTime) > PEAK_HOLD_MS && peak > DB_MIN) {
-            state.peakHold = peak;
-            state.peakHoldTime = now;
+        } else {
+            var holdAge = now - state.peakHoldTime;
+            if (holdAge > PEAK_HOLD_MS) {
+                var decayed = state.peakHold - PEAK_DECAY_DB_PER_S * ((holdAge - PEAK_HOLD_MS) / 1000);
+                // F-112: Only re-capture if signal present (above DB_MIN).
+                if (peak > DB_MIN && peak > decayed) {
+                    state.peakHold = peak;
+                    state.peakHoldTime = now;
+                }
+            }
         }
         // US-081: Latching clip
         if (peak >= CLIP_THRESHOLD_DB) {
@@ -134,7 +141,7 @@
             var fillH = Math.round(frac * h);
 
             if (fillH > 0) {
-                ctx.fillStyle = barColor(peak, g.color);
+                ctx.fillStyle = barColor(peak);
                 ctx.fillRect(x, h - fillH, g.barW, fillH);
             }
 
@@ -144,9 +151,15 @@
                 ctx.fillRect(x, 0, g.barW, h);
             }
 
-            // Peak hold indicator (1px white line)
-            var holdFrac = dbToFraction(state.peakHold);
-            if (holdFrac > 0 && (now - state.peakHoldTime) < PEAK_HOLD_MS) {
+            // Peak hold indicator (1px white line) with decay (F-123)
+            var holdDb = state.peakHold;
+            var holdAge = now - state.peakHoldTime;
+            if (holdAge > PEAK_HOLD_MS) {
+                var decayS = (holdAge - PEAK_HOLD_MS) / 1000;
+                holdDb = state.peakHold - PEAK_DECAY_DB_PER_S * decayS;
+            }
+            var holdFrac = dbToFraction(holdDb);
+            if (holdFrac > 0) {
                 var holdY = h - Math.round(holdFrac * h);
                 ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
                 ctx.fillRect(x, holdY, g.barW, 1);
@@ -474,6 +487,16 @@
         if (panicBtn) {
             panicBtn.addEventListener("click", onPanicClick);
         }
+
+        // F-129: Listen for clip clear events from dashboard meters
+        document.addEventListener("clipclear", function (e) {
+            var src = e.detail.source;
+            var ch = e.detail.channel;
+            var arr = src === "playback" ? playbackState
+                : src === "physin" ? physinState
+                : captureState;
+            if (arr[ch]) arr[ch].clipLatched = false;
+        });
 
         // Start render loop
         animating = true;
