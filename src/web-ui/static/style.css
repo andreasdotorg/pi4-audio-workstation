@@ -477,11 +477,11 @@ html, body {
 }
 
 .meter-group-label-dspout {
-    color: #4caf50;
+    color: var(--group-dsp);
 }
 
 .meter-group-label-physin {
-    color: #e09520;
+    color: var(--group-hw);
 }
 
 /* Inactive group state (no data source connected) */
