@@ -62,7 +62,6 @@ log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 MOCK_MODE = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
-PCM_JACK_MODE = os.environ.get("PI4AUDIO_PCM_JACK", "") == "1"
 
 
 # -- Systemd watchdog (D-036 / WP-G) ---------------------------------------
@@ -144,7 +143,6 @@ async def lifespan(app: FastAPI):
         from .collectors import (
             FilterChainCollector,
             LevelsCollector,
-            PcmStreamCollector,
             PipeWireCollector,
             SystemCollector,
         )
@@ -166,11 +164,6 @@ async def lifespan(app: FastAPI):
         await app.state.levels_hw_in.start()
         app.state.cdsp = FilterChainCollector()
         await app.state.cdsp.start()
-        if PCM_JACK_MODE:
-            app.state.pcm = PcmStreamCollector()
-            await app.state.pcm.start()
-        else:
-            log.info("PcmStreamCollector skipped (PI4AUDIO_PCM_JACK != 1)")
         app.state.system_collector = SystemCollector()
         await app.state.system_collector.start()
         app.state.pw = PipeWireCollector()
@@ -476,21 +469,10 @@ async def ws_pcm(ws: WebSocket, scenario: str = "A"):
         await mock_pcm_stream(ws, scenario)
         return
 
-    # Delegate to the monitor source via pcm-bridge TCP relay.
+    # Delegate to the monitor source via pcm-bridge TCP relay (D-040).
+    # F-030: Legacy JACK fallback removed — it caused xruns under DJ load.
     addr = PCM_SOURCES.get("monitor")
     if addr is None:
-        # Fall back to legacy JACK collector if available.
-        pcm_collector = getattr(app.state, "pcm", None)
-        if pcm_collector is not None and pcm_collector.active:
-            await ws.accept()
-            log.info("PCM client connected (legacy JACK collector)")
-            try:
-                await pcm_collector.stream_to_client(ws)
-            except WebSocketDisconnect:
-                log.info("PCM client disconnected")
-            except Exception:
-                log.exception("PCM websocket error")
-            return
         await ws.close(code=1008, reason="No PCM source configured")
         return
 

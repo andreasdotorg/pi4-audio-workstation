@@ -710,7 +710,7 @@ fn parse_pw_dump_xruns(json_str: &str) -> Result<(u64, String), String> {
 /// tracked node), causing 62% CPU on Pi via journald log flooding. Now uses
 /// exactly 2 subprocesses per cycle: pw-metadata + pw-dump.
 ///
-/// Called every 1s on the PW main loop thread.
+/// Called every 5s on the PW main loop thread (F-127: reduced from 1s).
 #[cfg(feature = "pipewire-backend")]
 fn update_graph_info_cache(
     cache: &std::rc::Rc<std::cell::RefCell<rpc::GraphInfoSnapshot>>,

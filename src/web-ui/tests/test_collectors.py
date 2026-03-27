@@ -29,7 +29,6 @@ from app.collectors.pipewire_collector import PipeWireCollector
 from app.collectors.filterchain_collector import FilterChainCollector
 from app.collectors.levels_collector import LevelsCollector
 from app.collectors.system_collector import SystemCollector
-from app.collectors.pcm_collector import PcmStreamCollector
 from app.mock.mock_data import MockDataGenerator, SCENARIOS
 from app.ws_system import _build_system_snapshot
 
@@ -44,11 +43,6 @@ def pw_collector():
 @pytest.fixture
 def sys_collector():
     return SystemCollector()
-
-
-@pytest.fixture
-def pcm_collector():
-    return PcmStreamCollector()
 
 
 @pytest.fixture
@@ -364,16 +358,6 @@ class TestFallbackSnapshots:
     def test_system_snapshot_returns_fallback_initially(self, sys_collector):
         snap = sys_collector.snapshot()
         assert snap["cpu"]["total_percent"] == 0.0
-
-    def test_pcm_not_active_by_default(self, pcm_collector):
-        """PcmStreamCollector should not be active before start()."""
-        assert pcm_collector.active is False
-
-    def test_pcm_initial_state(self, pcm_collector):
-        """PcmStreamCollector initial state should have zero write_pos."""
-        assert pcm_collector._write_pos == 0
-        assert pcm_collector._jack_client is None
-        assert pcm_collector._running is False
 
     def test_all_fallbacks_are_dicts(self, pw_collector, sys_collector):
         """All fallback snapshots should return plain dicts."""
