@@ -7,8 +7,8 @@
  *   - DEPLOY: file copy + config install + reload progress
  *   - VERIFY: D-009, min-phase, format, crossover sum, loaded checks
  *
- * Backend endpoints are not yet available -- uses mock data for scaffold.
- * When the backend is ready, replace mock responses with real fetch calls.
+ * Pre-flight checks query real backend endpoints (UMIK-1 calibration,
+ * GraphManager mode). Pipeline visualization still uses mock simulation.
  */
 
 "use strict";
@@ -65,17 +65,47 @@
 
     function updatePreflightProfile() {
         var sel = $("mw-setup-profile");
-        var indicator = document.querySelector("#rc-pf-profile .rc-pf-indicator");
-        if (!sel || !indicator) return;
+        if (!sel) return;
         if (sel.value) {
-            indicator.textContent = "OK";
-            indicator.className = "rc-pf-indicator c-safe";
+            setIndicator("#rc-pf-profile", "...", "c-warning");
             fetchProfileSpeakers(sel.value);
+            validateProfile(sel.value);
         } else {
-            indicator.textContent = "--";
-            indicator.className = "rc-pf-indicator c-warning";
+            setIndicator("#rc-pf-profile", "--", "c-warning");
+            setIndicatorTooltip("#rc-pf-profile", "Select a speaker profile to continue");
             profileSpeakers = null;
+            preflightResults.profile = false;
+            updatePreflightSummary();
         }
+    }
+
+    function validateProfile(profileName) {
+        fetch("/api/v1/speakers/profiles/" + encodeURIComponent(profileName) + "/validate",
+              { method: "POST" })
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function (result) {
+                if (result.valid) {
+                    setIndicator("#rc-pf-profile", "OK", "c-safe");
+                    setIndicatorTooltip("#rc-pf-profile", "Profile validated successfully");
+                    preflightResults.profile = true;
+                } else {
+                    var errCount = (result.errors || []).length;
+                    setIndicator("#rc-pf-profile", errCount + " ERR", "c-danger");
+                    var msgs = (result.errors || []).map(function (e) { return e.message; });
+                    setIndicatorTooltip("#rc-pf-profile", msgs.join("; ") || "Validation failed");
+                    preflightResults.profile = false;
+                }
+                updatePreflightSummary();
+            })
+            .catch(function () {
+                setIndicator("#rc-pf-profile", "OK", "c-safe");
+                setIndicatorTooltip("#rc-pf-profile", "Profile selected (validation endpoint unavailable)");
+                preflightResults.profile = true;
+                updatePreflightSummary();
+            });
     }
 
     function fetchProfileSpeakers(profileName) {
@@ -109,35 +139,119 @@
         }
     }
 
+    // Track preflight results for summary computation.
+    var preflightResults = { mic: null, gm: null, profile: null };
+
     function runPreflightChecks() {
-        // Mic check: mock as connected (real: query /api/v1/system or ws/system)
-        var micInd = document.querySelector("#rc-pf-mic .rc-pf-indicator");
-        if (micInd) {
-            micInd.textContent = "OK";
-            micInd.className = "rc-pf-indicator c-safe";
-        }
+        preflightResults = { mic: null, gm: null, profile: null };
 
-        // GM mode: mock as ready
-        var gmInd = document.querySelector("#rc-pf-gm .rc-pf-indicator");
-        if (gmInd) {
-            gmInd.textContent = "OK";
-            gmInd.className = "rc-pf-indicator c-safe";
-        }
-
-        // Amps: manual confirmation required
-        var ampsInd = document.querySelector("#rc-pf-amps .rc-pf-indicator");
-        if (ampsInd) {
-            ampsInd.textContent = "MANUAL";
-            ampsInd.className = "rc-pf-indicator c-warning";
-        }
-
+        checkUmik1();
+        checkGmMode();
+        checkAmps();
         updatePreflightProfile();
+    }
 
+    function setIndicator(selector, text, cls) {
+        var ind = document.querySelector(selector + " .rc-pf-indicator");
+        if (!ind) return;
+        ind.textContent = text;
+        ind.className = "rc-pf-indicator" + (cls ? " " + cls : "");
+    }
+
+    function setIndicatorTooltip(selector, tip) {
+        var label = document.querySelector(selector + " .rc-pf-label");
+        if (label) label.title = tip || "";
+    }
+
+    function updatePreflightSummary() {
         var statusEl = $("mw-preflight-status");
-        if (statusEl) {
+        if (!statusEl) return;
+
+        var hasFail = (preflightResults.mic === false ||
+                       preflightResults.gm === false ||
+                       preflightResults.profile === false);
+        var allPass = (preflightResults.mic === true &&
+                       preflightResults.gm === true &&
+                       preflightResults.profile === true);
+
+        if (hasFail) {
+            statusEl.textContent = "Pre-flight checks failed -- resolve issues above";
+            statusEl.className = "mw-preflight-status c-danger";
+        } else if (allPass) {
             statusEl.textContent = "Ready (verify amps are on before starting)";
             statusEl.className = "mw-preflight-status c-safe";
+        } else {
+            statusEl.textContent = "Checking...";
+            statusEl.className = "mw-preflight-status c-warning";
         }
+    }
+
+    function checkUmik1() {
+        setIndicator("#rc-pf-mic", "...", "c-warning");
+        fetch("/api/v1/test-tool/calibration")
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                if (data.frequencies && data.frequencies.length > 0) {
+                    setIndicator("#rc-pf-mic", "OK", "c-safe");
+                    setIndicatorTooltip("#rc-pf-mic",
+                        "Cal file: " + (data.cal_file || "loaded") +
+                        (data.sensitivity_db != null ? ", sensitivity: " + data.sensitivity_db + " dB" : ""));
+                    preflightResults.mic = true;
+                } else {
+                    setIndicator("#rc-pf-mic", "NO CAL", "c-danger");
+                    setIndicatorTooltip("#rc-pf-mic", "Calibration file found but contains no data");
+                    preflightResults.mic = false;
+                }
+                updatePreflightSummary();
+            })
+            .catch(function () {
+                setIndicator("#rc-pf-mic", "FAIL", "c-danger");
+                setIndicatorTooltip("#rc-pf-mic", "UMIK-1 calibration file not found or unreadable");
+                preflightResults.mic = false;
+                updatePreflightSummary();
+            });
+    }
+
+    function checkGmMode() {
+        setIndicator("#rc-pf-gm", "...", "c-warning");
+        fetch("/api/v1/test-tool/current-mode")
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                var mode = data.mode || "unknown";
+                if (mode === "measurement") {
+                    setIndicator("#rc-pf-gm", "OK", "c-safe");
+                    setIndicatorTooltip("#rc-pf-gm", "GraphManager is in measurement mode");
+                    preflightResults.gm = true;
+                } else {
+                    setIndicator("#rc-pf-gm", mode.toUpperCase(), "c-warning");
+                    setIndicatorTooltip("#rc-pf-gm",
+                        "GraphManager is in '" + mode + "' mode. " +
+                        "Will switch to measurement mode on start.");
+                    // Not a hard failure -- the session can trigger the switch.
+                    preflightResults.gm = true;
+                }
+                updatePreflightSummary();
+            })
+            .catch(function () {
+                setIndicator("#rc-pf-gm", "OFFLINE", "c-danger");
+                setIndicatorTooltip("#rc-pf-gm",
+                    "Cannot reach GraphManager. Is the service running?");
+                preflightResults.gm = false;
+                updatePreflightSummary();
+            });
+    }
+
+    function checkAmps() {
+        // Amps check is always manual -- cannot be queried programmatically.
+        setIndicator("#rc-pf-amps", "MANUAL", "c-warning");
+        setIndicatorTooltip("#rc-pf-amps",
+            "Verify amplifiers are powered on before starting measurement");
     }
 
     // -- Pipeline step updates --
