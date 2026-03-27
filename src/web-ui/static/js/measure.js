@@ -21,11 +21,16 @@
     var STATUS_URL = "/api/v1/measurement/status";
     var START_URL = "/api/v1/measurement/start";
     var WS_PATH = "/ws/measurement";
+    var WS_RECONNECT_BASE_MS = 500;
+    var WS_RECONNECT_MAX_MS = 10000;
+    var WS_MAX_RETRIES = 5;
 
     // -- State --
 
     var ws = null;
     var wsConnected = false;
+    var wsAttempt = 0;
+    var wsReconnectTimer = null;
     var pollTimer = null;
     var currentState = "idle";
     var lastStatus = null;
@@ -62,7 +67,11 @@
 
         ws.onopen = function () {
             wsConnected = true;
+            wsAttempt = 0;
             stopPolling();
+            hideWsBanner();
+            // Re-sync state after reconnect
+            pollStatus();
         };
 
         ws.onmessage = function (ev) {
@@ -77,12 +86,79 @@
         ws.onclose = function () {
             wsConnected = false;
             ws = null;
-            startPolling();
+            scheduleWsReconnect();
         };
 
         ws.onerror = function () {
             // onclose fires after this
         };
+    }
+
+    function scheduleWsReconnect() {
+        if (wsReconnectTimer) return;
+
+        // During active session phases, show reconnect banner
+        var activePhases = ["setup", "gain_cal", "measuring", "filter_gen", "deploy", "verify"];
+        var inSession = activePhases.indexOf(currentState) >= 0;
+
+        if (wsAttempt >= WS_MAX_RETRIES) {
+            // Exhausted retries: start polling fallback, show retry button
+            startPolling();
+            if (inSession) showWsBanner(true);
+            return;
+        }
+
+        if (inSession) showWsBanner(false);
+
+        var delay = Math.min(
+            WS_RECONNECT_BASE_MS * Math.pow(2, wsAttempt),
+            WS_RECONNECT_MAX_MS
+        );
+        wsAttempt++;
+        wsReconnectTimer = setTimeout(function () {
+            wsReconnectTimer = null;
+            connectWs();
+        }, delay);
+
+        // Also start polling as fallback during reconnect attempts
+        startPolling();
+    }
+
+    function manualWsRetry() {
+        wsAttempt = 0;
+        hideWsBanner();
+        if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
+        }
+        connectWs();
+    }
+
+    function showWsBanner(exhausted) {
+        var banner = $("mw-ws-banner");
+        if (!banner) {
+            banner = document.createElement("div");
+            banner.id = "mw-ws-banner";
+            banner.className = "mw-ws-banner";
+            var body = document.querySelector(".mw-body");
+            if (body) body.insertBefore(banner, body.firstChild);
+        }
+        if (exhausted) {
+            banner.innerHTML =
+                '<span class="mw-ws-banner-text">Connection lost. Session may still be running.</span>' +
+                '<button class="mw-ws-retry-btn" id="mw-ws-retry-btn">Retry</button>';
+            var btn = banner.querySelector("#mw-ws-retry-btn");
+            if (btn) btn.addEventListener("click", manualWsRetry);
+        } else {
+            banner.innerHTML =
+                '<span class="mw-ws-banner-text">Reconnecting...</span>';
+        }
+        banner.classList.remove("hidden");
+    }
+
+    function hideWsBanner() {
+        var banner = $("mw-ws-banner");
+        if (banner) banner.classList.add("hidden");
     }
 
     // -- Polling fallback --
@@ -107,8 +183,12 @@
             })
             .then(function (data) {
                 handleStatusSnapshot(data);
-                // Reconnect WebSocket on successful poll
-                if (!wsConnected) connectWs();
+                // Reconnect WebSocket on successful poll (reset retries
+                // since the server is reachable).
+                if (!wsConnected) {
+                    wsAttempt = 0;
+                    connectWs();
+                }
             })
             .catch(function () {
                 // Keep polling

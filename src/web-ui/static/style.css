@@ -1574,6 +1574,36 @@ html, body {
     text-align: center;
 }
 
+.mw-ws-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 8px 16px;
+    margin-bottom: 10px;
+    background: rgba(226, 152, 40, 0.15);
+    border: 1px solid rgba(226, 152, 40, 0.5);
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--warning);
+}
+
+.mw-ws-retry-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--warning);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--warning);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.mw-ws-retry-btn:hover {
+    background: rgba(226, 152, 40, 0.2);
+}
+
 /* Setup screen */
 
 .mw-setup-form {
