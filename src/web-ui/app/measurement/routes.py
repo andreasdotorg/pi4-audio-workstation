@@ -42,6 +42,7 @@ class ChannelIn(BaseModel):
     target_spl_db: float = 75.0
     thermal_ceiling_dbfs: float = -20.0
     mandatory_hpf_hz: Optional[float] = None
+    speaker_key: Optional[str] = None  # Maps to speaker profile key (e.g. "sat_left")
 
 
 class StartRequest(BaseModel):
@@ -137,6 +138,7 @@ async def start_measurement(body: StartRequest, request: Request):
             target_spl_db=ch.target_spl_db,
             thermal_ceiling_dbfs=ch.thermal_ceiling_dbfs,
             mandatory_hpf_hz=ch.mandatory_hpf_hz,
+            speaker_key=ch.speaker_key,
         )
         for ch in body.channels
     ]
