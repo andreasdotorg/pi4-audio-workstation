@@ -877,20 +877,11 @@ def versioned_filter_paths(
         timestamp = datetime.now()
     ts_str = timestamp.strftime(TIMESTAMP_FORMAT)
 
-    # Map speaker keys to their channel names for filename generation.
-    # The convention: speaker key 'sat_left' -> channel 'left_hp',
-    # 'sat_right' -> 'right_hp', 'sub1' -> 'sub1_lp', 'sub2' -> 'sub2_lp'.
-    # For keys that don't match this pattern, use the key directly.
-    _KEY_TO_CHANNEL = {
-        "sat_left": "left_hp",
-        "sat_right": "right_hp",
-        "sub1": "sub1_lp",
-        "sub2": "sub2_lp",
-    }
+    from room_correction.pw_config_generator import channel_suffix
 
     paths = {}
     for key in speaker_keys:
-        channel = _KEY_TO_CHANNEL.get(key, key)
+        channel = channel_suffix(key)
         filename = f"combined_{channel}_{ts_str}.wav"
         paths[key] = os.path.join(coeffs_dir, filename)
 

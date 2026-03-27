@@ -173,6 +173,7 @@ class ChannelConfig:
     target_spl_db: float = 75.0
     thermal_ceiling_dbfs: float = -20.0
     mandatory_hpf_hz: Optional[float] = None
+    speaker_key: Optional[str] = None  # Maps to speaker profile key (e.g. "sat_left")
 
 
 @dataclass
@@ -239,6 +240,10 @@ class MeasurementSession:
         self._filter_gen_result: Optional[Dict[str, Any]] = None
         self._deploy_result: Optional[Dict[str, Any]] = None
         self._recordings: Dict[str, np.ndarray] = {}  # US-096: raw recordings for cal
+        # Deconvolved impulse responses per channel/position (populated by
+        # future deconvolution step; used by _build_correction_filters for
+        # spatial averaging).
+        self._impulse_responses: Dict[str, np.ndarray] = {}
 
         self._broadcast_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._watchdog = MeasurementWatchdog(
@@ -670,9 +675,88 @@ class MeasurementSession:
                     "peak_dbfs": peak_dbfs,
                 })
 
+            # All channels done for this position — notify frontend.
+            # For multi-position sessions the wizard prompts mic repositioning
+            # before the next position starts.
+            is_last = (pos == self._config.positions - 1)
+            await self._broadcast({
+                "type": "position_complete",
+                "position": pos + 1,
+                "positions_total": self._config.positions,
+                "is_last": is_last,
+            })
+
         if self._sd_override is not None:
             mn._sd_override = None
         log.info("Sweep phase complete: %d sweeps", count)
+
+    # -- Spatial averaging ---------------------------------------------------
+
+    def _build_correction_filters(
+        self, profile: dict,
+    ) -> Optional[Dict[str, np.ndarray]]:
+        """Build per-speaker-key correction filters from impulse responses.
+
+        Reads from ``_impulse_responses`` (deconvolved IRs), NOT raw
+        ``_recordings`` (unprocessed sweeps).  For positions=1, returns
+        the single IR per channel directly.  For positions>1, spatially
+        averages across positions per channel.
+
+        Returns None if no impulse responses are available (e.g. when
+        deconvolution has not run yet — crossover-only mode).
+        """
+        positions = self._config.positions
+        if not self._impulse_responses:
+            return None
+
+        # Map channel index -> speaker_key
+        ch_to_spk: Dict[int, str] = {}
+        speakers = profile.get("speakers", {})
+        for ch in self._config.channels:
+            if ch.speaker_key:
+                ch_to_spk[ch.index] = ch.speaker_key
+            else:
+                # Fallback: match by channel index in the profile
+                for spk_key, spk_cfg in speakers.items():
+                    if spk_cfg.get("channel") == ch.index:
+                        ch_to_spk[ch.index] = spk_key
+                        break
+
+        if not ch_to_spk:
+            log.warning("No channel-to-speaker mapping — skipping correction")
+            return None
+
+        correction_filters: Dict[str, np.ndarray] = {}
+
+        for ch in self._config.channels:
+            spk_key = ch_to_spk.get(ch.index)
+            if spk_key is None:
+                continue
+
+            # Collect recordings for this channel across all positions
+            per_position = []
+            for pos in range(positions):
+                key = f"ch{ch.index}_pos{pos}"
+                rec = self._impulse_responses.get(key)
+                if rec is not None:
+                    per_position.append(rec)
+
+            if not per_position:
+                continue
+
+            if len(per_position) == 1:
+                # Single position — use directly (no averaging needed)
+                correction_filters[spk_key] = per_position[0]
+            else:
+                # Multi-position — spatial average
+                _ensure_rc_path()
+                from room_correction.spatial_average import spatial_average
+                correction_filters[spk_key] = spatial_average(per_position)
+                log.info("Spatial average for %s: %d positions -> %d samples",
+                         spk_key, len(per_position),
+                         len(correction_filters[spk_key]))
+
+        return correction_filters if correction_filters else None
 
     # -- FILTER_GEN ----------------------------------------------------------
 
@@ -719,27 +803,22 @@ class MeasurementSession:
     def _filter_gen_sync(self) -> dict:
         """Run FIR generation synchronously (called in thread pool).
 
-        Reuses the room_correction modules directly rather than duplicating
-        the filter_routes pipeline.
+        Delegates to generate_profile_filters() — the same topology-agnostic
+        pipeline used by filter_routes._run_pipeline().  Handles 2-way, 3-way,
+        4-way, and MEH profiles including bandpass drivers, per-driver slope
+        overrides, and subsonic HPFs on any driver (not just subwoofers).
         """
         _ensure_rc_path()
         from config_generator import (
             load_profile_with_identities,
             validate_and_raise,
-            _classify_speakers,
         )
-        from room_correction.crossover import (
-            generate_crossover_filter, generate_subsonic_filter,
-        )
-        from room_correction.combine import combine_filters
-        from room_correction.export import export_all_filters
+        from room_correction.generate_profile_filters import generate_profile_filters
+        from room_correction.export import export_filter
         from room_correction.verify import (
             verify_d009, verify_minimum_phase, verify_format,
         )
-        from room_correction.pw_config_generator import (
-            generate_filter_chain_conf,
-            DEFAULT_COEFFS_DIR,
-        )
+        from room_correction.pw_config_generator import generate_filter_chain_conf
 
         self._check_abort("CP-5a")
 
@@ -763,76 +842,31 @@ class MeasurementSession:
         validate_and_raise(
             profile, identities, identities_dir=identities_dir)
 
-        crossover_freq = profile["crossover"]["frequency_hz"]
-        slope = profile["crossover"]["slope_db_per_oct"]
         n_taps = 16384
         sr = self._config.sample_rate
 
-        satellites, subwoofers = _classify_speakers(profile)
-        all_speakers = satellites + subwoofers
-
-        hp_crossover = generate_crossover_filter(
-            filter_type="highpass",
-            crossover_freq=crossover_freq,
-            slope_db_per_oct=slope,
-            n_taps=n_taps, sr=sr,
-        )
-        lp_crossover = generate_crossover_filter(
-            filter_type="lowpass",
-            crossover_freq=crossover_freq,
-            slope_db_per_oct=slope,
-            n_taps=n_taps, sr=sr,
-        )
-
         self._check_abort("CP-5b")
 
-        # Subsonic protection filters per identity
-        subsonic_map: Dict[float, Any] = {}
-        for spk_key, spk_cfg in all_speakers:
-            id_name = spk_cfg["identity"]
-            identity = identities.get(id_name, {})
-            hpf_hz = identity.get("mandatory_hpf_hz")
-            if hpf_hz and spk_cfg.get("role") == "subwoofer":
-                if hpf_hz not in subsonic_map:
-                    subsonic_map[hpf_hz] = generate_subsonic_filter(
-                        hpf_freq=hpf_hz,
-                        slope_db_per_oct=slope,
-                        n_taps=n_taps, sr=sr,
-                    )
+        # Build correction filters from sweep recordings.
+        # For positions=1 uses the single recording; for positions>1
+        # spatially averages across mic positions per channel.
+        # Returns None when no recordings exist (crossover-only mode).
+        correction_filters = self._build_correction_filters(profile)
+        if correction_filters:
+            log.info("Using %d correction filters from sweep recordings",
+                     len(correction_filters))
+        else:
+            log.info("No correction filters — crossover-only generation")
 
-        # Correction filter: Dirac delta (flat) until deconvolution is wired.
-        # TODO: Replace with actual room correction from sweep recordings.
-        dirac = np.zeros(n_taps)
-        dirac[0] = 1.0
-
-        _KEY_TO_SUFFIX = {
-            "sat_left": "left_hp", "sat_right": "right_hp",
-            "sub1": "sub1_lp", "sub2": "sub2_lp",
-        }
-
-        combined = {}
-        for spk_key, spk_cfg in all_speakers:
-            suffix = _KEY_TO_SUFFIX.get(spk_key, spk_key)
-            role = spk_cfg.get("role", "satellite")
-            filter_type = spk_cfg.get("filter_type", "highpass")
-
-            xo = hp_crossover if filter_type == "highpass" else lp_crossover
-
-            subsonic = None
-            if role == "subwoofer":
-                id_name = spk_cfg["identity"]
-                identity = identities.get(id_name, {})
-                hpf_hz = identity.get("mandatory_hpf_hz")
-                if hpf_hz:
-                    subsonic = subsonic_map.get(hpf_hz)
-
-            combined[suffix] = combine_filters(
-                correction_filter=dirac,
-                crossover_filter=xo,
-                n_taps=n_taps,
-                margin_db=-0.6,
-                subsonic_filter=subsonic,
-            )
+        # Delegate to the topology-agnostic pipeline (handles highpass,
+        # lowpass, bandpass, per-driver slopes, subsonic HPFs on any driver).
+        combined_filters = generate_profile_filters(
+            profile=profile,
+            identities=identities,
+            correction_filters=correction_filters,
+            n_taps=n_taps,
+            sr=sr,
+        )
 
         self._check_abort("CP-5c")
 
@@ -840,11 +874,17 @@ class MeasurementSession:
         output_dir = self._config.output_dir
         from datetime import datetime as _dt
         timestamp = _dt.now()
-        output_paths = export_all_filters(
-            combined, output_dir, n_taps=n_taps, sr=sr, timestamp=timestamp,
-        )
 
-        # Verify
+        os.makedirs(output_dir, exist_ok=True)
+        output_paths = {}
+        for spk_key, fir in combined_filters.items():
+            ts = timestamp.strftime("%Y%m%d_%H%M%S")
+            filename = f"combined_{spk_key}_{ts}.wav"
+            path = os.path.join(output_dir, filename)
+            export_filter(fir, path, n_taps=n_taps, sr=sr)
+            output_paths[spk_key] = path
+
+        # Verify (same D-009 interlock as filter_routes)
         verifications = []
         all_pass = True
         for name, path in sorted(output_paths.items()):
@@ -864,22 +904,22 @@ class MeasurementSession:
             if not ch_pass:
                 all_pass = False
 
-        # Generate PW filter-chain .conf
+        # Generate PW filter-chain .conf (uses speaker keys directly)
         pw_conf = generate_filter_chain_conf(
             profile_name,
             filter_paths={
-                spk_key: str(output_paths.get(
-                    _KEY_TO_SUFFIX.get(spk_key, spk_key), ""))
-                for spk_key, _ in all_speakers
+                spk_key: str(output_paths.get(spk_key, ""))
+                for spk_key in profile["speakers"]
             },
             profiles_dir=profiles_dir,
             identities_dir=identities_dir,
             validate=False,
         )
         pw_conf_path = os.path.join(output_dir, "30-filter-chain-convolver.conf")
-        os.makedirs(output_dir, exist_ok=True)
         with open(pw_conf_path, "w") as f:
             f.write(pw_conf)
+
+        crossover_raw = profile.get("crossover", {}).get("frequency_hz")
 
         return {
             "profile": profile_name,
@@ -892,7 +932,7 @@ class MeasurementSession:
             "pw_conf_path": pw_conf_path,
             "pw_conf_content": pw_conf,
             "n_taps": n_taps,
-            "crossover_freq_hz": crossover_freq,
+            "crossover_freq_hz": crossover_raw,
             "timestamp": timestamp.isoformat(),
         }
 

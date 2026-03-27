@@ -1642,11 +1642,18 @@ def _run_async(coro):
 
 
 def _patch_pw_gen(return_value=None, side_effect=None):
-    """Context manager that patches the lazy pw_config_generator import."""
+    """Context manager that patches the lazy pw_config_generator import.
+
+    Preserves real channel_suffix/spk_key_from_suffix so that
+    _compute_target_gains() and _configure_thermal_protection() work.
+    """
+    from room_correction.pw_config_generator import channel_suffix, spk_key_from_suffix
     mock_fn = MagicMock(return_value=return_value, side_effect=side_effect)
     return patch.dict("sys.modules", {
         "room_correction.pw_config_generator": MagicMock(
-            generate_filter_chain_conf=mock_fn
+            generate_filter_chain_conf=mock_fn,
+            channel_suffix=channel_suffix,
+            spk_key_from_suffix=spk_key_from_suffix,
         ),
         "room_correction": MagicMock(),
     })
@@ -1808,12 +1815,7 @@ class TestActivateProfileEndpoint:
         """POST activate returns 200 for a valid profile in mock mode."""
         monkeypatch.setenv("PI_AUDIO_MOCK", "1")
         mock_gen = "# mock PW config\n"
-        with patch.dict("sys.modules", {
-            "room_correction.pw_config_generator": MagicMock(
-                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-            ),
-            "room_correction": MagicMock(),
-        }):
+        with _patch_pw_gen(return_value=mock_gen):
             client = TestClient(app)
             resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
         assert resp.status_code == 200
@@ -1841,12 +1843,7 @@ class TestActivateProfileEndpoint:
         """Activation writes the PW config file to the expected path."""
         monkeypatch.setenv("PI_AUDIO_MOCK", "1")
         mock_gen = "# PW filter-chain config\ncontext.modules = []\n"
-        with patch.dict("sys.modules", {
-            "room_correction.pw_config_generator": MagicMock(
-                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-            ),
-            "room_correction": MagicMock(),
-        }):
+        with _patch_pw_gen(return_value=mock_gen):
             client = TestClient(app)
             resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
         assert resp.status_code == 200
@@ -1858,12 +1855,7 @@ class TestActivateProfileEndpoint:
         """Activation writes the active-profile.yml marker."""
         monkeypatch.setenv("PI_AUDIO_MOCK", "1")
         mock_gen = "# mock\n"
-        with patch.dict("sys.modules", {
-            "room_correction.pw_config_generator": MagicMock(
-                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-            ),
-            "room_correction": MagicMock(),
-        }):
+        with _patch_pw_gen(return_value=mock_gen):
             client = TestClient(app)
             resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
         assert resp.status_code == 200
@@ -1876,12 +1868,7 @@ class TestActivateProfileEndpoint:
         """Response includes user-facing instructions about mute state."""
         monkeypatch.setenv("PI_AUDIO_MOCK", "1")
         mock_gen = "# mock\n"
-        with patch.dict("sys.modules", {
-            "room_correction.pw_config_generator": MagicMock(
-                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-            ),
-            "room_correction": MagicMock(),
-        }):
+        with _patch_pw_gen(return_value=mock_gen):
             client = TestClient(app)
             resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
         data = resp.json()

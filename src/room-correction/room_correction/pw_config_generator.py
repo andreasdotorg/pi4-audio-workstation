@@ -67,9 +67,29 @@ _KEY_TO_SUFFIX = {
 _BUTTERWORTH_4_Q = (0.5412, 1.3066)
 
 
-def _channel_suffix(spk_key: str) -> str:
-    """Map a speaker key to a channel suffix for node naming."""
+def channel_suffix(spk_key: str) -> str:
+    """Map a speaker key to a channel suffix for node naming.
+
+    Known keys (sat_left, sat_right, sub1, sub2) are mapped to their
+    canonical suffixes (left_hp, right_hp, sub1_lp, sub2_lp).
+    Unknown keys pass through unchanged (N-way topology support).
+    """
     return _KEY_TO_SUFFIX.get(spk_key, spk_key)
+
+
+def spk_key_from_suffix(suffix: str) -> str:
+    """Reverse-lookup: map a channel suffix back to a speaker key.
+
+    Returns the suffix unchanged if no known mapping exists.
+    """
+    for k, v in _KEY_TO_SUFFIX.items():
+        if v == suffix:
+            return k
+    return suffix
+
+
+# Backward-compatible alias for internal callers
+_channel_suffix = channel_suffix
 
 
 def _get_port_tuning_hz(identity: dict) -> float | None:

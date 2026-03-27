@@ -862,14 +862,109 @@ def _compute_target_gains(profile: dict) -> dict[str, float]:
         if not isinstance(db, (int, float)):
             db = -60.0
         linear = 10.0 ** (db / 20.0) if db > -120 else 0.0
-        # Map spk_key to gain node name using same convention as pw_config_generator
-        suffix_map = {
-            "sat_left": "left_hp", "sat_right": "right_hp",
-            "sub1": "sub1_lp", "sub2": "sub2_lp",
-        }
-        suffix = suffix_map.get(spk_key, spk_key)
+        # Map spk_key to gain node name using canonical mapping
+        from room_correction.pw_config_generator import channel_suffix
+        suffix = channel_suffix(spk_key)
         result[f"gain_{suffix}"] = round(linear, 6)
     return result
+
+
+def _configure_thermal_protection(
+    profile_name: str,
+    profile: dict,
+    target_gains: dict,
+    thermal_monitor,
+    thermal_limiter,
+) -> None:
+    """Configure thermal monitor + limiter for the activated profile.
+
+    Reads speaker identities to get pe_max_watts, impedance, and sensitivity,
+    then passes per-channel thermal state to the monitor and limiter.
+
+    This is best-effort: if thermal_ceiling is not importable or data is
+    missing, protection runs in degraded mode (no ceilings).
+    """
+    if thermal_monitor is None:
+        return
+
+    try:
+        import sys
+        from pathlib import Path
+        rc_root = Path(__file__).resolve().parents[2] / "room-correction"
+        if str(rc_root) not in sys.path:
+            sys.path.insert(0, str(rc_root))
+        from thermal_ceiling import load_channel_ceilings
+    except ImportError:
+        log.warning("thermal_ceiling not importable — thermal protection "
+                    "running without ceiling data")
+        return
+
+    # Build pw_gain_mults from target_gains: {spk_name: Mult}.
+    # target_gains maps gain node names (gain_left_hp) -> Mult values.
+    # load_channel_ceilings expects speaker names (sat_left) -> Mult values.
+    # Use canonical reverse-lookup from pw_config_generator.
+    from room_correction.pw_config_generator import spk_key_from_suffix
+    pw_gain_mults = {}
+    for gain_name, mult in target_gains.items():
+        # gain_name is like "gain_left_hp" -> suffix is "left_hp"
+        suffix = gain_name.removeprefix("gain_")
+        spk_name = spk_key_from_suffix(suffix)
+        if spk_name != suffix:
+            pw_gain_mults[spk_name] = mult
+        else:
+            # For N-way topologies, try the speaker name from the profile
+            # directly if the known mapping doesn't cover it.
+            speakers = profile.get("speakers", {})
+            for sname in speakers:
+                if suffix.startswith(sname.replace("_", "_")):
+                    pw_gain_mults[sname] = mult
+                    break
+
+    try:
+        base = _speakers_dir()
+        project_root = str(base.parents[1]) if base else None
+        ceilings = load_channel_ceilings(
+            profile_name,
+            pw_gain_mults=pw_gain_mults if pw_gain_mults else None,
+            project_root=project_root,
+        )
+    except Exception as exc:
+        log.warning("Failed to compute thermal ceilings for '%s': %s",
+                    profile_name, exc)
+        return
+
+    if not ceilings:
+        log.info("No thermal ceilings computed for '%s'", profile_name)
+        return
+
+    # Configure thermal monitor from ceilings dict.
+    thermal_monitor.configure_from_ceilings(ceilings)
+    log.info("Thermal monitor configured: %d channels from profile '%s'",
+             len(ceilings), profile_name)
+
+    # Configure thermal limiter with channel mappings.
+    if thermal_limiter is not None:
+        limiter_configs = []
+        speakers = profile.get("speakers", {})
+        for spk_name, info in ceilings.items():
+            spk_cfg = speakers.get(spk_name, {})
+            # Determine gain node name for this speaker.
+            # The gain node name follows the pattern gain_{suffix} where
+            # suffix is derived from the speaker key via channel_suffix.
+            from room_correction.pw_config_generator import channel_suffix
+            suffix = channel_suffix(spk_name)
+            gain_node_name = f"gain_{suffix}"
+
+            limiter_configs.append({
+                "name": spk_name,
+                "channel_index": info["channel"],
+                "gain_node_name": gain_node_name,
+                "base_mult": info.get("pw_gain_mult", 1.0),
+            })
+
+        thermal_limiter.configure_channels(limiter_configs)
+        log.info("Thermal limiter configured: %d channels from profile '%s'",
+                 len(limiter_configs), profile_name)
 
 
 async def _activate_profile_impl(
@@ -877,6 +972,8 @@ async def _activate_profile_impl(
     profile: dict,
     mute_manager,
     is_mock: bool,
+    thermal_monitor=None,
+    thermal_limiter=None,
 ) -> dict:
     """Core activation logic. Returns a result dict.
 
@@ -968,6 +1065,10 @@ async def _activate_profile_impl(
     # 6. Compute target gains for ramp-up
     target_gains = _compute_target_gains(profile)
 
+    # 7. Configure thermal monitor + limiter (US-092 protection chain).
+    _configure_thermal_protection(
+        name, profile, target_gains, thermal_monitor, thermal_limiter)
+
     log.info("Profile '%s' activated (safety_flow=%s)",
              name, "muted" if not is_mock else "skipped")
 
@@ -1003,9 +1104,15 @@ async def activate_profile(name: str, request: Request):
                      "detail": f"Speaker profile '{name}' not found"},
         )
     mute_manager = getattr(request.app.state, "audio_mute", None)
+    thermal_monitor = getattr(request.app.state, "thermal_monitor", None)
+    thermal_limiter = getattr(request.app.state, "thermal_limiter", None)
     is_mock = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
 
-    result = await _activate_profile_impl(name, data, mute_manager, is_mock)
+    result = await _activate_profile_impl(
+        name, data, mute_manager, is_mock,
+        thermal_monitor=thermal_monitor,
+        thermal_limiter=thermal_limiter,
+    )
 
     if not result.get("activated"):
         status = 422 if result.get("error") == "validation_failed" else 500

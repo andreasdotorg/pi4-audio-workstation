@@ -10,6 +10,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from room_correction.pw_config_generator import (
+    channel_suffix,
+    spk_key_from_suffix,
     db_to_linear,
     generate_filter_chain_conf,
     write_filter_chain_conf,
@@ -69,6 +71,87 @@ class TestChannelSuffix:
 
     def test_unknown_key_passthrough(self):
         assert _channel_suffix("tweeter_center") == "tweeter_center"
+
+    def test_public_api_matches_private(self):
+        """channel_suffix() is the public API, _channel_suffix is the alias."""
+        for key in ("sat_left", "sat_right", "sub1", "sub2", "mid_left", "hf_right"):
+            assert channel_suffix(key) == _channel_suffix(key)
+
+
+class TestSpkKeyFromSuffix:
+    def test_known_suffixes(self):
+        assert spk_key_from_suffix("left_hp") == "sat_left"
+        assert spk_key_from_suffix("right_hp") == "sat_right"
+        assert spk_key_from_suffix("sub1_lp") == "sub1"
+        assert spk_key_from_suffix("sub2_lp") == "sub2"
+
+    def test_unknown_suffix_passthrough(self):
+        assert spk_key_from_suffix("tweeter_center") == "tweeter_center"
+
+    def test_roundtrip_known_keys(self):
+        """channel_suffix -> spk_key_from_suffix should be identity for known keys."""
+        for key in ("sat_left", "sat_right", "sub1", "sub2"):
+            suffix = channel_suffix(key)
+            assert spk_key_from_suffix(suffix) == key
+
+    def test_roundtrip_unknown_keys(self):
+        """Unknown keys pass through in both directions."""
+        for key in ("mid_left", "hf_right", "bass"):
+            suffix = channel_suffix(key)
+            assert suffix == key
+            assert spk_key_from_suffix(suffix) == key
+
+
+class TestChannelSuffixConsistency:
+    """R-1: Verify all call sites produce identical results.
+
+    Tests that the canonical channel_suffix() from pw_config_generator
+    matches the behavior that was previously hardcoded in speaker_routes.py
+    and config_generator.py for all standard topology speaker keys.
+    """
+
+    # 2-way speaker keys
+    KEYS_2WAY = ["sat_left", "sat_right", "sub1", "sub2"]
+
+    # 3-way speaker keys (typical N-way topology)
+    KEYS_3WAY = ["bass", "mid_left", "mid_right", "hf_left", "hf_right", "sub1"]
+
+    # 4-way speaker keys
+    KEYS_4WAY = [
+        "bass_left", "bass_right", "mid_left", "mid_right",
+        "hf_left", "hf_right", "sub1", "sub2",
+    ]
+
+    def test_2way_matches_original_hardcoded(self):
+        """2-way keys must map to the original hardcoded values."""
+        expected = {
+            "sat_left": "left_hp",
+            "sat_right": "right_hp",
+            "sub1": "sub1_lp",
+            "sub2": "sub2_lp",
+        }
+        for key, suffix in expected.items():
+            assert channel_suffix(key) == suffix, f"{key} -> {channel_suffix(key)} != {suffix}"
+
+    def test_3way_keys_passthrough(self):
+        """3-way keys not in the hardcoded map must pass through unchanged."""
+        for key in self.KEYS_3WAY:
+            result = channel_suffix(key)
+            if key in ("sub1",):
+                assert result == "sub1_lp"
+            else:
+                assert result == key
+
+    def test_4way_keys_passthrough(self):
+        """4-way keys not in the hardcoded map must pass through unchanged."""
+        for key in self.KEYS_4WAY:
+            result = channel_suffix(key)
+            if key in ("sub1",):
+                assert result == "sub1_lp"
+            elif key in ("sub2",):
+                assert result == "sub2_lp"
+            else:
+                assert result == key
 
 
 # -- Integration tests with real profiles ------------------------------------

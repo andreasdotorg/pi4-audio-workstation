@@ -122,10 +122,17 @@ def client(e2e_env):
 
 
 def _pw_gen_mock(return_value="# mock PW config\ncontext.modules = []\n"):
-    """Patch dict for pw_config_generator import used by activate."""
+    """Patch dict for pw_config_generator import used by activate.
+
+    Preserves real channel_suffix/spk_key_from_suffix so that
+    _compute_target_gains() and _configure_thermal_protection() work.
+    """
+    from room_correction.pw_config_generator import channel_suffix, spk_key_from_suffix
     return patch.dict("sys.modules", {
         "room_correction.pw_config_generator": MagicMock(
-            generate_filter_chain_conf=MagicMock(return_value=return_value)
+            generate_filter_chain_conf=MagicMock(return_value=return_value),
+            channel_suffix=channel_suffix,
+            spk_key_from_suffix=spk_key_from_suffix,
         ),
         "room_correction": MagicMock(),
     })
