@@ -213,3 +213,252 @@ class TestGetProfileEndpoint:
         data = resp.json()
         assert "speakers" in data
         assert data["speakers"]["sub2"]["polarity"] == "inverted"
+
+
+# ── Unit tests: validation ───────────────────────────────────────
+
+_VALID_IDENTITY = {
+    "name": "Test Speaker",
+    "type": "sealed",
+    "impedance_ohm": 8,
+    "max_boost_db": 0,
+    "mandatory_hpf_hz": 30,
+}
+
+_VALID_PROFILE = {
+    "name": "Test Profile",
+    "topology": "2way",
+    "crossover": {"frequency_hz": 80, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+    "speakers": {
+        "sat_left": {"identity": "test-spk", "role": "satellite", "channel": 0},
+        "sub1": {"identity": "test-sub", "role": "subwoofer", "channel": 2},
+    },
+}
+
+
+class TestValidateIdentity:
+    def test_valid(self):
+        assert _validate_identity(_VALID_IDENTITY) is None
+
+    def test_missing_field(self):
+        body = {k: v for k, v in _VALID_IDENTITY.items() if k != "type"}
+        err = _validate_identity(body)
+        assert err is not None
+        assert "type" in err
+
+    def test_invalid_type(self):
+        body = {**_VALID_IDENTITY, "type": "magicbox"}
+        assert _validate_identity(body) is not None
+
+    def test_non_dict(self):
+        assert _validate_identity("not a dict") is not None
+
+    def test_empty_name(self):
+        body = {**_VALID_IDENTITY, "name": ""}
+        assert _validate_identity(body) is not None
+
+    def test_impedance_not_number(self):
+        body = {**_VALID_IDENTITY, "impedance_ohm": "eight"}
+        assert _validate_identity(body) is not None
+
+
+class TestValidateProfile:
+    def test_valid(self):
+        assert _validate_profile(_VALID_PROFILE) is None
+
+    def test_missing_crossover(self):
+        body = {k: v for k, v in _VALID_PROFILE.items() if k != "crossover"}
+        err = _validate_profile(body)
+        assert err is not None
+        assert "crossover" in err
+
+    def test_crossover_missing_field(self):
+        body = {**_VALID_PROFILE, "crossover": {"frequency_hz": 80}}
+        assert _validate_profile(body) is not None
+
+    def test_empty_speakers(self):
+        body = {**_VALID_PROFILE, "speakers": {}}
+        assert _validate_profile(body) is not None
+
+    def test_speaker_missing_role(self):
+        bad_speakers = {"sat": {"identity": "x", "channel": 0}}
+        body = {**_VALID_PROFILE, "speakers": bad_speakers}
+        assert _validate_profile(body) is not None
+
+    def test_speaker_invalid_role(self):
+        bad_speakers = {"sat": {"identity": "x", "role": "tweeter", "channel": 0}}
+        body = {**_VALID_PROFILE, "speakers": bad_speakers}
+        assert _validate_profile(body) is not None
+
+
+class TestSlugify:
+    def test_simple(self):
+        assert _slugify("Test Speaker v1") == "test-speaker-v1"
+
+    def test_special_chars(self):
+        assert _slugify("Bose (PS28-III)") == "bose-ps28-iii"
+
+    def test_empty(self):
+        assert _slugify("") == "unnamed"
+
+    def test_leading_trailing(self):
+        assert _slugify("  Hello World  ") == "hello-world"
+
+
+# ── Write endpoint tests (use temp dir) ──────────────────────────
+
+@pytest.fixture
+def tmp_speakers(tmp_path, monkeypatch):
+    """Create a temp speakers dir and monkeypatch _speakers_dir to use it."""
+    identities = tmp_path / "identities"
+    profiles = tmp_path / "profiles"
+    identities.mkdir()
+    profiles.mkdir()
+
+    # Seed with one identity and one profile so update/delete tests work.
+    seed_id = {**_VALID_IDENTITY, "name": "Seed Speaker"}
+    (identities / "seed-speaker.yml").write_text(
+        yaml.dump(seed_id, default_flow_style=False, sort_keys=False))
+    seed_prof = {**_VALID_PROFILE, "name": "Seed Profile"}
+    (profiles / "seed-profile.yml").write_text(
+        yaml.dump(seed_prof, default_flow_style=False, sort_keys=False))
+
+    import app.speaker_routes as mod
+    monkeypatch.setattr(mod, "_speakers_dir", lambda: tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def write_client(tmp_speakers):
+    """TestClient with speakers dir patched to tmp."""
+    return TestClient(app)
+
+
+class TestCreateIdentity:
+    def test_create_success(self, write_client):
+        body = {**_VALID_IDENTITY, "slug": "new-test-spk"}
+        resp = write_client.post("/api/v1/speakers/identities", json=body)
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "new-test-spk"
+
+    def test_create_auto_slug(self, write_client):
+        body = {**_VALID_IDENTITY, "name": "Auto Named Speaker"}
+        resp = write_client.post("/api/v1/speakers/identities", json=body)
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "auto-named-speaker"
+
+    def test_create_duplicate_409(self, write_client):
+        body = {**_VALID_IDENTITY, "slug": "seed-speaker"}
+        resp = write_client.post("/api/v1/speakers/identities", json=body)
+        assert resp.status_code == 409
+
+    def test_create_invalid_body_422(self, write_client):
+        body = {"name": "Missing fields"}
+        resp = write_client.post("/api/v1/speakers/identities", json=body)
+        assert resp.status_code == 422
+
+    def test_created_file_readable(self, write_client, tmp_speakers):
+        body = {**_VALID_IDENTITY, "slug": "readable-test"}
+        write_client.post("/api/v1/speakers/identities", json=body)
+        resp = write_client.get("/api/v1/speakers/identities/readable-test")
+        assert resp.status_code == 200
+        assert resp.json()["impedance_ohm"] == 8
+
+
+class TestUpdateIdentity:
+    def test_update_success(self, write_client):
+        body = {**_VALID_IDENTITY, "name": "Updated Name"}
+        resp = write_client.put("/api/v1/speakers/identities/seed-speaker", json=body)
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_update_not_found_404(self, write_client):
+        body = _VALID_IDENTITY
+        resp = write_client.put("/api/v1/speakers/identities/nonexistent", json=body)
+        assert resp.status_code == 404
+
+    def test_update_invalid_body_422(self, write_client):
+        resp = write_client.put(
+            "/api/v1/speakers/identities/seed-speaker",
+            json={"name": "No type"})
+        assert resp.status_code == 422
+
+    def test_update_persists(self, write_client):
+        body = {**_VALID_IDENTITY, "name": "Persisted", "impedance_ohm": 4}
+        write_client.put("/api/v1/speakers/identities/seed-speaker", json=body)
+        resp = write_client.get("/api/v1/speakers/identities/seed-speaker")
+        assert resp.json()["impedance_ohm"] == 4
+
+
+class TestDeleteIdentity:
+    def test_delete_success(self, write_client):
+        resp = write_client.delete("/api/v1/speakers/identities/seed-speaker")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+
+    def test_delete_not_found_404(self, write_client):
+        resp = write_client.delete("/api/v1/speakers/identities/nonexistent")
+        assert resp.status_code == 404
+
+    def test_delete_removes_file(self, write_client):
+        write_client.delete("/api/v1/speakers/identities/seed-speaker")
+        resp = write_client.get("/api/v1/speakers/identities/seed-speaker")
+        assert resp.status_code == 404
+
+
+class TestCreateProfile:
+    def test_create_success(self, write_client):
+        body = {**_VALID_PROFILE, "slug": "new-test-prof"}
+        resp = write_client.post("/api/v1/speakers/profiles", json=body)
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "new-test-prof"
+
+    def test_create_duplicate_409(self, write_client):
+        body = {**_VALID_PROFILE, "slug": "seed-profile"}
+        resp = write_client.post("/api/v1/speakers/profiles", json=body)
+        assert resp.status_code == 409
+
+    def test_create_invalid_body_422(self, write_client):
+        body = {"name": "Missing fields"}
+        resp = write_client.post("/api/v1/speakers/profiles", json=body)
+        assert resp.status_code == 422
+
+    def test_created_profile_readable(self, write_client):
+        body = {**_VALID_PROFILE, "slug": "readable-prof"}
+        write_client.post("/api/v1/speakers/profiles", json=body)
+        resp = write_client.get("/api/v1/speakers/profiles/readable-prof")
+        assert resp.status_code == 200
+        assert resp.json()["topology"] == "2way"
+
+
+class TestUpdateProfile:
+    def test_update_success(self, write_client):
+        body = {**_VALID_PROFILE, "name": "Updated Profile"}
+        resp = write_client.put("/api/v1/speakers/profiles/seed-profile", json=body)
+        assert resp.status_code == 200
+
+    def test_update_not_found_404(self, write_client):
+        resp = write_client.put(
+            "/api/v1/speakers/profiles/nonexistent", json=_VALID_PROFILE)
+        assert resp.status_code == 404
+
+    def test_update_invalid_body_422(self, write_client):
+        resp = write_client.put(
+            "/api/v1/speakers/profiles/seed-profile",
+            json={"name": "No topology"})
+        assert resp.status_code == 422
+
+
+class TestDeleteProfile:
+    def test_delete_success(self, write_client):
+        resp = write_client.delete("/api/v1/speakers/profiles/seed-profile")
+        assert resp.status_code == 200
+
+    def test_delete_not_found_404(self, write_client):
+        resp = write_client.delete("/api/v1/speakers/profiles/nonexistent")
+        assert resp.status_code == 404
+
+    def test_delete_removes_file(self, write_client):
+        write_client.delete("/api/v1/speakers/profiles/seed-profile")
+        resp = write_client.get("/api/v1/speakers/profiles/seed-profile")
+        assert resp.status_code == 404
