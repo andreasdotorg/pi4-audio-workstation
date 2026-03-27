@@ -1159,6 +1159,217 @@ class TestDeepValidateChannelBudgetD054:
         assert "live vocal mode blocked" in warn[0]["message"].lower()
 
 
+class TestDeepValidateModeConstraintEnforcement:
+    """Check #12: mode_constraints vs channel budget cross-reference."""
+
+    def test_declares_live_but_no_iem_error(self, deep_val_dir):
+        """Profile declares 'live' mode but only 2 monitoring channels — error."""
+        speakers = {
+            "sub_left": {"identity": "test-sub", "role": "subwoofer", "channel": 0, "filter_type": "lowpass"},
+            "sub_right": {"identity": "test-sub", "role": "subwoofer", "channel": 1, "filter_type": "lowpass"},
+            "mid_left": {"identity": "test-sat", "role": "midrange", "channel": 2, "filter_type": "bandpass"},
+            "mid_right": {"identity": "test-sat", "role": "midrange", "channel": 3, "filter_type": "bandpass"},
+            "tweet_left": {"identity": "test-sat", "role": "tweeter", "channel": 4, "filter_type": "highpass"},
+            "tweet_right": {"identity": "test-sat", "role": "tweeter", "channel": 5, "filter_type": "highpass"},
+        }
+        xovers = [
+            {"frequency_hz": 250, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+            {"frequency_hz": 2500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        ]
+        profile = _make_profile(
+            speakers=speakers, topology="3way", crossover=xovers,
+            monitoring={"hp_left": 6, "hp_right": 7},
+            mode_constraints=["dj", "live"],
+        )
+        result = _deep_validate_profile(profile)
+        assert result["valid"] is False
+        checks = [e["check"] for e in result["errors"]]
+        assert "mode_constraint_impossible" in checks
+
+    def test_declares_dj_but_no_hp_error(self, deep_val_dir):
+        """Profile declares 'dj' but 8 speaker channels, no monitoring — error."""
+        speakers = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(8)
+        }
+        profile = _make_profile(
+            speakers=speakers, topology="4way",
+            mode_constraints=["dj"],
+        )
+        result = _deep_validate_profile(profile)
+        assert result["valid"] is False
+        checks = [e["check"] for e in result["errors"]]
+        assert "mode_constraint_impossible" in checks
+
+    def test_declares_dj_only_with_6_speakers_ok(self, deep_val_dir):
+        """Profile declares only 'dj' with 6 speakers + 2 HP — valid."""
+        speakers = {
+            "sub_left": {"identity": "test-sub", "role": "subwoofer", "channel": 0, "filter_type": "lowpass"},
+            "sub_right": {"identity": "test-sub", "role": "subwoofer", "channel": 1, "filter_type": "lowpass"},
+            "mid_left": {"identity": "test-sat", "role": "midrange", "channel": 2, "filter_type": "bandpass"},
+            "mid_right": {"identity": "test-sat", "role": "midrange", "channel": 3, "filter_type": "bandpass"},
+            "tweet_left": {"identity": "test-sat", "role": "tweeter", "channel": 4, "filter_type": "highpass"},
+            "tweet_right": {"identity": "test-sat", "role": "tweeter", "channel": 5, "filter_type": "highpass"},
+        }
+        xovers = [
+            {"frequency_hz": 250, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+            {"frequency_hz": 2500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        ]
+        profile = _make_profile(
+            speakers=speakers, topology="3way", crossover=xovers,
+            monitoring={"hp_left": 6, "hp_right": 7},
+            mode_constraints=["dj"],
+        )
+        result = _deep_validate_profile(profile)
+        checks = [e["check"] for e in result["errors"]]
+        assert "mode_constraint_impossible" not in checks
+
+    def test_auto_derive_dj_only_warning(self, deep_val_dir):
+        """No mode_constraints with 6 speakers — auto-derive warning for DJ only."""
+        speakers = {
+            "sub_left": {"identity": "test-sub", "role": "subwoofer", "channel": 0, "filter_type": "lowpass"},
+            "sub_right": {"identity": "test-sub", "role": "subwoofer", "channel": 1, "filter_type": "lowpass"},
+            "mid_left": {"identity": "test-sat", "role": "midrange", "channel": 2, "filter_type": "bandpass"},
+            "mid_right": {"identity": "test-sat", "role": "midrange", "channel": 3, "filter_type": "bandpass"},
+            "tweet_left": {"identity": "test-sat", "role": "tweeter", "channel": 4, "filter_type": "highpass"},
+            "tweet_right": {"identity": "test-sat", "role": "tweeter", "channel": 5, "filter_type": "highpass"},
+        }
+        xovers = [
+            {"frequency_hz": 250, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+            {"frequency_hz": 2500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        ]
+        profile = _make_profile(
+            speakers=speakers, topology="3way", crossover=xovers,
+            monitoring={"hp_left": 6, "hp_right": 7},
+        )
+        result = _deep_validate_profile(profile)
+        checks = [w["check"] for w in result["warnings"]]
+        assert "mode_auto_derived" in checks
+        auto_warn = [w for w in result["warnings"] if w["check"] == "mode_auto_derived"][0]
+        assert "dj" in auto_warn["message"].lower()
+
+    def test_auto_derive_testing_only_warning(self, deep_val_dir):
+        """No mode_constraints with 8 speakers — auto-derive testing only."""
+        speakers = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(8)
+        }
+        profile = _make_profile(speakers=speakers, topology="4way")
+        result = _deep_validate_profile(profile)
+        checks = [w["check"] for w in result["warnings"]]
+        assert "mode_auto_derived" in checks
+        auto_warn = [w for w in result["warnings"] if w["check"] == "mode_auto_derived"][0]
+        assert "testing" in auto_warn["message"].lower()
+
+    def test_2way_full_monitoring_no_auto_derive_warning(self, deep_val_dir):
+        """2-way with full monitoring — no auto-derive warning needed."""
+        profile = _make_profile(
+            monitoring={"hp_left": 4, "hp_right": 5, "iem_left": 6, "iem_right": 7},
+        )
+        result = _deep_validate_profile(profile)
+        checks = [w["check"] for w in result["warnings"]]
+        assert "mode_auto_derived" not in checks
+
+    def test_measurement_and_monitoring_modes_always_ok(self, deep_val_dir):
+        """Declaring 'measurement' or 'monitoring' modes never triggers channel budget error."""
+        speakers = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(8)
+        }
+        profile = _make_profile(
+            speakers=speakers, topology="4way",
+            mode_constraints=["measurement", "monitoring"],
+        )
+        result = _deep_validate_profile(profile)
+        checks = [e["check"] for e in result["errors"]]
+        assert "mode_constraint_impossible" not in checks
+
+
+# ── HTTP endpoint: POST /profiles/{name}/check-mode/{mode} ───────
+
+class TestCheckModeCompatibility:
+    def test_2way_live_compatible(self, deep_val_dir):
+        """2-way with full monitoring supports live mode."""
+        profile = _make_profile(
+            monitoring={"hp_left": 4, "hp_right": 5, "iem_left": 6, "iem_right": 7},
+        )
+        (deep_val_dir / "profiles" / "2way-full.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/2way-full/check-mode/live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["compatible"] is True
+
+    def test_4way_live_incompatible(self, deep_val_dir):
+        """4-way stereo (8 speakers) blocks live mode."""
+        speakers = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(8)
+        }
+        profile = _make_profile(speakers=speakers, topology="4way")
+        (deep_val_dir / "profiles" / "4way-test.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/4way-test/check-mode/live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["compatible"] is False
+        assert "iem" in data["reason"].lower()
+
+    def test_4way_dj_incompatible(self, deep_val_dir):
+        """4-way stereo also blocks DJ mode (no HP)."""
+        speakers = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(8)
+        }
+        profile = _make_profile(speakers=speakers, topology="4way")
+        (deep_val_dir / "profiles" / "4way-nodj.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/4way-nodj/check-mode/dj")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["compatible"] is False
+
+    def test_explicit_constraint_excludes_mode(self, deep_val_dir):
+        """Profile with mode_constraints=[dj] blocks live even if budget would allow."""
+        profile = _make_profile(
+            monitoring={"hp_left": 4, "hp_right": 5, "iem_left": 6, "iem_right": 7},
+            mode_constraints=["dj"],
+        )
+        (deep_val_dir / "profiles" / "dj-only.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/dj-only/check-mode/live")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["compatible"] is False
+        assert "excludes" in data["reason"].lower()
+
+    def test_invalid_mode_400(self, deep_val_dir):
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/anything/check-mode/karaoke")
+        assert resp.status_code == 400
+
+    def test_unknown_profile_404(self, deep_val_dir):
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/nonexistent/check-mode/dj")
+        assert resp.status_code == 404
+
+    def test_response_includes_channel_budget(self, deep_val_dir):
+        profile = _make_profile(
+            monitoring={"hp_left": 4, "hp_right": 5, "iem_left": 6, "iem_right": 7},
+        )
+        (deep_val_dir / "profiles" / "budget-check.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/budget-check/check-mode/dj")
+        data = resp.json()
+        assert "channel_budget" in data
+        assert data["channel_budget"]["speaker_channels"] == 4
+
+
 class TestDeepValidateHornCrossoverProximity:
     def test_crossover_near_horn_cutoff_warns(self, deep_val_dir):
         """Crossover 60Hz is 0.12 octaves from horn cutoff 55Hz — should warn."""

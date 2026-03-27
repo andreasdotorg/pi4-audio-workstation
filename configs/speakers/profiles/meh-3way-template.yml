@@ -65,5 +65,11 @@ gain_staging:
     headroom_db: -7.0
     power_limit_db: -24.0
 
+# D-054 mode constraints: 6 speaker channels (stereo 3-way) + 2 monitoring
+# = HP only, no IEM. Live vocal mode blocked.
+mode_constraints:
+  - dj
+  - monitoring
+
 target_curve: flat
 filter_taps: 16384
