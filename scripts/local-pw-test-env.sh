@@ -134,6 +134,26 @@ context.objects = [
             node.pause-on-idle = false
         }
     }
+    # UMIK-1 measurement microphone replacement: 1ch null Audio/Source.
+    # Production: alsa_input.usb-miniDSP_UMIK-1-00.mono-fallback
+    # GM uses Prefix("alsa_input.usb-miniDSP_UMIK-1") match.
+    # Port: capture_MONO (single mono channel).
+    # US-088: pcm-bridge capture-usb taps this node for spectrum analysis.
+    { factory = adapter
+        args = {
+            factory.name     = support.null-audio-sink
+            node.name        = "alsa_input.usb-miniDSP_UMIK-1"
+            media.class      = Audio/Source
+            object.linger    = true
+            audio.channels   = 1
+            audio.rate       = 48000
+            audio.position   = [ MONO ]
+            node.autoconnect = false
+            node.always-process = true
+            session.suspend-timeout-seconds = 0
+            node.pause-on-idle = false
+        }
+    }
 ]
 
 # NOTE: The filter-chain convolver config is injected by local-demo.sh

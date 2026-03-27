@@ -41,6 +41,10 @@
 
     // ---- WebSocket ----
 
+    var PCM_STALE_CHECK_MS = 5000;     // F-134: staleness check interval
+    var PCM_STALE_THRESHOLD_MS = 5000; // F-134: force-close after 5s silence
+    var pcmStalenessTimer = null;
+
     function connectPcmWebSocket() {
         if (pcmWs) return;
 
@@ -55,17 +59,34 @@
         }
         pcmWs.binaryType = "arraybuffer";
 
+        // F-134: staleness watchdog for PCM stream
+        var lastPcmData = Date.now();
+        if (pcmStalenessTimer) clearInterval(pcmStalenessTimer);
+        pcmStalenessTimer = setInterval(function () {
+            if (pcmWs && pcmWs.readyState === WebSocket.OPEN &&
+                Date.now() - lastPcmData > PCM_STALE_THRESHOLD_MS) {
+                console.warn("[F-134] PCM WebSocket stale, forcing reconnect");
+                pcmWs.close();
+            }
+        }, PCM_STALE_CHECK_MS);
+
         pcmWs.onopen = function () {
             pcmConnected = true;
+            lastPcmData = Date.now();
         };
 
         pcmWs.onmessage = function (ev) {
+            lastPcmData = Date.now();
             if (fftPipeline) {
                 fftPipeline.feedPcmMessage(ev.data, { detectGaps: true });
             }
         };
 
         pcmWs.onclose = function () {
+            if (pcmStalenessTimer) {
+                clearInterval(pcmStalenessTimer);
+                pcmStalenessTimer = null;
+            }
             pcmConnected = false;
             pcmWs = null;
             schedulePcmReconnect();
@@ -168,6 +189,10 @@
         if (animFrame) {
             cancelAnimationFrame(animFrame);
             animFrame = null;
+        }
+        if (pcmStalenessTimer) {
+            clearInterval(pcmStalenessTimer);
+            pcmStalenessTimer = null;
         }
         if (pcmWs) {
             pcmWs.close();

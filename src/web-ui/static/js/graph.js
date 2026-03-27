@@ -57,6 +57,14 @@
     var lastTopologyJSON = null;
     var POLL_INTERVAL_MS = 5000;  // F-127: reduced from 2s to 5s to cut pw-dump subprocess rate
 
+    // Pan+zoom state (F-085 #7)
+    var isPanning = false;
+    var panStartX = 0;
+    var panStartY = 0;
+    var curVB = { x: 0, y: 0, w: 860, h: 480 };
+    var ZOOM_MIN = 0.3;
+    var ZOOM_MAX = 3.0;
+
     // -- SVG helpers --
 
     function svgCreate(tag, attrs) {
@@ -147,12 +155,34 @@
             x: 0, y: HEADER_H - NODE_R, width: w, height: NODE_R
         }));
 
-        // Title
-        g.appendChild(svgText(w / 2, HEADER_H / 2, opts.label, "gv-node-label"));
+        // Title (F-085 #9: truncate with ellipsis + tooltip for overflow)
+        var maxChars = opts.narrow ? 12 : 17;
+        var displayLabel = opts.label;
+        if (displayLabel.length > maxChars) {
+            displayLabel = displayLabel.substring(0, maxChars - 1) + "\u2026";
+        }
+        var labelEl = svgText(w / 2, HEADER_H / 2, displayLabel, "gv-node-label");
+        if (displayLabel !== opts.label) {
+            var titleEl = svgCreate("title");
+            titleEl.textContent = opts.label;
+            labelEl.appendChild(titleEl);
+        }
+        g.appendChild(labelEl);
 
-        // Sublabel (description)
+        // Sublabel (description) — truncate defensively (F-085 #9)
         if (opts.sublabel) {
-            g.appendChild(svgText(w / 2, HEADER_H + 14, opts.sublabel, "gv-node-sublabel"));
+            var subMax = opts.narrow ? 16 : 22;
+            var displaySub = opts.sublabel;
+            if (displaySub.length > subMax) {
+                displaySub = displaySub.substring(0, subMax - 1) + "\u2026";
+            }
+            var subEl = svgText(w / 2, HEADER_H + 14, displaySub, "gv-node-sublabel");
+            if (displaySub !== opts.sublabel) {
+                var subTitle = svgCreate("title");
+                subTitle.textContent = opts.sublabel;
+                subEl.appendChild(subTitle);
+            }
+            g.appendChild(subEl);
         }
 
         // Ports
@@ -220,7 +250,7 @@
         if (mc.indexOf("stream/input") !== -1) return "source";
         if (mc === "audio/sink" && node.name === "pi4audio-convolver") return "dsp";
         if (mc === "audio/sink") return "output";
-        if (mc === "audio/source") return "output";
+        if (mc === "audio/source") return "source";  // F-085 #2: capture devices on input side
         // Fallback: skip GraphManager-like nodes that don't produce audio
         if (node.name && node.name.indexOf("graphmanager") !== -1) return "skip";
         return "other";
@@ -466,18 +496,33 @@
             colX = [80, 320, 560];
         }
 
-        var centerY = SVG_H / 2;
+        // F-085 #1: Pre-compute column heights to find a centerY that
+        // prevents overlap. Fixed SVG_H/2 caused overlap with real data.
+        var srcTotalH = 0;
+        for (var sp = 0; sp < sources.length; sp++) {
+            var srcP = sources[sp];
+            var srcOutsP = collectPortNames(data.links, srcP.id, "output");
+            if (srcOutsP.length === 0) srcOutsP = ["out_0", "out_1"];
+            var srcHP = HEADER_H + PORT_PAD + Math.max(1, srcOutsP.length) * PORT_ROW_H + PORT_PAD;
+            srcTotalH += srcHP + (sp > 0 ? NODE_GAP : 0);
+        }
+        var outTotalH = 0;
+        for (var op = 0; op < outputs.length; op++) {
+            var outP = outputs[op];
+            var outInsP = collectPortNames(data.links, outP.id, "input");
+            if (outInsP.length === 0) outInsP = ["in_0", "in_1"];
+            var outHP = HEADER_H + PORT_PAD + Math.max(1, outInsP.length) * PORT_ROW_H + PORT_PAD;
+            outTotalH += outHP + (op > 0 ? NODE_GAP : 0);
+        }
+        // Internal expansion: 4 convolver + 4 gain nodes stacked
+        var dspTotalH = hasInternal
+            ? 4 * (HEADER_H + PORT_PAD + PORT_ROW_H + PORT_PAD) + 3 * NODE_GAP
+            : 120;
+        var maxColH = Math.max(srcTotalH, outTotalH, dspTotalH);
+        var centerY = Math.max(SVG_H / 2, maxColH / 2 + NODE_GAP);
 
         // Build source nodes
         var builtSources = [];
-        var srcTotalH = 0;
-        for (var s = 0; s < sources.length; s++) {
-            var src = sources[s];
-            var srcOuts = collectPortNames(data.links, src.id, "output");
-            if (srcOuts.length === 0) srcOuts = ["out_0", "out_1"];
-            var srcH = HEADER_H + PORT_PAD + Math.max(1, srcOuts.length) * PORT_ROW_H + PORT_PAD;
-            srcTotalH += srcH + (s > 0 ? NODE_GAP : 0);
-        }
         var srcY = centerY - srcTotalH / 2;
         for (var s2 = 0; s2 < sources.length; s2++) {
             var src2 = sources[s2];
@@ -497,16 +542,8 @@
             srcY += built.height + NODE_GAP;
         }
 
-        // Build output nodes
+        // Build output nodes (outTotalH already computed above)
         var builtOutputs = [];
-        var outTotalH = 0;
-        for (var o = 0; o < outputs.length; o++) {
-            var out = outputs[o];
-            var outIns = collectPortNames(data.links, out.id, "input");
-            if (outIns.length === 0) outIns = ["in_0", "in_1"];
-            var outH = HEADER_H + PORT_PAD + Math.max(1, outIns.length) * PORT_ROW_H + PORT_PAD;
-            outTotalH += outH + (o > 0 ? NODE_GAP : 0);
-        }
         var outY = centerY - outTotalH / 2;
         var outColIdx = hasInternal ? 3 : 2;
         for (var o2 = 0; o2 < outputs.length; o2++) {
@@ -796,7 +833,13 @@
         return null;
     }
 
-    // -- ViewBox fitting --
+    // -- ViewBox fitting + pan/zoom (F-085 #7) --
+
+    function applyViewBox() {
+        if (!svgEl) return;
+        svgEl.setAttribute("viewBox",
+            curVB.x + " " + curVB.y + " " + curVB.w + " " + curVB.h);
+    }
 
     function fitViewBox() {
         if (!svgEl) return;
@@ -804,15 +847,79 @@
             var bbox = svgEl.getBBox();
             if (bbox.width > 0 && bbox.height > 0) {
                 var pad = 16;
-                var vbX = Math.max(0, bbox.x - pad);
-                var vbY = Math.max(0, bbox.y - pad);
-                var vbW = bbox.width + pad * 2;
-                var vbH = bbox.height + pad * 2;
-                svgEl.setAttribute("viewBox", vbX + " " + vbY + " " + vbW + " " + vbH);
+                curVB.x = Math.max(0, bbox.x - pad);
+                curVB.y = Math.max(0, bbox.y - pad);
+                curVB.w = bbox.width + pad * 2;
+                curVB.h = bbox.height + pad * 2;
+                applyViewBox();
             }
         } catch (e) {
             // getBBox fails if SVG not visible
         }
+    }
+
+    function svgPointFromEvent(evt) {
+        var rect = svgEl.getBoundingClientRect();
+        var sx = (evt.clientX - rect.left) / rect.width;
+        var sy = (evt.clientY - rect.top) / rect.height;
+        return { x: curVB.x + sx * curVB.w, y: curVB.y + sy * curVB.h };
+    }
+
+    function onWheel(evt) {
+        evt.preventDefault();
+        var factor = evt.deltaY > 0 ? 1.15 : 1 / 1.15;
+        var newW = curVB.w * factor;
+        var newH = curVB.h * factor;
+        // Clamp zoom range relative to initial fit
+        if (newW < 100 || newH < 60) return;
+        if (newW > 8000 || newH > 5000) return;
+        var pt = svgPointFromEvent(evt);
+        curVB.x = pt.x - (pt.x - curVB.x) * factor;
+        curVB.y = pt.y - (pt.y - curVB.y) * factor;
+        curVB.w = newW;
+        curVB.h = newH;
+        applyViewBox();
+    }
+
+    function onPanStart(evt) {
+        if (evt.button !== 0) return;
+        isPanning = true;
+        panStartX = evt.clientX;
+        panStartY = evt.clientY;
+        svgEl.style.cursor = "grabbing";
+        evt.preventDefault();
+    }
+
+    function onPanMove(evt) {
+        if (!isPanning) return;
+        var rect = svgEl.getBoundingClientRect();
+        var dx = (evt.clientX - panStartX) / rect.width * curVB.w;
+        var dy = (evt.clientY - panStartY) / rect.height * curVB.h;
+        curVB.x -= dx;
+        curVB.y -= dy;
+        panStartX = evt.clientX;
+        panStartY = evt.clientY;
+        applyViewBox();
+    }
+
+    function onPanEnd() {
+        if (!isPanning) return;
+        isPanning = false;
+        svgEl.style.cursor = "grab";
+    }
+
+    function onDblClick() {
+        fitViewBox();
+    }
+
+    function initPanZoom() {
+        if (!svgEl) return;
+        svgEl.style.cursor = "grab";
+        svgEl.addEventListener("wheel", onWheel, { passive: false });
+        svgEl.addEventListener("mousedown", onPanStart);
+        window.addEventListener("mousemove", onPanMove);
+        window.addEventListener("mouseup", onPanEnd);
+        svgEl.addEventListener("dblclick", onDblClick);
     }
 
     // -- Topology polling --
@@ -856,6 +963,7 @@
         svgEl = document.getElementById("gv-svg");
         if (!svgEl) return;
         svgEl.appendChild(buildDefs());
+        initPanZoom();
     }
 
     function onShow() {

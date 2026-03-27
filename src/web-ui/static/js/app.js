@@ -14,6 +14,8 @@ var PiAudio = (function () {
 
     var RECONNECT_BASE_MS = 500;
     var RECONNECT_MAX_MS = 10000;
+    var STALE_CHECK_MS = 5000;      // F-134: staleness check interval
+    var STALE_THRESHOLD_MS = 10000; // F-134: force-close after 10s silence
 
     var params = new URLSearchParams(window.location.search);
     var scenario = params.get("scenario") || "A";
@@ -100,14 +102,27 @@ var PiAudio = (function () {
             var ws = new WebSocket(url);
             state.ws = ws;
 
+            // F-134: staleness watchdog — force-close if no data for STALE_THRESHOLD_MS.
+            var lastDataTime = Date.now();
+            var stalenessTimer = setInterval(function () {
+                if (ws.readyState === WebSocket.OPEN &&
+                    Date.now() - lastDataTime > STALE_THRESHOLD_MS) {
+                    console.warn("[F-134] WebSocket stale for " + path +
+                        ", forcing reconnect");
+                    ws.close();
+                }
+            }, STALE_CHECK_MS);
+
             ws.onopen = function () {
                 state.connected = true;
                 state.attempt = 0;
+                lastDataTime = Date.now();
                 if (onConn) onConn(true);
                 updateConnectionDot();
             };
 
             ws.onmessage = function (ev) {
+                lastDataTime = Date.now();
                 try {
                     var data = JSON.parse(ev.data);
                     onMessage(data);
@@ -118,6 +133,7 @@ var PiAudio = (function () {
             };
 
             ws.onclose = function () {
+                clearInterval(stalenessTimer);
                 state.connected = false;
                 if (onConn) onConn(false);
                 updateConnectionDot();

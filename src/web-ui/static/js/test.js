@@ -495,7 +495,11 @@
             if (xhr.status === 200) {
                 try {
                     var data = JSON.parse(xhr.responseText);
+                    var prevMode = currentGmMode;
                     currentGmMode = data.mode || "unknown";
+                    if (currentGmMode !== prevMode) {
+                        updateSourceSelectorLabels();
+                    }
                 } catch (e) { /* keep unknown */ }
             }
         };
@@ -674,6 +678,9 @@
     var specPcmWs = null;
     var specPcmConnected = false;
     var specReconnectTimer = null;
+    var specStalenessTimer = null;
+    var SPEC_STALE_CHECK_MS = 5000;     // F-134: staleness check interval
+    var SPEC_STALE_THRESHOLD_MS = 5000; // F-134: force-close after 5s silence
     var specCurrentSource = null;
     var specActive = false;  // True when Test tab is visible.
 
@@ -837,18 +844,36 @@
         }
         specPcmWs.binaryType = "arraybuffer";
 
+        // F-134: staleness watchdog for test tab PCM stream
+        var lastSpecPcmData = Date.now();
+        if (specStalenessTimer) clearInterval(specStalenessTimer);
+        specStalenessTimer = setInterval(function () {
+            if (specPcmWs && specPcmWs.readyState === WebSocket.OPEN &&
+                Date.now() - lastSpecPcmData > SPEC_STALE_THRESHOLD_MS) {
+                console.warn("[F-134] Test tab PCM WebSocket stale (" +
+                    source + "), forcing reconnect");
+                specPcmWs.close();
+            }
+        }, SPEC_STALE_CHECK_MS);
+
         specPcmWs.onopen = function () {
             specPcmConnected = true;
+            lastSpecPcmData = Date.now();
             updateMicStatus("connected", source);
         };
 
         specPcmWs.onmessage = function (ev) {
+            lastSpecPcmData = Date.now();
             if (specPipeline) {
                 specPipeline.feedPcmMessage(ev.data, { detectGaps: true });
             }
         };
 
         specPcmWs.onclose = function () {
+            if (specStalenessTimer) {
+                clearInterval(specStalenessTimer);
+                specStalenessTimer = null;
+            }
             specPcmConnected = false;
             specPcmWs = null;
             updateMicStatus("disconnected", source);
@@ -861,6 +886,10 @@
     }
 
     function specDisconnectPcm() {
+        if (specStalenessTimer) {
+            clearInterval(specStalenessTimer);
+            specStalenessTimer = null;
+        }
         if (specReconnectTimer) {
             clearTimeout(specReconnectTimer);
             specReconnectTimer = null;
@@ -891,7 +920,7 @@
         var el = $("tt-mic-state");
         var overlay = $("tt-spectrum-no-mic");
         if (!el) return;
-        var label = source || "unknown";
+        var label = getSourceLabel(source || "unknown");
         if (status === "connected") {
             el.textContent = label + " (streaming)";
             el.className = "c-safe";
@@ -900,8 +929,10 @@
             el.textContent = label + " (not available)";
             el.className = "c-danger";
             // Show mic-specific overlay when UMIK-1 source is disconnected.
+            // US-088: In measurement mode, "monitor" carries UMIK-1 data.
             if (overlay) {
-                var isMicSource = source === "umik1" || source === "capture-usb";
+                var isMicSource = source === "umik1" || source === "capture-usb" ||
+                    (source === "monitor" && currentGmMode === "measurement");
                 overlay.classList.toggle("hidden", !isMicSource);
             }
         }
@@ -940,13 +971,31 @@
         xhr.send();
     }
 
-    function populateSourceOptions(select, sources) {
-        // Map well-known source names to display labels.
-        var labels = {
-            "monitor": "Monitor (Dashboard)",
+    function getSourceLabel(name) {
+        // US-088: In measurement mode, the monitor source carries UMIK-1 data
+        // (GM rewires pcm-bridge to UMIK-1). Show a mode-aware label.
+        if (name === "monitor") {
+            return currentGmMode === "measurement"
+                ? "UMIK-1 (Measurement)"
+                : "Monitor (Dashboard)";
+        }
+        var staticLabels = {
             "capture-usb": "UMIK-1 (USB capture)",
             "capture-adat": "ADAT capture"
         };
+        return staticLabels[name] || name;
+    }
+
+    /** Update monitor source label when GM mode changes (US-088). */
+    function updateSourceSelectorLabels() {
+        var select = $("tt-spectrum-source");
+        if (!select) return;
+        for (var i = 0; i < select.options.length; i++) {
+            select.options[i].textContent = getSourceLabel(select.options[i].value);
+        }
+    }
+
+    function populateSourceOptions(select, sources) {
 
         var currentValue = select.value;
         select.innerHTML = "";
@@ -955,7 +1004,7 @@
             var name = sources[i];
             var opt = document.createElement("option");
             opt.value = name;
-            opt.textContent = labels[name] || name;
+            opt.textContent = getSourceLabel(name);
             select.appendChild(opt);
         }
 
