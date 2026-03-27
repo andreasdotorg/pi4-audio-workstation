@@ -50,6 +50,13 @@ Both modes share the same audio processing pipeline. The only things that
 change are the application (Mixxx vs Reaper) and the PipeWire quantum
 (trading CPU efficiency for lower latency in live mode).
 
+**How does room correction work?** The [room simulation and compensation
+guide](docs/architecture/room-compensation.md) walks through the entire
+pipeline -- from measuring a room with a sweep tone, through the signal
+processing that computes a correction filter, to the final FIR file that
+PipeWire loads. It also explains the room simulator that allows testing the
+pipeline without speakers or a microphone.
+
 **Why these choices?** The [design rationale](docs/theory/design-rationale.md)
 tells the story behind the technical decisions -- why combined FIR filters
 instead of IIR crossovers, why minimum-phase instead of linear-phase, why
