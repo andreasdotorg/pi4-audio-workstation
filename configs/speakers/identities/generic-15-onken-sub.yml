@@ -1,0 +1,26 @@
+# Generic 15" Onken subwoofer template
+# Onken = bass reflex variant with wide slot port across full baffle width.
+# Originally a Japanese audiophile design (1950s-60s), adapted for PA use.
+# Wide port provides even airflow and reduced turbulence at high levels.
+#
+# TEMPLATE: Copy and customize for specific builds. Fill in driver model,
+# port tuning, and measured sensitivity.
+
+name: "Generic 15-inch Onken Sub"
+manufacturer: "Custom"
+model: "15-inch Onken Sub"
+type: ported  # Onken is a ported variant
+
+impedance_ohm: 8  # Single 15" driver typical. Change to 4 for dual parallel.
+sensitivity_db_spl: 97  # TODO(owner): Estimate for 15" PA woofer in Onken. Measure or verify.
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: 35  # TODO(owner): Depends on port tuning frequency. Set to 0.72x port tuning.
+
+# Power handling
+max_power_watts: 600  # TODO(owner): Depends on driver. Typical 15" PA: 400-800W.
+power_limit_note: "Template value. Replace with actual driver power handling."
+
+# Compensation EQ (none — correction via FIR)
+compensation_eq: []

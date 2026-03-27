@@ -1,0 +1,69 @@
+# MEH (Multiple Entry Horn) 3-way template
+# All drivers share a single horn — true point-source with coherent phase.
+# HF driver at throat, mid driver partway down, woofer at/near mouth.
+#
+# TEMPLATE: Copy and customize for specific MEH builds. Replace identity
+# references, crossover frequencies, and delay values.
+#
+# WARNING: A stereo pair of 3-way MEH tops requires 6 output channels for
+# speakers alone, exceeding the USBStreamer's 4 available speaker channels.
+# This profile uses MONO (single cabinet) to fit within channel constraints.
+# For stereo, a second USBStreamer/ADA8200 is needed.
+
+name: "MEH 3-Way Template"
+description: "Generic 3-way MEH (Multiple Entry Horn) template. MONO — single cabinet. Customize for specific builds."
+topology: 3way
+
+crossover:
+  frequency_hz: [300, 2000]  # TODO(owner): Bass-to-mid, mid-to-HF. Adjust per build.
+  slope_db_per_oct: 48
+  type: linkwitz-riley
+
+speakers:
+  bass:
+    identity: wideband-selfbuilt-v1  # TODO(owner): Replace with actual bass driver identity
+    role: fullrange
+    channel: 0
+    filter_type: lowpass
+    polarity: normal
+    delay_ms: 0  # TODO(owner): Acoustic offset from horn path length
+    enclosure_type: horn
+  mid:
+    identity: wideband-selfbuilt-v1  # TODO(owner): Replace with actual mid driver identity
+    role: midrange
+    channel: 1
+    filter_type: bandpass
+    polarity: normal
+    delay_ms: 0  # TODO(owner): Acoustic offset from horn entry point
+    enclosure_type: horn
+  hf:
+    identity: wideband-selfbuilt-v1  # TODO(owner): Replace with actual HF driver identity
+    role: tweeter
+    channel: 2
+    filter_type: highpass
+    polarity: normal
+    delay_ms: 0  # TODO(owner): Shortest path (throat) — usually reference (0ms)
+    enclosure_type: horn
+  sub1:
+    identity: sub-custom-15  # TODO(owner): Replace with actual sub identity
+    role: subwoofer
+    channel: 3
+    filter_type: lowpass
+    polarity: normal
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+  subwoofer:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+
+target_curve: flat
+filter_taps: 16384

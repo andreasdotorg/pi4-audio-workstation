@@ -1,0 +1,57 @@
+# PA with 18 Sound S218 subs — self-built wideband mains + dual-18 subs
+# 2-way active crossover at 80Hz, 48dB/oct Linkwitz-Riley (as FIR).
+#
+# NOTE: S218 power handling (2400W AES) far exceeds the 4x450W amp.
+# External amplification required for the subs.
+
+name: "PA 2-Way 80Hz S218"
+description: "PA configuration with self-built wideband mains and 18 Sound S218 dual-18 subs."
+topology: 2way
+
+crossover:
+  frequency_hz: 80
+  slope_db_per_oct: 48
+  type: linkwitz-riley
+
+speakers:
+  sat_left:
+    identity: wideband-selfbuilt-v1
+    role: satellite
+    channel: 0
+    filter_type: highpass
+    polarity: normal
+  sat_right:
+    identity: wideband-selfbuilt-v1
+    role: satellite
+    channel: 1
+    filter_type: highpass
+    polarity: normal
+  sub1:
+    identity: 18sound-s218-sub
+    role: subwoofer
+    channel: 2
+    filter_type: lowpass
+    polarity: normal
+  sub2:
+    identity: 18sound-s218-sub
+    role: subwoofer
+    channel: 3
+    filter_type: lowpass
+    polarity: normal
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+  subwoofer:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+
+target_curve: flat
+filter_taps: 16384

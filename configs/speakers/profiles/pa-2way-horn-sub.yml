@@ -1,0 +1,61 @@
+# PA with horn subs — self-built wideband mains + 15" horn-loaded subs
+# 2-way active crossover at 100Hz, 48dB/oct Linkwitz-Riley (as FIR).
+#
+# Horn subs have narrower bandwidth than reflex subs — LP frequency
+# should stay within the horn's passband (typically 60-150 Hz).
+# Higher crossover (100Hz vs 80Hz) keeps mains out of the horn's
+# rolloff region.
+
+name: "PA 2-Way 100Hz Horn Sub"
+description: "PA configuration with self-built wideband mains and 15-inch horn-loaded subs."
+topology: 2way
+
+crossover:
+  frequency_hz: 100
+  slope_db_per_oct: 48
+  type: linkwitz-riley
+
+speakers:
+  sat_left:
+    identity: wideband-selfbuilt-v1
+    role: satellite
+    channel: 0
+    filter_type: highpass
+    polarity: normal
+  sat_right:
+    identity: wideband-selfbuilt-v1
+    role: satellite
+    channel: 1
+    filter_type: highpass
+    polarity: normal
+  sub1:
+    identity: generic-15-horn-sub
+    role: subwoofer
+    channel: 2
+    filter_type: lowpass
+    polarity: normal
+    enclosure_type: horn
+  sub2:
+    identity: generic-15-horn-sub
+    role: subwoofer
+    channel: 3
+    filter_type: lowpass
+    polarity: normal
+    enclosure_type: horn
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+  subwoofer:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+
+target_curve: flat
+filter_taps: 16384

@@ -1,0 +1,27 @@
+# Generic 15" horn-loaded subwoofer template
+# Front-loaded horn, folded horn (tapped horn, scoop, W-bin) or similar.
+# Horn loading provides +6-12 dB acoustic gain within passband but limits
+# bandwidth. 15" horn subs excel at mid-bass punch (60-120 Hz) rather than
+# deep sub-bass extension.
+#
+# TEMPLATE: Copy and customize for specific builds. Fill in driver model,
+# horn cutoff frequency, and measured sensitivity.
+
+name: "Generic 15-inch Horn Sub"
+manufacturer: "Custom"
+model: "15-inch Horn Sub"
+type: horn
+
+impedance_ohm: 8  # Single driver typical. Adjust for wiring config.
+sensitivity_db_spl: 103  # TODO(owner): Estimate — horn loading adds 6-12 dB over direct-radiating. Measure.
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: 40  # TODO(owner): Critical — below horn cutoff the horn unloads and excursion rises sharply.
+
+# Power handling
+max_power_watts: 600  # TODO(owner): Depends on driver. Typical 15" PA: 400-1000W.
+power_limit_note: "Template value. Replace with actual driver power handling."
+
+# Compensation EQ (none — correction via FIR)
+compensation_eq: []

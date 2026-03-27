@@ -1,0 +1,59 @@
+# PA with Onken subs — self-built wideband mains + 15" Onken subs
+# 2-way active crossover at 100Hz, 48dB/oct Linkwitz-Riley (as FIR).
+#
+# Onken subs have wider bandwidth than horn subs (usable to ~200Hz).
+# Crossover at 100Hz gives the mains more headroom in the mid-bass.
+
+name: "PA 2-Way 100Hz Onken"
+description: "PA configuration with self-built wideband mains and 15-inch Onken bass reflex subs."
+topology: 2way
+
+crossover:
+  frequency_hz: 100
+  slope_db_per_oct: 48
+  type: linkwitz-riley
+
+speakers:
+  sat_left:
+    identity: wideband-selfbuilt-v1
+    role: satellite
+    channel: 0
+    filter_type: highpass
+    polarity: normal
+  sat_right:
+    identity: wideband-selfbuilt-v1
+    role: satellite
+    channel: 1
+    filter_type: highpass
+    polarity: normal
+  sub1:
+    identity: generic-15-onken-sub
+    role: subwoofer
+    channel: 2
+    filter_type: lowpass
+    polarity: normal
+    enclosure_type: onken
+  sub2:
+    identity: generic-15-onken-sub
+    role: subwoofer
+    channel: 3
+    filter_type: lowpass
+    polarity: normal
+    enclosure_type: onken
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+  subwoofer:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+
+target_curve: flat
+filter_taps: 16384

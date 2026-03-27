@@ -1,0 +1,26 @@
+# LAVOCE Bassline 121BR — 12" + 1" two-way bass reflex top
+# Italian manufacturer (founded by former 18 Sound / B&C engineers).
+# Compact PA top: 1x 12" woofer + 1x 1" compression driver, passive crossover.
+#
+# Data source: catalog.md (from manufacturer knowledge).
+# Gaps: MEDIUM — exact driver models, published frequency response, sensitivity need
+#        verification from lavoce.it.
+
+name: "LAVOCE Bassline 121BR"
+manufacturer: "LAVOCE"
+model: "Bassline 121BR"
+type: ported  # BR = Bass Reflex
+
+impedance_ohm: 8
+sensitivity_db_spl: 96  # TODO(owner): Estimate for 12"+1" PA top. Verify from lavoce.it datasheet.
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: 55  # Conservative subsonic protection for 12" in ported box. Verify with T/S data.
+
+# Power handling
+max_power_watts: 600  # TODO(owner): Estimate 400-800W range. Verify from datasheet.
+power_limit_note: "Estimate. Verify RMS power handling from LAVOCE datasheet."
+
+# Compensation EQ (none — correction via FIR at listening position)
+compensation_eq: []

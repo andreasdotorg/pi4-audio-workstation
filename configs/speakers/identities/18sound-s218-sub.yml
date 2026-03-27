@@ -1,0 +1,28 @@
+# 18 Sound S218 — dual 18" bass reflex subwoofer
+# Commercial reference sub from 18 Sound (Italy).
+# 2x 18" neodymium woofers (18NLW9601 or similar) in dual-ported bass reflex.
+#
+# Data source: catalog.md (from manufacturer published specs).
+# Gaps: LOW — published specs available at 18sound.com.
+
+name: "18 Sound S218"
+manufacturer: "18 Sound"
+model: "S218"
+type: ported
+
+impedance_ohm: 4  # 2x 8 ohm parallel
+sensitivity_db_spl: 103  # TODO(owner): Verify from 18sound.com datasheet. Range 102-104 typical for dual 18".
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: 28  # Conservative — below published -6dB point (~30 Hz). Verify with T/S data.
+
+# Power handling
+max_power_watts: 2400  # AES rating (4800W peak)
+power_limit_note: "2400W AES. Current 4x450W amp insufficient — external amplification needed."
+
+# Frequency range (published)
+frequency_range_hz: [30, 250]  # -6 dB points
+
+# Compensation EQ (none — sub only, correction via FIR)
+compensation_eq: []

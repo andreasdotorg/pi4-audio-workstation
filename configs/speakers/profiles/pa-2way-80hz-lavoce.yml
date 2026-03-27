@@ -1,0 +1,57 @@
+# PA with LAVOCE Bassline 121BR tops + custom sealed subs
+# 2-way active crossover at 80Hz, 48dB/oct Linkwitz-Riley (as FIR).
+#
+# LAVOCE 121BR is a passive 2-way (12"+1") — single channel per cabinet.
+# Drop-in replacement for self-built wideband mains.
+
+name: "PA 2-Way 80Hz LAVOCE"
+description: "PA configuration with LAVOCE Bassline 121BR tops and custom 15-inch sealed subs."
+topology: 2way
+
+crossover:
+  frequency_hz: 80
+  slope_db_per_oct: 48
+  type: linkwitz-riley
+
+speakers:
+  sat_left:
+    identity: lavoce-bassline-121br
+    role: satellite
+    channel: 0
+    filter_type: highpass
+    polarity: normal
+  sat_right:
+    identity: lavoce-bassline-121br
+    role: satellite
+    channel: 1
+    filter_type: highpass
+    polarity: normal
+  sub1:
+    identity: sub-custom-15
+    role: subwoofer
+    channel: 2
+    filter_type: lowpass
+    polarity: normal
+  sub2:
+    identity: sub-custom-15
+    role: subwoofer
+    channel: 3
+    filter_type: lowpass
+    polarity: normal
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+  subwoofer:
+    headroom_db: -7.0
+    power_limit_db: -24.0
+
+target_curve: flat
+filter_taps: 16384

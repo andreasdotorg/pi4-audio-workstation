@@ -1,0 +1,26 @@
+# HOQS ELF 18" — single 18" bass reflex subwoofer
+# HOQS (hoqs.de) — German pro-audio manufacturer for electronic music PA.
+# ELF = Extended Low Frequency — optimized for deep sub-bass below 30 Hz.
+#
+# Data source: catalog.md (training knowledge, hoqs.de was unreachable).
+# Gaps: MEDIUM — exact driver model, tuning frequency, dimensions need
+#        manufacturer verification.
+
+name: "HOQS ELF 18-inch"
+manufacturer: "HOQS"
+model: "ELF 18"
+type: ported
+
+impedance_ohm: 8  # Typical single-driver sub
+sensitivity_db_spl: 100  # TODO(owner): Estimate for 18" ELF sub. Verify from HOQS datasheet.
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: 25  # TODO(owner): Depends on port tuning. ELF design suggests low tuning.
+
+# Power handling
+max_power_watts: 1200  # TODO(owner): Estimate 1000-1500W. Depends on driver model.
+power_limit_note: "Estimate. Verify from HOQS datasheet or driver manufacturer specs."
+
+# Compensation EQ (none — correction via FIR)
+compensation_eq: []
