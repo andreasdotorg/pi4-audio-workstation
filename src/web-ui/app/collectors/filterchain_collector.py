@@ -113,6 +113,10 @@ class FilterChainCollector:
         """Build the DSP health fragment for /ws/system."""
         return self._build_dsp_status()
 
+    def get_gm_state(self) -> dict | None:
+        """Return the latest GraphManager state snapshot, or None."""
+        return self._state
+
     def safety_snapshot(self) -> dict:
         """Build the safety alerts fragment for /ws/system.
 

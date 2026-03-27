@@ -241,7 +241,7 @@ async def get_topology(request: Request):
     gm_state = None
     cdsp = getattr(request.app.state, "cdsp", None)
     if cdsp is not None:
-        gm_state = cdsp._state
+        gm_state = cdsp.get_gm_state()
 
     # Extract mode.
     mode = "unknown"

@@ -359,7 +359,8 @@ class TestProductionPath:
 
         # Simulate GM state on the app.state.cdsp collector
         class FakeCollector:
-            _state = sample_gm_state
+            def get_gm_state(self):
+                return sample_gm_state
         with patch.object(app.state, "cdsp", FakeCollector(), create=True):
             resp = client.get("/api/v1/graph/topology")
 

@@ -131,6 +131,11 @@ async def get_config():
 
     sample_rate = find_sample_rate(pw_data)
 
+    # F-086: Fall back to production default (256) when pw-metadata has
+    # no force-quantum or quantum entry (e.g. fresh PipeWire start).
+    if quantum is None:
+        quantum = 256
+
     return {
         "gains": gains,
         "quantum": quantum,
