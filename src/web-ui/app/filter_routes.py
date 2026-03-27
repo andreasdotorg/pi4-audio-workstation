@@ -101,11 +101,11 @@ class VerificationResult:
     def to_dict(self):
         return {
             "channel": self.channel,
-            "d009_pass": self.d009_pass,
-            "d009_peak_db": round(self.d009_peak_db, 2),
-            "min_phase_pass": self.min_phase_pass,
-            "format_pass": self.format_pass,
-            "all_pass": self.d009_pass and self.min_phase_pass and self.format_pass,
+            "d009_pass": bool(self.d009_pass),
+            "d009_peak_db": round(float(self.d009_peak_db), 2),
+            "min_phase_pass": bool(self.min_phase_pass),
+            "format_pass": bool(self.format_pass),
+            "all_pass": bool(self.d009_pass and self.min_phase_pass and self.format_pass),
         }
 
 

@@ -25,7 +25,7 @@ class VerificationResult:
 
     def __init__(self, name, passed, message, details=None):
         self.name = name
-        self.passed = passed
+        self.passed = bool(passed)
         self.message = message
         self.details = details or {}
 
