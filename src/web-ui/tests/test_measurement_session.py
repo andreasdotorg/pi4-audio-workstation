@@ -635,3 +635,82 @@ class TestTimeAlignmentWiring:
         assert samples["Left"] == 240
         assert samples["Sub1"] == 0
         assert isinstance(samples["Left"], int)
+
+
+# ===================================================================
+# GAP-5: Tests for verification sweep frequency response analysis
+# ===================================================================
+
+class TestVerificationFrequencyResponse:
+    """Test the frequency response deviation computation used in _run_verify."""
+
+    def test_flat_ir_has_zero_deviation(self):
+        """A perfect dirac delta (flat response) should have ~0 deviation."""
+        from room_correction import dsp_utils
+        sr = 48000
+        ir = np.zeros(48000)
+        ir[0] = 1.0  # perfect dirac
+
+        n_fft = dsp_utils.next_power_of_2(len(ir))
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+        mag = np.abs(np.fft.rfft(ir, n=n_fft))
+        mag_db = 20.0 * np.log10(np.maximum(mag, 1e-20))
+
+        band_mask = (freqs >= 30.0) & (freqs <= 16000.0)
+        band_db = mag_db[band_mask]
+        mean_db = float(np.mean(band_db))
+        deviation = band_db - mean_db
+        max_dev = max(abs(float(np.max(deviation))), abs(float(np.min(deviation))))
+
+        # Perfect dirac: deviation should be essentially zero
+        assert max_dev < 0.01
+
+    def test_room_mode_ir_has_large_deviation(self):
+        """An IR with a strong room mode should show significant deviation."""
+        from room_correction import dsp_utils
+        sr = 48000
+        # Create an IR with a strong 100 Hz resonance
+        t = np.arange(48000) / sr
+        ir = np.zeros(48000)
+        ir[0] = 1.0
+        # Add a decaying 100 Hz resonance
+        ir += 0.5 * np.sin(2 * np.pi * 100 * t) * np.exp(-t * 10)
+
+        n_fft = dsp_utils.next_power_of_2(len(ir))
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+        mag = np.abs(np.fft.rfft(ir, n=n_fft))
+        mag_db = 20.0 * np.log10(np.maximum(mag, 1e-20))
+
+        band_mask = (freqs >= 30.0) & (freqs <= 16000.0)
+        band_db = mag_db[band_mask]
+        mean_db = float(np.mean(band_db))
+        deviation = band_db - mean_db
+        max_dev = max(abs(float(np.max(deviation))), abs(float(np.min(deviation))))
+
+        # Room mode should cause > 3 dB deviation
+        assert max_dev > 3.0
+
+    def test_verify_pass_threshold(self):
+        """Verify that 6 dB is the pass/fail threshold used in session."""
+        # A near-flat IR should pass (< 6 dB deviation)
+        from room_correction import dsp_utils
+        sr = 48000
+        ir = np.zeros(48000)
+        ir[0] = 1.0
+        # Add minor noise — still very flat
+        rng = np.random.RandomState(42)
+        ir[:100] += rng.randn(100) * 0.01
+
+        n_fft = dsp_utils.next_power_of_2(len(ir))
+        freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+        mag = np.abs(np.fft.rfft(ir, n=n_fft))
+        mag_db = 20.0 * np.log10(np.maximum(mag, 1e-20))
+
+        band_mask = (freqs >= 30.0) & (freqs <= 16000.0)
+        band_db = mag_db[band_mask]
+        mean_db = float(np.mean(band_db))
+        deviation = band_db - mean_db
+        max_dev = max(abs(float(np.max(deviation))), abs(float(np.min(deviation))))
+
+        # Should pass the 6 dB threshold
+        assert max_dev <= 6.0

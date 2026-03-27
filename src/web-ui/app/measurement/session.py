@@ -1097,28 +1097,135 @@ class MeasurementSession:
             "dry_run": dry_run,
         }
 
-    # -- VERIFY (placeholder) ------------------------------------------------
+    # -- VERIFY --------------------------------------------------------------
 
     async def _run_verify(self) -> None:
-        """Post-deploy verification sweep comparing pre/post response.
+        """Post-deploy verification sweep: confirm correction effectiveness.
 
-        TODO: Run a verification sweep with the newly deployed filters to
-        confirm the correction is effective.  Requires real Pi + UMIK-1
-        hardware — cannot be tested in mock mode.  For now, reports the
-        filter-gen verification results as a pass-through.
+        Plays a single sweep per channel through the corrected signal path,
+        records via UMIK-1, deconvolves, and compares the post-correction
+        frequency response to the expected flat-ish target.  Reports max
+        deviation in the correction band (30 Hz -- 16 kHz).
+
+        In mock mode, skips the live sweep and reports only the static
+        filter-gen verification results.  Design principle #7: mandatory
+        verification measurement to confirm correction effectiveness.
         """
         self._check_abort("CP-7")
         self._transition(MeasurementState.VERIFY)
         await self._broadcast_state()
 
         fg = getattr(self, "_filter_gen_result", None)
-        verification = fg.get("verification", []) if fg else []
+        static_verification = fg.get("verification", []) if fg else []
+
+        # In mock mode we cannot run a real verification sweep — report
+        # static filter verification only.
+        if self._is_mock:
+            await self._broadcast({
+                "type": "verify_progress", "phase": "complete",
+                "message": "Static verification passed (live verification "
+                           "sweep requires Pi + UMIK-1 hardware)",
+                "verification": static_verification,
+                "live_verification": None,
+            })
+            return
+
+        # Live verification sweep — one sweep per channel, single position.
+        await self._broadcast({
+            "type": "verify_progress", "phase": "sweeping",
+            "message": "Running verification sweeps",
+        })
+
+        _ensure_rc_path()
+        import measure_nearfield as mn
+        from room_correction.sweep import generate_log_sweep
+        from room_correction.deconvolution import deconvolve
+        from room_correction import dsp_utils
+
+        if self._sd_override is not None:
+            mn._sd_override = self._sd_override
+
+        sr = self._config.sample_rate
+        sweep = generate_log_sweep(
+            duration=self._config.sweep_duration_s,
+            f_start=20.0, f_end=20000.0, sr=sr)
+        target_peak = dsp_utils.db_to_linear(self._config.sweep_level_dbfs)
+        peak = np.max(np.abs(sweep))
+        if peak > 0:
+            sweep *= target_peak / peak
+
+        verify_results = []
+        for ch in self._config.channels:
+            self._check_abort("CP-7a")
+            await self._broadcast({
+                "type": "verify_progress", "phase": "sweep_channel",
+                "channel": ch.index, "channel_name": ch.name,
+            })
+
+            try:
+                recording = await self._playrec_with_abort(
+                    mn.play_and_record, sweep, ch.index,
+                    self._config.output_device, self._config.input_device,
+                    sr=sr)
+            except Exception as exc:
+                log.warning("Verify sweep failed for %s: %s", ch.name, exc)
+                verify_results.append({
+                    "channel": ch.name, "pass": False,
+                    "error": str(exc),
+                })
+                continue
+
+            # Deconvolve to get post-correction IR
+            ir = await asyncio.to_thread(deconvolve, recording, sweep, sr=sr)
+
+            # Compute magnitude response in dB
+            n_fft = dsp_utils.next_power_of_2(len(ir))
+            freqs = np.fft.rfftfreq(n_fft, d=1.0 / sr)
+            mag = np.abs(np.fft.rfft(ir, n=n_fft))
+            mag_db = 20.0 * np.log10(np.maximum(mag, 1e-20))
+
+            # Evaluate deviation from flat in the correction band (30-16000 Hz)
+            band_mask = (freqs >= 30.0) & (freqs <= 16000.0)
+            if np.any(band_mask):
+                band_db = mag_db[band_mask]
+                # Normalize to mean level in the band
+                mean_db = float(np.mean(band_db))
+                deviation = band_db - mean_db
+                max_pos = float(np.max(deviation))
+                max_neg = float(np.min(deviation))
+                max_dev = max(abs(max_pos), abs(max_neg))
+
+                # Pass if max deviation <= 6 dB (generous for real rooms)
+                passed = max_dev <= 6.0
+            else:
+                max_pos = 0.0
+                max_neg = 0.0
+                max_dev = 0.0
+                passed = True
+
+            verify_results.append({
+                "channel": ch.name,
+                "pass": passed,
+                "max_deviation_db": round(max_dev, 1),
+                "max_peak_db": round(max_pos, 1),
+                "max_dip_db": round(max_neg, 1),
+                "band": "30-16000 Hz",
+            })
+            log.info("Verify %s: max_dev=%.1f dB, pass=%s",
+                     ch.name, max_dev, passed)
+
+        if self._sd_override is not None:
+            mn._sd_override = None
+
+        all_pass = all(r.get("pass", False) for r in verify_results)
 
         await self._broadcast({
             "type": "verify_progress", "phase": "complete",
-            "message": "Static verification passed (live verification "
-                       "sweep requires Pi + UMIK-1 hardware)",
-            "verification": verification,
+            "message": "Live verification complete" if all_pass
+                       else "Live verification: some channels exceed tolerance",
+            "verification": static_verification,
+            "live_verification": verify_results,
+            "all_pass": all_pass,
         })
 
     # -- CP-0: playrec with abort racing -------------------------------------
