@@ -305,6 +305,14 @@ class MeasurementSession:
                 except asyncio.QueueEmpty:
                     break
 
+    def _enqueue_progress(self, msg: dict) -> None:
+        """Thread-safe: enqueue a progress message for the broadcast pump."""
+        try:
+            self._broadcast_queue.put_nowait(msg)
+        except asyncio.QueueFull:
+            log.warning("Broadcast queue full, dropping: %s",
+                        msg.get("type", "?"))
+
     # -- Cancellation --------------------------------------------------------
 
     def request_abort(self, reason: str = "operator abort") -> None:
@@ -665,12 +673,23 @@ class MeasurementSession:
 
                 # GAP-1 fix: deconvolve recording to extract impulse response.
                 # Uses the same Wiener deconvolution as runner.py stage 2.
+                await self._broadcast({
+                    "type": "deconvolution_start",
+                    "channel": ch.index, "channel_name": ch.name,
+                    "position": pos + 1,
+                })
                 _ensure_rc_path()
                 from room_correction.deconvolution import deconvolve
                 ir = await asyncio.to_thread(
                     deconvolve, recording, sweep,
                     sr=self._config.sample_rate)
                 self._impulse_responses[key] = ir
+                await self._broadcast({
+                    "type": "deconvolution_done",
+                    "channel": ch.index, "channel_name": ch.name,
+                    "position": pos + 1,
+                    "ir_samples": len(ir),
+                })
 
                 # Save IR as WAV for inspection / offline analysis.
                 ir_dir = os.path.join(self._config.output_dir, "impulse_responses")
@@ -741,10 +760,12 @@ class MeasurementSession:
                 with open(delays_path, "w") as f:
                     _yaml.dump({
                         "delays_ms": {
-                            k: round(v * 1000, 3)
+                            k: float(round(v * 1000, 3))
                             for k, v in self._time_alignment_delays.items()
                         },
-                        "delays_samples": delay_samples,
+                        "delays_samples": {
+                            k: int(v) for k, v in delay_samples.items()
+                        },
                     }, f, default_flow_style=False)
                 log.info("Saved time alignment to %s", delays_path)
 
@@ -905,6 +926,11 @@ class MeasurementSession:
 
         self._check_abort("CP-5b")
 
+        self._enqueue_progress({
+            "type": "filter_gen_progress", "phase": "in_progress",
+            "step": "averaging", "message": "Building correction filters",
+        })
+
         # Build correction filters from sweep recordings.
         # For positions=1 uses the single recording; for positions>1
         # spatially averages across mic positions per channel.
@@ -926,6 +952,12 @@ class MeasurementSession:
         else:
             log.info("No correction filters — crossover-only generation")
 
+        self._enqueue_progress({
+            "type": "filter_gen_progress", "phase": "in_progress",
+            "step": "crossover",
+            "message": "Generating combined crossover + correction filters",
+        })
+
         # Delegate to the topology-agnostic pipeline (handles highpass,
         # lowpass, bandpass, per-driver slopes, subsonic HPFs on any driver).
         combined_filters = generate_profile_filters(
@@ -937,6 +969,12 @@ class MeasurementSession:
         )
 
         self._check_abort("CP-5c")
+
+        self._enqueue_progress({
+            "type": "filter_gen_progress", "phase": "in_progress",
+            "step": "export",
+            "message": f"Exporting {len(combined_filters)} WAV files",
+        })
 
         # Export WAV files
         output_dir = self._config.output_dir
@@ -952,6 +990,12 @@ class MeasurementSession:
             export_filter(fir, path, n_taps=n_taps, sr=sr)
             output_paths[spk_key] = path
 
+        self._enqueue_progress({
+            "type": "filter_gen_progress", "phase": "in_progress",
+            "step": "minimum_phase",
+            "message": "Verifying filters (D-009, min-phase, format)",
+        })
+
         # Verify (same D-009 interlock as filter_routes)
         verifications = []
         all_pass = True
@@ -960,7 +1004,7 @@ class MeasurementSession:
             min_phase = verify_minimum_phase(path)
             fmt = verify_format(path, expected_taps=n_taps, expected_sr=sr)
             ch_pass = bool(d009.passed and min_phase.passed and fmt.passed)
-            verifications.append({
+            ch_result = {
                 "channel": name,
                 "d009_pass": bool(d009.passed),
                 "d009_peak_db": float(round(
@@ -968,6 +1012,14 @@ class MeasurementSession:
                 "min_phase_pass": bool(min_phase.passed),
                 "format_pass": bool(fmt.passed),
                 "all_pass": ch_pass,
+            }
+            verifications.append(ch_result)
+            self._enqueue_progress({
+                "type": "filter_gen_progress", "phase": "in_progress",
+                "step": "minimum_phase",
+                "message": f"Verified {name}: {'PASS' if ch_pass else 'FAIL'}",
+                "channel": name,
+                "channel_result": ch_result,
             })
             if not ch_pass:
                 all_pass = False
@@ -1073,6 +1125,11 @@ class MeasurementSession:
         dry_run = self._is_mock
         output_dir = fg_result["output_dir"]
 
+        self._enqueue_progress({
+            "type": "deploy_progress", "phase": "in_progress",
+            "step": "copy", "message": "Copying WAV coefficient files",
+        })
+
         # Deploy WAV coefficient files
         deployed_wavs = deploy_filters(
             output_dir=output_dir,
@@ -1081,6 +1138,12 @@ class MeasurementSession:
         )
 
         self._check_abort("CP-6b")
+
+        self._enqueue_progress({
+            "type": "deploy_progress", "phase": "in_progress",
+            "step": "config",
+            "message": f"Deployed {len(deployed_wavs)} WAV files, installing PW config",
+        })
 
         # Deploy PW filter-chain .conf
         pw_conf_content = fg_result.get("pw_conf_content", "")
