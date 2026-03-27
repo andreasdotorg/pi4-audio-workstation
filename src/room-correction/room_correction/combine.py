@@ -116,4 +116,18 @@ def combine_filters(correction_filter, crossover_filter, n_taps=16384, margin_db
     fade = dsp_utils.fade_window(n_taps, 0, fade_out_len)
     combined_ir *= fade
 
+    # Post-output D-009 re-clip. Cepstral synthesis and truncation+windowing
+    # can push magnitude above the clipped design. Re-clip the final FIR's
+    # rfft magnitude while preserving phase.
+    margin_linear = dsp_utils.db_to_linear(margin_db)
+    out_spectrum = np.fft.rfft(combined_ir)
+    out_mag = np.abs(out_spectrum)
+    exceed = out_mag > margin_linear
+    if np.any(exceed):
+        out_phase = np.angle(out_spectrum)
+        out_mag[exceed] = margin_linear
+        combined_ir = np.fft.irfft(
+            out_mag * np.exp(1j * out_phase), n=len(combined_ir),
+        )
+
     return combined_ir

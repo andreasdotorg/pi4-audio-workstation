@@ -166,27 +166,13 @@ class TestPathA_CorrectionFilter:
 
     @pytest.mark.parametrize("phon", [40.0, 60.0, 80.0, 90.0])
     def test_equal_loudness_compensation(self, phon):
-        """ISO 226 loudness compensation must not break D-009.
-
-        KNOWN DEFECT: At 40 phon, the equal-loudness contour produces a
-        large bass boost relative to the reference. The correction pipeline
-        clips to -0.5 dB, but cepstral minimum-phase synthesis introduces
-        ~0.2 dB overshoot, violating D-009. This xfail documents the defect
-        and will be removed once correction.py adds post-synthesis clipping.
-        """
+        """ISO 226 loudness compensation must not break D-009."""
         rng = np.random.RandomState(400)
         ir = _random_ir(rng)
         fir = generate_correction_filter(
             ir, target_curve_name="flat", target_phon=phon, n_taps=TEST_TAPS,
         )
         max_gain = _max_gain_db(fir)
-        if phon <= 40.0:
-            # Known D-009 violation at low phon — cepstral overshoot
-            if max_gain > D009_LIMIT:
-                pytest.xfail(
-                    f"KNOWN DEFECT: phon={phon} cepstral overshoot "
-                    f"({max_gain:.3f} dB > {D009_MARGIN_DB} dB)"
-                )
         assert max_gain <= D009_LIMIT, (
             f"phon={phon}: max gain {max_gain:.3f} dB exceeds limit"
         )
@@ -203,26 +189,12 @@ class TestPathA_CorrectionFilter:
 
     @pytest.mark.parametrize("seed", list(range(60, 70)))
     def test_very_long_ir(self, seed):
-        """Long IR (32768 samples) -> still D-009 compliant.
-
-        KNOWN DEFECT: When IR length >> n_taps (32768 vs 4096), the
-        cepstral minimum-phase synthesis in correction.py introduces
-        overshoot up to +0.09 dB above the clipped -0.5 dB magnitude.
-        This is a genuine D-009 violation. The xfail documents the
-        defect; it will be removed once correction.py adds post-synthesis
-        magnitude verification.
-        """
+        """Long IR (32768 samples) -> still D-009 compliant."""
         rng = np.random.RandomState(seed)
         ir = rng.randn(32768) * 0.01
         ir[0] = 1.0  # strong direct path
         fir = generate_correction_filter(ir, n_taps=TEST_TAPS)
         max_gain = _max_gain_db(fir)
-        if max_gain > D009_LIMIT:
-            pytest.xfail(
-                f"KNOWN DEFECT: seed={seed} cepstral overshoot "
-                f"({max_gain:.3f} dB > {D009_MARGIN_DB} dB) "
-                f"when IR length >> n_taps"
-            )
         assert max_gain <= D009_LIMIT
 
 
