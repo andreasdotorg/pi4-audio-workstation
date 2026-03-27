@@ -5,7 +5,7 @@ Post-D-040 replacement for CamillaDSP config generation. Reads a speaker
 profile (Layer 2) referencing speaker identities (Layer 1) and emits a
 PipeWire filter-chain `.conf` drop-in file with the correct topology:
 
-    convolver nodes -> linear gain nodes
+    [HPF biquad nodes ->] convolver nodes -> linear gain nodes
 
 per output channel, with internal links, inputs, outputs, and capture/playback
 props matching the GraphManager's expected node names.
@@ -26,10 +26,13 @@ attenuation in dB. This is converted to a linear Mult value for the PW
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 
 from . import dsp_utils
+
+log = logging.getLogger(__name__)
 
 # Try to import YAML loading from the CamillaDSP config generator (same
 # profile/identity loaders). Import at module level so we fail fast.
@@ -59,9 +62,33 @@ _KEY_TO_SUFFIX = {
 }
 
 
+# 4th-order Butterworth HPF: two cascaded 2nd-order biquads.
+# Q values from Butterworth polynomial factorisation for n=4.
+_BUTTERWORTH_4_Q = (0.5412, 1.3066)
+
+
 def _channel_suffix(spk_key: str) -> str:
     """Map a speaker key to a channel suffix for node naming."""
     return _KEY_TO_SUFFIX.get(spk_key, spk_key)
+
+
+def _get_port_tuning_hz(identity: dict) -> float | None:
+    """Extract a scalar port tuning frequency from an identity.
+
+    The field may be a scalar (``port_tuning_hz: 45``) or a dict with
+    per-port values (``port_tuning_hz: {upper_port: 58, lower_port: 88}``).
+    For safety checks we return the *lowest* port tuning frequency, since
+    unloading below any port is dangerous.
+    """
+    val = identity.get("port_tuning_hz")
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, dict):
+        nums = [v for v in val.values() if isinstance(v, (int, float))]
+        return float(min(nums)) if nums else None
+    return None
 
 
 def db_to_linear(db: float) -> float:
@@ -167,6 +194,23 @@ def generate_filter_chain_conf(
         # Delay
         delay = delays_ms.get(spk_key, 0.0)
 
+        # D-031: Resolve mandatory HPF from speaker identity
+        id_name = spk_cfg.get("identity", "")
+        identity = identities.get(id_name, {})
+        mandatory_hpf_hz = identity.get("mandatory_hpf_hz")
+
+        # Port-tuning safety check (ported enclosures)
+        port_tuning = _get_port_tuning_hz(identity)
+        if (port_tuning is not None
+                and mandatory_hpf_hz is not None
+                and mandatory_hpf_hz < port_tuning):
+            log.warning(
+                "D-031 port safety: speaker '%s' (%s) has mandatory_hpf_hz=%s "
+                "below port_tuning_hz=%s. Unloading a ported enclosure below "
+                "port tuning destroys drivers.",
+                spk_key, id_name, mandatory_hpf_hz, port_tuning,
+            )
+
         channels.append({
             "key": spk_key,
             "suffix": suffix,
@@ -176,6 +220,7 @@ def generate_filter_chain_conf(
             "gain_linear": ch_gain_linear,
             "delay_ms": delay,
             "filter_type": spk_cfg.get("filter_type", ""),
+            "mandatory_hpf_hz": mandatory_hpf_hz,
         })
 
     # Sort by channel index for consistent output
@@ -184,6 +229,23 @@ def generate_filter_chain_conf(
 
     # Build node definitions
     nodes_lines = []
+
+    # D-031: Mandatory HPF nodes (subsonic protection, BEFORE convolver).
+    # 4th-order Butterworth = two cascaded 2nd-order bq_highpass stages.
+    for ch in channels:
+        hpf_hz = ch["mandatory_hpf_hz"]
+        if hpf_hz is not None:
+            for stage, q_val in enumerate(_BUTTERWORTH_4_Q):
+                nodes_lines.append(
+                    f'                {{\n'
+                    f'                    type    = builtin\n'
+                    f'                    name    = hpf_{ch["suffix"]}_s{stage}\n'
+                    f'                    label   = bq_highpass\n'
+                    f'                    control = {{ "Freq" = {hpf_hz:.1f} "Q" = {q_val:.4f} }}\n'
+                    f'                }}'
+                )
+
+    # Convolver nodes
     for ch in channels:
         nodes_lines.append(
             f'                {{\n'
@@ -222,9 +284,22 @@ def generate_filter_chain_conf(
                     f'                }}'
                 )
 
-    # Build internal links: conv -> gain [-> delay]
+    # Build internal links: [hpf_s0 -> hpf_s1 ->] conv -> gain [-> delay]
     links_lines = []
     for ch in channels:
+        hpf_hz = ch["mandatory_hpf_hz"]
+        if hpf_hz is not None:
+            # HPF stage 0 -> stage 1
+            links_lines.append(
+                f'                {{ output = "hpf_{ch["suffix"]}_s0:Out"  '
+                f'input = "hpf_{ch["suffix"]}_s1:In" }}'
+            )
+            # HPF stage 1 -> convolver
+            links_lines.append(
+                f'                {{ output = "hpf_{ch["suffix"]}_s1:Out"  '
+                f'input = "conv_{ch["suffix"]}:In" }}'
+            )
+        # conv -> gain
         links_lines.append(
             f'                {{ output = "conv_{ch["suffix"]}:Out"  '
             f'input = "gain_{ch["suffix"]}:In" }}'
@@ -235,10 +310,13 @@ def generate_filter_chain_conf(
                 f'input = "delay_{ch["suffix"]}:In" }}'
             )
 
-    # Build inputs (convolver inputs)
+    # Build inputs (first node in chain: HPF stage 0 if present, else convolver)
     inputs_lines = []
     for ch in channels:
-        inputs_lines.append(f'                "conv_{ch["suffix"]}:In"')
+        if ch["mandatory_hpf_hz"] is not None:
+            inputs_lines.append(f'                "hpf_{ch["suffix"]}_s0:In"')
+        else:
+            inputs_lines.append(f'                "conv_{ch["suffix"]}:In"')
 
     # Build outputs (last node in chain: delay if present, else gain)
     outputs_lines = []

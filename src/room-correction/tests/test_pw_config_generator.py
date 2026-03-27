@@ -14,6 +14,8 @@ from room_correction.pw_config_generator import (
     generate_filter_chain_conf,
     write_filter_chain_conf,
     _channel_suffix,
+    _BUTTERWORTH_4_Q,
+    _get_port_tuning_hz,
 )
 
 
@@ -304,3 +306,175 @@ class TestConfigStructure:
     def test_media_class_audio_sink(self):
         conf = _generate("bose-home")
         assert "media.class                     = Audio/Sink" in conf
+
+
+# -- D-031: Mandatory HPF enforcement tests ---------------------------------
+
+class TestGetPortTuningHz:
+    """Unit tests for _get_port_tuning_hz helper."""
+
+    def test_scalar_value(self):
+        assert _get_port_tuning_hz({"port_tuning_hz": 45.0}) == 45.0
+
+    def test_dict_returns_lowest(self):
+        identity = {"port_tuning_hz": {"upper_port": 58, "lower_port": 88}}
+        assert _get_port_tuning_hz(identity) == 58.0
+
+    def test_none_when_missing(self):
+        assert _get_port_tuning_hz({}) is None
+
+    def test_none_for_none_value(self):
+        assert _get_port_tuning_hz({"port_tuning_hz": None}) is None
+
+
+class TestMandatoryHPFNodes:
+    """D-031: Verify HPF biquad nodes are generated for all speakers with mandatory_hpf_hz."""
+
+    def test_bose_home_has_eight_hpf_nodes(self):
+        """All 4 channels x 2 biquad stages = 8 HPF nodes."""
+        conf = _generate("bose-home")
+        assert conf.count("label   = bq_highpass") == 8
+
+    def test_hpf_node_naming_convention(self):
+        """HPF nodes follow hpf_{suffix}_s{stage} naming."""
+        conf = _generate("bose-home")
+        for suffix in ("left_hp", "right_hp", "sub1_lp", "sub2_lp"):
+            assert f"hpf_{suffix}_s0" in conf
+            assert f"hpf_{suffix}_s1" in conf
+
+    def test_hpf_freq_matches_identity(self):
+        """HPF frequency values match speaker identity mandatory_hpf_hz."""
+        conf = _generate("bose-home")
+        # Satellites (bose-jewel-double-cube): mandatory_hpf_hz = 200
+        assert '"Freq" = 200.0' in conf
+        # Subs (bose-ps28-iii-sub): mandatory_hpf_hz = 42
+        assert '"Freq" = 42.0' in conf
+
+    def test_hpf_q_values_butterworth(self):
+        """HPF Q values match 4th-order Butterworth factorisation."""
+        conf = _generate("bose-home")
+        q0 = f'"Q" = {_BUTTERWORTH_4_Q[0]:.4f}'
+        q1 = f'"Q" = {_BUTTERWORTH_4_Q[1]:.4f}'
+        assert q0 in conf
+        assert q1 in conf
+
+    def test_hpf_for_2way_sealed(self):
+        """2way-80hz-sealed profile also gets HPF nodes."""
+        conf = _generate("2way-80hz-sealed")
+        assert conf.count("label   = bq_highpass") == 8
+        # wideband-selfbuilt-v1: mandatory_hpf_hz = 25
+        assert '"Freq" = 25.0' in conf
+        # sub-custom-15: mandatory_hpf_hz = 20
+        assert '"Freq" = 20.0' in conf
+
+
+class TestHPFSignalChainOrder:
+    """D-031: HPF must be BEFORE convolver in the signal chain (pre-amplifier)."""
+
+    def test_inputs_connect_to_hpf_first_stage(self):
+        """Graph inputs feed HPF stage 0 (not convolver) when HPF present."""
+        conf = _generate("bose-home")
+        # Extract inputs section
+        inputs_start = conf.index("inputs  = [")
+        inputs_end = conf.index("]", inputs_start)
+        inputs_section = conf[inputs_start:inputs_end]
+
+        for suffix in ("left_hp", "right_hp", "sub1_lp", "sub2_lp"):
+            assert f'"hpf_{suffix}_s0:In"' in inputs_section
+            # Convolver should NOT be an input when HPF is present
+            assert f'"conv_{suffix}:In"' not in inputs_section
+
+    def test_hpf_stage_cascade_links(self):
+        """HPF s0 -> s1 cascade links exist."""
+        conf = _generate("bose-home")
+        for suffix in ("left_hp", "right_hp", "sub1_lp", "sub2_lp"):
+            assert f'hpf_{suffix}_s0:Out' in conf
+            assert f'hpf_{suffix}_s1:In' in conf
+
+    def test_hpf_feeds_convolver(self):
+        """HPF s1 output feeds convolver input."""
+        conf = _generate("bose-home")
+        for suffix in ("left_hp", "right_hp", "sub1_lp", "sub2_lp"):
+            assert f'hpf_{suffix}_s1:Out' in conf
+            assert f'conv_{suffix}:In' in conf
+
+    def test_hpf_nodes_before_convolver_nodes(self):
+        """In the nodes section, HPF nodes appear before convolver nodes."""
+        conf = _generate("bose-home")
+        # First HPF node should appear before first convolver node
+        first_hpf = conf.index("hpf_left_hp_s0")
+        first_conv = conf.index("conv_left_hp")
+        assert first_hpf < first_conv
+
+    def test_hpf_order_in_links(self):
+        """Links order: hpf_s0->s1, hpf_s1->conv, conv->gain."""
+        conf = _generate("bose-home")
+        links_start = conf.index("links = [")
+        links_end = conf.index("]", links_start)
+        links_section = conf[links_start:links_end]
+
+        for suffix in ("left_hp",):  # Check one channel thoroughly
+            s0_s1 = links_section.index(f"hpf_{suffix}_s0:Out")
+            s1_conv = links_section.index(f"hpf_{suffix}_s1:Out")
+            conv_gain = links_section.index(f"conv_{suffix}:Out")
+            assert s0_s1 < s1_conv < conv_gain
+
+
+class TestHPFWithDiracPlaceholders:
+    """D-031: HPF protects even when dirac placeholder FIR filters are in use."""
+
+    def test_hpf_present_with_default_fir_paths(self):
+        """HPF nodes exist when no custom filter_paths provided (dirac placeholders)."""
+        conf = _generate("bose-home")
+        # Default FIR paths are used (dirac placeholders on fresh install)
+        assert "/etc/pi4audio/coeffs/combined_left_hp.wav" in conf
+        # HPF is still present
+        assert conf.count("label   = bq_highpass") == 8
+
+    def test_hpf_present_with_custom_fir_paths(self):
+        """HPF nodes survive when custom FIR paths are provided."""
+        paths = {
+            "sat_left": "/tmp/custom_left.wav",
+            "sub1": "/tmp/custom_sub1.wav",
+        }
+        conf = _generate("bose-home", filter_paths=paths)
+        assert "/tmp/custom_left.wav" in conf
+        assert conf.count("label   = bq_highpass") == 8
+
+    def test_hpf_combined_with_delays(self):
+        """Full chain works: HPF -> conv -> gain -> delay."""
+        delays = {"sub1": 2.5, "sub2": 3.1}
+        conf = _generate("bose-home", delays_ms=delays)
+        # All three node types present
+        assert conf.count("label   = bq_highpass") == 8
+        assert conf.count("label  = convolver") == 4
+        assert "delay_sub1_lp" in conf
+        # Chain: hpf_s1 -> conv -> gain -> delay
+        assert 'hpf_sub1_lp_s1:Out' in conf
+        assert 'conv_sub1_lp:In' in conf
+        assert 'gain_sub1_lp:Out' in conf
+        assert 'delay_sub1_lp:In' in conf
+
+
+class TestHPFPortTuningSafety:
+    """D-031: Port tuning frequency safety warnings."""
+
+    def test_bose_ps28_port_tuning_warning(self, caplog):
+        """bose-ps28-iii-sub has HPF 42Hz < port tuning 58Hz — logs warning."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="room_correction.pw_config_generator"):
+            _generate("bose-home")
+        port_warnings = [r for r in caplog.records if "port safety" in r.message.lower()]
+        # sub1 and sub2 both use bose-ps28-iii-sub
+        assert len(port_warnings) >= 2
+        assert "42" in port_warnings[0].message
+        assert "58" in port_warnings[0].message
+
+    def test_no_warning_when_hpf_above_port_tuning(self, caplog):
+        """No port safety warning when HPF >= port tuning."""
+        import logging
+        # 2way-80hz-sealed has sealed subs (no port tuning) — no warnings expected
+        with caplog.at_level(logging.WARNING, logger="room_correction.pw_config_generator"):
+            _generate("2way-80hz-sealed")
+        port_warnings = [r for r in caplog.records if "port safety" in r.message.lower()]
+        assert len(port_warnings) == 0
