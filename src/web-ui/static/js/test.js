@@ -788,6 +788,11 @@
     var calBinLUT = null;      // Float32Array[fftSize/2+1] — per-bin correction
     var calEnabled = false;    // True when cal data loaded and LUT built
 
+    // US-096: A-weighting and calibration metadata from backend.
+    var calAWeighting = null;  // Array of A-weighting dB at cal frequencies
+    var calSensitivityDb = null; // Sensitivity factor from cal file header
+    var aWeightBinLUT = null;  // Float32Array[fftSize/2+1] — per-bin A-weight
+
     // -- UMIK-1 calibration helpers (T-088-6) --
 
     /**
@@ -813,7 +818,10 @@
                 }
                 calFreqs = data.frequencies;
                 calDb = data.db_corrections;
+                calAWeighting = data.a_weighting || null;
+                calSensitivityDb = data.sensitivity_db;
                 buildCalBinLUT();
+                buildAWeightBinLUT();
                 calEnabled = true;
             } catch (e) {
                 console.warn("[test] Failed to parse calibration data:", e);
@@ -887,6 +895,38 @@
         }
     }
 
+    // -- A-weighting LUT (US-096: IEC 61672) --
+
+    /**
+     * IEC 61672 A-weighting in dB for a frequency.
+     * R_A(f) = 12194^2 * f^4 / ((f^2+20.6^2)*sqrt((f^2+107.7^2)*(f^2+737.9^2))*(f^2+12194^2))
+     * A(f) = 20*log10(R_A(f)) + 2.0
+     */
+    function aWeightDb(freq) {
+        if (freq <= 0) return -200;
+        var f2 = freq * freq;
+        var num = 148693636 * f2 * f2; // 12194^2 = 148693636
+        var denom = (f2 + 424.36) // 20.6^2
+            * Math.sqrt((f2 + 11599.29) * (f2 + 544496.41)) // 107.7^2, 737.9^2
+            * (f2 + 148693636); // 12194^2
+        if (denom === 0) return -200;
+        var ra = num / denom;
+        return 20 * Math.log10(Math.max(ra, 1e-20)) + 2.0;
+    }
+
+    /**
+     * Build per-FFT-bin A-weighting LUT (US-096).
+     * Falls back to computing from the formula if backend data unavailable.
+     */
+    function buildAWeightBinLUT() {
+        var binCount = SPEC_FFT_SIZE / 2 + 1;
+        var binHz = SPEC_SAMPLE_RATE / SPEC_FFT_SIZE;
+        aWeightBinLUT = new Float32Array(binCount);
+        for (var i = 0; i < binCount; i++) {
+            aWeightBinLUT[i] = aWeightDb(i * binHz);
+        }
+    }
+
     // -- SPL readout (Z-weighted broadband, always from ch3 = UMIK-1) --
 
     var UMIK_SENSITIVITY = 121.4; // dBFS-to-dBSPL offset for UMIK-1
@@ -912,19 +952,40 @@
 
     function updateSplReadout() {
         if (!splPipeline || !specPcmConnected) {
-            setSplDisplay("--", "--", null);
+            setSplDisplay("--", "--", "--", null);
             setSplBanner(false);
             return;
         }
-        // Process ch3 FFT to update rmsLinear.
+        // Process ch3 FFT to update rmsLinear and freqData.
         if (splPipeline.dirty) splPipeline.processFFT();
         var rms = splPipeline.rmsLinear;
         if (rms <= 0) {
-            setSplDisplay("--", "--", null);
+            setSplDisplay("--", "--", "--", null);
             setSplBanner(false);
             return;
         }
+        // Z-weighted SPL from time-domain RMS.
         var splZ = 20 * Math.log10(Math.max(rms, 1e-10)) + UMIK_SENSITIVITY;
+
+        // US-096: A-weighted SPL from FFT bins with per-bin A-weighting.
+        var splA = splZ; // Fallback: Z-weighted if no FFT data
+        var fd = splPipeline.freqData;
+        if (fd && aWeightBinLUT && fd.length === aWeightBinLUT.length) {
+            var sumPower = 0;
+            for (var i = 1; i < fd.length; i++) {
+                // fd[i] is dB (relative to full scale).
+                // Apply cal correction + A-weighting, then sum power.
+                var binDb = fd[i];
+                var calCorr = (calEnabled && calBinLUT && i < calBinLUT.length)
+                    ? calBinLUT[i] : 0;
+                var correctedDb = binDb - calCorr + aWeightBinLUT[i];
+                sumPower += Math.pow(10, correctedDb / 10);
+            }
+            if (sumPower > 0) {
+                splA = 10 * Math.log10(sumPower) + UMIK_SENSITIVITY;
+            }
+        }
+
         // Track peak (no decay — reset manually or on mode change).
         if (splZ > splPeakDb) splPeakDb = splZ;
 
@@ -933,18 +994,22 @@
         if (splUpdateCounter < SPL_UPDATE_INTERVAL) return;
         splUpdateCounter = 0;
 
-        setSplDisplay(splZ.toFixed(1), splPeakDb.toFixed(1), splZ);
-        // Sensitivity constant (121.4) is hardcoded — SPL is calibrated
-        // whenever values are displayed. Hide the uncalibrated banner.
+        setSplDisplay(splA.toFixed(1), splZ.toFixed(1), splPeakDb.toFixed(1), splA);
         setSplBanner(false);
     }
 
-    function setSplDisplay(zVal, peakVal, splForColor) {
-        var elZ = $("tt-spl-a");
+    function setSplDisplay(aVal, zVal, peakVal, splForColor) {
+        var elA = $("tt-spl-a");
+        var elC = $("tt-spl-c"); // Repurposed as Z-weighted display
         var elPeak = $("tt-spl-peak");
-        if (elZ) {
-            elZ.textContent = zVal;
-            elZ.style.color = splForColor !== null
+        if (elA) {
+            elA.textContent = aVal;
+            elA.style.color = splForColor !== null
+                ? PiAudio.splColorRaw(splForColor) : "";
+        }
+        if (elC) {
+            elC.textContent = zVal;
+            elC.style.color = splForColor !== null
                 ? PiAudio.splColorRaw(splForColor) : "";
         }
         if (elPeak) {
@@ -981,6 +1046,8 @@
         if (specRenderer) specRenderer.setFFTSize(SPEC_FFT_SIZE);
         // T-088-6: Rebuild calibration LUT for new bin count.
         if (calFreqs) buildCalBinLUT();
+        // US-096: Rebuild A-weighting LUT for new bin count.
+        buildAWeightBinLUT();
     }
 
     function specRender() {
@@ -1254,15 +1321,16 @@
         var source = select ? select.value : "monitor";
         specConnectPcm(source);
 
-        // SPL readout: set Z-weighted label (HTML has "SPL (A)" placeholder).
-        var splLabel = $("tt-spl-a");
-        if (splLabel && splLabel.previousElementSibling) {
-            splLabel.previousElementSibling.textContent = "SPL (Z)";
+        // US-096: SPL labels — A-weighted and Z-weighted (formerly hidden).
+        // SPL(A) label is already correct in HTML.
+        // Repurpose SPL(C) row for Z-weighted display.
+        var splCLabel = $("tt-spl-c");
+        if (splCLabel && splCLabel.previousElementSibling) {
+            splCLabel.previousElementSibling.textContent = "SPL (Z)";
         }
-        // Hide SPL (C) row — not implemented yet (UX: avoid "--" clutter).
-        var splCRow = $("tt-spl-c");
-        if (splCRow && splCRow.parentElement) {
-            splCRow.parentElement.style.display = "none";
+        // Show the Z-weighted row (was hidden when only Z existed).
+        if (splCLabel && splCLabel.parentElement) {
+            splCLabel.parentElement.style.display = "";
         }
     }
 
