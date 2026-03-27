@@ -353,7 +353,7 @@ GM_PORT = int(os.environ.get("PI4AUDIO_GM_PORT", "4002"))
 def _gm_client():
     """Yield a connected GraphManager client, closing it on exit."""
     meas_dir = os.environ.get("PI4AUDIO_MEAS_DIR", os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "measurement")))
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "measurement")))
     if meas_dir not in sys.path:
         sys.path.insert(0, meas_dir)
     from graph_manager_client import GraphManagerClient, MockGraphManagerClient

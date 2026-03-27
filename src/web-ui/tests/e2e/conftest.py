@@ -121,6 +121,24 @@ def mock_server(request):
     stdout_file = tempfile.NamedTemporaryFile(
         mode="w+", prefix="mock_server_stdout_", suffix=".log", delete=False)
 
+    # Create a mock UMIK-1 calibration file so the /api/v1/test-tool/calibration
+    # endpoint returns 200 instead of 404 in the Nix sandbox where
+    # /home/ela/7161942.txt does not exist.
+    mock_cal_dir = tempfile.mkdtemp(prefix="mock_cal_")
+    mock_cal_file = os.path.join(mock_cal_dir, "mock-umik1.txt")
+    with open(mock_cal_file, "w") as f:
+        f.write('"Sens Factor =-1.378dB, SERNO: 0000000"\n')
+        f.write("20.000\t-0.13\n100.000\t0.15\n1000.000\t0.00\n"
+                "10000.000\t-0.22\n20000.000\t-1.05\n")
+
+    # Set env vars for the mock server subprocess:
+    # - PI4AUDIO_UMIK1_CAL: path to mock calibration file
+    # - PI4AUDIO_MEAS_DIR: path to src/measurement/ for graph_manager_client import
+    env = os.environ.copy()
+    env["PI4AUDIO_UMIK1_CAL"] = mock_cal_file
+    env["PI4AUDIO_MEAS_DIR"] = str(
+        web_ui_dir.parent / "measurement")
+
     proc = subprocess.Popen(
         [
             sys.executable, "-m", "uvicorn",
@@ -129,6 +147,7 @@ def mock_server(request):
             "--port", str(port),
         ],
         cwd=str(web_ui_dir),
+        env=env,
         stdout=stdout_file,
         stderr=stderr_file,
     )
@@ -194,6 +213,10 @@ def mock_server(request):
             os.unlink(f.name)
         except OSError:
             pass
+
+    # Clean up mock calibration file.
+    import shutil
+    shutil.rmtree(mock_cal_dir, ignore_errors=True)
 
 
 def _assert_server_alive(config):
