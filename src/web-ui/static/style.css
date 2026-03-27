@@ -1691,6 +1691,317 @@ html, body {
     color: var(--text-dim);
 }
 
+/* -- Room Correction Wizard (US-097) -- */
+
+.rc-pipeline-steps,
+.rc-deploy-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 12px;
+}
+
+.rc-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.rc-step--active {
+    border-color: var(--primary);
+    background: rgba(0, 188, 212, 0.06);
+}
+
+.rc-step--done {
+    border-color: var(--safe);
+    background: rgba(76, 175, 80, 0.06);
+}
+
+.rc-step-icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--bg-bar);
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.rc-step--done .rc-step-icon {
+    background: var(--safe);
+    color: #000;
+}
+
+.rc-step--active .rc-step-icon {
+    background: var(--primary);
+    color: #000;
+}
+
+.rc-step-label {
+    flex: 1;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.rc-step-status {
+    font-weight: 700;
+    font-family: var(--font-numeric);
+    font-size: 11px;
+    min-width: 40px;
+    text-align: right;
+}
+
+.rc-summary-bar {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+/* Channel cards */
+
+.rc-channel-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+.rc-channel-placeholder {
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 16px;
+    text-align: center;
+}
+
+.rc-channel-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.rc-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg-bar);
+    border-bottom: 1px solid var(--border);
+}
+
+.rc-card-name {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text);
+}
+
+.rc-card-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.rc-card-badge--pass {
+    background: rgba(76, 175, 80, 0.15);
+    color: var(--safe);
+}
+
+.rc-card-badge--fail {
+    background: rgba(255, 82, 82, 0.15);
+    color: var(--danger);
+}
+
+.rc-card-body {
+    padding: 8px 12px;
+}
+
+.rc-card-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.rc-card-row span:last-child {
+    font-weight: 700;
+    font-family: var(--font-numeric);
+}
+
+.rc-card-path {
+    font-size: 10px;
+    font-family: var(--font-numeric);
+    color: var(--text-dim);
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Deploy info */
+
+.rc-deploy-info {
+    margin: 12px 0;
+}
+
+.rc-deploy-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.rc-deploy-row:last-child {
+    border-bottom: none;
+}
+
+.rc-deploy-label {
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+}
+
+.rc-deploy-value {
+    font-family: var(--font-numeric);
+    color: var(--text);
+}
+
+.rc-deploy-warning {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: rgba(255, 193, 7, 0.08);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--warning);
+    line-height: 1.4;
+}
+
+/* Verification */
+
+.rc-verify-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 12px;
+}
+
+.rc-verify-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.rc-verify-name {
+    font-weight: 700;
+    color: var(--text);
+    min-width: 130px;
+    flex-shrink: 0;
+}
+
+.rc-verify-detail {
+    flex: 1;
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.rc-verify-result {
+    font-weight: 700;
+    font-family: var(--font-numeric);
+    min-width: 40px;
+    text-align: right;
+}
+
+.rc-verify-ch-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 16px 0 8px;
+}
+
+.rc-verify-ch-row {
+    display: flex;
+    gap: 12px;
+    padding: 4px 0;
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+}
+
+.rc-verify-ch-row:last-child {
+    border-bottom: none;
+}
+
+.rc-verify-ch-name {
+    flex: 2;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.rc-verify-ch-peak,
+.rc-verify-ch-result {
+    flex: 1;
+    font-weight: 700;
+    font-family: var(--font-numeric);
+    text-align: center;
+}
+
+/* Preflight checks */
+
+.rc-preflight {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.rc-preflight-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.rc-pf-indicator {
+    font-weight: 700;
+    font-family: var(--font-numeric);
+    font-size: 11px;
+    min-width: 50px;
+}
+
+.rc-pf-label {
+    color: var(--text);
+}
+
 /* Complete / aborted / error screens */
 
 .mw-complete-summary {
@@ -3471,6 +3782,67 @@ html, body {
 .spk-add-speaker-btn:hover {
     color: var(--text);
     border-color: var(--text-dim);
+}
+
+/* -- Channel budget counter -- */
+
+.spk-channel-budget {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 8px 0;
+    background: var(--bg-bar);
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.spk-budget-label {
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.spk-budget-value {
+    font-weight: 700;
+    font-family: var(--font-numeric);
+}
+
+/* -- Monitoring warning -- */
+
+.spk-monitoring-warning {
+    font-size: 11px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    background: rgba(226, 192, 57, 0.1);
+    border: 1px solid rgba(226, 192, 57, 0.3);
+    border-radius: 3px;
+    color: var(--warning);
+}
+
+/* -- Gain staging groups -- */
+
+.spk-gs-group {
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    background: var(--bg-bar);
+    border-radius: 3px;
+}
+
+.spk-gs-role-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-label);
+    margin-bottom: 6px;
+}
+
+/* -- Delay input width -- */
+
+.spk-f-spk-delay {
+    width: 56px;
+    text-align: right;
 }
 
 /* -- Speaker config responsive -- */

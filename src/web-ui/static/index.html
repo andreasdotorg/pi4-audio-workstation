@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pi Audio Workstation</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=39">
+    <link rel="stylesheet" href="/static/style.css?v=40">
 </head>
 <body>
 
@@ -522,9 +522,21 @@
                 <div class="mw-section-title">Measurement Setup</div>
                 <div class="mw-setup-form">
                     <div class="mw-form-row">
+                        <label class="mw-form-label" for="mw-setup-profile">Speaker Profile</label>
+                        <select class="mw-form-input" id="mw-setup-profile">
+                            <option value="">Loading profiles...</option>
+                        </select>
+                    </div>
+                    <div class="mw-form-row">
                         <label class="mw-form-label" for="mw-setup-positions">Positions</label>
                         <input class="mw-form-input" id="mw-setup-positions"
                                type="number" min="1" max="9" value="5">
+                    </div>
+                    <div class="mw-form-row">
+                        <label class="mw-form-label" for="mw-setup-target-phon">Target Loudness</label>
+                        <input class="mw-form-input" id="mw-setup-target-phon"
+                               type="number" min="20" max="90" step="1"
+                               placeholder="optional (phon)">
                     </div>
                 </div>
             </div>
@@ -538,8 +550,26 @@
                 </div>
             </div>
             <div class="mw-section">
-                <div class="mw-section-title">Pre-flight</div>
-                <div class="mw-preflight-status c-warning">Checking prerequisites...</div>
+                <div class="mw-section-title">Pre-flight Checks</div>
+                <div class="rc-preflight" id="rc-preflight">
+                    <div class="rc-preflight-item" id="rc-pf-mic">
+                        <span class="rc-pf-indicator">--</span>
+                        <span class="rc-pf-label">UMIK-1 connected</span>
+                    </div>
+                    <div class="rc-preflight-item" id="rc-pf-profile">
+                        <span class="rc-pf-indicator">--</span>
+                        <span class="rc-pf-label">Speaker profile selected</span>
+                    </div>
+                    <div class="rc-preflight-item" id="rc-pf-gm">
+                        <span class="rc-pf-indicator">--</span>
+                        <span class="rc-pf-label">GraphManager in measurement mode</span>
+                    </div>
+                    <div class="rc-preflight-item" id="rc-pf-amps">
+                        <span class="rc-pf-indicator">--</span>
+                        <span class="rc-pf-label">Amplifiers powered on</span>
+                    </div>
+                </div>
+                <div class="mw-preflight-status c-warning" id="mw-preflight-status">Checking prerequisites...</div>
             </div>
         </div>
 
@@ -621,38 +651,153 @@
             </div>
         </div>
 
-        <!-- FILTER_GEN screen -->
+        <!-- FILTER_GEN screen — room correction pipeline -->
         <div class="mw-screen hidden" id="mw-filter_gen">
-            <div class="mw-screen-center">
-                <div class="mw-title">GENERATING FILTERS</div>
+            <div class="mw-section">
+                <div class="mw-section-title">Correction Pipeline</div>
                 <div class="mw-pipeline-status c-warning" id="mw-filter_gen-status">
                     Pending...
                 </div>
-                <div class="mw-results-summary">
+
+                <!-- Pipeline steps -->
+                <div class="rc-pipeline-steps" id="rc-pipeline-steps">
+                    <div class="rc-step" data-step="average" id="rc-step-average">
+                        <span class="rc-step-icon">1</span>
+                        <span class="rc-step-label">Spatial Averaging</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" data-step="target" id="rc-step-target">
+                        <span class="rc-step-icon">2</span>
+                        <span class="rc-step-label">Target Curve</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" data-step="inversion" id="rc-step-inversion">
+                        <span class="rc-step-icon">3</span>
+                        <span class="rc-step-label">Inversion + Regularization</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" data-step="crossover" id="rc-step-crossover">
+                        <span class="rc-step-icon">4</span>
+                        <span class="rc-step-label">Crossover Combine</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" data-step="minphase" id="rc-step-minphase">
+                        <span class="rc-step-icon">5</span>
+                        <span class="rc-step-label">Minimum Phase</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" data-step="export" id="rc-step-export">
+                        <span class="rc-step-icon">6</span>
+                        <span class="rc-step-label">Export WAV</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                </div>
+
+                <!-- Measurement summary -->
+                <div class="rc-summary-bar" id="rc-summary-bar">
                     <span id="mw-results-sweep-count">--</span>
                     <span id="mw-results-position-count">--</span>
                     <span id="mw-results-channel-count">--</span>
                 </div>
             </div>
-        </div>
 
-        <!-- DEPLOY screen -->
-        <div class="mw-screen hidden" id="mw-deploy">
-            <div class="mw-screen-center">
-                <div class="mw-title">DEPLOYING FILTERS</div>
-                <div class="mw-pipeline-status c-warning" id="mw-deploy-status">
-                    Pending...
+            <!-- Per-channel filter preview (populated by JS) -->
+            <div class="mw-section">
+                <div class="mw-section-title">Generated Filters</div>
+                <div class="rc-channel-cards" id="rc-channel-cards">
+                    <div class="rc-channel-placeholder">Waiting for pipeline...</div>
                 </div>
             </div>
         </div>
 
-        <!-- VERIFY screen -->
+        <!-- DEPLOY screen — filter deployment to Pi -->
+        <div class="mw-screen hidden" id="mw-deploy">
+            <div class="mw-section">
+                <div class="mw-section-title">Deploy Filters</div>
+                <div class="mw-pipeline-status c-warning" id="mw-deploy-status">
+                    Pending...
+                </div>
+
+                <div class="rc-deploy-info" id="rc-deploy-info">
+                    <div class="rc-deploy-row">
+                        <span class="rc-deploy-label">Target</span>
+                        <span class="rc-deploy-value" id="rc-deploy-target">/etc/pi4audio/coeffs/</span>
+                    </div>
+                    <div class="rc-deploy-row">
+                        <span class="rc-deploy-label">PW Config</span>
+                        <span class="rc-deploy-value" id="rc-deploy-pw-conf">30-filter-chain-convolver.conf</span>
+                    </div>
+                    <div class="rc-deploy-row">
+                        <span class="rc-deploy-label">Action</span>
+                        <span class="rc-deploy-value" id="rc-deploy-action">Copy filters + reload filter-chain</span>
+                    </div>
+                </div>
+
+                <!-- Deploy progress -->
+                <div class="rc-deploy-steps" id="rc-deploy-steps">
+                    <div class="rc-step" id="rc-deploy-step-copy">
+                        <span class="rc-step-icon">1</span>
+                        <span class="rc-step-label">Copy WAV files</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" id="rc-deploy-step-conf">
+                        <span class="rc-step-icon">2</span>
+                        <span class="rc-step-label">Install PW config</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                    <div class="rc-step" id="rc-deploy-step-reload">
+                        <span class="rc-step-icon">3</span>
+                        <span class="rc-step-label">Reload filter-chain</span>
+                        <span class="rc-step-status">--</span>
+                    </div>
+                </div>
+
+                <div class="rc-deploy-warning">
+                    Deploying will replace the active filters.
+                    Audio may be briefly interrupted during reload.
+                </div>
+            </div>
+        </div>
+
+        <!-- VERIFY screen — post-deploy verification -->
         <div class="mw-screen hidden" id="mw-verify">
-            <div class="mw-screen-center">
-                <div class="mw-title">VERIFICATION</div>
+            <div class="mw-section">
+                <div class="mw-section-title">Post-Deploy Verification</div>
                 <div class="mw-pipeline-status c-warning" id="mw-verify-status">
                     Pending...
                 </div>
+
+                <!-- Verification checks -->
+                <div class="rc-verify-checks" id="rc-verify-checks">
+                    <div class="rc-verify-item" id="rc-verify-d009">
+                        <span class="rc-verify-name">D-009 Gain Limit</span>
+                        <span class="rc-verify-detail">All channels &lt;= -0.5 dB</span>
+                        <span class="rc-verify-result">--</span>
+                    </div>
+                    <div class="rc-verify-item" id="rc-verify-minphase">
+                        <span class="rc-verify-name">Minimum Phase</span>
+                        <span class="rc-verify-detail">Energy concentrated in first half</span>
+                        <span class="rc-verify-result">--</span>
+                    </div>
+                    <div class="rc-verify-item" id="rc-verify-format">
+                        <span class="rc-verify-name">Format Check</span>
+                        <span class="rc-verify-detail">Taps, sample rate, WAV format</span>
+                        <span class="rc-verify-result">--</span>
+                    </div>
+                    <div class="rc-verify-item" id="rc-verify-xover">
+                        <span class="rc-verify-name">Crossover Sum</span>
+                        <span class="rc-verify-detail">HP + LP continuity at crossover</span>
+                        <span class="rc-verify-result">--</span>
+                    </div>
+                    <div class="rc-verify-item" id="rc-verify-loaded">
+                        <span class="rc-verify-name">Filter Loaded</span>
+                        <span class="rc-verify-detail">PipeWire convolver active</span>
+                        <span class="rc-verify-result">--</span>
+                    </div>
+                </div>
+
+                <!-- Per-channel D-009 details -->
+                <div class="rc-verify-channels" id="rc-verify-channels"></div>
             </div>
         </div>
 
@@ -857,19 +1002,20 @@
     <div class="reconnect-detail" id="reconnect-detail">Reconnecting...</div>
 </div>
 
-<script src="/static/js/app.js?v=39"></script>
-<script src="/static/js/statusbar.js?v=39"></script>
-<script src="/static/js/fft-pipeline.js?v=39"></script>
-<script src="/static/js/spectrum-renderer.js?v=39"></script>
-<script src="/static/js/spectrum.js?v=39"></script>
-<script src="/static/js/dashboard.js?v=39"></script>
-<script src="/static/js/system.js?v=39"></script>
-<script src="/static/js/graph.js?v=39"></script>
-<script src="/static/js/config.js?v=39"></script>
-<script src="/static/js/speaker-config.js?v=39"></script>
-<script src="/static/js/filter-gen.js?v=39"></script>
-<script src="/static/js/measure.js?v=39"></script>
-<script src="/static/js/test.js?v=39"></script>
-<script src="/static/js/midi.js?v=39"></script>
+<script src="/static/js/app.js?v=40"></script>
+<script src="/static/js/statusbar.js?v=40"></script>
+<script src="/static/js/fft-pipeline.js?v=40"></script>
+<script src="/static/js/spectrum-renderer.js?v=40"></script>
+<script src="/static/js/spectrum.js?v=40"></script>
+<script src="/static/js/dashboard.js?v=40"></script>
+<script src="/static/js/system.js?v=40"></script>
+<script src="/static/js/graph.js?v=40"></script>
+<script src="/static/js/config.js?v=40"></script>
+<script src="/static/js/speaker-config.js?v=40"></script>
+<script src="/static/js/filter-gen.js?v=40"></script>
+<script src="/static/js/measure.js?v=40"></script>
+<script src="/static/js/rc-wizard.js?v=40"></script>
+<script src="/static/js/test.js?v=40"></script>
+<script src="/static/js/midi.js?v=40"></script>
 </body>
 </html>
