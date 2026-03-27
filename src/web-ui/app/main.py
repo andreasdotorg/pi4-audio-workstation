@@ -45,11 +45,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .audio_mute import AudioMuteManager
+from .collectors.thermal_monitor import ThermalMonitor
 from .config_routes import router as config_router
 from .graph_routes import router as graph_router
 from .mode_manager import ModeManager
 from .measurement.routes import router as measurement_router, ws_broadcast, ws_measurement
 from .test_tool.routes import router as test_tool_router
+from .thermal_limiter import ThermalGainLimiter
 from .ws_monitoring import ws_monitoring
 from .ws_system import ws_system
 
@@ -169,7 +171,28 @@ async def lifespan(app: FastAPI):
         app.state.pw = PipeWireCollector()
         await app.state.pw.start()
         log.info("All collectors started")
+
+        # 3c. Create thermal monitor + gain limiter (US-092 protection chain).
+        # The monitor tracks per-channel thermal state from RMS levels.
+        # The limiter enforces gain reductions via pw-cli when ceilings are
+        # approached. Both are configured when a speaker profile is activated
+        # (see speaker_routes._activate_profile_impl).
+        thermal_monitor = ThermalMonitor(app.state.levels_sw)
+        app.state.thermal_monitor = thermal_monitor
+        thermal_limiter = ThermalGainLimiter(thermal_monitor)
+        app.state.thermal_limiter = thermal_limiter
+        await thermal_monitor.start()
+        await thermal_limiter.start()
+        log.info("Thermal monitor + limiter started (unconfigured, awaiting profile)")
     else:
+        # Mock mode: create mock thermal monitor + limiter so routes don't 503.
+        from unittest.mock import MagicMock
+        mock_levels = MagicMock()
+        mock_levels.rms.return_value = [-120.0] * 8
+        thermal_monitor = ThermalMonitor(mock_levels)
+        app.state.thermal_monitor = thermal_monitor
+        thermal_limiter = ThermalGainLimiter(thermal_monitor, is_mock=True)
+        app.state.thermal_limiter = thermal_limiter
         log.info("Mock mode enabled (PI_AUDIO_MOCK=1) — real collectors not started")
 
     # 3b. Start systemd watchdog heartbeat (D-036 / WP-G).
@@ -187,6 +210,12 @@ async def lifespan(app: FastAPI):
     if wd_task is not None:
         wd_task.cancel()
         _sd_notify("STOPPING=1")
+    # Stop thermal limiter + monitor (before collectors, since they read from them).
+    for svc_name in ("thermal_limiter", "thermal_monitor"):
+        svc = getattr(app.state, svc_name, None)
+        if svc is not None and hasattr(svc, "stop"):
+            await svc.stop()
+
     if not MOCK_MODE:
         log.info("Stopping collectors...")
         for name in ("levels_sw", "levels_hw_out", "levels_hw_in",
