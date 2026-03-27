@@ -427,6 +427,53 @@ async def ensure_measurement_mode():
         )
 
 
+@router.post("/restore-mode")
+async def restore_mode(request: Request):
+    """Restore GraphManager to a specified mode (F-160).
+
+    Expects JSON body: {"mode": "dj"} (or "monitoring", "live", etc.).
+    Called by the test tab when navigating away to restore the previous mode.
+
+    Returns {"mode": "<restored>", "switched": true/false}.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400,
+                            content={"error": "invalid_json"})
+
+    target = data.get("mode", "monitoring")
+    if target not in ("monitoring", "dj", "live"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "invalid_mode",
+                     "detail": f"Mode must be monitoring, dj, or live (got: {target})"},
+        )
+
+    try:
+        current = await asyncio.to_thread(_gm_get_mode)
+    except Exception as exc:
+        log.warning("Failed to query GM mode: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "gm_unavailable", "detail": str(exc)},
+        )
+
+    if current == target:
+        return {"mode": target, "switched": False}
+
+    try:
+        await asyncio.to_thread(_gm_set_mode, target)
+        log.info("F-160: Restored GM to %s mode (was: %s)", target, current)
+        return {"mode": target, "switched": True}
+    except Exception as exc:
+        log.error("Failed to restore GM to %s mode: %s", target, exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "gm_mode_switch_failed", "detail": str(exc)},
+        )
+
+
 # ---------------------------------------------------------------------------
 # UMIK-1 calibration data (T-088-5)
 # ---------------------------------------------------------------------------

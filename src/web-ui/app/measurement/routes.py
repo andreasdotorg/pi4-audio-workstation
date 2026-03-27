@@ -181,6 +181,22 @@ async def start_measurement(body: StartRequest, request: Request):
             log.info("Signal generator client connected (%s:%d) — "
                      "using as audio backend", siggen_host, siggen_port)
         except Exception as exc:
+            if not mock_mode:
+                # Non-mock mode requires a working audio backend. Without
+                # sounddevice (not available in Nix) or SignalGenClient,
+                # the session would crash. Fail fast with a clear error.
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "error": "siggen_unavailable",
+                        "detail": (
+                            f"PI4AUDIO_SIGGEN=1 but signal generator at "
+                            f"{os.environ.get('PI4AUDIO_SIGGEN_HOST', '127.0.0.1')}:"
+                            f"{os.environ.get('PI4AUDIO_SIGGEN_PORT', '4001')} "
+                            f"is not reachable: {exc}"
+                        ),
+                    },
+                )
             log.error("Failed to connect to signal generator: %s. "
                       "Falling back to mock mode.", exc)
             siggen_mode = False
