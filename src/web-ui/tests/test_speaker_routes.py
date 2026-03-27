@@ -13,7 +13,8 @@ Phase 2 (write):
     - All writes use a temp directory (no real file mutation)
 """
 
-from unittest.mock import patch
+import asyncio
+from unittest.mock import patch, AsyncMock, MagicMock
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,8 @@ try:
         _write_yaml, _delete_yaml, _deep_validate_profile,
         _VALID_TOPOLOGIES, _VALID_ROLES, _VALID_ENCLOSURE_TYPES,
         _VALID_GM_MODES, _MAX_CHANNEL,
+        _compute_target_gains, _activate_profile_impl,
+        _PW_CONF_FILENAME,
     )
 except ImportError:
     pytest.skip("speaker_routes not available (pre-commit)", allow_module_level=True)
@@ -692,3 +695,719 @@ class TestTopologyValues:
         speakers = {"mid": {"identity": "x", "role": "midrange", "channel": 0}}
         body = {**_VALID_PROFILE, "topology": "3way", "speakers": speakers}
         assert _validate_profile(body) is None
+
+
+# ── Deep validation (_deep_validate_profile) ─────────────────────
+
+# Helper identities for deep validation tests.
+_ID_SAT = {
+    "name": "Test Sat", "type": "sealed", "impedance_ohm": 8,
+    "sensitivity_db_spl": 90, "max_boost_db": 0, "mandatory_hpf_hz": 80,
+}
+_ID_SUB = {
+    "name": "Test Sub", "type": "sealed", "impedance_ohm": 8,
+    "sensitivity_db_spl": 95, "max_boost_db": 10, "mandatory_hpf_hz": 20,
+}
+_ID_HIGH_SENS = {
+    "name": "Horn Speaker", "type": "horn", "impedance_ohm": 8,
+    "sensitivity_db_spl": 105, "max_boost_db": 0, "mandatory_hpf_hz": 300,
+}
+_ID_NO_HPF = {
+    "name": "No HPF Speaker", "type": "sealed", "impedance_ohm": 8,
+    "sensitivity_db_spl": 88, "max_boost_db": 0,
+}
+
+
+@pytest.fixture
+def deep_val_dir(tmp_path, monkeypatch):
+    """Create a temp speakers dir seeded with test identities for deep validation."""
+    identities = tmp_path / "identities"
+    profiles = tmp_path / "profiles"
+    identities.mkdir()
+    profiles.mkdir()
+
+    (identities / "test-sat.yml").write_text(
+        yaml.dump(_ID_SAT, default_flow_style=False, sort_keys=False))
+    (identities / "test-sub.yml").write_text(
+        yaml.dump(_ID_SUB, default_flow_style=False, sort_keys=False))
+    (identities / "horn-speaker.yml").write_text(
+        yaml.dump(_ID_HIGH_SENS, default_flow_style=False, sort_keys=False))
+    (identities / "no-hpf-speaker.yml").write_text(
+        yaml.dump(_ID_NO_HPF, default_flow_style=False, sort_keys=False))
+
+    import app.speaker_routes as mod
+    monkeypatch.setattr(mod, "_speakers_dir", lambda: tmp_path)
+    return tmp_path
+
+
+def _make_profile(**overrides):
+    """Build a minimal valid profile dict with overrides."""
+    base = {
+        "name": "Test Profile",
+        "topology": "2way",
+        "crossover": {"frequency_hz": 80, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        "speakers": {
+            "sat_left": {"identity": "test-sat", "role": "satellite", "channel": 0, "filter_type": "highpass"},
+            "sat_right": {"identity": "test-sat", "role": "satellite", "channel": 1, "filter_type": "highpass"},
+            "sub1": {"identity": "test-sub", "role": "subwoofer", "channel": 2, "filter_type": "lowpass"},
+            "sub2": {"identity": "test-sub", "role": "subwoofer", "channel": 3, "filter_type": "lowpass"},
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+class TestDeepValidateClean:
+    def test_valid_profile_passes(self, deep_val_dir):
+        result = _deep_validate_profile(_make_profile())
+        assert result["valid"] is True
+        assert result["errors"] == []
+
+    def test_result_structure(self, deep_val_dir):
+        result = _deep_validate_profile(_make_profile())
+        assert "valid" in result
+        assert "errors" in result
+        assert "warnings" in result
+
+
+class TestDeepValidateDuplicateChannel:
+    def test_duplicate_channel_error(self, deep_val_dir):
+        speakers = {
+            "sat_left": {"identity": "test-sat", "role": "satellite", "channel": 0},
+            "sat_right": {"identity": "test-sat", "role": "satellite", "channel": 0},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers))
+        assert result["valid"] is False
+        checks = [e["check"] for e in result["errors"]]
+        assert "duplicate_channel" in checks
+
+    def test_no_duplicate_when_unique(self, deep_val_dir):
+        result = _deep_validate_profile(_make_profile())
+        checks = [e["check"] for e in result["errors"]]
+        assert "duplicate_channel" not in checks
+
+
+class TestDeepValidateChannelBudget:
+    def test_over_8_channels_error(self, deep_val_dir):
+        speakers = {}
+        for i in range(9):
+            speakers[f"spk{i}"] = {"identity": "test-sat", "role": "satellite", "channel": i}
+        # Channel 8 would fail schema validation, but deep_validate checks budget.
+        # Use monitoring to push over 8.
+        speakers_ok = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(7)
+        }
+        monitoring = {"hp_left": 7, "hp_right": 4, "iem_left": 5, "iem_right": 6}
+        # 7 speaker channels (0-6) + monitoring reusing 4,5,6,7 = 8 unique, OK
+        result = _deep_validate_profile(_make_profile(speakers=speakers_ok, monitoring=monitoring))
+        checks = [e["check"] for e in result["errors"]]
+        assert "channel_budget" not in checks
+
+    def test_exactly_8_channels_ok(self, deep_val_dir):
+        speakers = {
+            f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
+            for i in range(8)
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers, topology="4way"))
+        checks = [e["check"] for e in result["errors"]]
+        assert "channel_budget" not in checks
+
+
+class TestDeepValidateIdentityMissing:
+    def test_missing_identity_error(self, deep_val_dir):
+        speakers = {
+            "sat": {"identity": "nonexistent-spk", "role": "satellite", "channel": 0},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers))
+        assert result["valid"] is False
+        checks = [e["check"] for e in result["errors"]]
+        assert "identity_missing" in checks
+
+    def test_existing_identity_ok(self, deep_val_dir):
+        result = _deep_validate_profile(_make_profile())
+        checks = [e["check"] for e in result["errors"]]
+        assert "identity_missing" not in checks
+
+
+class TestDeepValidateCrossoverOrder:
+    def test_monotonic_crossover_ok(self, deep_val_dir):
+        xovers = [
+            {"frequency_hz": 80, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+            {"frequency_hz": 2500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        ]
+        result = _deep_validate_profile(_make_profile(crossover=xovers, topology="3way"))
+        checks = [e["check"] for e in result["errors"]]
+        assert "crossover_order" not in checks
+
+    def test_non_monotonic_crossover_error(self, deep_val_dir):
+        xovers = [
+            {"frequency_hz": 2500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+            {"frequency_hz": 80, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        ]
+        result = _deep_validate_profile(_make_profile(crossover=xovers, topology="3way"))
+        assert result["valid"] is False
+        checks = [e["check"] for e in result["errors"]]
+        assert "crossover_order" in checks
+
+    def test_equal_crossover_frequencies_error(self, deep_val_dir):
+        xovers = [
+            {"frequency_hz": 500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+            {"frequency_hz": 500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        ]
+        result = _deep_validate_profile(_make_profile(crossover=xovers, topology="3way"))
+        checks = [e["check"] for e in result["errors"]]
+        assert "crossover_order" in checks
+
+
+class TestDeepValidateD031Hpf:
+    def test_missing_hpf_error(self, deep_val_dir):
+        speakers = {
+            "spk": {"identity": "no-hpf-speaker", "role": "satellite", "channel": 0},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers))
+        assert result["valid"] is False
+        checks = [e["check"] for e in result["errors"]]
+        assert "d031_hpf_missing" in checks
+
+    def test_present_hpf_ok(self, deep_val_dir):
+        result = _deep_validate_profile(_make_profile())
+        checks = [e["check"] for e in result["errors"]]
+        assert "d031_hpf_missing" not in checks
+
+
+class TestDeepValidateSubHpfVsCrossover:
+    def test_sub_hpf_below_crossover_ok(self, deep_val_dir):
+        """Sub HPF 20Hz < crossover 80Hz — valid."""
+        result = _deep_validate_profile(_make_profile())
+        checks = [e["check"] for e in result["errors"]]
+        assert "sub_hpf_vs_crossover" not in checks
+
+    def test_sub_hpf_above_crossover_error(self, deep_val_dir):
+        """Sub HPF 80Hz >= crossover 40Hz — no passband."""
+        speakers = {
+            "sub": {"identity": "test-sat", "role": "subwoofer", "channel": 0, "filter_type": "lowpass"},
+        }
+        # test-sat has mandatory_hpf_hz=80, crossover at 40Hz means HPF > xover
+        profile = _make_profile(
+            speakers=speakers,
+            crossover={"frequency_hz": 40, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        )
+        result = _deep_validate_profile(profile)
+        checks = [e["check"] for e in result["errors"]]
+        assert "sub_hpf_vs_crossover" in checks
+
+
+class TestDeepValidateSensitivityMismatch:
+    def test_large_sensitivity_difference_warning(self, deep_val_dir):
+        """Horn (105dB) vs sat (90dB) = 15dB difference > 10dB threshold."""
+        speakers = {
+            "horn": {"identity": "horn-speaker", "role": "satellite", "channel": 0},
+            "sat": {"identity": "test-sat", "role": "satellite", "channel": 1},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers))
+        checks = [w["check"] for w in result["warnings"]]
+        assert "sensitivity_mismatch" in checks
+
+    def test_small_sensitivity_difference_no_warning(self, deep_val_dir):
+        """Sat (90dB) vs sub (95dB) = 5dB — under threshold."""
+        result = _deep_validate_profile(_make_profile())
+        checks = [w["check"] for w in result["warnings"]]
+        assert "sensitivity_mismatch" not in checks
+
+
+class TestDeepValidateTopologyCount:
+    def test_2way_correct_count(self, deep_val_dir):
+        """4 speakers for 2way — matches expectation."""
+        result = _deep_validate_profile(_make_profile())
+        checks = [w["check"] for w in result["warnings"]]
+        assert "topology_count" not in checks
+
+    def test_2way_wrong_count_warning(self, deep_val_dir):
+        """3 speakers for 2way — mismatch warning."""
+        speakers = {
+            "sat_left": {"identity": "test-sat", "role": "satellite", "channel": 0},
+            "sat_right": {"identity": "test-sat", "role": "satellite", "channel": 1},
+            "sub1": {"identity": "test-sub", "role": "subwoofer", "channel": 2},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers))
+        checks = [w["check"] for w in result["warnings"]]
+        assert "topology_count" in checks
+
+    def test_meh_any_count_ok(self, deep_val_dir):
+        """MEH topology has no fixed speaker count expectation."""
+        speakers = {
+            "spk1": {"identity": "test-sat", "role": "satellite", "channel": 0},
+            "spk2": {"identity": "test-sat", "role": "midrange", "channel": 1},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers, topology="meh"))
+        checks = [w["check"] for w in result["warnings"]]
+        assert "topology_count" not in checks
+
+
+class TestDeepValidateD029GainStaging:
+    def test_insufficient_headroom_warning(self, deep_val_dir):
+        """Sub max_boost=10dB but headroom only 5dB — D-029 violation."""
+        gain_staging = {
+            "satellite": {"headroom_db": -7.0},
+            "subwoofer": {"headroom_db": -5.0},
+        }
+        result = _deep_validate_profile(_make_profile(gain_staging=gain_staging))
+        checks = [w["check"] for w in result["warnings"]]
+        assert "d029_gain_staging" in checks
+
+    def test_sufficient_headroom_no_warning(self, deep_val_dir):
+        """Sub max_boost=10dB and headroom=11dB — OK (>= 10 + 0.5)."""
+        gain_staging = {
+            "satellite": {"headroom_db": -7.0},
+            "subwoofer": {"headroom_db": -11.0},
+        }
+        result = _deep_validate_profile(_make_profile(gain_staging=gain_staging))
+        checks = [w["check"] for w in result["warnings"]]
+        assert "d029_gain_staging" not in checks
+
+    def test_no_gain_staging_no_crash(self, deep_val_dir):
+        """Profile without gain_staging should not error."""
+        result = _deep_validate_profile(_make_profile())
+        assert isinstance(result["valid"], bool)
+
+
+class TestDeepValidateMixed:
+    def test_multiple_errors_and_warnings(self, deep_val_dir):
+        """Profile with multiple issues returns all of them."""
+        speakers = {
+            "horn": {"identity": "horn-speaker", "role": "satellite", "channel": 0},
+            "sat": {"identity": "test-sat", "role": "satellite", "channel": 0},  # duplicate ch
+            "missing": {"identity": "nonexistent", "role": "subwoofer", "channel": 2},
+        }
+        result = _deep_validate_profile(_make_profile(speakers=speakers))
+        assert result["valid"] is False
+        error_checks = {e["check"] for e in result["errors"]}
+        assert "duplicate_channel" in error_checks
+        assert "identity_missing" in error_checks
+
+
+# ── HTTP endpoint: POST /profiles/{name}/validate ────────────────
+
+class TestValidateProfileEndpoint:
+    def test_known_profile_returns_200(self, deep_val_dir):
+        # Seed a profile file.
+        profile = _make_profile()
+        (deep_val_dir / "profiles" / "test-prof.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/test-prof/validate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "valid" in data
+        assert "errors" in data
+        assert "warnings" in data
+
+    def test_unknown_profile_returns_404(self, deep_val_dir):
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/nonexistent/validate")
+        assert resp.status_code == 404
+
+    def test_valid_profile_returns_valid_true(self, deep_val_dir):
+        profile = _make_profile()
+        (deep_val_dir / "profiles" / "valid-prof.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/valid-prof/validate")
+        assert resp.json()["valid"] is True
+
+    def test_profile_with_errors_returns_valid_false(self, deep_val_dir):
+        speakers = {
+            "spk": {"identity": "nonexistent", "role": "satellite", "channel": 0},
+        }
+        profile = _make_profile(speakers=speakers)
+        (deep_val_dir / "profiles" / "bad-prof.yml").write_text(
+            yaml.dump(profile, default_flow_style=False, sort_keys=False))
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/bad-prof/validate")
+        data = resp.json()
+        assert data["valid"] is False
+        assert len(data["errors"]) > 0
+
+
+# ── Unit tests: _compute_target_gains ─────────────────────────────
+
+class TestComputeTargetGains:
+    def test_basic_2way_profile(self):
+        profile = _make_profile(gain_staging={
+            "satellite": {"power_limit_db": -6.0},
+            "subwoofer": {"power_limit_db": -10.0},
+        })
+        gains = _compute_target_gains(profile)
+        assert "gain_left_hp" in gains
+        assert "gain_right_hp" in gains
+        assert "gain_sub1_lp" in gains
+        assert "gain_sub2_lp" in gains
+        # Satellite: 10^(-6/20) ≈ 0.501187
+        assert abs(gains["gain_left_hp"] - 0.501187) < 0.001
+        # Sub: 10^(-10/20) ≈ 0.316228
+        assert abs(gains["gain_sub1_lp"] - 0.316228) < 0.001
+
+    def test_defaults_to_minus_60(self):
+        """Without gain_staging, default is -60 dB."""
+        profile = _make_profile()
+        gains = _compute_target_gains(profile)
+        # 10^(-60/20) = 0.001
+        assert abs(gains["gain_left_hp"] - 0.001) < 0.0001
+
+    def test_empty_speakers(self):
+        profile = _make_profile(speakers={})
+        gains = _compute_target_gains(profile)
+        assert gains == {}
+
+    def test_midrange_uses_satellite_group(self):
+        """Midrange and tweeter roles should use satellite gain group."""
+        profile = {
+            "name": "Test 3way",
+            "topology": "3way",
+            "speakers": {
+                "mid1": {"identity": "x", "role": "midrange", "channel": 0},
+                "tweet1": {"identity": "x", "role": "tweeter", "channel": 1},
+            },
+            "gain_staging": {
+                "satellite": {"power_limit_db": -3.0},
+            },
+        }
+        gains = _compute_target_gains(profile)
+        # Both should use satellite group -> -3 dB
+        assert abs(gains["gain_mid1"] - 10.0 ** (-3.0 / 20.0)) < 0.001
+        assert abs(gains["gain_tweet1"] - 10.0 ** (-3.0 / 20.0)) < 0.001
+
+
+# ── Fixture for activate tests ────────────────────────────────────
+
+@pytest.fixture
+def activate_dir(tmp_path, monkeypatch):
+    """Set up tmp dirs for activate tests: speakers, PW conf, state."""
+    speakers = tmp_path / "speakers"
+    identities = speakers / "identities"
+    profiles = speakers / "profiles"
+    pw_conf = tmp_path / "pw_conf"
+    state = tmp_path / "state"
+    for d in (identities, profiles, pw_conf, state):
+        d.mkdir(parents=True)
+
+    # Seed identities
+    (identities / "test-sat.yml").write_text(
+        yaml.dump(_ID_SAT, default_flow_style=False, sort_keys=False))
+    (identities / "test-sub.yml").write_text(
+        yaml.dump(_ID_SUB, default_flow_style=False, sort_keys=False))
+
+    # Seed a valid profile
+    profile = _make_profile()
+    (profiles / "test-2way.yml").write_text(
+        yaml.dump(profile, default_flow_style=False, sort_keys=False))
+
+    # Seed a profile that fails validation (missing identity)
+    bad_profile = _make_profile(speakers={
+        "spk": {"identity": "nonexistent", "role": "satellite", "channel": 0},
+    })
+    (profiles / "bad-profile.yml").write_text(
+        yaml.dump(bad_profile, default_flow_style=False, sort_keys=False))
+
+    import app.speaker_routes as mod
+    monkeypatch.setattr(mod, "_speakers_dir", lambda: speakers)
+    monkeypatch.setattr(mod, "_PW_CONF_DIR", pw_conf)
+    monkeypatch.setattr(mod, "_ACTIVE_PROFILE_DIR", state)
+
+    return {
+        "tmp_path": tmp_path,
+        "speakers": speakers,
+        "pw_conf": pw_conf,
+        "state": state,
+        "profiles": profiles,
+        "identities": identities,
+    }
+
+
+# ── Async tests: _activate_profile_impl ──────────────────────────
+
+class TestActivateProfileImpl:
+    def _run(self, coro):
+        """Helper to run async coroutine."""
+        return asyncio.get_event_loop().run_until_complete(coro)
+
+    def test_successful_activation_mock_mode(self, activate_dir):
+        """Activate succeeds in mock mode — no mute, config written."""
+        profile = _make_profile()
+        mock_gen = "# mock PW config\ncontext.modules = []\n"
+        with patch(
+            "app.speaker_routes.generate_filter_chain_conf",
+            return_value=mock_gen,
+            create=True,
+        ) as gen_mock:
+            # Monkeypatch the import inside the function
+            import app.speaker_routes as mod
+            orig_impl = mod._activate_profile_impl
+
+            async def patched_impl(name, profile, mute_manager, is_mock):
+                # Patch the lazy import inside _activate_profile_impl
+                with patch.dict("sys.modules", {
+                    "room_correction.pw_config_generator": MagicMock(
+                        generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+                    ),
+                    "room_correction": MagicMock(),
+                }):
+                    return await orig_impl(name, profile, mute_manager, is_mock)
+
+            result = self._run(patched_impl("test-2way", profile, None, True))
+
+        assert result["activated"] is True
+        assert result["profile"] == "test-2way"
+        assert result["safety_flow"] == "skipped"
+        assert "target_gains" in result
+        assert isinstance(result["target_gains"], dict)
+        # Config file should be written
+        conf_path = activate_dir["pw_conf"] / _PW_CONF_FILENAME
+        assert conf_path.exists()
+        # Active profile marker should be written
+        marker = activate_dir["state"] / "active-profile.yml"
+        assert marker.exists()
+        marker_data = yaml.safe_load(marker.read_text())
+        assert marker_data["profile"] == "test-2way"
+
+    def test_validation_failure_blocks_activation(self, activate_dir):
+        """Profile with validation errors should not activate."""
+        bad_profile = _make_profile(speakers={
+            "spk": {"identity": "nonexistent", "role": "satellite", "channel": 0},
+        })
+        result = self._run(
+            _activate_profile_impl("bad-profile", bad_profile, None, True)
+        )
+        assert result["activated"] is False
+        assert result["error"] == "validation_failed"
+        assert result["validation"]["valid"] is False
+        # No config file should be written
+        conf_path = activate_dir["pw_conf"] / _PW_CONF_FILENAME
+        assert not conf_path.exists()
+
+    def test_mute_failure_blocks_activation(self, activate_dir):
+        """If mute fails (non-mock), activation should abort."""
+        profile = _make_profile()
+        mock_mute = AsyncMock(return_value={"ok": False, "error": "pw-cli timeout"})
+        mute_mgr = MagicMock()
+        mute_mgr.mute = mock_mute
+
+        result = self._run(
+            _activate_profile_impl("test-2way", profile, mute_mgr, False)
+        )
+        assert result["activated"] is False
+        assert result["error"] == "mute_failed"
+        assert "pw-cli timeout" in result["detail"]
+        # No config file should be written
+        conf_path = activate_dir["pw_conf"] / _PW_CONF_FILENAME
+        assert not conf_path.exists()
+
+    def test_mute_skipped_in_mock_mode(self, activate_dir):
+        """Mock mode skips mute even if mute_manager is provided."""
+        profile = _make_profile()
+        mock_mute = AsyncMock()
+        mute_mgr = MagicMock()
+        mute_mgr.mute = mock_mute
+        mock_gen = "# mock PW config\n"
+
+        async def run():
+            with patch.dict("sys.modules", {
+                "room_correction.pw_config_generator": MagicMock(
+                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+                ),
+                "room_correction": MagicMock(),
+            }):
+                return await _activate_profile_impl(
+                    "test-2way", profile, mute_mgr, True
+                )
+
+        result = self._run(run())
+        assert result["activated"] is True
+        mock_mute.assert_not_called()
+
+    def test_mute_called_in_non_mock_mode(self, activate_dir):
+        """Non-mock mode calls mute before config generation."""
+        profile = _make_profile()
+        mock_mute = AsyncMock(return_value={"ok": True})
+        mute_mgr = MagicMock()
+        mute_mgr.mute = mock_mute
+        mock_gen = "# mock PW config\n"
+
+        async def run():
+            with patch.dict("sys.modules", {
+                "room_correction.pw_config_generator": MagicMock(
+                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+                ),
+                "room_correction": MagicMock(),
+            }):
+                return await _activate_profile_impl(
+                    "test-2way", profile, mute_mgr, False
+                )
+
+        result = self._run(run())
+        assert result["activated"] is True
+        assert result["safety_flow"] == "muted"
+        mock_mute.assert_called_once()
+
+    def test_config_generation_failure(self, activate_dir):
+        """If PW config generation raises, activation fails gracefully."""
+        profile = _make_profile()
+
+        async def run():
+            with patch.dict("sys.modules", {
+                "room_correction.pw_config_generator": MagicMock(
+                    generate_filter_chain_conf=MagicMock(
+                        side_effect=RuntimeError("missing identity file")
+                    )
+                ),
+                "room_correction": MagicMock(),
+            }):
+                return await _activate_profile_impl(
+                    "test-2way", profile, None, True
+                )
+
+        result = self._run(run())
+        assert result["activated"] is False
+        assert result["error"] == "config_generation_failed"
+        assert "missing identity" in result["detail"]
+
+    def test_target_gains_in_result(self, activate_dir):
+        """Successful activation includes target gains for ramp-up."""
+        profile = _make_profile(gain_staging={
+            "satellite": {"power_limit_db": -6.0},
+            "subwoofer": {"power_limit_db": -10.0},
+        })
+        mock_gen = "# mock PW config\n"
+
+        async def run():
+            with patch.dict("sys.modules", {
+                "room_correction.pw_config_generator": MagicMock(
+                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+                ),
+                "room_correction": MagicMock(),
+            }):
+                return await _activate_profile_impl(
+                    "test-2way", profile, None, True
+                )
+
+        result = self._run(run())
+        assert result["activated"] is True
+        tg = result["target_gains"]
+        assert "gain_left_hp" in tg
+        assert abs(tg["gain_left_hp"] - 0.501187) < 0.001
+
+    def test_warnings_included_in_result(self, activate_dir):
+        """Activation result includes validation warnings."""
+        # 3 speakers for 2way triggers topology_count warning
+        profile = _make_profile(speakers={
+            "sat_left": {"identity": "test-sat", "role": "satellite", "channel": 0, "filter_type": "highpass"},
+            "sat_right": {"identity": "test-sat", "role": "satellite", "channel": 1, "filter_type": "highpass"},
+            "sub1": {"identity": "test-sub", "role": "subwoofer", "channel": 2, "filter_type": "lowpass"},
+        })
+        mock_gen = "# mock PW config\n"
+
+        async def run():
+            with patch.dict("sys.modules", {
+                "room_correction.pw_config_generator": MagicMock(
+                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+                ),
+                "room_correction": MagicMock(),
+            }):
+                return await _activate_profile_impl(
+                    "test-2way", profile, None, True
+                )
+
+        result = self._run(run())
+        assert result["activated"] is True
+        assert "warnings" in result
+        warning_checks = [w["check"] for w in result["warnings"]]
+        assert "topology_count" in warning_checks
+
+
+# ── HTTP endpoint: POST /profiles/{name}/activate ─────────────────
+
+class TestActivateProfileEndpoint:
+    def test_activate_known_profile_mock_mode(self, activate_dir, monkeypatch):
+        """POST activate returns 200 for a valid profile in mock mode."""
+        monkeypatch.setenv("PI_AUDIO_MOCK", "1")
+        mock_gen = "# mock PW config\n"
+        with patch.dict("sys.modules", {
+            "room_correction.pw_config_generator": MagicMock(
+                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+            ),
+            "room_correction": MagicMock(),
+        }):
+            client = TestClient(app)
+            resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["activated"] is True
+        assert data["profile"] == "test-2way"
+
+    def test_activate_unknown_profile_returns_404(self, activate_dir):
+        """POST activate for nonexistent profile returns 404."""
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/no-such-thing/activate")
+        assert resp.status_code == 404
+
+    def test_activate_invalid_profile_returns_422(self, activate_dir, monkeypatch):
+        """POST activate for profile with validation errors returns 422."""
+        monkeypatch.setenv("PI_AUDIO_MOCK", "1")
+        client = TestClient(app)
+        resp = client.post("/api/v1/speakers/profiles/bad-profile/activate")
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["activated"] is False
+        assert data["error"] == "validation_failed"
+
+    def test_activate_writes_config_file(self, activate_dir, monkeypatch):
+        """Activation writes the PW config file to the expected path."""
+        monkeypatch.setenv("PI_AUDIO_MOCK", "1")
+        mock_gen = "# PW filter-chain config\ncontext.modules = []\n"
+        with patch.dict("sys.modules", {
+            "room_correction.pw_config_generator": MagicMock(
+                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+            ),
+            "room_correction": MagicMock(),
+        }):
+            client = TestClient(app)
+            resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
+        assert resp.status_code == 200
+        conf_file = activate_dir["pw_conf"] / _PW_CONF_FILENAME
+        assert conf_file.exists()
+        assert "context.modules" in conf_file.read_text()
+
+    def test_activate_writes_active_marker(self, activate_dir, monkeypatch):
+        """Activation writes the active-profile.yml marker."""
+        monkeypatch.setenv("PI_AUDIO_MOCK", "1")
+        mock_gen = "# mock\n"
+        with patch.dict("sys.modules", {
+            "room_correction.pw_config_generator": MagicMock(
+                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+            ),
+            "room_correction": MagicMock(),
+        }):
+            client = TestClient(app)
+            resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
+        assert resp.status_code == 200
+        marker = activate_dir["state"] / "active-profile.yml"
+        assert marker.exists()
+        data = yaml.safe_load(marker.read_text())
+        assert data["profile"] == "test-2way"
+
+    def test_activate_response_has_instructions(self, activate_dir, monkeypatch):
+        """Response includes user-facing instructions about mute state."""
+        monkeypatch.setenv("PI_AUDIO_MOCK", "1")
+        mock_gen = "# mock\n"
+        with patch.dict("sys.modules", {
+            "room_correction.pw_config_generator": MagicMock(
+                generate_filter_chain_conf=MagicMock(return_value=mock_gen)
+            ),
+            "room_correction": MagicMock(),
+        }):
+            client = TestClient(app)
+            resp = client.post("/api/v1/speakers/profiles/test-2way/activate")
+        data = resp.json()
+        assert "instructions" in data
+        assert "Mock mode" in data["instructions"]
