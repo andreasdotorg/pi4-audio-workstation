@@ -8,7 +8,7 @@
  *   - VERIFY: D-009, min-phase, format, crossover sum, loaded checks
  *
  * Pre-flight checks query real backend endpoints (UMIK-1 calibration,
- * GraphManager mode). Pipeline visualization still uses mock simulation.
+ * GraphManager mode). Pipeline visualization driven by backend progress.
  */
 
 "use strict";
@@ -101,9 +101,9 @@
                 updatePreflightSummary();
             })
             .catch(function () {
-                setIndicator("#rc-pf-profile", "OK", "c-safe");
-                setIndicatorTooltip("#rc-pf-profile", "Profile selected (validation endpoint unavailable)");
-                preflightResults.profile = true;
+                setIndicator("#rc-pf-profile", "UNVERIFIED", "c-warning");
+                setIndicatorTooltip("#rc-pf-profile", "Validation endpoint unavailable -- profile not verified");
+                preflightResults.profile = false;
                 updatePreflightSummary();
             });
     }
@@ -419,35 +419,6 @@
         }
     }
 
-    // -- Mock simulation (remove when backend is ready) --
-
-    function simulatePipelineMock() {
-        var steps = ["average", "target", "inversion", "crossover", "minphase", "export"];
-        var idx = 0;
-
-        function tick() {
-            if (idx >= steps.length) {
-                // Pipeline done - show mock channel cards
-                renderChannelCards({
-                    "left_hp": { all_pass: true, d009_pass: true, d009_peak_db: -1.2, min_phase_pass: true, format_pass: true, path: "/tmp/output/combined_left_hp.wav" },
-                    "right_hp": { all_pass: true, d009_pass: true, d009_peak_db: -1.1, min_phase_pass: true, format_pass: true, path: "/tmp/output/combined_right_hp.wav" },
-                    "sub1_lp": { all_pass: true, d009_pass: true, d009_peak_db: -0.8, min_phase_pass: true, format_pass: true, path: "/tmp/output/combined_sub1_lp.wav" },
-                    "sub2_lp": { all_pass: true, d009_pass: true, d009_peak_db: -0.9, min_phase_pass: true, format_pass: true, path: "/tmp/output/combined_sub2_lp.wav" }
-                });
-                return;
-            }
-            var stepId = "rc-step-" + steps[idx];
-            setPipelineStep(stepId, "...", "c-warning");
-            setTimeout(function () {
-                setPipelineStep(stepId, "DONE", "c-safe");
-                idx++;
-                setTimeout(tick, 300);
-            }, 500);
-        }
-
-        tick();
-    }
-
     // -- Event binding --
 
     function bindEvents() {
@@ -492,7 +463,6 @@
         onFilterGenProgress: onFilterGenProgress,
         onDeployProgress: onDeployProgress,
         onVerifyProgress: onVerifyProgress,
-        simulatePipelineMock: simulatePipelineMock,
         loadSetupProfiles: loadSetupProfiles,
         runPreflightChecks: runPreflightChecks,
         buildChannelsFromProfile: buildChannelsFromProfile
