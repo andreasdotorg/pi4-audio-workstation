@@ -1,9 +1,11 @@
-"""Tests for US-090: FIR generation API endpoint.
+"""Tests for US-090: FIR generation and deployment API endpoints.
 
 Covers:
     - Request validation (n_taps, sample_rate)
     - POST /api/v1/filters/generate with mocked pipeline
     - GET /api/v1/filters/profiles lists available profiles
+    - POST /api/v1/filters/deploy with D-009 safety interlock
+    - POST /api/v1/filters/reload-pw with confirmation requirement
     - Error handling (profile not found, pipeline failure)
     - VerificationResult serialization
 """
@@ -18,6 +20,8 @@ from app.main import app
 try:
     from app.filter_routes import (
         FilterGenerateRequest,
+        FilterDeployRequest,
+        ReloadPWRequest,
         VerificationResult,
         _PROFILES_DIR,
     )
@@ -32,20 +36,24 @@ def client():
     return TestClient(app)
 
 
-def _mock_pipeline_result(profile="bose-home", all_pass=True):
+def _mock_pipeline_result(profile="bose-home", all_pass=True, mode="crossover_only",
+                          channels=None):
     """Build a realistic pipeline result dict for mocking."""
+    if channels is None:
+        channels = {
+            "sat_left": "/tmp/test-output/combined_sat_left.wav",
+            "sat_right": "/tmp/test-output/combined_sat_right.wav",
+            "sub1": "/tmp/test-output/combined_sub1.wav",
+            "sub2": "/tmp/test-output/combined_sub2.wav",
+        }
     return {
         "profile": profile,
+        "mode": mode,
         "output_dir": "/tmp/test-output",
-        "channels": {
-            "left_hp": "/tmp/test-output/combined_left_hp.wav",
-            "right_hp": "/tmp/test-output/combined_right_hp.wav",
-            "sub1_lp": "/tmp/test-output/combined_sub1_lp.wav",
-            "sub2_lp": "/tmp/test-output/combined_sub2_lp.wav",
-        },
+        "channels": channels,
         "verification": [
             {
-                "channel": "left_hp",
+                "channel": list(channels.keys())[0],
                 "d009_pass": True,
                 "d009_peak_db": -1.2,
                 "min_phase_pass": True,
@@ -72,6 +80,8 @@ class TestFilterGenerateRequest:
         assert req.generate_pw_conf is True
         assert req.target_phon is None
         assert req.reference_phon == 80.0
+        assert req.mode == "crossover_only"
+        assert req.session_dir is None
 
     def test_valid_custom(self):
         req = FilterGenerateRequest(
@@ -85,6 +95,23 @@ class TestFilterGenerateRequest:
         assert req.sample_rate == 96000
         assert req.target_phon == 65.0
         assert req.generate_pw_conf is False
+
+    def test_mode_crossover_only(self):
+        req = FilterGenerateRequest(profile="test", mode="crossover_only")
+        assert req.mode == "crossover_only"
+
+    def test_mode_crossover_plus_correction(self):
+        req = FilterGenerateRequest(
+            profile="test",
+            mode="crossover_plus_correction",
+            session_dir="/tmp/session1",
+        )
+        assert req.mode == "crossover_plus_correction"
+        assert req.session_dir == "/tmp/session1"
+
+    def test_invalid_mode(self):
+        with pytest.raises(Exception):
+            FilterGenerateRequest(profile="test", mode="invalid_mode")
 
     def test_invalid_n_taps(self):
         with pytest.raises(Exception):
@@ -280,6 +307,82 @@ class TestGenerateEndpoint:
         data = resp.json()
         assert "pw_conf_path" in data
 
+    @patch("app.filter_routes._run_pipeline")
+    def test_generate_mode_crossover_only(self, mock_pipeline, client):
+        """Default mode should be crossover_only."""
+        mock_pipeline.return_value = _mock_pipeline_result()
+        resp = client.post(
+            "/api/v1/filters/generate",
+            json={"profile": "bose-home"},
+        )
+        assert resp.status_code == 200
+        call_args = mock_pipeline.call_args[0][0]
+        assert call_args.mode == "crossover_only"
+
+    @patch("app.filter_routes._run_pipeline")
+    def test_generate_mode_explicit_crossover_only(self, mock_pipeline, client):
+        """Explicit crossover_only produces same result structure."""
+        mock_pipeline.return_value = _mock_pipeline_result(mode="crossover_only")
+        resp = client.post(
+            "/api/v1/filters/generate",
+            json={"profile": "bose-home", "mode": "crossover_only"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["mode"] == "crossover_only"
+
+    @patch("app.filter_routes._run_pipeline")
+    def test_generate_mode_crossover_plus_correction(self, mock_pipeline, client):
+        """crossover_plus_correction mode accepted with session_dir."""
+        mock_pipeline.return_value = _mock_pipeline_result(
+            mode="crossover_plus_correction",
+        )
+        resp = client.post(
+            "/api/v1/filters/generate",
+            json={
+                "profile": "bose-home",
+                "mode": "crossover_plus_correction",
+                "session_dir": "/tmp/session1",
+            },
+        )
+        assert resp.status_code == 200
+        call_args = mock_pipeline.call_args[0][0]
+        assert call_args.mode == "crossover_plus_correction"
+        assert call_args.session_dir == "/tmp/session1"
+
+    def test_generate_invalid_mode(self, client):
+        """Invalid mode should return 422."""
+        resp = client.post(
+            "/api/v1/filters/generate",
+            json={"profile": "test", "mode": "bad_mode"},
+        )
+        assert resp.status_code == 422
+
+    @patch("app.filter_routes._run_pipeline")
+    def test_generate_3way_profile(self, mock_pipeline, client):
+        """N-way (3-way) profile should return correct channel keys."""
+        channels_3way = {
+            "bass": "/tmp/test-output/combined_bass.wav",
+            "mid": "/tmp/test-output/combined_mid.wav",
+            "hf": "/tmp/test-output/combined_hf.wav",
+            "sub1": "/tmp/test-output/combined_sub1.wav",
+        }
+        mock_pipeline.return_value = _mock_pipeline_result(
+            profile="meh-3way-template",
+            channels=channels_3way,
+        )
+        resp = client.post(
+            "/api/v1/filters/generate",
+            json={"profile": "meh-3way-template"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["channels"]) == 4
+        assert "bass" in data["channels"]
+        assert "mid" in data["channels"]
+        assert "hf" in data["channels"]
+        assert "sub1" in data["channels"]
+
 
 # -- GET /api/v1/filters/profiles -------------------------------------------
 
@@ -297,3 +400,230 @@ class TestProfilesEndpoint:
         profiles = resp.json()["profiles"]
         if _PROFILES_DIR.is_dir() and any(_PROFILES_DIR.glob("*.yml")):
             assert len(profiles) >= 1
+
+
+# -- Request model validation (deploy) --------------------------------------
+
+class TestFilterDeployRequest:
+    def test_valid_defaults(self):
+        req = FilterDeployRequest(output_dir="/tmp/filters")
+        assert req.output_dir == "/tmp/filters"
+        assert req.coeffs_dir is None
+        assert req.pw_conf_dir is None
+        assert req.dry_run is False
+
+    def test_custom_dirs(self):
+        req = FilterDeployRequest(
+            output_dir="/tmp/filters",
+            coeffs_dir="/tmp/coeffs",
+            pw_conf_dir="/tmp/pw",
+            dry_run=True,
+        )
+        assert req.coeffs_dir == "/tmp/coeffs"
+        assert req.pw_conf_dir == "/tmp/pw"
+        assert req.dry_run is True
+
+
+class TestReloadPWRequest:
+    def test_default_not_confirmed(self):
+        req = ReloadPWRequest()
+        assert req.confirmed is False
+
+    def test_confirmed(self):
+        req = ReloadPWRequest(confirmed=True)
+        assert req.confirmed is True
+
+
+# -- POST /api/v1/filters/deploy -------------------------------------------
+
+class TestDeployEndpoint:
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_success(self, mock_deploy, client):
+        mock_deploy.return_value = {
+            "deployed": True,
+            "dry_run": False,
+            "deployed_paths": ["/etc/pi4audio/coeffs/combined_left_hp.wav"],
+            "pw_conf_deployed": "/home/ela/.config/pipewire/pipewire.conf.d/30-filter-chain-convolver.conf",
+            "verification": [
+                {"file": "combined_left_hp.wav", "d009_pass": True, "d009_peak_db": -1.2},
+            ],
+            "reload_required": True,
+            "reload_warning": "PipeWire must be restarted...",
+        }
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={"output_dir": "/tmp/test-output"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deployed"] is True
+        assert data["reload_required"] is True
+        assert "reload_warning" in data
+        assert len(data["deployed_paths"]) == 1
+        assert len(data["verification"]) == 1
+
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_d009_rejected(self, mock_deploy, client):
+        """Filters failing D-009 must be rejected (safety interlock)."""
+        mock_deploy.return_value = {
+            "deployed": False,
+            "reason": "d009_failed",
+            "detail": "One or more filters exceed D-009 gain ceiling (-0.5 dB). "
+                      "Deployment refused for safety.",
+            "verification": [
+                {"file": "combined_left_hp.wav", "d009_pass": False, "d009_peak_db": 0.3},
+            ],
+        }
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={"output_dir": "/tmp/test-output"},
+        )
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["deployed"] is False
+        assert data["reason"] == "d009_failed"
+        assert data["verification"][0]["d009_pass"] is False
+
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_no_filters(self, mock_deploy, client):
+        """Empty output directory should be rejected."""
+        mock_deploy.return_value = {
+            "deployed": False,
+            "reason": "no_filters",
+            "detail": "No combined_*.wav files found in /tmp/empty",
+            "verification": [],
+        }
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={"output_dir": "/tmp/empty"},
+        )
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["reason"] == "no_filters"
+
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_dir_not_found(self, mock_deploy, client):
+        mock_deploy.side_effect = FileNotFoundError("Output directory not found: /nonexistent")
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={"output_dir": "/nonexistent"},
+        )
+        assert resp.status_code == 404
+        assert resp.json()["error"] == "not_found"
+
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_internal_error(self, mock_deploy, client):
+        mock_deploy.side_effect = RuntimeError("Disk full")
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={"output_dir": "/tmp/test-output"},
+        )
+        assert resp.status_code == 500
+        assert resp.json()["error"] == "deploy_failed"
+
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_dry_run(self, mock_deploy, client):
+        mock_deploy.return_value = {
+            "deployed": True,
+            "dry_run": True,
+            "deployed_paths": ["/etc/pi4audio/coeffs/combined_left_hp.wav"],
+            "pw_conf_deployed": None,
+            "verification": [
+                {"file": "combined_left_hp.wav", "d009_pass": True, "d009_peak_db": -1.5},
+            ],
+            "reload_required": True,
+            "reload_warning": "PipeWire must be restarted...",
+        }
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={"output_dir": "/tmp/test-output", "dry_run": True},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+
+    @patch("app.filter_routes._run_deploy")
+    def test_deploy_passes_custom_dirs(self, mock_deploy, client):
+        """Custom coeffs_dir and pw_conf_dir should be passed through."""
+        mock_deploy.return_value = {
+            "deployed": True,
+            "dry_run": False,
+            "deployed_paths": [],
+            "pw_conf_deployed": None,
+            "verification": [],
+            "reload_required": True,
+            "reload_warning": "...",
+        }
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={
+                "output_dir": "/tmp/test-output",
+                "coeffs_dir": "/tmp/custom-coeffs",
+                "pw_conf_dir": "/tmp/custom-pw",
+            },
+        )
+        assert resp.status_code == 200
+        call_args = mock_deploy.call_args[0][0]
+        assert call_args.coeffs_dir == "/tmp/custom-coeffs"
+        assert call_args.pw_conf_dir == "/tmp/custom-pw"
+
+    def test_deploy_missing_output_dir(self, client):
+        resp = client.post(
+            "/api/v1/filters/deploy",
+            json={},
+        )
+        assert resp.status_code == 422
+
+
+# -- POST /api/v1/filters/reload-pw ----------------------------------------
+
+class TestReloadPWEndpoint:
+    def test_reload_without_confirmation(self, client):
+        """Reload must be rejected without confirmed=true."""
+        resp = client.post(
+            "/api/v1/filters/reload-pw",
+            json={},
+        )
+        assert resp.status_code == 400
+        data = resp.json()
+        assert data["error"] == "confirmation_required"
+        assert "USBStreamer" in data["detail"]
+
+    def test_reload_confirmed_false(self, client):
+        """Explicit confirmed=false should also be rejected."""
+        resp = client.post(
+            "/api/v1/filters/reload-pw",
+            json={"confirmed": False},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "confirmation_required"
+
+    @patch("room_correction.deploy.reload_pipewire", return_value=True)
+    def test_reload_confirmed_success(self, mock_reload, client):
+        resp = client.post(
+            "/api/v1/filters/reload-pw",
+            json={"confirmed": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["reloaded"] is True
+        mock_reload.assert_called_once()
+
+    @patch("room_correction.deploy.reload_pipewire", return_value=False)
+    def test_reload_confirmed_unavailable(self, mock_reload, client):
+        """When systemctl is missing or restart fails, return 503."""
+        resp = client.post(
+            "/api/v1/filters/reload-pw",
+            json={"confirmed": True},
+        )
+        assert resp.status_code == 503
+        data = resp.json()
+        assert data["error"] == "reload_unavailable"
+
+    @patch("room_correction.deploy.reload_pipewire", side_effect=RuntimeError("systemd crashed"))
+    def test_reload_exception(self, mock_reload, client):
+        resp = client.post(
+            "/api/v1/filters/reload-pw",
+            json={"confirmed": True},
+        )
+        assert resp.status_code == 500
+        assert resp.json()["error"] == "reload_failed"
