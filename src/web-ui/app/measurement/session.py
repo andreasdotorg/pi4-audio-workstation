@@ -240,10 +240,12 @@ class MeasurementSession:
         self._filter_gen_result: Optional[Dict[str, Any]] = None
         self._deploy_result: Optional[Dict[str, Any]] = None
         self._recordings: Dict[str, np.ndarray] = {}  # US-096: raw recordings for cal
-        # Deconvolved impulse responses per channel/position (populated by
-        # future deconvolution step; used by _build_correction_filters for
+        # Deconvolved impulse responses per channel/position (populated after
+        # each sweep by deconvolution; used by _build_correction_filters for
         # spatial averaging).
         self._impulse_responses: Dict[str, np.ndarray] = {}
+        # Time alignment delays computed from impulse responses (seconds).
+        self._time_alignment_delays: Dict[str, float] = {}
 
         self._broadcast_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._watchdog = MeasurementWatchdog(
@@ -659,6 +661,27 @@ class MeasurementSession:
 
                 key = f"ch{ch.index}_pos{pos}"
                 self._recordings[key] = recording
+
+                # GAP-1 fix: deconvolve recording to extract impulse response.
+                # Uses the same Wiener deconvolution as runner.py stage 2.
+                _ensure_rc_path()
+                from room_correction.deconvolution import deconvolve
+                ir = await asyncio.to_thread(
+                    deconvolve, recording, sweep,
+                    sr=self._config.sample_rate)
+                self._impulse_responses[key] = ir
+
+                # Save IR as WAV for inspection / offline analysis.
+                ir_dir = os.path.join(self._config.output_dir, "impulse_responses")
+                os.makedirs(ir_dir, exist_ok=True)
+                ir_path = os.path.join(ir_dir, f"ir_{key}.wav")
+                from room_correction.export import export_filter
+                await asyncio.to_thread(
+                    export_filter, ir, ir_path,
+                    n_taps=len(ir), sr=self._config.sample_rate)
+                log.info("Deconvolved IR for %s: %d samples, saved %s",
+                         key, len(ir), ir_path)
+
                 peak_dbfs = float(
                     20 * np.log10(max(np.max(np.abs(recording)), 1e-10)))
                 self._sweep_results[key] = {
@@ -689,6 +712,40 @@ class MeasurementSession:
         if self._sd_override is not None:
             mn._sd_override = None
         log.info("Sweep phase complete: %d sweeps", count)
+
+        # GAP-1 fix: compute time alignment delays from deconvolved IRs.
+        # Uses one representative IR per channel (position 0) — same approach
+        # as runner.py stage 3.
+        if self._impulse_responses:
+            _ensure_rc_path()
+            from room_correction import time_align
+            repr_irs: Dict[str, np.ndarray] = {}
+            for ch in self._config.channels:
+                ir_key = f"ch{ch.index}_pos0"
+                if ir_key in self._impulse_responses:
+                    repr_irs[ch.name] = self._impulse_responses[ir_key]
+            if repr_irs:
+                self._time_alignment_delays = time_align.compute_delays(
+                    repr_irs, sr=self._config.sample_rate)
+                delay_samples = time_align.delays_to_samples(
+                    self._time_alignment_delays, sr=self._config.sample_rate)
+                for name, delay_s in self._time_alignment_delays.items():
+                    log.info("Time align %s: %.2fms (%d samples)",
+                             name, delay_s * 1000, delay_samples[name])
+                # Save delays to output dir for deployment.
+                import yaml as _yaml
+                delays_path = os.path.join(
+                    self._config.output_dir, "delays.yml")
+                os.makedirs(self._config.output_dir, exist_ok=True)
+                with open(delays_path, "w") as f:
+                    _yaml.dump({
+                        "delays_ms": {
+                            k: round(v * 1000, 3)
+                            for k, v in self._time_alignment_delays.items()
+                        },
+                        "delays_samples": delay_samples,
+                    }, f, default_flow_style=False)
+                log.info("Saved time alignment to %s", delays_path)
 
     # -- Spatial averaging ---------------------------------------------------
 
@@ -764,9 +821,9 @@ class MeasurementSession:
         """Run the FIR filter generation pipeline (crossover + room correction).
 
         Uses the same pipeline as filter_routes._run_pipeline() but driven
-        by session config rather than a REST request.  The correction filter
-        is currently a Dirac delta (flat); real room correction will be wired
-        when deconvolution of sweep recordings is integrated.
+        by session config rather than a REST request.  Correction filters
+        are built from deconvolved impulse responses (populated by
+        _run_measuring); falls back to crossover-only when no IRs exist.
         """
         self._check_abort("CP-5")
         self._transition(MeasurementState.FILTER_GEN)

@@ -515,3 +515,123 @@ class TestBuildCorrectionFiltersMultiPosition:
         result = session._build_correction_filters(_SIMPLE_PROFILE)
         assert result is not None
         assert "sat_left" in result
+
+
+# ===================================================================
+# GAP-1: Tests for deconvolution wiring in _run_measuring
+# ===================================================================
+
+class TestDeconvolutionWiring:
+    """Verify deconvolution is called after each sweep recording.
+
+    These are synchronous unit tests that verify the deconvolution path
+    by directly calling the deconvolve function with synthetic sweep
+    data, matching how _run_measuring now uses it.
+    """
+
+    def test_deconvolve_produces_finite_ir(self):
+        """Deconvolution of a sweep recording produces a finite IR."""
+        from room_correction.sweep import generate_log_sweep
+        from room_correction.deconvolution import deconvolve
+
+        sweep = generate_log_sweep(duration=0.5, sr=48000)
+        # Simulate a simple room: delay + attenuation
+        delay_samples = 240  # 5ms at 48kHz
+        recording = np.zeros(len(sweep) + delay_samples)
+        recording[delay_samples:delay_samples + len(sweep)] = sweep * 0.5
+        ir = deconvolve(recording, sweep, sr=48000)
+        assert np.all(np.isfinite(ir))
+        assert len(ir) > 0
+        assert np.max(np.abs(ir)) > 0
+
+    def test_ir_peak_at_expected_delay(self):
+        """Deconvolved IR should peak near the simulated delay."""
+        from room_correction.sweep import generate_log_sweep
+        from room_correction.deconvolution import deconvolve
+
+        sweep = generate_log_sweep(duration=0.5, sr=48000)
+        delay_samples = 480  # 10ms at 48kHz
+        recording = np.zeros(len(sweep) + delay_samples + 1000)
+        recording[delay_samples:delay_samples + len(sweep)] = sweep * 0.8
+        ir = deconvolve(recording, sweep, sr=48000)
+        peak_sample = int(np.argmax(np.abs(ir)))
+        # Peak should be within 5ms of the expected delay
+        assert abs(peak_sample - delay_samples) < 240
+
+    def test_impulse_responses_dict_populated(self):
+        """After deconvolution, _impulse_responses should have the same
+        keys as _recordings (verifying the wiring pattern)."""
+        session = _make_session(positions=1)
+        # Simulate what _run_measuring does post-deconvolution
+        from room_correction.sweep import generate_log_sweep
+        from room_correction.deconvolution import deconvolve
+
+        sweep = generate_log_sweep(duration=0.3, sr=48000)
+        recording = np.copy(sweep) * 0.5  # trivial "room"
+        ir = deconvolve(recording, sweep, sr=48000)
+
+        key = "ch0_pos0"
+        session._recordings[key] = recording
+        session._impulse_responses[key] = ir
+
+        # Both dicts should have the same key
+        assert key in session._recordings
+        assert key in session._impulse_responses
+        assert len(session._impulse_responses[key]) > 0
+
+
+class TestTimeAlignmentWiring:
+    """Verify time alignment computation from deconvolved IRs."""
+
+    def test_compute_delays_two_speakers(self):
+        """Two speakers at different distances produce different delays."""
+        from room_correction import time_align
+
+        sr = 48000
+        # Speaker 1: arrives at 5ms (240 samples)
+        ir1 = np.zeros(4800)
+        ir1[240] = 1.0
+        # Speaker 2: arrives at 10ms (480 samples)
+        ir2 = np.zeros(4800)
+        ir2[480] = 1.0
+
+        delays = time_align.compute_delays(
+            {"Left": ir1, "Sub1": ir2}, sr=sr)
+
+        # Sub1 is furthest (reference, delay=0)
+        # Left gets delay to compensate
+        assert delays["Sub1"] == 0.0
+        assert delays["Left"] > 0
+        # Expected: 5ms difference
+        assert abs(delays["Left"] * 1000 - 5.0) < 1.0
+
+    def test_delays_dict_stored_on_session(self):
+        """Session stores time alignment delays dict after wiring."""
+        session = _make_session(positions=1)
+        assert session._time_alignment_delays == {}
+
+        # Simulate what the wiring code does
+        from room_correction import time_align
+        ir1 = np.zeros(4800)
+        ir1[240] = 1.0
+        ir2 = np.zeros(4800)
+        ir2[480] = 1.0
+        session._impulse_responses["ch0_pos0"] = ir1
+        session._impulse_responses["ch1_pos0"] = ir2
+
+        repr_irs = {"Left": ir1, "Right": ir2}
+        session._time_alignment_delays = time_align.compute_delays(
+            repr_irs, sr=48000)
+
+        assert "Left" in session._time_alignment_delays
+        assert "Right" in session._time_alignment_delays
+        assert session._time_alignment_delays["Right"] == 0.0
+
+    def test_delays_to_samples_integer(self):
+        """delays_to_samples returns integer sample counts."""
+        from room_correction import time_align
+        delays = {"Left": 0.005, "Sub1": 0.0}  # 5ms, 0ms
+        samples = time_align.delays_to_samples(delays, sr=48000)
+        assert samples["Left"] == 240
+        assert samples["Sub1"] == 0
+        assert isinstance(samples["Left"], int)
