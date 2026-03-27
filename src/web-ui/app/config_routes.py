@@ -48,7 +48,7 @@ GAIN_LABELS = {
 }
 
 # Allowed quantum values.
-VALID_QUANTUMS = {64, 128, 256, 512, 1024, 2048}
+VALID_QUANTUMS = {64, 128, 256, 512, 1024}  # F-141: removed 2048 (no use case, ALSA mismatch)
 
 router = APIRouter(prefix="/api/v1/config", tags=["config"])
 

@@ -180,7 +180,7 @@ class TestPcmWebSocket:
         }""", timeout=PCM_DATA_TIMEOUT)
 
         text = page.locator("#tt-mic-state").text_content()
-        # Should contain the source name (e.g. "capture-usb" or "monitor").
+        # Should contain the source label (e.g. "UMIK-1" or "Monitor").
         assert "streaming" in text
 
 
@@ -213,7 +213,8 @@ class TestSourceSwitching:
         }""", timeout=PCM_DATA_TIMEOUT)
 
         initial_source = page.locator("#tt-mic-state").text_content()
-        assert "capture-usb" in initial_source
+        # US-088: getSourceLabel maps "capture-usb" → "UMIK-1 (USB capture)".
+        assert "UMIK-1" in initial_source
 
         # Switch away to stop the spectrum.
         page.locator('.nav-tab[data-view="dashboard"]').dispatch_event("click")
@@ -230,15 +231,16 @@ class TestSourceSwitching:
             re.compile(r".*\bactive\b.*"))
 
         # Wait for new connection with the "monitor" source.
+        # US-088: getSourceLabel maps "monitor" → "Monitor (Dashboard)".
         page.wait_for_function("""() => {
             const el = document.getElementById('tt-mic-state');
-            return el && el.textContent.indexOf('monitor') >= 0
+            return el && el.textContent.indexOf('Monitor') >= 0
                 && el.textContent.indexOf('streaming') >= 0;
         }""", timeout=PCM_DATA_TIMEOUT)
 
         text = page.locator("#tt-mic-state").text_content()
-        assert "monitor" in text, (
-            f"Expected 'monitor' in mic status after source switch, got: {text}"
+        assert "Monitor" in text, (
+            f"Expected 'Monitor' in mic status after source switch, got: {text}"
         )
 
 

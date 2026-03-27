@@ -150,13 +150,13 @@ class TestQuantumSelector:
         expect(title).to_have_text("QUANTUM")
 
     def test_quantum_buttons_present(self, page):
-        """Four quantum buttons (256, 512, 1024, 2048) are present."""
+        """Three quantum buttons (256, 512, 1024) are present (F-141: 2048 removed)."""
         _switch_tab(page, "config")
 
         btns = page.locator(".cfg-quantum-btn")
-        assert btns.count() == 4, f"Expected 4 quantum buttons, got {btns.count()}"
+        assert btns.count() == 3, f"Expected 3 quantum buttons, got {btns.count()}"
 
-        expected_values = ["256", "512", "1024", "2048"]
+        expected_values = ["256", "512", "1024"]
         for i, expected in enumerate(expected_values):
             btn = btns.nth(i)
             expect(btn).to_have_text(expected)

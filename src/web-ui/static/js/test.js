@@ -45,6 +45,10 @@
     var sweepEndDebounce = null;
     var currentGmMode = "unknown"; // F-144: tracked from GM query
 
+    // T-088-7: Pre-measurement state saved before auto-defaults.
+    var preMeasFftSize = null;    // FFT size before measurement mode
+    var preMeasPeakHold = null;   // Peak hold state before measurement mode
+
     // -- DOM helpers --
 
     function $(id) { return document.getElementById(id); }
@@ -545,6 +549,12 @@
                 } catch (e) {
                     currentGmMode = "measurement";
                 }
+                // T-088-7: Update labels + status immediately after mode switch.
+                updateSourceSelectorLabels();
+                updateMicStatus(
+                    specPcmConnected ? "connected" : "disconnected",
+                    specCurrentSource
+                );
                 callback();
             } else {
                 var detail = "unknown error";
@@ -555,6 +565,58 @@
             }
         };
         xhr.send("{}");
+    }
+
+    // -- T-088-7: Measurement mode auto-defaults --
+
+    /** Apply measurement-optimized settings when entering measurement mode. */
+    function applyMeasurementDefaults() {
+        // Save current state for restoration.
+        preMeasFftSize = SPEC_FFT_SIZE;
+        var holdBtn = $("tt-peak-hold");
+        preMeasPeakHold = holdBtn ? holdBtn.classList.contains("active") : false;
+
+        // Auto-enable permanent peak hold.
+        if (holdBtn && !holdBtn.classList.contains("active")) {
+            holdBtn.classList.add("active");
+            if (specRenderer) specRenderer.setPeakPermanent(true);
+            var resetBtn = $("tt-peak-reset");
+            if (resetBtn) resetBtn.style.display = "";
+        }
+
+        // Auto-select Measurement FFT preset (16384).
+        var measFft = 16384;
+        if (SPEC_FFT_SIZE !== measFft) {
+            SPEC_FFT_SIZE = measFft;
+            specRecreatePipeline();
+            var fftSelect = $("tt-fft-size");
+            if (fftSelect) fftSelect.value = String(measFft);
+        }
+    }
+
+    /** Restore pre-measurement settings when leaving measurement mode. */
+    function restorePreviousDefaults() {
+        // Restore FFT size.
+        if (preMeasFftSize !== null && preMeasFftSize !== SPEC_FFT_SIZE) {
+            SPEC_FFT_SIZE = preMeasFftSize;
+            specRecreatePipeline();
+            var fftSelect = $("tt-fft-size");
+            if (fftSelect) fftSelect.value = String(preMeasFftSize);
+        }
+        preMeasFftSize = null;
+
+        // Restore peak hold state.
+        if (preMeasPeakHold !== null) {
+            var holdBtn = $("tt-peak-hold");
+            var wasActive = holdBtn ? holdBtn.classList.contains("active") : false;
+            if (wasActive && !preMeasPeakHold) {
+                holdBtn.classList.remove("active");
+                if (specRenderer) specRenderer.setPeakPermanent(false);
+                var resetBtn = $("tt-peak-reset");
+                if (resetBtn) resetBtn.style.display = "none";
+            }
+        }
+        preMeasPeakHold = null;
     }
 
     // -- PLAY / STOP --
@@ -787,7 +849,11 @@
      * Subtracts the mic's dB deviation so the display shows true SPL.
      */
     function applyCalibration(freqData) {
+        // T-088-7: Only apply UMIK-1 calibration in measurement mode.
+        // In other modes, pcm-bridge carries app output (Mixxx/Reaper),
+        // not mic data — calibration correction would be wrong.
         if (!calEnabled || !calBinLUT || !freqData) return;
+        if (currentGmMode !== "measurement") return;
         var len = Math.min(freqData.length, calBinLUT.length);
         for (var i = 0; i < len; i++) {
             freqData[i] -= calBinLUT[i];
