@@ -26,6 +26,7 @@
     --bg: #0c0b14;
     --bg-panel: #131221;
     --bg-meter: #171626;
+    --bg-spectrum: #0e0d18;
     --bg-bar: #28293a;
     --bg-elevated: #1e1e30;
     --border: #546;
@@ -491,7 +492,7 @@ html, body {
 }
 
 .meter-group--inactive .meter-channel {
-    opacity: 0.5;
+    opacity: 0.6;
 }
 
 .meter-group--inactive .meter-group-label {
@@ -584,7 +585,7 @@ html, body {
 .meter-label {
     font-size: 8px;
     font-weight: 600;
-    color: #9aa3b0;
+    color: var(--text-label);
     text-align: center;
     letter-spacing: 0.03em;
     white-space: nowrap;
@@ -596,7 +597,7 @@ html, body {
 .meter-db-value {
     font-size: 9px;
     font-weight: 600;
-    color: #9aa3b0;
+    color: var(--text);
     font-family: var(--font-numeric);
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
@@ -663,7 +664,7 @@ html, body {
     position: absolute;
     right: 2px;
     font-size: 7px;
-    color: #8a94a4;
+    color: var(--text-dim);
     line-height: 1;
     transform: translateY(-50%);
     font-variant-numeric: tabular-nums;
@@ -1007,7 +1008,7 @@ html, body {
     flex: 1;
     position: relative;
     min-height: 140px;
-    background: var(--bg-meter);
+    background: var(--bg-spectrum);
     border-radius: 2px;
 }
 
@@ -1050,7 +1051,7 @@ html, body {
     width: 100%;
     height: 100%;
     display: block;
-    background: var(--bg-meter);
+    background: var(--bg-spectrum);
 }
 
 /* -- Event log (System view) --------------------------------------------- */
@@ -2114,7 +2115,7 @@ html, body {
 .tt-spectrum-container {
     position: relative;
     min-height: 200px;
-    background: var(--bg-meter);
+    background: var(--bg-spectrum);
     border-radius: 2px;
     aspect-ratio: 3 / 2;
     max-height: 400px;

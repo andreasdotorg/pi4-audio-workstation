@@ -192,10 +192,10 @@
         function resolveColors() {
             if (bgColor) return;
             if (typeof PiAudio !== "undefined" && PiAudio.cssVar) {
-                bgColor = PiAudio.cssVar("--bg-meter");
+                bgColor = PiAudio.cssVar("--bg-spectrum") || PiAudio.cssVar("--bg-meter");
                 labelColor = PiAudio.cssVar("--text-label");
             } else {
-                bgColor = "#171626";
+                bgColor = "#0e0d18";
                 labelColor = "#6a7280";
             }
             gridColor = "rgba(200, 205, 214, 0.22)";

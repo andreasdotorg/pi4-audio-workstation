@@ -149,7 +149,7 @@
             var rate = currentSampleRate || 48000;
             var ms = (quantum / rate * 1000).toFixed(1);
             var rateKhz = (rate / 1000).toFixed(0);
-            latencyEl.textContent = ms + " ms at " + rateKhz + " kHz";
+            latencyEl.textContent = "Latency: " + ms + " ms at " + rateKhz + " kHz";
         }
     }
 

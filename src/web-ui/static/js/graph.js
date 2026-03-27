@@ -636,22 +636,18 @@
             }
         }
 
-        // Append in SVG painter's order: links, then nodes
-        group.appendChild(linksGroup);
+        // Append in SVG painter's order: nodes first, then links on top
+        // (F-054: links must render above nodes so connection paths are visible)
 
         // Append source nodes
         for (var as = 0; as < builtSources.length; as++) {
             group.appendChild(builtSources[as].built.g);
         }
 
-        // Append DSP nodes (or internal expansion)
+        // Append DSP nodes (or internal expansion) — nodes only, links deferred
         for (var ad = 0; ad < builtDsp.length; ad++) {
             if (builtDsp[ad].internal) {
                 var ie = builtDsp[ad].internal;
-                // Internal links
-                for (var il = 0; il < ie.internalLinks.length; il++) {
-                    group.appendChild(ie.internalLinks[il]);
-                }
                 // Convolver nodes
                 for (var ic = 0; ic < ie.convNodes.length; ic++) {
                     group.appendChild(ie.convNodes[ic].node.g);
@@ -669,6 +665,18 @@
         for (var ao = 0; ao < builtOutputs.length; ao++) {
             group.appendChild(builtOutputs[ao].built.g);
         }
+
+        // Append all links ON TOP of nodes (F-054)
+        // Internal links first (conv->gain), then external links
+        for (var ad2 = 0; ad2 < builtDsp.length; ad2++) {
+            if (builtDsp[ad2].internal) {
+                var ie2 = builtDsp[ad2].internal;
+                for (var il = 0; il < ie2.internalLinks.length; il++) {
+                    group.appendChild(ie2.internalLinks[il]);
+                }
+            }
+        }
+        group.appendChild(linksGroup);
 
         svgEl.appendChild(group);
 
