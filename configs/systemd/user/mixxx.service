@@ -9,6 +9,17 @@ Type=simple
 ExecStart=%h/bin/start-mixxx
 Restart=on-failure
 RestartSec=5
+
+# RT scheduling: inherited from PipeWire, not set here (F-033).
+# PipeWire's RT module promotes only the JACK bridge data thread to
+# SCHED_FIFO at PipeWire's own priority (~83-88). All other Mixxx threads
+# (GUI, library scanner, database, waveform renderer) remain SCHED_OTHER.
+# We do NOT set CPUSchedulingPolicy=fifo — that would make ALL threads RT,
+# causing priority inversion. Instead we grant the resource limits PipeWire
+# needs to promote the data thread on PREEMPT_RT kernels.
+LimitRTPRIO=88
+LimitMEMLOCK=infinity
+
 # Mixxx needs the Wayland display for GUI rendering (hardware V3D GL, D-022).
 # start-mixxx.sh inherits WAYLAND_DISPLAY from the user environment and
 # probes the JACK bridge before exec'ing pw-jack mixxx.
