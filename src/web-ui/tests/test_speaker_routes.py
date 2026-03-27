@@ -26,7 +26,7 @@ try:
     from app.speaker_routes import (
         _list_yamls, _read_yaml, _speakers_dir, _SAFE_NAME,
         _validate_identity, _validate_profile, _slugify,
-        _write_yaml, _delete_yaml,
+        _write_yaml, _delete_yaml, _deep_validate_profile,
         _VALID_TOPOLOGIES, _VALID_ROLES, _VALID_ENCLOSURE_TYPES,
         _VALID_GM_MODES, _MAX_CHANNEL,
     )
@@ -493,3 +493,202 @@ class TestDeleteProfile:
         write_client.delete("/api/v1/speakers/profiles/seed-profile")
         resp = write_client.get("/api/v1/speakers/profiles/seed-profile")
         assert resp.status_code == 404
+
+
+# ── Multi-way topology validation ────────────────────────────────
+
+_VALID_3WAY_PROFILE = {
+    "name": "3-Way PA System",
+    "topology": "3way",
+    "crossover": [
+        {"frequency_hz": 250, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        {"frequency_hz": 2500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+    ],
+    "speakers": {
+        "sub_left": {"identity": "sub-18", "role": "subwoofer", "channel": 0},
+        "sub_right": {"identity": "sub-18", "role": "subwoofer", "channel": 1},
+        "mid_left": {"identity": "mid-12", "role": "midrange", "channel": 2},
+        "mid_right": {"identity": "mid-12", "role": "midrange", "channel": 3},
+        "tweet_left": {"identity": "tweet-1", "role": "tweeter", "channel": 4},
+        "tweet_right": {"identity": "tweet-1", "role": "tweeter", "channel": 5},
+    },
+}
+
+_VALID_4WAY_PROFILE = {
+    "name": "4-Way PA System",
+    "topology": "4way",
+    "crossover": [
+        {"frequency_hz": 80, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        {"frequency_hz": 500, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+        {"frequency_hz": 4000, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+    ],
+    "speakers": {
+        "sub_left": {"identity": "sub-18", "role": "subwoofer", "channel": 0},
+        "sub_right": {"identity": "sub-18", "role": "subwoofer", "channel": 1},
+        "mid_left": {"identity": "mid-12", "role": "midrange", "channel": 2},
+        "mid_right": {"identity": "mid-12", "role": "midrange", "channel": 3},
+        "upper_mid_left": {"identity": "umid-6", "role": "midrange", "channel": 4},
+        "upper_mid_right": {"identity": "umid-6", "role": "midrange", "channel": 5},
+        "tweet_left": {"identity": "tweet-1", "role": "tweeter", "channel": 6},
+        "tweet_right": {"identity": "tweet-1", "role": "tweeter", "channel": 7},
+    },
+}
+
+_VALID_MEH_PROFILE = {
+    "name": "MEH 3-Way Horn System",
+    "topology": "meh",
+    "crossover": [
+        {"frequency_hz": 300, "slope_db_per_oct": 96, "type": "linkwitz-riley"},
+        {"frequency_hz": 3000, "slope_db_per_oct": 96, "type": "linkwitz-riley"},
+    ],
+    "speakers": {
+        "sub_left": {"identity": "sub-18-horn", "role": "subwoofer", "channel": 0,
+                     "enclosure_type": "horn", "delay_ms": 2.5},
+        "sub_right": {"identity": "sub-18-horn", "role": "subwoofer", "channel": 1,
+                      "enclosure_type": "horn", "delay_ms": 2.5},
+        "mid_left": {"identity": "meh-mid", "role": "midrange", "channel": 2,
+                     "enclosure_type": "horn", "delay_ms": 1.0},
+        "mid_right": {"identity": "meh-mid", "role": "midrange", "channel": 3,
+                      "enclosure_type": "horn", "delay_ms": 1.0},
+        "tweet_left": {"identity": "meh-tweet", "role": "tweeter", "channel": 4,
+                       "enclosure_type": "horn", "delay_ms": 0.0},
+        "tweet_right": {"identity": "meh-tweet", "role": "tweeter", "channel": 5,
+                        "enclosure_type": "horn", "delay_ms": 0.0},
+    },
+    "mode_constraints": ["dj", "monitoring"],
+}
+
+
+class TestValidate3WayProfile:
+    def test_valid_3way(self):
+        assert _validate_profile(_VALID_3WAY_PROFILE) is None
+
+    def test_3way_single_crossover_still_valid(self):
+        body = {**_VALID_3WAY_PROFILE,
+                "crossover": {"frequency_hz": 250, "slope_db_per_oct": 48, "type": "linkwitz-riley"}}
+        assert _validate_profile(body) is None
+
+    def test_3way_crossover_list_missing_field(self):
+        body = {**_VALID_3WAY_PROFILE,
+                "crossover": [
+                    {"frequency_hz": 250, "slope_db_per_oct": 48, "type": "linkwitz-riley"},
+                    {"frequency_hz": 2500},
+                ]}
+        err = _validate_profile(body)
+        assert err is not None
+        assert "crossovers[1]" in err
+
+    def test_3way_empty_crossover_list(self):
+        body = {**_VALID_3WAY_PROFILE, "crossover": []}
+        assert _validate_profile(body) is not None
+
+
+class TestValidate4WayProfile:
+    def test_valid_4way(self):
+        assert _validate_profile(_VALID_4WAY_PROFILE) is None
+
+    def test_4way_all_8_channels(self):
+        """4-way stereo uses all 8 channels (0-7)."""
+        speakers = _VALID_4WAY_PROFILE["speakers"]
+        channels = {spk["channel"] for spk in speakers.values()}
+        assert channels == {0, 1, 2, 3, 4, 5, 6, 7}
+        assert _validate_profile(_VALID_4WAY_PROFILE) is None
+
+    def test_4way_channel_exceeds_max(self):
+        bad = {**_VALID_4WAY_PROFILE}
+        bad_speakers = dict(bad["speakers"])
+        bad_speakers["extra"] = {"identity": "x", "role": "tweeter", "channel": 8}
+        bad["speakers"] = bad_speakers
+        assert _validate_profile(bad) is not None
+
+
+class TestValidateMEHProfile:
+    def test_valid_meh(self):
+        assert _validate_profile(_VALID_MEH_PROFILE) is None
+
+    def test_meh_with_delay_and_enclosure(self):
+        """MEH profile has delay_ms and enclosure_type on every speaker."""
+        for spk in _VALID_MEH_PROFILE["speakers"].values():
+            assert "delay_ms" in spk
+            assert "enclosure_type" in spk
+        assert _validate_profile(_VALID_MEH_PROFILE) is None
+
+
+class TestDelayMs:
+    def test_valid_delay(self):
+        speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0, "delay_ms": 1.5}}
+        body = {**_VALID_PROFILE, "speakers": speakers}
+        assert _validate_profile(body) is None
+
+    def test_zero_delay(self):
+        speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0, "delay_ms": 0}}
+        body = {**_VALID_PROFILE, "speakers": speakers}
+        assert _validate_profile(body) is None
+
+    def test_delay_not_number(self):
+        speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0, "delay_ms": "fast"}}
+        body = {**_VALID_PROFILE, "speakers": speakers}
+        assert _validate_profile(body) is not None
+
+    def test_negative_delay(self):
+        speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0, "delay_ms": -1.0}}
+        body = {**_VALID_PROFILE, "speakers": speakers}
+        assert _validate_profile(body) is not None
+
+
+class TestEnclosureType:
+    def test_valid_enclosure_types(self):
+        for etype in _VALID_ENCLOSURE_TYPES:
+            speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0, "enclosure_type": etype}}
+            body = {**_VALID_PROFILE, "speakers": speakers}
+            assert _validate_profile(body) is None, f"Failed for enclosure_type={etype}"
+
+    def test_invalid_enclosure_type(self):
+        speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0, "enclosure_type": "box"}}
+        body = {**_VALID_PROFILE, "speakers": speakers}
+        assert _validate_profile(body) is not None
+
+    def test_enclosure_type_optional(self):
+        speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 0}}
+        body = {**_VALID_PROFILE, "speakers": speakers}
+        assert _validate_profile(body) is None
+
+
+class TestModeConstraints:
+    def test_valid_mode_constraints(self):
+        body = {**_VALID_PROFILE, "mode_constraints": ["dj", "live"]}
+        assert _validate_profile(body) is None
+
+    def test_all_modes(self):
+        body = {**_VALID_PROFILE, "mode_constraints": list(_VALID_GM_MODES)}
+        assert _validate_profile(body) is None
+
+    def test_invalid_mode(self):
+        body = {**_VALID_PROFILE, "mode_constraints": ["dj", "karaoke"]}
+        assert _validate_profile(body) is not None
+
+    def test_mode_constraints_optional(self):
+        body = {**_VALID_PROFILE}
+        body.pop("mode_constraints", None)
+        assert _validate_profile(body) is None
+
+    def test_mode_constraints_not_list(self):
+        body = {**_VALID_PROFILE, "mode_constraints": "dj"}
+        assert _validate_profile(body) is not None
+
+
+class TestTopologyValues:
+    def test_all_valid_topologies(self):
+        for topo in _VALID_TOPOLOGIES:
+            body = {**_VALID_PROFILE, "topology": topo}
+            assert _validate_profile(body) is None, f"Failed for topology={topo}"
+
+    def test_tweeter_role_now_valid(self):
+        speakers = {"tweet": {"identity": "x", "role": "tweeter", "channel": 0}}
+        body = {**_VALID_PROFILE, "topology": "3way", "speakers": speakers}
+        assert _validate_profile(body) is None
+
+    def test_midrange_role_valid(self):
+        speakers = {"mid": {"identity": "x", "role": "midrange", "channel": 0}}
+        body = {**_VALID_PROFILE, "topology": "3way", "speakers": speakers}
+        assert _validate_profile(body) is None

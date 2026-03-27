@@ -228,8 +228,9 @@ def validate_profile(profile, identities, identities_dir=None):
         max_boost = identity.get("max_boost_db", 0)
         role = spk_cfg.get("role", "")
 
-        # Map role to gain staging group
-        if role == "satellite":
+        # Map role to gain staging group.
+        # midrange, tweeter, fullrange use the satellite gain staging group.
+        if role in ("satellite", "midrange", "tweeter", "fullrange"):
             gs_group = gain_staging.get("satellite", {})
         elif role == "subwoofer":
             gs_group = gain_staging.get("subwoofer", {})

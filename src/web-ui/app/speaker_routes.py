@@ -188,6 +188,12 @@ _VALID_GM_MODES = {"dj", "live", "monitoring", "measurement"}
 # Maximum channel index (0-indexed, 8 channels total).
 _MAX_CHANNEL = 7
 
+# D-029 gain staging margin.
+_D029_MARGIN_DB = 0.5
+
+# Expected stereo speaker counts per topology (speaker channels, not monitoring).
+_TOPOLOGY_SPEAKER_COUNTS = {"2way": 4, "3way": 6, "4way": 8, "meh": None}
+
 
 def _validate_identity(data: Any) -> str | None:
     """Validate an identity dict. Returns error string, or None if valid."""
@@ -462,6 +468,186 @@ async def delete_profile(name: str):
                      "detail": f"Speaker profile '{name}' not found"},
         )
     return {"ok": True, "name": name}
+
+
+# -- Deep validation ----------------------------------------------------------
+
+def _get_crossover_frequencies(profile: dict) -> list[float]:
+    """Extract sorted crossover frequencies from a profile."""
+    xover = profile.get("crossover", {})
+    if isinstance(xover, list):
+        return [x["frequency_hz"] for x in xover]
+    if isinstance(xover, dict) and "frequency_hz" in xover:
+        return [xover["frequency_hz"]]
+    return []
+
+
+def _deep_validate_profile(profile: dict) -> dict:
+    """Run deep validation checks on a profile with resolved identities.
+
+    Returns {valid: bool, errors: [...], warnings: [...]}.
+    Each error/warning is {check: str, message: str}.
+    """
+    errors: list[dict] = []
+    warnings: list[dict] = []
+
+    speakers = profile.get("speakers", {})
+
+    # 1. Duplicate channel detection
+    channel_map: dict[int, list[str]] = {}
+    for spk_name, spk in speakers.items():
+        ch = spk.get("channel")
+        if isinstance(ch, int):
+            channel_map.setdefault(ch, []).append(spk_name)
+    for ch, names in sorted(channel_map.items()):
+        if len(names) > 1:
+            errors.append({
+                "check": "duplicate_channel",
+                "message": f"Channel {ch} assigned to multiple speakers: {', '.join(names)}",
+            })
+
+    # 2. Channel budget
+    all_channels = set(channel_map.keys())
+    monitoring = profile.get("monitoring", {})
+    if isinstance(monitoring, dict):
+        for ch in monitoring.values():
+            if isinstance(ch, int):
+                all_channels.add(ch)
+    if len(all_channels) > 8:
+        errors.append({
+            "check": "channel_budget",
+            "message": f"Total channels ({len(all_channels)}) exceeds maximum of 8",
+        })
+
+    # 3. Identity resolution
+    identities: dict[str, dict] = {}
+    missing_ids: list[str] = []
+    for spk_name, spk in speakers.items():
+        id_name = spk.get("identity", "")
+        if id_name and id_name not in identities:
+            id_data = _read_yaml("identities", id_name)
+            if id_data is not None:
+                identities[id_name] = id_data
+            else:
+                missing_ids.append(id_name)
+                errors.append({
+                    "check": "identity_missing",
+                    "message": f"Speaker '{spk_name}' references identity '{id_name}' which does not exist",
+                })
+
+    # 4. Crossover frequency ordering (multi-way)
+    freqs = _get_crossover_frequencies(profile)
+    if len(freqs) > 1:
+        for i in range(1, len(freqs)):
+            if freqs[i] <= freqs[i - 1]:
+                errors.append({
+                    "check": "crossover_order",
+                    "message": (f"Crossover frequencies must be monotonically increasing: "
+                                f"{freqs[i - 1]}Hz >= {freqs[i]}Hz at index {i}"),
+                })
+
+    # 5. D-031: mandatory HPF for every speaker
+    for spk_name, spk in speakers.items():
+        id_name = spk.get("identity", "")
+        identity = identities.get(id_name, {})
+        if identity and identity.get("mandatory_hpf_hz") is None:
+            errors.append({
+                "check": "d031_hpf_missing",
+                "message": (f"Speaker '{spk_name}' ({id_name}): "
+                            f"mandatory_hpf_hz not declared (D-031 violation)"),
+            })
+
+    # 6. Sub HPF vs crossover consistency
+    lowest_xover = freqs[0] if freqs else None
+    if lowest_xover is not None:
+        for spk_name, spk in speakers.items():
+            if spk.get("filter_type") == "lowpass" or spk.get("role") == "subwoofer":
+                id_name = spk.get("identity", "")
+                identity = identities.get(id_name, {})
+                hpf = identity.get("mandatory_hpf_hz")
+                if isinstance(hpf, (int, float)) and hpf >= lowest_xover:
+                    errors.append({
+                        "check": "sub_hpf_vs_crossover",
+                        "message": (f"Speaker '{spk_name}': mandatory HPF ({hpf}Hz) "
+                                    f">= crossover ({lowest_xover}Hz) — sub has no passband"),
+                    })
+
+    # 7. Sensitivity mismatch warning
+    sensitivities: dict[str, float] = {}
+    for spk_name, spk in speakers.items():
+        id_name = spk.get("identity", "")
+        identity = identities.get(id_name, {})
+        sens = identity.get("sensitivity_db_spl")
+        if isinstance(sens, (int, float)):
+            sensitivities[spk_name] = sens
+    if len(sensitivities) >= 2:
+        max_sens = max(sensitivities.values())
+        min_sens = min(sensitivities.values())
+        diff = max_sens - min_sens
+        if diff > 10:
+            max_spk = [n for n, s in sensitivities.items() if s == max_sens][0]
+            min_spk = [n for n, s in sensitivities.items() if s == min_sens][0]
+            warnings.append({
+                "check": "sensitivity_mismatch",
+                "message": (f"Sensitivity difference {diff:.1f}dB between "
+                            f"'{max_spk}' ({max_sens}dB) and '{min_spk}' ({min_sens}dB) "
+                            f"exceeds 10dB — gain calibration recommended"),
+            })
+
+    # 8. Topology/speaker count consistency
+    topology = profile.get("topology", "")
+    expected = _TOPOLOGY_SPEAKER_COUNTS.get(topology)
+    actual = len(speakers)
+    if expected is not None and actual != expected:
+        warnings.append({
+            "check": "topology_count",
+            "message": (f"Topology '{topology}' typically has {expected} speakers "
+                        f"(stereo), but profile has {actual}"),
+        })
+
+    # 9. D-029 gain staging
+    gain_staging = profile.get("gain_staging", {})
+    if isinstance(gain_staging, dict):
+        for spk_name, spk in speakers.items():
+            id_name = spk.get("identity", "")
+            identity = identities.get(id_name, {})
+            max_boost = identity.get("max_boost_db", 0)
+            if not isinstance(max_boost, (int, float)):
+                continue
+            role = spk.get("role", "")
+            if role in ("satellite", "midrange", "tweeter", "fullrange"):
+                gs_group = gain_staging.get("satellite", {})
+            elif role == "subwoofer":
+                gs_group = gain_staging.get("subwoofer", {})
+            else:
+                continue
+            if not isinstance(gs_group, dict):
+                continue
+            headroom = gs_group.get("headroom_db", 0)
+            if isinstance(headroom, (int, float)) and abs(headroom) < max_boost + _D029_MARGIN_DB:
+                warnings.append({
+                    "check": "d029_gain_staging",
+                    "message": (f"Speaker '{spk_name}' ({id_name}): "
+                                f"|headroom| ({abs(headroom):.1f}dB) < "
+                                f"max_boost ({max_boost}dB) + margin ({_D029_MARGIN_DB}dB)"),
+                })
+
+    valid = len(errors) == 0
+    return {"valid": valid, "errors": errors, "warnings": warnings}
+
+
+@router.post("/profiles/{name}/validate")
+async def validate_profile_endpoint(name: str):
+    """Deep-validate a speaker profile against its referenced identities."""
+    data = _read_yaml("profiles", name)
+    if data is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "not_found",
+                     "detail": f"Speaker profile '{name}' not found"},
+        )
+    result = _deep_validate_profile(data)
+    return result
 
 
 # -- Helpers ------------------------------------------------------------------
