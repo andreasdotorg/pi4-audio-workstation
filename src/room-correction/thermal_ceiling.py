@@ -205,6 +205,237 @@ def safe_ceiling_dbfs(pe_max_watts, impedance_ohm,
     return min(raw, hard_cap_dbfs)
 
 
+def compute_amp_adjusted_ceiling(speaker_identity, amp_profile,
+                                  pw_gain_mult,
+                                  ada8200_0dbfs_vrms=DEFAULT_ADA8200_0DBFS_VRMS,
+                                  sensitivity_db_spl=None):
+    """Compute thermal ceiling adjusted for amplifier power limits.
+
+    The effective ceiling is the minimum of:
+    - Speaker-limited: amp can deliver more power than the speaker handles
+    - Amp-limited: amp clips before reaching the speaker's thermal limit
+
+    Parameters
+    ----------
+    speaker_identity : dict
+        Keys: pe_max_watts, impedance_ohm, sensitivity_db_spl
+    amp_profile : dict
+        Keys: power_per_channel_watts, impedance_rated_ohms, voltage_gain
+    pw_gain_mult : float
+        PW filter-chain gain node Mult value.
+    ada8200_0dbfs_vrms : float
+        DAC output at 0 dBFS.
+    sensitivity_db_spl : float or None
+        Override sensitivity. Uses speaker_identity value if None.
+
+    Returns
+    -------
+    dict
+        Keys: ceiling_dbfs, limiting_factor ("speaker" or "amplifier"),
+              speaker_ceiling_dbfs, amp_ceiling_dbfs
+    """
+    pe_max = speaker_identity.get("pe_max_watts")
+    z_speaker = speaker_identity.get("impedance_ohm")
+    sens = (sensitivity_db_spl if sensitivity_db_spl is not None
+            else speaker_identity.get("sensitivity_db_spl", DEFAULT_SENSITIVITY_DB_SPL))
+
+    amp_gain = amp_profile.get("voltage_gain", DEFAULT_AMP_VOLTAGE_GAIN)
+    amp_power = amp_profile.get("power_per_channel_watts")
+    amp_z = amp_profile.get("impedance_rated_ohms")
+
+    # Speaker-limited ceiling (existing computation)
+    speaker_ceiling = compute_thermal_ceiling_dbfs(
+        pe_max_watts=pe_max,
+        impedance_ohm=z_speaker,
+        pw_gain_mult=pw_gain_mult,
+        amp_voltage_gain=amp_gain,
+        ada8200_0dbfs_vrms=ada8200_0dbfs_vrms,
+        sensitivity_db_spl=sens,
+    )
+
+    # Amp-limited ceiling: at what dBFS does the amp clip?
+    amp_ceiling = None
+    if amp_power and amp_power > 0 and amp_z and amp_z > 0:
+        # Max voltage the amp can deliver (at rated impedance)
+        v_amp_max = math.sqrt(amp_power * amp_z)
+        # If speaker impedance differs from rated, re-derive actual max power
+        # into the speaker load. For simplicity, use voltage limit:
+        # The amp can deliver v_amp_max regardless of load (voltage-source model).
+        # Actual power into speaker: P = v_amp_max^2 / z_speaker
+        # Clipping dBFS: the input level that makes the amp output reach v_amp_max
+        if z_speaker and z_speaker > 0 and pw_gain_mult > 0:
+            v_dac_for_clip = v_amp_max / amp_gain
+            dbfs_at_dac = 20.0 * math.log10(v_dac_for_clip / ada8200_0dbfs_vrms)
+            gain_db = _mult_to_db(pw_gain_mult)
+            amp_ceiling = dbfs_at_dac - gain_db
+
+    # Pick the more restrictive limit
+    if speaker_ceiling is None and amp_ceiling is None:
+        return {
+            "ceiling_dbfs": None,
+            "limiting_factor": "unknown",
+            "speaker_ceiling_dbfs": None,
+            "amp_ceiling_dbfs": None,
+        }
+
+    if speaker_ceiling is None:
+        effective = amp_ceiling
+        factor = "amplifier"
+    elif amp_ceiling is None:
+        effective = speaker_ceiling
+        factor = "speaker"
+    elif amp_ceiling < speaker_ceiling:
+        effective = amp_ceiling
+        factor = "amplifier"
+    else:
+        effective = speaker_ceiling
+        factor = "speaker"
+
+    return {
+        "ceiling_dbfs": effective,
+        "limiting_factor": factor,
+        "speaker_ceiling_dbfs": speaker_ceiling,
+        "amp_ceiling_dbfs": amp_ceiling,
+    }
+
+
+# D-009 safety margin
+_D009_MARGIN_DB = 0.5
+
+
+def compute_gain_staging(amp_profile, dac_profile, speaker_identity):
+    """Compute full signal chain gain and identify the clipping point.
+
+    Signal chain: DAC (dBFS -> Vrms) -> amp (Vrms * gain) -> speaker (V -> W -> SPL)
+
+    Parameters
+    ----------
+    amp_profile : dict
+        Keys: voltage_gain, power_per_channel_watts, impedance_rated_ohms
+    dac_profile : dict
+        Keys: output_0dbfs_vrms
+    speaker_identity : dict
+        Keys: pe_max_watts, impedance_ohm, sensitivity_db_spl
+
+    Returns
+    -------
+    dict
+        Keys: dac_0dbfs_vrms, amp_gain, amp_max_voltage,
+              speaker_max_voltage, clipping_point, recommended_headroom_dbfs,
+              max_spl_at_0dbfs
+    """
+    dac_vrms = dac_profile.get("output_0dbfs_vrms", DEFAULT_ADA8200_0DBFS_VRMS)
+    amp_gain = amp_profile.get("voltage_gain", DEFAULT_AMP_VOLTAGE_GAIN)
+    amp_power = amp_profile.get("power_per_channel_watts")
+    amp_z = amp_profile.get("impedance_rated_ohms")
+
+    pe_max = speaker_identity.get("pe_max_watts")
+    z_speaker = speaker_identity.get("impedance_ohm")
+    sens = speaker_identity.get("sensitivity_db_spl", DEFAULT_SENSITIVITY_DB_SPL)
+
+    # Voltage at speaker at 0 dBFS
+    v_at_speaker_0dbfs = dac_vrms * amp_gain
+
+    # Amp max output voltage (at rated impedance)
+    amp_max_v = math.sqrt(amp_power * amp_z) if (amp_power and amp_z and amp_power > 0 and amp_z > 0) else None
+
+    # Speaker max voltage (from thermal rating)
+    spk_max_v = math.sqrt(pe_max * z_speaker) if (pe_max and z_speaker and pe_max > 0 and z_speaker > 0) else None
+
+    # Identify clipping point (which is the weakest link)
+    if amp_max_v is not None and spk_max_v is not None:
+        if amp_max_v < spk_max_v:
+            clipping_point = "amplifier"
+            limit_v = amp_max_v
+        else:
+            clipping_point = "speaker"
+            limit_v = spk_max_v
+    elif amp_max_v is not None:
+        clipping_point = "amplifier"
+        limit_v = amp_max_v
+    elif spk_max_v is not None:
+        clipping_point = "speaker"
+        limit_v = spk_max_v
+    else:
+        clipping_point = "unknown"
+        limit_v = None
+
+    # Recommended headroom: how far below 0 dBFS to stay safe
+    if limit_v is not None and v_at_speaker_0dbfs > 0:
+        headroom_db = 20.0 * math.log10(limit_v / v_at_speaker_0dbfs) - _D009_MARGIN_DB
+        headroom_db = min(headroom_db, 0.0)  # never recommend above 0 dBFS
+    else:
+        headroom_db = DEFAULT_HARD_CAP_DBFS
+
+    # Max SPL at 0 dBFS (no attenuation)
+    if z_speaker and z_speaker > 0 and v_at_speaker_0dbfs > 0:
+        power_at_0dbfs = v_at_speaker_0dbfs ** 2 / z_speaker
+        if power_at_0dbfs > 0:
+            spl_at_0dbfs = sens + 10.0 * math.log10(power_at_0dbfs)
+        else:
+            spl_at_0dbfs = None
+    else:
+        spl_at_0dbfs = None
+
+    return {
+        "dac_0dbfs_vrms": dac_vrms,
+        "amp_gain": amp_gain,
+        "amp_max_voltage": amp_max_v,
+        "speaker_max_voltage": spk_max_v,
+        "clipping_point": clipping_point,
+        "recommended_headroom_dbfs": round(headroom_db, 2),
+        "max_spl_at_0dbfs": round(spl_at_0dbfs, 1) if spl_at_0dbfs is not None else None,
+    }
+
+
+def load_amp_profile(amp_name, project_root=None):
+    """Load an amplifier profile from configs/hardware/amplifiers/.
+
+    Parameters
+    ----------
+    amp_name : str
+        Amplifier profile name without .yml extension.
+    project_root : str or Path, optional
+
+    Returns
+    -------
+    dict or None
+        Amplifier profile dict, or None if not found.
+    """
+    if project_root is None:
+        project_root = _find_project_root()
+    if project_root is None:
+        return None
+    path = Path(project_root) / HARDWARE_CONFIG_DIR / "amplifiers" / f"{amp_name}.yml"
+    if not path.exists():
+        return None
+    return _load_yaml(path)
+
+
+def load_dac_profile(dac_name, project_root=None):
+    """Load a DAC profile from configs/hardware/dacs/.
+
+    Parameters
+    ----------
+    dac_name : str
+        DAC profile name without .yml extension.
+    project_root : str or Path, optional
+
+    Returns
+    -------
+    dict or None
+        DAC profile dict, or None if not found.
+    """
+    if project_root is None:
+        project_root = _find_project_root()
+    if project_root is None:
+        return None
+    path = Path(project_root) / HARDWARE_CONFIG_DIR / "dacs" / f"{dac_name}.yml"
+    if not path.exists():
+        return None
+    return _load_yaml(path)
+
+
 def load_hardware_config(project_root=None):
     """Load hardware config files and return amp gain and DAC output level.
 
@@ -290,7 +521,8 @@ def load_speaker_identity(identity_name, project_root=None):
 
 def load_channel_ceilings(profile_name, pw_gain_mults=None,
                            project_root=None,
-                           hard_cap_dbfs=DEFAULT_HARD_CAP_DBFS):
+                           hard_cap_dbfs=DEFAULT_HARD_CAP_DBFS,
+                           amp_profile=None, dac_profile=None):
     """Compute thermal ceilings for all speaker channels in a profile.
 
     Parameters
@@ -306,6 +538,13 @@ def load_channel_ceilings(profile_name, pw_gain_mults=None,
         Project root directory. Auto-detected if not provided.
     hard_cap_dbfs : float
         Absolute maximum digital level. Default: -20.0.
+    amp_profile : dict or None
+        Amplifier profile dict (from hardware config). When provided,
+        ceilings account for amp clipping via compute_amp_adjusted_ceiling.
+        When None, uses legacy load_hardware_config behavior.
+    dac_profile : dict or None
+        DAC profile dict (from hardware config). When provided, uses its
+        output_0dbfs_vrms instead of the legacy config value.
 
     Returns
     -------
@@ -314,7 +553,7 @@ def load_channel_ceilings(profile_name, pw_gain_mults=None,
             channel (int), ceiling_dbfs (float), identity (str),
             pe_max_watts (float or None), impedance_ohm (float),
             sensitivity_db_spl (float), pw_gain_mult (float),
-            pw_gain_db (float)
+            pw_gain_db (float), limiting_factor (str, when amp_profile given)
     """
     if project_root is None:
         project_root = _find_project_root()
@@ -325,7 +564,23 @@ def load_channel_ceilings(profile_name, pw_gain_mults=None,
         pw_gain_mults = {}
 
     project_root = Path(project_root)
-    hw = load_hardware_config(project_root)
+
+    # Resolve hardware parameters
+    if amp_profile is not None:
+        amp_gain = amp_profile.get("voltage_gain", DEFAULT_AMP_VOLTAGE_GAIN)
+    else:
+        hw = load_hardware_config(project_root)
+        amp_gain = hw["amp_voltage_gain"]
+
+    if dac_profile is not None:
+        dac_vrms = dac_profile.get("output_0dbfs_vrms", DEFAULT_ADA8200_0DBFS_VRMS)
+    else:
+        if amp_profile is None:
+            # hw already loaded above
+            dac_vrms = hw["ada8200_0dbfs_vrms"]
+        else:
+            hw_legacy = load_hardware_config(project_root)
+            dac_vrms = hw_legacy["ada8200_0dbfs_vrms"]
 
     profile_path = project_root / SPEAKER_PROFILE_DIR / f"{profile_name}.yml"
     if not profile_path.exists():
@@ -351,17 +606,36 @@ def load_channel_ceilings(profile_name, pw_gain_mults=None,
         # Default 1.0 (0 dB) is conservative — no attenuation assumed.
         mult = pw_gain_mults.get(spk_name, 1.0)
 
-        ceiling = safe_ceiling_dbfs(
-            pe_max_watts=pe,
-            impedance_ohm=z,
-            pw_gain_mult=mult,
-            amp_voltage_gain=hw["amp_voltage_gain"],
-            ada8200_0dbfs_vrms=hw["ada8200_0dbfs_vrms"],
-            sensitivity_db_spl=sens,
-            hard_cap_dbfs=hard_cap_dbfs,
-        )
+        # Use amp-adjusted ceiling when amp_profile is provided
+        if amp_profile is not None:
+            adjusted = compute_amp_adjusted_ceiling(
+                speaker_identity=identity,
+                amp_profile=amp_profile,
+                pw_gain_mult=mult,
+                ada8200_0dbfs_vrms=dac_vrms,
+            )
+            raw_ceiling = adjusted["ceiling_dbfs"]
+            limiting_factor = adjusted["limiting_factor"]
+        else:
+            raw_ceiling = compute_thermal_ceiling_dbfs(
+                pe_max_watts=pe,
+                impedance_ohm=z,
+                pw_gain_mult=mult,
+                amp_voltage_gain=amp_gain,
+                ada8200_0dbfs_vrms=dac_vrms,
+                sensitivity_db_spl=sens,
+            )
+            limiting_factor = "speaker"
 
-        results[spk_name] = {
+        # Apply hard cap
+        if raw_ceiling is None:
+            log.warning("pe_max_watts is missing for %s — using hard cap "
+                        "%.1f dBFS as fallback", spk_name, hard_cap_dbfs)
+            ceiling = hard_cap_dbfs
+        else:
+            ceiling = min(raw_ceiling, hard_cap_dbfs)
+
+        entry = {
             "channel": channel,
             "ceiling_dbfs": ceiling,
             "identity": identity_name,
@@ -371,6 +645,10 @@ def load_channel_ceilings(profile_name, pw_gain_mults=None,
             "pw_gain_mult": mult,
             "pw_gain_db": round(_mult_to_db(mult), 2),
         }
+        if amp_profile is not None:
+            entry["limiting_factor"] = limiting_factor
+
+        results[spk_name] = entry
 
     return results
 

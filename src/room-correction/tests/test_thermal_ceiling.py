@@ -408,5 +408,261 @@ class TestLoadChannelCeilings(unittest.TestCase):
             )
 
 
+class TestComputeAmpAdjustedCeiling(unittest.TestCase):
+    """Tests for compute_amp_adjusted_ceiling (multi-amp support)."""
+
+    # Small amp (50W @ 4 ohm) with a big speaker (600W @ 8 ohm)
+    SMALL_AMP = {
+        "voltage_gain": 20.0,
+        "power_per_channel_watts": 50,
+        "impedance_rated_ohms": 4,
+    }
+    BIG_SPEAKER = {
+        "pe_max_watts": 600,
+        "impedance_ohm": 8,
+        "sensitivity_db_spl": 87.0,
+    }
+
+    # Big amp (1000W @ 4 ohm) with a small speaker (7W @ 4 ohm)
+    BIG_AMP = {
+        "voltage_gain": 42.4,
+        "power_per_channel_watts": 1000,
+        "impedance_rated_ohms": 4,
+    }
+    SMALL_SPEAKER = {
+        "pe_max_watts": 7,
+        "impedance_ohm": 4,
+        "sensitivity_db_spl": 87.0,
+    }
+
+    def test_amp_limited_ceiling(self):
+        """Small amp + big speaker: amp clips first."""
+        result = thermal_ceiling.compute_amp_adjusted_ceiling(
+            speaker_identity=self.BIG_SPEAKER,
+            amp_profile=self.SMALL_AMP,
+            pw_gain_mult=0.1,
+        )
+        self.assertEqual(result["limiting_factor"], "amplifier")
+        self.assertIsNotNone(result["amp_ceiling_dbfs"])
+        self.assertIsNotNone(result["speaker_ceiling_dbfs"])
+        self.assertLess(result["amp_ceiling_dbfs"], result["speaker_ceiling_dbfs"])
+        self.assertAlmostEqual(result["ceiling_dbfs"], result["amp_ceiling_dbfs"])
+
+    def test_speaker_limited_ceiling(self):
+        """Big amp + small speaker: speaker thermal limit reached first."""
+        result = thermal_ceiling.compute_amp_adjusted_ceiling(
+            speaker_identity=self.SMALL_SPEAKER,
+            amp_profile=self.BIG_AMP,
+            pw_gain_mult=0.1,
+        )
+        self.assertEqual(result["limiting_factor"], "speaker")
+        self.assertIsNotNone(result["speaker_ceiling_dbfs"])
+        self.assertIsNotNone(result["amp_ceiling_dbfs"])
+        self.assertLess(result["speaker_ceiling_dbfs"], result["amp_ceiling_dbfs"])
+        self.assertAlmostEqual(result["ceiling_dbfs"], result["speaker_ceiling_dbfs"])
+
+    def test_missing_pe_max(self):
+        """When pe_max_watts is None, falls back to amp-only ceiling."""
+        speaker = {"pe_max_watts": None, "impedance_ohm": 4,
+                    "sensitivity_db_spl": 87.0}
+        result = thermal_ceiling.compute_amp_adjusted_ceiling(
+            speaker_identity=speaker,
+            amp_profile=self.SMALL_AMP,
+            pw_gain_mult=0.1,
+        )
+        self.assertEqual(result["limiting_factor"], "amplifier")
+        self.assertIsNone(result["speaker_ceiling_dbfs"])
+        self.assertIsNotNone(result["amp_ceiling_dbfs"])
+
+    def test_missing_amp_power(self):
+        """When amp has no power rating, falls back to speaker-only ceiling."""
+        amp = {"voltage_gain": 42.4}  # no power_per_channel_watts
+        result = thermal_ceiling.compute_amp_adjusted_ceiling(
+            speaker_identity=self.SMALL_SPEAKER,
+            amp_profile=amp,
+            pw_gain_mult=0.1,
+        )
+        self.assertEqual(result["limiting_factor"], "speaker")
+        self.assertIsNone(result["amp_ceiling_dbfs"])
+
+    def test_both_missing(self):
+        """When both pe_max and amp_power are missing, returns unknown."""
+        speaker = {"pe_max_watts": None, "impedance_ohm": 4,
+                    "sensitivity_db_spl": 87.0}
+        amp = {"voltage_gain": 42.4}
+        result = thermal_ceiling.compute_amp_adjusted_ceiling(
+            speaker_identity=speaker, amp_profile=amp, pw_gain_mult=0.1)
+        self.assertEqual(result["limiting_factor"], "unknown")
+        self.assertIsNone(result["ceiling_dbfs"])
+
+    def test_returns_minimum(self):
+        """Ceiling should always be the min of speaker and amp ceilings."""
+        result = thermal_ceiling.compute_amp_adjusted_ceiling(
+            speaker_identity=self.SMALL_SPEAKER,
+            amp_profile=self.SMALL_AMP,
+            pw_gain_mult=0.1,
+        )
+        if result["speaker_ceiling_dbfs"] is not None and result["amp_ceiling_dbfs"] is not None:
+            expected = min(result["speaker_ceiling_dbfs"], result["amp_ceiling_dbfs"])
+            self.assertAlmostEqual(result["ceiling_dbfs"], expected)
+
+
+class TestComputeGainStaging(unittest.TestCase):
+    """Tests for compute_gain_staging."""
+
+    AMP = {
+        "voltage_gain": 42.4,
+        "power_per_channel_watts": 450,
+        "impedance_rated_ohms": 4,
+    }
+    DAC = {"output_0dbfs_vrms": 4.9}
+    SPEAKER = {
+        "pe_max_watts": 7,
+        "impedance_ohm": 4,
+        "sensitivity_db_spl": 87.5,
+    }
+
+    def test_known_values(self):
+        """Verify gain staging with the project's actual hardware."""
+        result = thermal_ceiling.compute_gain_staging(
+            self.AMP, self.DAC, self.SPEAKER)
+
+        self.assertAlmostEqual(result["dac_0dbfs_vrms"], 4.9)
+        self.assertAlmostEqual(result["amp_gain"], 42.4)
+        # V at speaker at 0 dBFS = 4.9 * 42.4 = 207.76 V
+        # Speaker max V = sqrt(7 * 4) = 5.29 V
+        # Amp max V = sqrt(450 * 4) = 42.43 V
+        # Clipping point: speaker (5.29 < 42.43)
+        self.assertEqual(result["clipping_point"], "speaker")
+        self.assertAlmostEqual(result["amp_max_voltage"], math.sqrt(450 * 4), places=1)
+        self.assertAlmostEqual(result["speaker_max_voltage"], math.sqrt(7 * 4), places=1)
+
+    def test_recommended_headroom(self):
+        """Headroom should be negative (below 0 dBFS) with D-009 margin."""
+        result = thermal_ceiling.compute_gain_staging(
+            self.AMP, self.DAC, self.SPEAKER)
+        self.assertLess(result["recommended_headroom_dbfs"], 0)
+        # Should include -0.5 dB D-009 margin
+        v_speaker = 4.9 * 42.4
+        v_max = math.sqrt(7 * 4)
+        raw = 20 * math.log10(v_max / v_speaker)
+        expected = raw - 0.5
+        self.assertAlmostEqual(result["recommended_headroom_dbfs"], round(expected, 2))
+
+    def test_max_spl(self):
+        """Max SPL at 0 dBFS should be computed."""
+        result = thermal_ceiling.compute_gain_staging(
+            self.AMP, self.DAC, self.SPEAKER)
+        self.assertIsNotNone(result["max_spl_at_0dbfs"])
+        # At 0 dBFS: 207.76V into 4 ohm = 10789W
+        # SPL = 87.5 + 10*log10(10789) = 87.5 + 40.33 = 127.83
+        self.assertGreater(result["max_spl_at_0dbfs"], 120)
+
+    def test_small_amp_clips_first(self):
+        """Small amp with big speaker: amp is the weak link."""
+        small_amp = {
+            "voltage_gain": 10.0,
+            "power_per_channel_watts": 20,
+            "impedance_rated_ohms": 8,
+        }
+        big_speaker = {
+            "pe_max_watts": 600,
+            "impedance_ohm": 8,
+            "sensitivity_db_spl": 95.0,
+        }
+        result = thermal_ceiling.compute_gain_staging(
+            small_amp, self.DAC, big_speaker)
+        self.assertEqual(result["clipping_point"], "amplifier")
+
+    def test_missing_speaker_power(self):
+        """When pe_max is None, clipping point is amp-only."""
+        speaker = {"pe_max_watts": None, "impedance_ohm": 4,
+                    "sensitivity_db_spl": 87.0}
+        result = thermal_ceiling.compute_gain_staging(
+            self.AMP, self.DAC, speaker)
+        self.assertEqual(result["clipping_point"], "amplifier")
+
+    def test_missing_all_power(self):
+        """When both amp and speaker power are None, clipping is unknown."""
+        amp = {"voltage_gain": 42.4}
+        speaker = {"pe_max_watts": None, "impedance_ohm": 4,
+                    "sensitivity_db_spl": 87.0}
+        result = thermal_ceiling.compute_gain_staging(amp, self.DAC, speaker)
+        self.assertEqual(result["clipping_point"], "unknown")
+
+
+class TestLoadAmpDacProfiles(unittest.TestCase):
+    """Tests for loading amp/DAC profiles from configs/hardware/."""
+
+    def test_load_amp(self):
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        amp = thermal_ceiling.load_amp_profile("mcgrey-pa4504", project_root)
+        self.assertIsNotNone(amp)
+        self.assertAlmostEqual(amp["voltage_gain"], 42.4)
+        self.assertEqual(amp["power_per_channel_watts"], 450)
+
+    def test_load_dac(self):
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        dac = thermal_ceiling.load_dac_profile("behringer-ada8200", project_root)
+        self.assertIsNotNone(dac)
+        self.assertAlmostEqual(dac["output_0dbfs_vrms"], 4.9)
+
+    def test_missing_amp_returns_none(self):
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        self.assertIsNone(thermal_ceiling.load_amp_profile("nonexistent", project_root))
+
+    def test_missing_dac_returns_none(self):
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        self.assertIsNone(thermal_ceiling.load_dac_profile("nonexistent", project_root))
+
+
+class TestLoadChannelCeilingsWithAmpProfile(unittest.TestCase):
+    """Tests for load_channel_ceilings with amp/DAC profile parameters."""
+
+    def test_backward_compatible_no_amp(self):
+        """Without amp_profile, behavior is identical to legacy."""
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        mults = {"sat_left": MULT_MAINS, "sat_right": MULT_MAINS,
+                 "sub1": MULT_SUBS, "sub2": MULT_SUBS}
+        result = thermal_ceiling.load_channel_ceilings(
+            "bose-home-chn50p", pw_gain_mults=mults,
+            project_root=project_root)
+        # No limiting_factor key when amp_profile is None
+        self.assertNotIn("limiting_factor", result["sat_left"])
+
+    def test_with_amp_profile_adds_limiting_factor(self):
+        """With amp_profile, results include limiting_factor."""
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        amp = thermal_ceiling.load_amp_profile("mcgrey-pa4504", project_root)
+        dac = thermal_ceiling.load_dac_profile("behringer-ada8200", project_root)
+        mults = {"sat_left": MULT_MAINS, "sat_right": MULT_MAINS,
+                 "sub1": MULT_SUBS, "sub2": MULT_SUBS}
+        result = thermal_ceiling.load_channel_ceilings(
+            "bose-home-chn50p", pw_gain_mults=mults,
+            project_root=project_root,
+            amp_profile=amp, dac_profile=dac)
+        self.assertIn("limiting_factor", result["sat_left"])
+        # With 450W amp and 7W speaker, speaker is the limit
+        self.assertEqual(result["sat_left"]["limiting_factor"], "speaker")
+
+    def test_small_amp_limits_ceiling(self):
+        """With a very small amp, ceilings are lower (amp-limited)."""
+        project_root = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        small_amp = {
+            "voltage_gain": 5.0,
+            "power_per_channel_watts": 5,
+            "impedance_rated_ohms": 4,
+        }
+        dac = {"output_0dbfs_vrms": 4.9}
+        mults = {"sat_left": 0.1, "sat_right": 0.1,
+                 "sub1": 0.1, "sub2": 0.1}
+        result = thermal_ceiling.load_channel_ceilings(
+            "bose-home-chn50p", pw_gain_mults=mults,
+            project_root=project_root,
+            amp_profile=small_amp, dac_profile=dac)
+        # Sub (62W, 2.33 ohm) limited by 5W amp
+        self.assertEqual(result["sub1"]["limiting_factor"], "amplifier")
+
+
 if __name__ == "__main__":
     unittest.main()
