@@ -87,7 +87,6 @@ class TestFilterGenerateRequest:
         assert req.target_phon is None
         assert req.reference_phon == 80.0
         assert req.mode == "crossover_only"
-        assert req.session_dir is None
 
     def test_valid_custom(self):
         req = FilterGenerateRequest(
@@ -110,10 +109,8 @@ class TestFilterGenerateRequest:
         req = FilterGenerateRequest(
             profile="test",
             mode="crossover_plus_correction",
-            session_dir="/tmp/session1",
         )
         assert req.mode == "crossover_plus_correction"
-        assert req.session_dir == "/tmp/session1"
 
     def test_invalid_mode(self):
         with pytest.raises(Exception):
@@ -339,7 +336,7 @@ class TestGenerateEndpoint:
 
     @patch("app.filter_routes._run_pipeline")
     def test_generate_mode_crossover_plus_correction(self, mock_pipeline, client):
-        """crossover_plus_correction mode accepted with session_dir."""
+        """crossover_plus_correction mode accepted (session dir is server-side)."""
         mock_pipeline.return_value = _mock_pipeline_result(
             mode="crossover_plus_correction",
         )
@@ -348,13 +345,11 @@ class TestGenerateEndpoint:
             json={
                 "profile": "bose-home",
                 "mode": "crossover_plus_correction",
-                "session_dir": "/tmp/session1",
             },
         )
         assert resp.status_code == 200
         call_args = mock_pipeline.call_args[0][0]
         assert call_args.mode == "crossover_plus_correction"
-        assert call_args.session_dir == "/tmp/session1"
 
     def test_generate_invalid_mode(self, client):
         """Invalid mode should return 422."""
@@ -414,19 +409,13 @@ class TestFilterDeployRequest:
     def test_valid_defaults(self):
         req = FilterDeployRequest(output_dir="/tmp/filters")
         assert req.output_dir == "/tmp/filters"
-        assert req.coeffs_dir is None
-        assert req.pw_conf_dir is None
         assert req.dry_run is False
 
-    def test_custom_dirs(self):
+    def test_dry_run(self):
         req = FilterDeployRequest(
             output_dir="/tmp/filters",
-            coeffs_dir="/tmp/coeffs",
-            pw_conf_dir="/tmp/pw",
             dry_run=True,
         )
-        assert req.coeffs_dir == "/tmp/coeffs"
-        assert req.pw_conf_dir == "/tmp/pw"
         assert req.dry_run is True
 
 
@@ -549,8 +538,8 @@ class TestDeployEndpoint:
         assert data["dry_run"] is True
 
     @patch("app.filter_routes._run_deploy")
-    def test_deploy_passes_custom_dirs(self, mock_deploy, client):
-        """Custom coeffs_dir and pw_conf_dir should be passed through."""
+    def test_deploy_ignores_extra_path_params(self, mock_deploy, client):
+        """S-001/S-002: coeffs_dir and pw_conf_dir must NOT be accepted."""
         mock_deploy.return_value = {
             "deployed": True,
             "dry_run": False,
@@ -570,8 +559,8 @@ class TestDeployEndpoint:
         )
         assert resp.status_code == 200
         call_args = mock_deploy.call_args[0][0]
-        assert call_args.coeffs_dir == "/tmp/custom-coeffs"
-        assert call_args.pw_conf_dir == "/tmp/custom-pw"
+        assert not hasattr(call_args, "coeffs_dir")
+        assert not hasattr(call_args, "pw_conf_dir")
 
     def test_deploy_missing_output_dir(self, client):
         resp = client.post(
@@ -642,16 +631,12 @@ class TestRollbackRequest:
         req = RollbackRequest(version_timestamp="20260327_120000")
         assert req.version_timestamp == "20260327_120000"
         assert req.dry_run is False
-        assert req.coeffs_dir is None
 
-    def test_with_options(self):
+    def test_with_dry_run(self):
         req = RollbackRequest(
             version_timestamp="20260327_120000",
-            coeffs_dir="/tmp/coeffs",
-            pw_conf_dir="/tmp/pw",
             dry_run=True,
         )
-        assert req.coeffs_dir == "/tmp/coeffs"
         assert req.dry_run is True
 
 
@@ -717,7 +702,7 @@ class TestVersionsEndpoint:
 
     @patch("app.filter_routes.os.path.isdir", return_value=False)
     def test_versions_missing_dir(self, mock_isdir, client):
-        resp = client.get("/api/v1/filters/versions?coeffs_dir=/nonexistent")
+        resp = client.get("/api/v1/filters/versions")
         assert resp.status_code == 200
         assert resp.json()["channels"] == {}
 

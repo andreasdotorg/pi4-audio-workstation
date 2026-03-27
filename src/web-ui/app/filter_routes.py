@@ -38,10 +38,14 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 _PROFILES_DIR = _PROJECT_ROOT / "configs" / "speakers" / "profiles"
 _IDENTITIES_DIR = _PROJECT_ROOT / "configs" / "speakers" / "identities"
 
-# Default output directory (overridable via env var)
+# Default directories (overridable via env vars for testing)
 DEFAULT_OUTPUT_DIR = os.environ.get(
     "PI4AUDIO_FILTER_OUTPUT_DIR",
     str(_RC_DIR / "output"),
+)
+DEFAULT_SESSION_DIR = os.environ.get(
+    "PI4AUDIO_SESSION_DIR",
+    str(_RC_DIR / "sessions"),
 )
 
 DEFAULT_SAMPLE_RATE = 48000
@@ -52,8 +56,6 @@ class FilterGenerateRequest(BaseModel):
     """Request body for POST /api/v1/filters/generate."""
     profile: str
     mode: str = "crossover_only"
-    session_dir: Optional[str] = None
-    output_dir: Optional[str] = None
     target_phon: Optional[float] = None
     reference_phon: float = 80.0
     delays_ms: Optional[Dict[str, float]] = None
@@ -110,8 +112,6 @@ class VerificationResult:
 class FilterDeployRequest(BaseModel):
     """Request body for POST /api/v1/filters/deploy."""
     output_dir: str
-    coeffs_dir: Optional[str] = None
-    pw_conf_dir: Optional[str] = None
     dry_run: bool = False
 
 
@@ -123,8 +123,6 @@ class ReloadPWRequest(BaseModel):
 class RollbackRequest(BaseModel):
     """Request body for POST /api/v1/filters/rollback."""
     version_timestamp: str
-    coeffs_dir: Optional[str] = None
-    pw_conf_dir: Optional[str] = None
     dry_run: bool = False
 
 
@@ -132,8 +130,6 @@ class CleanupRequest(BaseModel):
     """Request body for POST /api/v1/filters/cleanup."""
     confirmed: bool = False
     keep: int = 2
-    coeffs_dir: Optional[str] = None
-    pw_conf_dir: Optional[str] = None
     dry_run: bool = False
 
     @field_validator("keep")
@@ -197,17 +193,14 @@ def _run_pipeline(req: FilterGenerateRequest) -> dict:
     # Build correction filters based on mode
     correction_filters = None
     if req.mode == "crossover_plus_correction":
-        if not req.session_dir:
-            raise ValueError(
-                "session_dir is required for crossover_plus_correction mode"
-            )
-        if not os.path.isdir(req.session_dir):
+        session_dir = os.path.join(DEFAULT_SESSION_DIR, req.profile)
+        if not os.path.isdir(session_dir):
             raise FileNotFoundError(
-                f"Session directory not found: {req.session_dir}"
+                f"Session directory not found: {session_dir}"
             )
         from room_correction.correction import generate_correction_filter
         raw_irs = _load_correction_filters(
-            req.session_dir, profile["speakers"], n_taps,
+            session_dir, profile["speakers"], n_taps,
         )
         correction_filters = {}
         for spk_key, ir in raw_irs.items():
@@ -218,7 +211,7 @@ def _run_pipeline(req: FilterGenerateRequest) -> dict:
             )
 
     # Delegate to topology-agnostic pipeline
-    output_dir = req.output_dir or os.path.join(DEFAULT_OUTPUT_DIR, req.profile)
+    output_dir = os.path.join(DEFAULT_OUTPUT_DIR, req.profile)
     timestamp = datetime.now()
 
     combined_filters = generate_profile_filters(
@@ -460,10 +453,9 @@ def _run_deploy(req: FilterDeployRequest) -> dict:
         }
 
     # Deploy WAV coefficients
-    coeffs_dir = req.coeffs_dir or DEFAULT_COEFFS_DIR
     deployed_paths = deploy_filters(
         output_dir,
-        coeffs_dir=coeffs_dir,
+        coeffs_dir=DEFAULT_COEFFS_DIR,
         verified=True,
         dry_run=req.dry_run,
     )
@@ -472,12 +464,11 @@ def _run_deploy(req: FilterDeployRequest) -> dict:
     pw_conf_path = os.path.join(output_dir, DEFAULT_PW_CONF_NAME)
     pw_conf_deployed = None
     if os.path.isfile(pw_conf_path):
-        pw_conf_dir = req.pw_conf_dir or DEFAULT_PW_CONF_DIR
         with open(pw_conf_path, "r") as f:
             conf_content = f.read()
         pw_conf_deployed = deploy_pw_config(
             conf_content,
-            pw_conf_dir=pw_conf_dir,
+            pw_conf_dir=DEFAULT_PW_CONF_DIR,
             dry_run=req.dry_run,
         )
 
@@ -652,7 +643,7 @@ def _get_active_map(pw_conf_dir: str) -> dict:
 
 
 @router.get("/versions")
-async def list_versions(coeffs_dir: Optional[str] = None):
+async def list_versions():
     """List deployed filter versions per channel.
 
     Scans the coefficients directory for versioned ``combined_*.wav``
@@ -661,12 +652,11 @@ async def list_versions(coeffs_dir: Optional[str] = None):
     """
     from room_correction.deploy import DEFAULT_COEFFS_DIR
 
-    target_dir = coeffs_dir or DEFAULT_COEFFS_DIR
-    if not os.path.isdir(target_dir):
-        return {"channels": {}, "coeffs_dir": target_dir}
+    if not os.path.isdir(DEFAULT_COEFFS_DIR):
+        return {"channels": {}, "coeffs_dir": DEFAULT_COEFFS_DIR}
 
     try:
-        channels = await asyncio.to_thread(_list_all_versions, target_dir)
+        channels = await asyncio.to_thread(_list_all_versions, DEFAULT_COEFFS_DIR)
     except Exception as e:
         log.exception("Failed to list filter versions")
         return JSONResponse(
@@ -674,11 +664,11 @@ async def list_versions(coeffs_dir: Optional[str] = None):
             content={"error": "list_failed", "detail": str(e)},
         )
 
-    return {"channels": channels, "coeffs_dir": target_dir}
+    return {"channels": channels, "coeffs_dir": DEFAULT_COEFFS_DIR}
 
 
 @router.get("/active")
-async def get_active_filters(pw_conf_dir: Optional[str] = None):
+async def get_active_filters():
     """Return the currently active filter files referenced by PipeWire config.
 
     Parses ``*.conf`` files in the PipeWire config drop-in directory for
@@ -686,9 +676,8 @@ async def get_active_filters(pw_conf_dir: Optional[str] = None):
     """
     from room_correction.deploy import DEFAULT_PW_CONF_DIR
 
-    target_dir = pw_conf_dir or DEFAULT_PW_CONF_DIR
     try:
-        active = await asyncio.to_thread(_get_active_map, target_dir)
+        active = await asyncio.to_thread(_get_active_map, DEFAULT_PW_CONF_DIR)
     except Exception as e:
         log.exception("Failed to get active filters")
         return JSONResponse(
@@ -696,7 +685,7 @@ async def get_active_filters(pw_conf_dir: Optional[str] = None):
             content={"error": "active_failed", "detail": str(e)},
         )
 
-    return {"active": active, "pw_conf_dir": target_dir}
+    return {"active": active, "pw_conf_dir": DEFAULT_PW_CONF_DIR}
 
 
 def _run_rollback(req: RollbackRequest) -> dict:
@@ -715,7 +704,7 @@ def _run_rollback(req: RollbackRequest) -> dict:
     )
     from room_correction.verify import verify_d009
 
-    coeffs_dir = req.coeffs_dir or DEFAULT_COEFFS_DIR
+    coeffs_dir = DEFAULT_COEFFS_DIR
     if not os.path.isdir(coeffs_dir):
         raise FileNotFoundError(f"Coefficients directory not found: {coeffs_dir}")
 
@@ -756,7 +745,7 @@ def _run_rollback(req: RollbackRequest) -> dict:
         }
 
     # Update PW .conf to reference the rollback files
-    pw_conf_dir = req.pw_conf_dir or DEFAULT_PW_CONF_DIR
+    pw_conf_dir = DEFAULT_PW_CONF_DIR
     pw_conf_path = os.path.join(
         pw_conf_dir, "30-filter-chain-convolver.conf",
     )
@@ -846,8 +835,8 @@ def _run_cleanup(req: CleanupRequest) -> dict:
         DEFAULT_PW_CONF_DIR,
     )
 
-    coeffs_dir = req.coeffs_dir or DEFAULT_COEFFS_DIR
-    pw_conf_dir = req.pw_conf_dir or DEFAULT_PW_CONF_DIR
+    coeffs_dir = DEFAULT_COEFFS_DIR
+    pw_conf_dir = DEFAULT_PW_CONF_DIR
 
     removed = cleanup_old_coefficients(
         coeffs_dir=coeffs_dir,
