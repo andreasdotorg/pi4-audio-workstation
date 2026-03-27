@@ -92,7 +92,12 @@ class SystemCollector:
         while True:
             try:
                 if _IS_LINUX:
-                    self._snapshot = self._collect_linux()
+                    # F-064: offload blocking /proc reads to thread pool so the
+                    # event loop stays responsive during the PID scan.
+                    # GIL-atomic: safe to read self._snapshot from the main
+                    # thread while the thread pool assigns it.
+                    self._snapshot = await asyncio.to_thread(
+                        self._collect_linux)
                 else:
                     self._snapshot = self._fallback_snapshot()
                 await asyncio.sleep(1.0)
