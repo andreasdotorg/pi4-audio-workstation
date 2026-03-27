@@ -5337,3 +5337,36 @@ or writes them into the `.conf` defaults.
 
 This is addressed in US-091 AC: "Per-channel delay nodes" item. Should be
 implemented as part of T-089-1 (schema) + T-089-2 (config gen extension).
+
+---
+
+## S-001/S-002: Directory traversal via user-controlled paths in filter API (RESOLVED)
+
+**Severity:** High
+**Status:** Resolved (task #109 + #115, commits up to `c457490`)
+**Found in:** Security review of US-090/US-093/US-094/US-097 (TEST phase, 2026-03-27)
+**Affects:** US-090 (FIR Filter Generation), potentially US-097 (Measurement Backend)
+**Found by:** Security Specialist
+
+### Description
+
+`filter_routes.py` API models accept user-controlled filesystem paths as
+parameters. This allows directory traversal attacks — an attacker can specify
+paths like `../../etc/passwd` or arbitrary write locations.
+
+Combined with F-037 (web UI has no authentication), this is critical: any
+device on the venue network can reach the API and exploit the path traversal
+to read or write arbitrary files on the Pi.
+
+### Recommended Fix
+
+Remove all path parameters from the API models. Use server-side defaults only
+— the API should compute output paths internally based on known-safe base
+directories (e.g., `/etc/pi4audio/coeffs/`). No user-supplied path should ever
+reach the filesystem layer.
+
+### Related
+
+- **F-037** (web UI no auth): Amplifies severity. Without auth, any network
+  client can exploit this.
+- **OWASP A01:2021** — Broken Access Control (path traversal)

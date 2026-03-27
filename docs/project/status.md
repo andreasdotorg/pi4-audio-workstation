@@ -91,15 +91,15 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-084 | **IMPLEMENT** | **7/13** | Phases 1-6 DONE (crate extraction, pcm-bridge strip, local-demo, web UI 3 LB wiring `dd0bc3a`, local-demo 3 instances `468533e`, signal-gen mono `468533e`). **T-084-10 local-demo verification PASSED** (24 meters, 3 LB instances). F-104 RESOLVED (`5269fe7`). F-100 RESOLVED (`af2372f`). Systemd template (T-084-8) awaiting diff confirmation. Remaining: Pi deployment (T-084-9), Pi self-link verification (T-084-11). |
 | US-087 | **DECOMPOSE** | **TBD** | **Selected** (owner directive 2026-03-26: CPU consumption priority #3, event in 2 days). Direct WebSocket from Rust — eliminate Python PCM/level relay (~31% CPU on Pi). Awaiting architect breakdown. Phase 1: pcm-bridge direct WS (highest impact). F-146 CLOSED (not-a-bug: pw-dump doesn't run during Dashboard; root cause is Python relay overhead, addressed by US-087). |
 | US-088 | **REVIEW** | **4/7 AC** | **REVIEW phase** (2026-03-27). QE TEST PASS: 764 tests, 0 regressions. AC-1/5sw/6 full automated coverage PASS. AC-2/3/4/7 code reviewed, deferred to owner manual verification. Commits: `89c37e8`, `465d0ee`, `81ef4e0` + batch 4 pending (T-088-7 addendum). DEPLOY/VERIFY deferred — combined with owner acceptance on Pi. **Advisory sign-offs: QE APPROVED, AE APPROVED (full review), UX APPROVED (all items met).** All software sign-offs complete. **DEPLOY/VERIFY deferred — owner left for event. Pi deployment tonight (task #53).** |
-| US-089 | **IMPLEMENT** | **0/9 AC** | Speaker Configuration Management — Web UI. **in-review** (all consultations resolved). Architect decomposition: 9 subtasks. T-089-2 (#64) + T-089-3 (#63) done. T-089-4 (#65) done. T-089-1 (#73) done. T-089-6 (#70) done. T-089-5 (#71) in progress. T-089-7 (#72) in progress. Remaining: T-089-8 (#69, blocked by #71), T-089-9 (#68, blocked by #69+#70+#72). D-051–D-054 integrated. Architect confirmed: amendments covered by existing decomposition. |
-| US-090 | **in-review** | **TBD** | FIR Filter Generation & Application — Web UI. All consultations resolved. |
-| US-091 | **in-review** | **TBD** | Multi-way Crossover Support (3-way/4-way/MEH). All consultations resolved. D-051, D-054. MEH = conventional N-way. Xmax protection added to US-092. |
-| US-092 | **in-review** | **TBD** | Per-Driver Thermal + Mechanical Protection. All consultations resolved. Xmax primary for psytrance subs. Horn sensitivity matching. Safety-critical. |
-| US-093 | **in-review** | **TBD** | Amplifier Sensitivity & Power Calibration. All consultations resolved. Horn sensitivity context added. |
-| US-094 | **in-review** | **TBD** | ISO 226 Equal Loudness Compensation. All consultations resolved. D-052. ISO 226 independent of sensitivity matching. |
-| US-095 | **in-review** | **TBD** | Graph Visualization — Pan, Zoom. All consultations resolved. Simplified scope (~50 lines JS). |
-| US-096 | **in-review** | **TBD** | UMIK-1 Full Calibration Pipeline. All consultations resolved. Phase correction NOT REQUIRED (AE confirmed). |
-| US-097 | **in-review** | **TBD** | Room Compensation — Web UI Workflow. All consultations resolved. 3-phase delivery (REST API → WebSocket → Wizard UI). |
+| US-089 | **TEST** | **0/9 AC** | Speaker Configuration Management — Web UI. 9/9 subtasks DONE, all committed. E2E test suite (#68). D-051–D-054. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-090 | **TEST** | **TBD** | FIR Filter Generation & Application — Web UI. 6/6 tasks DONE, all committed (final: `6b52562` #104, `c7dd2cb` #106). **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-091 | **TEST** | **TBD** | Multi-way Crossover Support (3-way/4-way/MEH). 7/7 tasks DONE, all committed. Bandpass FIR, dynamic gain nodes, delay nodes, channel budget, N-way config gen, mode constraints, horn validation. D-051, D-054. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-092 | **TEST** | **TBD** | Per-Driver Thermal + Mechanical Protection. 8/8 tasks DONE, all committed. 30 integration tests. Safety-critical. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-093 | **TEST** | **TBD** | Amplifier Sensitivity & Power Calibration. 3/3 tasks DONE, all committed. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-094 | **TEST** | **TBD** | ISO 226 Equal Loudness Compensation. 4/4 tasks DONE, all committed (final: `c184023` #108). D-052. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-095 | **TEST** | **TBD** | Graph Visualization — Truthful PW Topology. Committed (`ef61896`). **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-096 | **TEST** | **TBD** | UMIK-1 Full Calibration Pipeline. Committed (`4b3bad0`). A-weighting, cal management, SPL accuracy, verification. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
+| US-097 | **TEST** | **TBD** | Room Compensation — Web UI Workflow. Committed. Filter-gen + deploy endpoints wired. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -212,20 +212,51 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 **Additional features delivered:** SPL readout in Test tab (task #49), UMIK-1→pcm-bridge link persistent across all GM modes (tasks #50/#51), UMIK-1 source option visible in all modes (task #52).
 
-**Pi deployment (task #53):** Pending — owner left for event. 14 commits ready for tonight's deployment session. US-088 DEPLOY/VERIFY + owner acceptance deferred to post-event.
+**Pi deployment (task #53):** Pending — owner left for event. **60 commits** ready for tonight's deployment session. US-088 DEPLOY/VERIFY + owner acceptance deferred to post-event.
 
-**Current worker assignments (US-089 implementation):**
-- worker-1 → **available**
-- worker-2 → **available**
-- worker-3 → **available** (task #71 T-089-5 Validation API complete)
+**Current worker assignments:**
+- worker-1 → launching `nix run .#local-demo` for owner UI review
+- worker-2 → **idle**
+- worker-3 → **idle**
 
-**In progress:** #69 (T-089-8: Activate endpoint), #72 (T-089-7: Speaker templates)
+**Active tasks:** Owner UI review via local-demo (worker-1).
 
-**Remaining:** #68 (T-089-9: E2E tests) — blocked by #69+#72
+**Session total: 70 commits pushed.** Doc updates pending commit (status.md, defects.md, user-stories.md).
 
-**Completed this phase:** #54, #56, #58, #59, #60, #61, #62, #63, #64, #65, #66, #67, #70, #71, #73, #74, #75, #76 (deploy.py D-040).
+**MILESTONE: ALL 9 stories entered TEST phase (2026-03-27).** Implementation sprint complete.
 
-**New story pipeline:** 9 stories filed (US-089–097), all at **in-review**. D-051–D-054 owner architecture decisions integrated. Decision numbering collision resolved (was D-041–D-044, conflicted with existing decisions). Advisory review cycle pending.
+**QE TEST results (1430 tests green) — all rework/fixes DONE:**
+- **US-089:** CONDITIONAL PASS. All rework done.
+- **US-090:** CONDITIONAL PASS. Security fix (#109/#115) + suffix dedup (#110) DONE.
+- **US-091:** CONDITIONAL PASS. Feature gaps deferred (PO): mono sub (Phase 2), fallback topology (Phase 2).
+- **US-092:** **PASS.** Thermal wiring (#112) DONE. Thermal test fix (#116) DONE.
+- **US-093:** PASS (no findings).
+- **US-094:** PASS (no findings).
+- **US-095:** **PASS.**
+- **US-096:** CONDITIONAL PASS. Cal verify tests (#114) DONE.
+- **US-097:** CONDITIONAL PASS. Measurement N-way (#111) DONE. Multi-position wiring (#113) DONE. Session browse/compare deferred (Phase 3).
+
+**PO scope decisions (RESOLVED 2026-03-27):**
+1. US-091: Mono sub optimization — **DEFERRED to Phase 2**
+2. US-091: Fallback topology — **DEFERRED to Phase 2** ("block" is safe MVP)
+3. US-097: Session browse/compare — **DEFERRED to Phase 3**
+4. US-097: Multi-position measurement wiring — **IMPLEMENT** (#113, blocked by #111, worker-3 after #111)
+
+**Advisory reviews — ALL COMPLETE:**
+- **Audio Engineer:** ALL 5 stories APPROVED. No rework.
+- **Security Specialist:** S-001/S-002 HIGH RESOLVED (#109 + #115 committed). No open security findings.
+- **Architect:** 3 rework items ALL RESOLVED (#110, #112, #111). 5 warnings noted (not blocking). 9 GOOD.
+**Workers:** Worker-1 on local-demo launch. Workers 2+3 idle — available for US-067 tasks once decomposition is reviewed.
+
+**Completed this phase:** #54, #56, #58, #59, #60, #61, #62, #63, #64, #65, #66, #67, #68, #69, #70, #71, #72, #73, #74, #75, #76, #78, #79, #80, #81, #82, #83, #84, #85, #86, #87, #88, #89, #90, #91, #92, #93, #94, #95.
+
+**Next steps:**
+- **Owner UI review** via `nix run .#local-demo` (worker-1 launching)
+- **US-067 decomposition COMPLETE** (architect delivered 8-task breakdown). PW speaker-room-mic simulator for E2E testing. Ready for task creation and worker assignment.
+- **US-075 remaining:** AC #4-#7 (automated verification, `nix run .#test-integration`, library API, Rust test consolidation). Can be worked in parallel with US-067.
+- **Pi deployment** tonight (task #53, 70 commits). Owner must confirm amps off (USBStreamer transient safety). Rust rebuilds needed: graph-manager + pcm-bridge.
+- **AE/AD/QE** answering owner's room correction QA question.
+- **Owner TODOs:** Per-sample Xmax limiter scope decision, speaker sensitivity_db_spl verification.
 
 ### Session Progress (2026-03-26, continued)
 
