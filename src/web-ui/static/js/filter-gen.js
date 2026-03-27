@@ -1,5 +1,5 @@
 /**
- * D-020 Web UI -- FIR Filter Generation module (US-090).
+ * D-020 Web UI -- FIR Filter Generation + Deploy module (US-090).
  *
  * Provides a form in the Config tab to trigger FIR filter generation
  * via POST /api/v1/filters/generate and display results including
@@ -7,6 +7,9 @@
  *
  * Supports mode selection: crossover-only or crossover+correction,
  * SPL preset buttons (ISO 226), and N-way topology channel display.
+ *
+ * Deploy panel (T-090-5): deploy filters to Pi, reload PipeWire with
+ * explicit safety confirmation (USBStreamer transient risk).
  */
 
 "use strict";
@@ -16,6 +19,13 @@
     var API_GENERATE = "/api/v1/filters/generate";
     var API_PROFILES = "/api/v1/filters/profiles";
     var API_SESSIONS = "/api/v1/measurement/sessions";
+    var API_DEPLOY = "/api/v1/filters/deploy";
+    var API_RELOAD = "/api/v1/filters/reload-pw";
+    var API_ACTIVE = "/api/v1/filters/active";
+
+    // Deploy state
+    var lastGenerateResult = null;  // Last successful generation result
+    var deployedButNotReloaded = false;
 
     // -- Helpers --
 
@@ -34,8 +44,32 @@
         el.className = cls ? ("fir-status " + cls) : "fir-status";
     }
 
+    function setDeployStatus(text, cls) {
+        var el = $("fir-deploy-status");
+        if (!el) return;
+        el.textContent = text;
+        el.className = cls ? ("fir-deploy-status " + cls) : "fir-deploy-status";
+    }
+
+    function setReloadStatus(text, cls) {
+        var el = $("fir-reload-status");
+        if (!el) return;
+        el.textContent = text;
+        el.className = cls ? ("fir-deploy-status " + cls) : "fir-deploy-status";
+    }
+
     function setSpinner(visible) {
         var sp = $("fir-spinner");
+        if (sp) sp.classList.toggle("hidden", !visible);
+    }
+
+    function setDeploySpinner(visible) {
+        var sp = $("fir-deploy-spinner");
+        if (sp) sp.classList.toggle("hidden", !visible);
+    }
+
+    function setReloadSpinner(visible) {
+        var sp = $("fir-reload-spinner");
         if (sp) sp.classList.toggle("hidden", !visible);
     }
 
@@ -190,6 +224,8 @@
         setSpinner(true);
         setStatus("Generating filters...", "c-warning");
         showResults(null);
+        lastGenerateResult = null;
+        updateDeployButton();
 
         fetch(API_GENERATE, {
             method: "POST",
@@ -206,9 +242,11 @@
                 if (resp.status === 200) {
                     setStatus("Generation complete -- all checks passed.", "c-safe");
                     showResults(resp.body);
+                    lastGenerateResult = resp.body;
                 } else if (resp.status === 207) {
                     setStatus("Generation complete -- some checks failed. See details.", "c-warning");
                     showResults(resp.body);
+                    // Do not enable deploy for failed checks
                 } else if (resp.status === 404) {
                     setStatus("Profile not found: " + (resp.body.detail || profile), "c-danger");
                 } else if (resp.status === 422) {
@@ -216,11 +254,13 @@
                 } else {
                     setStatus("Generation failed: " + (resp.body.detail || resp.body.error || "unknown error"), "c-danger");
                 }
+                updateDeployButton();
             })
             .catch(function (err) {
                 if (btn) btn.disabled = false;
                 setSpinner(false);
                 setStatus("Request failed: " + err.message, "c-danger");
+                updateDeployButton();
             });
     }
 
@@ -326,6 +366,182 @@
         }
     }
 
+    // -- Deploy panel (T-090-5) --
+
+    function updateDeployButton() {
+        var btn = $("fir-deploy-btn");
+        if (!btn) return;
+        var canDeploy = lastGenerateResult && lastGenerateResult.all_pass && lastGenerateResult.output_dir;
+        btn.disabled = !canDeploy;
+    }
+
+    function loadActiveFilters() {
+        var el = $("fir-deploy-active-value");
+        if (!el) return;
+
+        fetch(API_ACTIVE)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data || !data.active) {
+                    el.textContent = "--";
+                    el.className = "fir-deploy-active-value c-grey";
+                    return;
+                }
+                var keys = Object.keys(data.active);
+                if (keys.length === 0) {
+                    el.textContent = "none deployed";
+                    el.className = "fir-deploy-active-value c-grey";
+                    return;
+                }
+                var parts = [];
+                for (var i = 0; i < keys.length; i++) {
+                    parts.push(keys[i]);
+                }
+                el.textContent = parts.join(", ") + " (" + keys.length + " ch)";
+                el.className = "fir-deploy-active-value c-safe";
+            })
+            .catch(function () {
+                el.textContent = "--";
+                el.className = "fir-deploy-active-value c-grey";
+            });
+    }
+
+    function deployFilters() {
+        if (!lastGenerateResult || !lastGenerateResult.output_dir) return;
+
+        var btn = $("fir-deploy-btn");
+        if (btn) btn.disabled = true;
+        setDeploySpinner(true);
+        setDeployStatus("Deploying filters...", "c-warning");
+        var resultEl = $("fir-deploy-result");
+        if (resultEl) resultEl.classList.add("hidden");
+
+        fetch(API_DEPLOY, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ output_dir: lastGenerateResult.output_dir })
+        })
+            .then(function (r) {
+                return r.json().then(function (j) { return { status: r.status, body: j }; });
+            })
+            .then(function (resp) {
+                setDeploySpinner(false);
+
+                if (resp.status === 200 && resp.body.deployed) {
+                    setDeployStatus("Filters deployed successfully.", "c-safe");
+                    deployedButNotReloaded = true;
+
+                    // Show deployed paths
+                    if (resultEl && resp.body.deployed_paths) {
+                        var html = '<div>Deployed ' + resp.body.deployed_paths.length + ' file(s)';
+                        if (resp.body.pw_conf_deployed) {
+                            html += ' + PW config';
+                        }
+                        html += '</div>';
+                        if (resp.body.verification) {
+                            for (var i = 0; i < resp.body.verification.length; i++) {
+                                var v = resp.body.verification[i];
+                                html += '<div>' + escapeHtml(v.file) +
+                                    ' D-009: ' + v.d009_peak_db + ' dB</div>';
+                            }
+                        }
+                        html += '<div class="fir-deploy-pending">RELOAD PENDING</div>';
+                        resultEl.innerHTML = html;
+                        resultEl.classList.remove("hidden");
+                    }
+
+                    // Show reload section
+                    showReloadSection(true);
+                    loadActiveFilters();
+                } else if (resp.status === 422) {
+                    setDeployStatus("Deploy rejected: " + (resp.body.detail || resp.body.reason), "c-danger");
+                    if (resultEl && resp.body.verification) {
+                        var fhtml = '';
+                        for (var k = 0; k < resp.body.verification.length; k++) {
+                            var vf = resp.body.verification[k];
+                            fhtml += '<div>' + escapeHtml(vf.file) +
+                                ' D-009: ' + (vf.d009_pass ? 'PASS' : 'FAIL') +
+                                ' (' + vf.d009_peak_db + ' dB)</div>';
+                        }
+                        resultEl.innerHTML = fhtml;
+                        resultEl.classList.remove("hidden");
+                    }
+                } else {
+                    setDeployStatus("Deploy failed: " + (resp.body.detail || resp.body.error || "unknown"), "c-danger");
+                }
+                updateDeployButton();
+            })
+            .catch(function (err) {
+                setDeploySpinner(false);
+                setDeployStatus("Deploy request failed: " + err.message, "c-danger");
+                updateDeployButton();
+            });
+    }
+
+    function showReloadSection(visible) {
+        var sec = $("fir-reload-section");
+        if (sec) sec.classList.toggle("hidden", !visible);
+        // Reset checkbox and button
+        var cb = $("fir-reload-confirm-cb");
+        if (cb) cb.checked = false;
+        var btn = $("fir-reload-btn");
+        if (btn) btn.disabled = true;
+        setReloadStatus("", "");
+    }
+
+    function onReloadConfirmChange() {
+        var cb = $("fir-reload-confirm-cb");
+        var btn = $("fir-reload-btn");
+        if (cb && btn) {
+            btn.disabled = !cb.checked;
+        }
+    }
+
+    function reloadPipeWire() {
+        var cb = $("fir-reload-confirm-cb");
+        if (!cb || !cb.checked) return;
+
+        var btn = $("fir-reload-btn");
+        if (btn) btn.disabled = true;
+        setReloadSpinner(true);
+        setReloadStatus("Restarting PipeWire...", "c-warning");
+
+        fetch(API_RELOAD, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confirmed: true })
+        })
+            .then(function (r) {
+                return r.json().then(function (j) { return { status: r.status, body: j }; });
+            })
+            .then(function (resp) {
+                setReloadSpinner(false);
+
+                if (resp.status === 200 && resp.body.reloaded) {
+                    setReloadStatus("PipeWire reloaded successfully. New filters active.", "c-safe");
+                    deployedButNotReloaded = false;
+                    // Remove pending badge
+                    var resultEl = $("fir-deploy-result");
+                    if (resultEl) {
+                        var pending = resultEl.querySelector(".fir-deploy-pending");
+                        if (pending) pending.textContent = "ACTIVE";
+                    }
+                    loadActiveFilters();
+                } else if (resp.status === 503) {
+                    setReloadStatus("Reload unavailable: " + (resp.body.detail || "systemctl not found"), "c-warning");
+                } else {
+                    setReloadStatus("Reload failed: " + (resp.body.detail || resp.body.error || "unknown"), "c-danger");
+                }
+                // Re-enable based on checkbox
+                if (btn && cb) btn.disabled = !cb.checked;
+            })
+            .catch(function (err) {
+                setReloadSpinner(false);
+                setReloadStatus("Reload request failed: " + err.message, "c-danger");
+                if (btn && cb) btn.disabled = !cb.checked;
+            });
+    }
+
     // -- Event binding --
 
     function bindEvents() {
@@ -344,12 +560,25 @@
 
         var phonInput = $("fir-target-phon");
         if (phonInput) phonInput.addEventListener("input", onPhonInputChange);
+
+        // Deploy
+        var deployBtn = $("fir-deploy-btn");
+        if (deployBtn) deployBtn.addEventListener("click", deployFilters);
+
+        // Reload confirmation checkbox
+        var reloadCb = $("fir-reload-confirm-cb");
+        if (reloadCb) reloadCb.addEventListener("change", onReloadConfirmChange);
+
+        // Reload button
+        var reloadBtn = $("fir-reload-btn");
+        if (reloadBtn) reloadBtn.addEventListener("click", reloadPipeWire);
     }
 
     // -- View lifecycle --
 
     function onShow() {
         loadProfiles();
+        loadActiveFilters();
     }
 
     function init() {
