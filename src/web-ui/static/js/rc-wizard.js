@@ -16,6 +16,10 @@
 (function () {
 
     var PROFILES_URL = "/api/v1/filters/profiles";
+    var SPEAKER_PROFILE_URL = "/api/v1/speakers/profiles/";
+
+    // Cached speaker data from the selected profile.
+    var profileSpeakers = null;
 
     // -- DOM helpers --
 
@@ -66,9 +70,42 @@
         if (sel.value) {
             indicator.textContent = "OK";
             indicator.className = "rc-pf-indicator c-safe";
+            fetchProfileSpeakers(sel.value);
         } else {
             indicator.textContent = "--";
             indicator.className = "rc-pf-indicator c-warning";
+            profileSpeakers = null;
+        }
+    }
+
+    function fetchProfileSpeakers(profileName) {
+        fetch(SPEAKER_PROFILE_URL + encodeURIComponent(profileName))
+            .then(function (r) {
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                profileSpeakers = data.speakers || null;
+                updateChannelPreview();
+            })
+            .catch(function () {
+                profileSpeakers = null;
+                updateChannelPreview();
+            });
+    }
+
+    function updateChannelPreview() {
+        var list = $("mw-setup-channels");
+        if (!list) return;
+        var channels = buildChannelsFromProfile();
+        if (!channels || channels.length === 0) return;
+        list.innerHTML = "";
+        for (var i = 0; i < channels.length; i++) {
+            var ch = channels[i];
+            var item = document.createElement("div");
+            item.className = "mw-setup-channel-item";
+            item.textContent = "Ch" + ch.index + " " + ch.name;
+            list.appendChild(item);
         }
     }
 
@@ -309,13 +346,42 @@
     // -- Integration hooks --
     // These are called from measure.js via the global window.RCWizard object.
 
+    /**
+     * Build a channels array from the cached profile speakers dict.
+     * Returns null if no profile speakers data is available.
+     *
+     * Each entry: {index, name, target_spl_db, thermal_ceiling_dbfs}
+     * - Subwoofers get -14 dBFS ceiling (higher headroom needed).
+     * - All other roles get -20 dBFS ceiling.
+     */
+    function buildChannelsFromProfile() {
+        if (!profileSpeakers) return null;
+        var channels = [];
+        var keys = Object.keys(profileSpeakers);
+        for (var i = 0; i < keys.length; i++) {
+            var key = keys[i];
+            var spk = profileSpeakers[key];
+            var isSubwoofer = spk.role === "subwoofer";
+            channels.push({
+                index: spk.channel,
+                name: key.replace(/_/g, " "),
+                target_spl_db: 75.0,
+                thermal_ceiling_dbfs: isSubwoofer ? -14.0 : -20.0
+            });
+        }
+        // Sort by channel index for consistent ordering.
+        channels.sort(function (a, b) { return a.index - b.index; });
+        return channels;
+    }
+
     window.RCWizard = {
         onFilterGenProgress: onFilterGenProgress,
         onDeployProgress: onDeployProgress,
         onVerifyProgress: onVerifyProgress,
         simulatePipelineMock: simulatePipelineMock,
         loadSetupProfiles: loadSetupProfiles,
-        runPreflightChecks: runPreflightChecks
+        runPreflightChecks: runPreflightChecks,
+        buildChannelsFromProfile: buildChannelsFromProfile
     };
 
     // -- Init --
