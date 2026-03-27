@@ -36,8 +36,10 @@ Usage:
 
 import dataclasses
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Optional
 
@@ -324,12 +326,21 @@ def verify_measurement_mode(gm_client):
 # ---------------------------------------------------------------------------
 
 def _play_burst(noise_signal, channel_index, output_device, input_device,
-                sr=SAMPLE_RATE, pre_roll_s=0.5):
+                sr=SAMPLE_RATE, pre_roll_s=0.5, signal_gen=None,
+                capture_target=None):
     """Play a noise burst on one channel and record from the mic.
 
-    A pre-roll of silence is prepended to the output buffer to give
-    PipeWire time to route the new stream node before the signal starts.
-    The pre-roll is trimmed from the recording before returning.
+    Two modes of operation:
+
+    **pw-record mode** (when ``signal_gen`` is provided):
+        Uses ``pw_capture.start_capture()`` to record from the UMIK-1 PW
+        source node via ``pw-record``, then ``signal_gen.play()`` to send
+        pink noise through the signal generator RPC.  This is the
+        production and local-demo path (US-067 Track A).
+
+    **Legacy sd.playrec mode** (when ``signal_gen`` is None):
+        Falls back to the old sounddevice ``playrec()`` pattern for mock
+        mode and standalone CLI use.
 
     Parameters
     ----------
@@ -338,20 +349,32 @@ def _play_burst(noise_signal, channel_index, output_device, input_device,
     channel_index : int
         0-indexed output channel.
     output_device : int or str or None
-        Sounddevice output device identifier.
+        Sounddevice output device identifier (legacy mode only).
     input_device : int or str or None
-        Sounddevice input device identifier (UMIK-1).
+        Sounddevice input device identifier (legacy mode only).
     sr : int
         Sample rate.
     pre_roll_s : float
-        Seconds of silence before signal. Allows PipeWire to route the
-        stream node before audio starts playing.
+        Seconds of silence before signal (legacy mode).  In pw-record
+        mode, pw-record is started before play begins so no pre-roll
+        is needed in the output buffer.
+    signal_gen : SignalGenClient or None
+        When provided, uses separated play + pw-record capture pattern.
+    capture_target : str or None
+        PipeWire node name for pw-record capture (e.g.
+        ``"alsa_input.usb-miniDSP_UMIK-1"``).  Required when
+        ``signal_gen`` is not None.
 
     Returns
     -------
     np.ndarray
         Mono recording from the mic (float64), trimmed to signal portion.
     """
+    if signal_gen is not None:
+        return _play_burst_pw_capture(
+            noise_signal, channel_index, sr, signal_gen, capture_target)
+
+    # Legacy sd.playrec path (mock mode / standalone CLI)
     sd = _sd_override
     if sd is None:
         import sounddevice as sd
@@ -387,8 +410,72 @@ def _play_burst(noise_signal, channel_index, output_device, input_device,
     return recording[pre_roll_samples:, 0].astype(np.float64)
 
 
+def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
+                           capture_target):
+    """Play a burst via signal-gen RPC and capture via pw-record.
+
+    Separated play + capture pattern (US-067 Track A).  The signal
+    generator plays the noise on the specified channel while pw-record
+    captures from the UMIK-1 PW source node simultaneously.
+    """
+    from pw_capture import start_capture, stop_capture, load_wav
+
+    duration_s = len(noise_signal) / sr
+
+    # Compute signal level (RMS in dBFS) for the signal-gen play RPC.
+    rms = np.sqrt(np.mean(noise_signal.astype(np.float64) ** 2))
+    if rms > 0:
+        level_dbfs = float(np.floor(20.0 * np.log10(rms) * 10) / 10)
+    else:
+        level_dbfs = -60.0
+    level_dbfs = max(-60.0, min(-0.5, level_dbfs))
+
+    # Create a temporary WAV file for pw-record output.
+    cap_fd, cap_path = tempfile.mkstemp(suffix=".wav", prefix="gc_cap_")
+    os.close(cap_fd)
+
+    try:
+        # 1. Start capture (pw-record begins writing to WAV file)
+        proc = start_capture(
+            output_path=cap_path,
+            target=capture_target or "alsa_input.usb-miniDSP_UMIK-1",
+            sample_rate=sr,
+            channels=1,
+        )
+
+        try:
+            # 2. Play pink noise via signal-gen RPC (play-only, no record)
+            signal_gen.play(
+                signal="pink",
+                channels=[channel_index + 1],  # 1-indexed for RPC
+                level_dbfs=level_dbfs,
+                duration=duration_s,
+            )
+
+            # 3. Wait for playback to complete + decay margin
+            time.sleep(duration_s + 0.3)
+        finally:
+            # 4. Stop capture (SIGINT -> pw-record finalizes WAV)
+            stop_capture(proc)
+
+        # 5. Load the captured audio
+        recording = load_wav(cap_path)
+        # Return mono float64, trimmed to signal duration
+        n_signal = len(noise_signal)
+        rec = recording[:, 0].astype(np.float64)
+        if len(rec) > n_signal:
+            rec = rec[:n_signal]
+        return rec
+    finally:
+        try:
+            os.unlink(cap_path)
+        except OSError:
+            pass
+
+
 def _play_burst_with_xrun_check(noise_signal, channel_index, output_device,
-                                input_device, sr=SAMPLE_RATE):
+                                input_device, sr=SAMPLE_RATE,
+                                signal_gen=None, capture_target=None):
     """Play a burst with PipeWire xrun detection and retry (GC-02).
 
     Wraps ``_play_burst`` with xrun counter checks. If an xrun is detected
@@ -402,11 +489,15 @@ def _play_burst_with_xrun_check(noise_signal, channel_index, output_device,
     channel_index : int
         0-indexed output channel.
     output_device : int or str or None
-        Sounddevice output device identifier.
+        Sounddevice output device identifier (legacy mode only).
     input_device : int or str or None
-        Sounddevice input device identifier (UMIK-1).
+        Sounddevice input device identifier (legacy mode only).
     sr : int
         Sample rate.
+    signal_gen : SignalGenClient or None
+        When provided, uses separated play + pw-record capture pattern.
+    capture_target : str or None
+        PipeWire node name for pw-record capture.
 
     Returns
     -------
@@ -418,7 +509,8 @@ def _play_burst_with_xrun_check(noise_signal, channel_index, output_device,
         xrun_before = get_pipewire_xrun_count()
 
         recording = _play_burst(
-            noise_signal, channel_index, output_device, input_device, sr=sr)
+            noise_signal, channel_index, output_device, input_device, sr=sr,
+            signal_gen=signal_gen, capture_target=capture_target)
 
         xrun_after = get_pipewire_xrun_count()
 
@@ -461,6 +553,8 @@ def calibrate_channel(
     ws_server=None,
     channel_name=None,
     measurement_attenuation_db=0.0,
+    signal_gen=None,
+    capture_target=None,
 ):
     """Ramp from silence to target SPL. Returns calibrated digital level.
 
@@ -581,7 +675,7 @@ def calibrate_channel(
                                dtype=np.float64)
     ambient_recording = _play_burst(
         ambient_silence, channel_index, output_device, input_device,
-        sr=sample_rate)
+        sr=sample_rate, signal_gen=signal_gen, capture_target=capture_target)
     ambient_rms = np.sqrt(np.mean(ambient_recording ** 2))
     ambient_rms_dbfs = 20.0 * np.log10(max(ambient_rms, 1e-10))
     ambient_spl = ambient_rms_dbfs + umik_sensitivity_dbfs_to_spl
@@ -651,7 +745,8 @@ def calibrate_channel(
             # GC-02: Play burst with xrun detection and retry
             recording = _play_burst_with_xrun_check(
                 noise, channel_index, output_device, input_device,
-                sr=sample_rate)
+                sr=sample_rate, signal_gen=signal_gen,
+                capture_target=capture_target)
             if recording is None:
                 reason = "persistent xruns during calibration"
                 print(f"\n  ABORT: {reason}")
@@ -775,7 +870,9 @@ def calibrate_channel(
 
                     verify_rec = _play_burst_with_xrun_check(
                         verify_noise, channel_index, output_device,
-                        input_device, sr=sample_rate)
+                        input_device, sr=sample_rate,
+                        signal_gen=signal_gen,
+                        capture_target=capture_target)
                     if verify_rec is None:
                         reason = "persistent xruns during calibration"
                         print(f"\n  ABORT: {reason}")

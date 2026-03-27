@@ -196,6 +196,9 @@ class SessionConfig:
     profile_name: Optional[str] = None     # Speaker profile for filter generation
 
     def __post_init__(self):
+        # In mock mode, default to synthetic device indices.
+        # These are also correct for SignalGenClient (sd_override) which
+        # uses index 0 = output sink, 1 = UMIK-1 capture.
         if _MOCK_MODE:
             if self.output_device is None:
                 self.output_device = 0
@@ -254,7 +257,10 @@ class MeasurementSession:
         self._gm_client: Any = None
         self._pump_task: Optional[asyncio.Task] = None
         self._is_mock: bool = False
+        self._is_siggen: bool = False
         self._quantum_overridden: bool = False
+        # F-160: GM mode saved before entering measurement, restored on cleanup.
+        self._pre_measurement_gm_mode: Optional[str] = None
 
     # -- Properties ----------------------------------------------------------
 
@@ -339,8 +345,10 @@ class MeasurementSession:
             # TK-199: Resolve device names to indices before any state
             # transition (fail-fast if UMIK-1 or output device not found).
             # Skipped in mock mode where __post_init__ already sets integer
-            # device indices.
-            if not _MOCK_MODE:
+            # device indices.  Also skipped when sd_override is set (e.g.
+            # PI4AUDIO_SIGGEN=1 mode) — the SignalGenClient handles audio
+            # I/O directly and does not use sounddevice device indices.
+            if not _MOCK_MODE and self._sd_override is None:
                 _ensure_rc_path()
                 from measure_nearfield import find_device
                 import sounddevice as _sd
@@ -380,6 +388,17 @@ class MeasurementSession:
                 log.info("Resolved devices: input=%d ('%s'), output=%d ('%s')",
                          input_idx, input_name,
                          output_idx, output_name)
+            elif self._sd_override is not None and not _MOCK_MODE:
+                # sd_override (e.g. SignalGenClient) handles all audio I/O.
+                # Set synthetic device indices matching the override's
+                # query_devices() output (0=output, 1=input).
+                if self._config.output_device is None:
+                    self._config.output_device = 0
+                if self._config.input_device is None:
+                    self._config.input_device = 1
+                self._is_siggen = True
+                log.info("Skipping sounddevice resolution — using sd_override "
+                         "(signal generator mode)")
 
             await self._run_setup()
             await self._run_gain_cal()
@@ -419,12 +438,24 @@ class MeasurementSession:
 
         In measurement mode, GM establishes: signal-gen -> filter-chain,
         UMIK-1 capture active. All non-measurement links are torn down.
+        Saves the current mode for restoration on cleanup (F-160).
 
         In mock mode, uses MockGraphManagerClient (no-op).
         """
         if self._gm_client is None:
             log.warning("No GraphManager client — skipping mode switch")
             return
+
+        # F-160: Save the current GM mode before switching.
+        try:
+            self._pre_measurement_gm_mode = await asyncio.to_thread(
+                self._gm_client.get_mode)
+            log.info("F-160: Saved pre-measurement GM mode: %s",
+                     self._pre_measurement_gm_mode)
+        except Exception as exc:
+            log.warning("F-160: Failed to query GM mode: %s — "
+                        "will restore to monitoring", exc)
+            self._pre_measurement_gm_mode = "monitoring"
 
         try:
             await asyncio.to_thread(self._gm_client.enter_measurement_mode)
@@ -436,10 +467,11 @@ class MeasurementSession:
                     f"(current mode: {mode}). Aborting for safety.")
             log.info("GraphManager switched to measurement mode")
         except Exception:
-            # On failure, try to restore production mode.
+            # On failure, try to restore the previous mode.
             try:
+                target = self._pre_measurement_gm_mode or "monitoring"
                 await asyncio.to_thread(
-                    self._gm_client.restore_production_mode)
+                    self._gm_client.set_mode, target)
             except Exception:
                 pass
             raise
@@ -471,7 +503,22 @@ class MeasurementSession:
 
         _ensure_rc_path()
         from gain_calibration import calibrate_channel, set_mock_sd
-        if self._sd_override is not None:
+
+        # US-067 Track A: When using signal-gen mode, pass the
+        # SignalGenClient directly as signal_gen for the new separated
+        # play + pw-record capture pattern.  In mock mode, keep the old
+        # set_mock_sd path (MockSoundDevice provides playrec()).
+        _siggen_client = None
+        _cap_target = None
+        if self._is_siggen and self._sd_override is not None:
+            _siggen_client = self._sd_override
+            # Ensure pw_capture is importable from room-correction context
+            if _MEAS_DIR not in sys.path:
+                sys.path.insert(0, _MEAS_DIR)
+            import pw_capture as _pwc
+            _cap_target = _pwc.DEFAULT_TARGET
+        elif self._sd_override is not None:
+            # Mock mode: use legacy set_mock_sd path
             set_mock_sd(self._sd_override)
 
         adapter = _AbortAdapter(self.abort_event, self._broadcast_queue, asyncio.get_running_loop())
@@ -499,6 +546,8 @@ class MeasurementSession:
                 ws_server=adapter, channel_name=ch.name,
                 measurement_attenuation_db=(
                     0.0 if self._is_mock else _MEASUREMENT_ATTENUATION_DB),
+                signal_gen=_siggen_client,
+                capture_target=_cap_target,
             )
             self._gain_cal_results[ch.index] = result
             if not result.passed:
@@ -514,7 +563,7 @@ class MeasurementSession:
                 "steps_taken": result.steps_taken,
             })
 
-        if self._sd_override is not None:
+        if not self._is_siggen and self._sd_override is not None:
             set_mock_sd(None)
         log.info("Gain cal complete for %d channels",
                  len(self._config.channels))
@@ -608,7 +657,18 @@ class MeasurementSession:
         from room_correction.sweep import generate_log_sweep
         from room_correction import dsp_utils
 
-        if self._sd_override is not None:
+        # US-067 Track A: In signal-gen mode, pass SignalGenClient
+        # directly to play_and_record for separated play + pw-record
+        # capture.  In mock mode, keep the legacy _sd_override path.
+        _siggen_client = None
+        _cap_target = None
+        if self._is_siggen and self._sd_override is not None:
+            _siggen_client = self._sd_override
+            if _MEAS_DIR not in sys.path:
+                sys.path.insert(0, _MEAS_DIR)
+            import pw_capture as _pwc
+            _cap_target = _pwc.DEFAULT_TARGET
+        elif self._sd_override is not None:
             mn._sd_override = self._sd_override
 
         total = len(self._config.channels) * self._config.positions
@@ -643,7 +703,9 @@ class MeasurementSession:
                 recording = await self._playrec_with_abort(
                     mn.play_and_record, sweep, ch.index,
                     self._config.output_device, self._config.input_device,
-                    sr=self._config.sample_rate)
+                    sr=self._config.sample_rate,
+                    signal_gen=_siggen_client,
+                    capture_target=_cap_target)
                 # M-1: Recording integrity checks (skip in mock mode).
                 if not self._is_mock:
                     self._check_recording_integrity(recording, ch.name)
@@ -729,7 +791,7 @@ class MeasurementSession:
                 "is_last": is_last,
             })
 
-        if self._sd_override is not None:
+        if not self._is_siggen and self._sd_override is not None:
             mn._sd_override = None
         log.info("Sweep phase complete: %d sweeps", count)
 
@@ -1122,7 +1184,7 @@ class MeasurementSession:
 
         self._check_abort("CP-6a")
 
-        dry_run = self._is_mock
+        dry_run = self._is_mock or self._is_siggen
         output_dir = fg_result["output_dir"]
 
         self._enqueue_progress({
@@ -1181,9 +1243,10 @@ class MeasurementSession:
         fg = getattr(self, "_filter_gen_result", None)
         static_verification = fg.get("verification", []) if fg else []
 
-        # In mock mode we cannot run a real verification sweep — report
-        # static filter verification only.
-        if self._is_mock:
+        # In mock/siggen mode we cannot run a real verification sweep —
+        # filters are not deployed to the convolver, so a live sweep would
+        # measure the unmodified signal path.  Report static verification.
+        if self._is_mock or self._is_siggen:
             await self._broadcast({
                 "type": "verify_progress", "phase": "complete",
                 "message": "Static verification passed (live verification "
@@ -1205,7 +1268,16 @@ class MeasurementSession:
         from room_correction.deconvolution import deconvolve
         from room_correction import dsp_utils
 
-        if self._sd_override is not None:
+        # US-067 Track A: signal-gen mode uses separated play + capture.
+        _siggen_client = None
+        _cap_target = None
+        if self._is_siggen and self._sd_override is not None:
+            _siggen_client = self._sd_override
+            if _MEAS_DIR not in sys.path:
+                sys.path.insert(0, _MEAS_DIR)
+            import pw_capture as _pwc
+            _cap_target = _pwc.DEFAULT_TARGET
+        elif self._sd_override is not None:
             mn._sd_override = self._sd_override
 
         sr = self._config.sample_rate
@@ -1229,7 +1301,8 @@ class MeasurementSession:
                 recording = await self._playrec_with_abort(
                     mn.play_and_record, sweep, ch.index,
                     self._config.output_device, self._config.input_device,
-                    sr=sr)
+                    sr=sr, signal_gen=_siggen_client,
+                    capture_target=_cap_target)
             except Exception as exc:
                 log.warning("Verify sweep failed for %s: %s", ch.name, exc)
                 verify_results.append({
@@ -1277,7 +1350,7 @@ class MeasurementSession:
             log.info("Verify %s: max_dev=%.1f dB, pass=%s",
                      ch.name, max_dev, passed)
 
-        if self._sd_override is not None:
+        if not self._is_siggen and self._sd_override is not None:
             mn._sd_override = None
 
         all_pass = all(r.get("pass", False) for r in verify_results)
@@ -1296,14 +1369,17 @@ class MeasurementSession:
     async def _playrec_with_abort(
         self, play_fn: Callable, signal: np.ndarray,
         channel: int, output_device: Any, input_device: Any,
-        sr: int = 48000,
+        sr: int = 48000, **kwargs,
     ) -> np.ndarray:
         """Race ``play_fn`` against ``abort_event`` (CP-0).
 
         If abort wins, calls ``sd.abort()`` to interrupt audio I/O.
+        Extra kwargs (e.g. signal_gen, capture_target) are forwarded
+        to play_fn.
         """
         playrec_task = asyncio.ensure_future(asyncio.to_thread(
-            play_fn, signal, channel, output_device, input_device, sr=sr))
+            play_fn, signal, channel, output_device, input_device,
+            sr=sr, **kwargs))
         abort_task = asyncio.ensure_future(self.abort_event.wait())
 
         done, pending = await asyncio.wait(
@@ -1361,14 +1437,15 @@ class MeasurementSession:
         log.info("Session aborted: %s", reason)
 
     async def _restore_production_mode(self) -> None:
-        """Restore GraphManager to production (monitoring) mode."""
+        """Restore GraphManager to the mode active before measurement (F-160)."""
         if self._gm_client is None:
             return
+        target = self._pre_measurement_gm_mode or "monitoring"
         try:
-            await asyncio.to_thread(self._gm_client.restore_production_mode)
-            log.info("Restored GraphManager to production (monitoring) mode")
+            await asyncio.to_thread(self._gm_client.set_mode, target)
+            log.info("F-160: Restored GraphManager to %s mode", target)
         except Exception as exc:
-            log.error("Failed to restore production mode: %s", exc)
+            log.error("Failed to restore GM to %s mode: %s", target, exc)
 
     async def _connect_gm(self) -> None:
         """Connect to the GraphManager RPC server (D-040)."""

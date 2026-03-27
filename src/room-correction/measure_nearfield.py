@@ -912,14 +912,21 @@ def generate_pink_noise(duration_s, sr=SAMPLE_RATE, level_dbfs=-40.0,
 
 def play_and_record(output_signal, output_channel, output_device_idx,
                     input_device_idx, sr=SAMPLE_RATE, pre_roll_s=0.5,
-                    post_roll_s=0.5):
+                    post_roll_s=0.5, signal_gen=None, capture_target=None):
     """
-    Simultaneously play a signal on a specific output channel and record
-    from the UMIK-1 input.
+    Play a signal on a specific output channel and record from the UMIK-1.
 
-    The recording includes pre-roll (silence before playback starts) and
-    post-roll (continued recording after playback ends) to capture the
-    full impulse response including room decay.
+    Two modes of operation:
+
+    **pw-record mode** (when ``signal_gen`` is provided):
+        Uses ``pw_capture.start_capture()`` to record from the UMIK-1 PW
+        source node via ``pw-record``, then ``signal_gen.play()`` to send
+        the signal through the signal generator RPC.  This is the
+        production and local-demo path (US-067 Track A).
+
+    **Legacy sd.playrec mode** (when ``signal_gen`` is None):
+        Falls back to the old sounddevice ``playrec()`` pattern for mock
+        mode and standalone CLI use.
 
     Parameters
     ----------
@@ -928,15 +935,20 @@ def play_and_record(output_signal, output_channel, output_device_idx,
     output_channel : int
         0-indexed output channel number.
     output_device_idx : int
-        Sounddevice output device index.
+        Sounddevice output device index (legacy mode only).
     input_device_idx : int
-        Sounddevice input device index (UMIK-1).
+        Sounddevice input device index (legacy mode only).
     sr : int
         Sample rate.
     pre_roll_s : float
         Seconds of silence before the signal.
     post_roll_s : float
         Seconds of continued recording after the signal.
+    signal_gen : SignalGenClient or None
+        When provided, uses separated play + pw-record capture pattern.
+    capture_target : str or None
+        PipeWire node name for pw-record capture (e.g.
+        ``"alsa_input.usb-miniDSP_UMIK-1"``).
 
     Returns
     -------
@@ -945,6 +957,12 @@ def play_and_record(output_signal, output_channel, output_device_idx,
         - trimmed_recording: aligned so index 0 = start of output signal
         - pre_roll: the silent pre-roll portion (for noise floor estimation)
     """
+    if signal_gen is not None:
+        return _play_and_record_pw_capture(
+            output_signal, output_channel, sr, pre_roll_s, post_roll_s,
+            signal_gen, capture_target)
+
+    # Legacy sd.playrec path (mock mode / standalone CLI)
     sd = _sd_override
     if sd is None:
         import sounddevice as sd
@@ -993,6 +1011,106 @@ def play_and_record(output_signal, output_channel, output_device_idx,
     trimmed = rec[pre_roll_samples:]
 
     return trimmed, pre_roll
+
+
+def _play_and_record_pw_capture(output_signal, output_channel, sr,
+                                pre_roll_s, post_roll_s,
+                                signal_gen, capture_target):
+    """Play via signal-gen RPC and capture via pw-record (US-067 Track A).
+
+    Returns the same (trimmed_recording, pre_roll) tuple as the legacy
+    sd.playrec path for backward compatibility with callers.
+    """
+    import tempfile
+    from pw_capture import start_capture, stop_capture, load_wav
+
+    duration_s = len(output_signal) / sr
+
+    # Compute signal level (RMS in dBFS) for the signal-gen play RPC.
+    rms = np.sqrt(np.mean(output_signal.astype(np.float64) ** 2))
+    if rms > 0:
+        level_dbfs = float(np.floor(20.0 * np.log10(rms) * 10) / 10)
+    else:
+        level_dbfs = -60.0
+    level_dbfs = max(-60.0, min(-0.5, level_dbfs))
+
+    # Detect signal type for the play RPC
+    sig_type = "sweep" if _is_likely_sweep(output_signal, sr) else "pink"
+
+    cap_fd, cap_path = tempfile.mkstemp(suffix=".wav", prefix="mn_cap_")
+    os.close(cap_fd)
+
+    pre_roll_samples = int(pre_roll_s * sr)
+
+    try:
+        # 1. Start capture (pw-record begins writing to WAV file).
+        # Start pre_roll_s before playing so we capture ambient silence
+        # for noise floor estimation.
+        proc = start_capture(
+            output_path=cap_path,
+            target=capture_target or "alsa_input.usb-miniDSP_UMIK-1",
+            sample_rate=sr,
+            channels=1,
+        )
+
+        try:
+            # Brief settle time matching the pre-roll concept
+            time.sleep(pre_roll_s)
+
+            # 2. Play signal via signal-gen RPC (play-only, no record)
+            play_kwargs = {
+                "signal": sig_type,
+                "channels": [output_channel + 1],  # 1-indexed for RPC
+                "level_dbfs": level_dbfs,
+                "duration": duration_s,
+            }
+            if sig_type == "sweep":
+                play_kwargs["freq"] = 20.0
+                play_kwargs["sweep_end"] = 20000.0
+            signal_gen.play(**play_kwargs)
+
+            # 3. Wait for playback + post-roll (room decay)
+            time.sleep(duration_s + post_roll_s)
+        finally:
+            # 4. Stop capture (SIGINT -> pw-record finalizes WAV)
+            stop_capture(proc)
+
+        # 5. Load the captured audio
+        recording = load_wav(cap_path)
+        rec = recording[:, 0].astype(np.float64)
+
+        # Split into pre-roll and signal-aligned recording
+        if len(rec) > pre_roll_samples:
+            pre_roll = rec[:pre_roll_samples]
+            trimmed = rec[pre_roll_samples:]
+        else:
+            pre_roll = rec
+            trimmed = np.zeros(0, dtype=np.float64)
+
+        return trimmed, pre_roll
+    finally:
+        try:
+            os.unlink(cap_path)
+        except OSError:
+            pass
+
+
+def _is_likely_sweep(signal, sr):
+    """Heuristic: detect if signal is a log sweep by checking zero-crossing rate."""
+    # A sweep has increasing frequency, so zero-crossing intervals decrease.
+    # Pink noise has roughly constant zero-crossing rate.
+    crossings = np.where(np.diff(np.sign(signal)))[0]
+    if len(crossings) < 10:
+        return False
+    intervals = np.diff(crossings)
+    # If the median interval in the second half is less than half the first half,
+    # it's likely a sweep.
+    mid = len(intervals) // 2
+    if mid < 2:
+        return False
+    first_half_med = np.median(intervals[:mid])
+    second_half_med = np.median(intervals[mid:])
+    return second_half_med < first_half_med * 0.5
 
 
 def compute_frequency_response(ir, sr=SAMPLE_RATE, fade_out_ms=5.0):
