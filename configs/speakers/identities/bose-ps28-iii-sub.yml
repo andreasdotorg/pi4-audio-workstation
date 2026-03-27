@@ -29,7 +29,7 @@ port_tuning_note: >
   Combined port bandwidth approximately 45-100Hz.
 
 impedance_ohm: 2.33  # Per driver. Each driver on separate amp channel (intended config).
-sensitivity_db_spl: null
+sensitivity_db_spl: 85  # TODO(owner): Estimate for isobaric 5.25" pair. Verify from Bose specs or measurement.
 
 # D-029 gain staging
 max_boost_db: 10

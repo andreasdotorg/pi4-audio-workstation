@@ -21,7 +21,7 @@ driver: bose-jewel-double-cube
 type: sealed
 
 impedance_ohm: 8
-sensitivity_db_spl: null
+sensitivity_db_spl: 83  # TODO(owner): Estimate for Bose Jewel Double Cube (~2" driver). Verify from spec sheet.
 
 # D-029 gain staging
 max_boost_db: 4

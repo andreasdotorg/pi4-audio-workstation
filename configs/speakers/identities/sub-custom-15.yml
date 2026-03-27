@@ -7,7 +7,7 @@ model: "15-inch Sub"
 type: sealed
 
 impedance_ohm: 8
-sensitivity_db_spl: null
+sensitivity_db_spl: 95  # TODO(owner): Estimate for 15" sub driver. Measure or replace with actual value.
 
 # D-029 gain staging
 max_boost_db: 0

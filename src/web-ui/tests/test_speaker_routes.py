@@ -27,6 +27,8 @@ try:
         _list_yamls, _read_yaml, _speakers_dir, _SAFE_NAME,
         _validate_identity, _validate_profile, _slugify,
         _write_yaml, _delete_yaml,
+        _VALID_TOPOLOGIES, _VALID_ROLES, _VALID_ENCLOSURE_TYPES,
+        _VALID_GM_MODES, _MAX_CHANNEL,
     )
 except ImportError:
     pytest.skip("speaker_routes not available (pre-commit)", allow_module_level=True)
@@ -221,6 +223,7 @@ _VALID_IDENTITY = {
     "name": "Test Speaker",
     "type": "sealed",
     "impedance_ohm": 8,
+    "sensitivity_db_spl": 90,
     "max_boost_db": 0,
     "mandatory_hpf_hz": 30,
 }
@@ -261,6 +264,20 @@ class TestValidateIdentity:
         body = {**_VALID_IDENTITY, "impedance_ohm": "eight"}
         assert _validate_identity(body) is not None
 
+    def test_missing_sensitivity(self):
+        body = {k: v for k, v in _VALID_IDENTITY.items() if k != "sensitivity_db_spl"}
+        err = _validate_identity(body)
+        assert err is not None
+        assert "sensitivity_db_spl" in err
+
+    def test_sensitivity_not_number(self):
+        body = {**_VALID_IDENTITY, "sensitivity_db_spl": "loud"}
+        assert _validate_identity(body) is not None
+
+    def test_sensitivity_null_rejected(self):
+        body = {**_VALID_IDENTITY, "sensitivity_db_spl": None}
+        assert _validate_identity(body) is not None
+
 
 class TestValidateProfile:
     def test_valid(self):
@@ -286,7 +303,21 @@ class TestValidateProfile:
         assert _validate_profile(body) is not None
 
     def test_speaker_invalid_role(self):
-        bad_speakers = {"sat": {"identity": "x", "role": "tweeter", "channel": 0}}
+        bad_speakers = {"sat": {"identity": "x", "role": "woofer", "channel": 0}}
+        body = {**_VALID_PROFILE, "speakers": bad_speakers}
+        assert _validate_profile(body) is not None
+
+    def test_invalid_topology(self):
+        body = {**_VALID_PROFILE, "topology": "5way"}
+        assert _validate_profile(body) is not None
+
+    def test_channel_out_of_range(self):
+        bad_speakers = {"sat": {"identity": "x", "role": "satellite", "channel": 8}}
+        body = {**_VALID_PROFILE, "speakers": bad_speakers}
+        assert _validate_profile(body) is not None
+
+    def test_channel_negative(self):
+        bad_speakers = {"sat": {"identity": "x", "role": "satellite", "channel": -1}}
         body = {**_VALID_PROFILE, "speakers": bad_speakers}
         assert _validate_profile(body) is not None
 

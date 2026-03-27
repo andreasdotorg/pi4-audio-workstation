@@ -156,7 +156,7 @@ def _delete_yaml(subdir: str, name: str) -> bool:
 # -- Schema validation --------------------------------------------------------
 
 # Required fields for speaker identities (from existing YAML convention).
-_IDENTITY_REQUIRED = {"name", "type", "impedance_ohm", "max_boost_db", "mandatory_hpf_hz"}
+_IDENTITY_REQUIRED = {"name", "type", "impedance_ohm", "sensitivity_db_spl", "max_boost_db", "mandatory_hpf_hz"}
 
 # Required fields for speaker profiles.
 _PROFILE_REQUIRED = {"name", "topology", "crossover", "speakers"}
@@ -167,14 +167,26 @@ _CROSSOVER_REQUIRED = {"frequency_hz", "slope_db_per_oct", "type"}
 # Valid identity enclosure types.
 _VALID_TYPES = {"sealed", "ported", "open-baffle", "horn", "bandpass", "transmission-line"}
 
+# Valid profile topologies.
+_VALID_TOPOLOGIES = {"2way", "3way", "4way", "meh"}
+
 # Valid speaker roles.
-_VALID_ROLES = {"satellite", "subwoofer", "fullrange"}
+_VALID_ROLES = {"satellite", "subwoofer", "fullrange", "midrange", "tweeter"}
 
 # Valid filter types.
-_VALID_FILTER_TYPES = {"highpass", "lowpass", "fullrange"}
+_VALID_FILTER_TYPES = {"highpass", "lowpass", "fullrange", "bandpass"}
 
 # Valid polarities.
 _VALID_POLARITIES = {"normal", "inverted"}
+
+# Valid enclosure types per speaker in a profile.
+_VALID_ENCLOSURE_TYPES = {"sealed", "ported", "horn", "bandpass", "onken", "open_baffle", "isobaric"}
+
+# Valid GM modes for mode_constraints.
+_VALID_GM_MODES = {"dj", "live", "monitoring", "measurement"}
+
+# Maximum channel index (0-indexed, 8 channels total).
+_MAX_CHANNEL = 7
 
 
 def _validate_identity(data: Any) -> str | None:
@@ -190,10 +202,24 @@ def _validate_identity(data: Any) -> str | None:
         return f"'type' must be one of: {', '.join(sorted(_VALID_TYPES))}"
     if not isinstance(data["impedance_ohm"], (int, float)):
         return "'impedance_ohm' must be a number"
+    if not isinstance(data["sensitivity_db_spl"], (int, float)):
+        return "'sensitivity_db_spl' must be a number"
     if not isinstance(data["max_boost_db"], (int, float)):
         return "'max_boost_db' must be a number"
     if not isinstance(data["mandatory_hpf_hz"], (int, float)):
         return "'mandatory_hpf_hz' must be a number"
+    return None
+
+
+def _validate_crossover(xover: Any, label: str = "crossover") -> str | None:
+    """Validate a single crossover object. Returns error string, or None."""
+    if not isinstance(xover, dict):
+        return f"'{label}' must be an object"
+    xover_missing = _CROSSOVER_REQUIRED - xover.keys()
+    if xover_missing:
+        return f"{label} missing fields: {', '.join(sorted(xover_missing))}"
+    if not isinstance(xover["frequency_hz"], (int, float)):
+        return f"'{label}.frequency_hz' must be a number"
     return None
 
 
@@ -208,15 +234,22 @@ def _validate_profile(data: Any) -> str | None:
         return "'name' must be a non-empty string"
     if not isinstance(data["topology"], str):
         return "'topology' must be a string"
-    # Validate crossover section.
+    if data["topology"] not in _VALID_TOPOLOGIES:
+        return (f"'topology' must be one of: "
+                f"{', '.join(sorted(_VALID_TOPOLOGIES))}")
+    # Validate crossover section — single object or list for multi-way.
     xover = data["crossover"]
-    if not isinstance(xover, dict):
-        return "'crossover' must be an object"
-    xover_missing = _CROSSOVER_REQUIRED - xover.keys()
-    if xover_missing:
-        return f"crossover missing fields: {', '.join(sorted(xover_missing))}"
-    if not isinstance(xover["frequency_hz"], (int, float)):
-        return "'crossover.frequency_hz' must be a number"
+    if isinstance(xover, list):
+        if len(xover) == 0:
+            return "'crossover' list must not be empty"
+        for i, xo in enumerate(xover):
+            err = _validate_crossover(xo, f"crossovers[{i}]")
+            if err:
+                return err
+    else:
+        err = _validate_crossover(xover, "crossover")
+        if err:
+            return err
     # Validate speakers section.
     speakers = data["speakers"]
     if not isinstance(speakers, dict) or len(speakers) == 0:
@@ -233,6 +266,28 @@ def _validate_profile(data: Any) -> str | None:
                     f"{', '.join(sorted(_VALID_ROLES))}")
         if "channel" not in spk:
             return f"speakers.{spk_name} missing 'channel'"
+        if not isinstance(spk["channel"], int) or spk["channel"] < 0 or spk["channel"] > _MAX_CHANNEL:
+            return f"speakers.{spk_name}.channel must be an integer 0-{_MAX_CHANNEL}"
+        # Optional: delay_ms
+        if "delay_ms" in spk:
+            if not isinstance(spk["delay_ms"], (int, float)):
+                return f"speakers.{spk_name}.delay_ms must be a number"
+            if spk["delay_ms"] < 0:
+                return f"speakers.{spk_name}.delay_ms must be >= 0"
+        # Optional: enclosure_type
+        if "enclosure_type" in spk:
+            if spk["enclosure_type"] not in _VALID_ENCLOSURE_TYPES:
+                return (f"speakers.{spk_name}.enclosure_type must be one of: "
+                        f"{', '.join(sorted(_VALID_ENCLOSURE_TYPES))}")
+    # Optional: mode_constraints
+    if "mode_constraints" in data:
+        mc = data["mode_constraints"]
+        if not isinstance(mc, list):
+            return "'mode_constraints' must be a list"
+        for mode in mc:
+            if mode not in _VALID_GM_MODES:
+                return (f"mode_constraints: '{mode}' is not a valid mode. "
+                        f"Must be one of: {', '.join(sorted(_VALID_GM_MODES))}")
     return None
 
 
