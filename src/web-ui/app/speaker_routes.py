@@ -29,7 +29,7 @@ import re
 from typing import Any
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 log = logging.getLogger(__name__)
@@ -647,6 +647,186 @@ async def validate_profile_endpoint(name: str):
                      "detail": f"Speaker profile '{name}' not found"},
         )
     result = _deep_validate_profile(data)
+    return result
+
+
+# -- Activate endpoint --------------------------------------------------------
+
+# Active profile marker path (local state, not PW config).
+_ACTIVE_PROFILE_DIR = pathlib.Path(
+    os.environ.get("PI4AUDIO_STATE_DIR",
+                   pathlib.Path.home() / ".config" / "pi4audio")
+)
+
+# PW filter-chain config deploy path.
+_PW_CONF_DIR = pathlib.Path(
+    os.environ.get("PI4AUDIO_PW_CONF_DIR",
+                   pathlib.Path.home() / ".config" / "pipewire" / "pipewire.conf.d")
+)
+_PW_CONF_FILENAME = "30-filter-chain-convolver.conf"
+
+
+def _compute_target_gains(profile: dict) -> dict[str, float]:
+    """Compute target linear gain values from a profile's gain_staging.
+
+    Returns a dict mapping gain node names (e.g. 'gain_left_hp') to
+    linear Mult values. Used to communicate ramp-up targets to the frontend.
+    """
+    import math
+    speakers = profile.get("speakers", {})
+    gain_staging = profile.get("gain_staging", {})
+    result = {}
+    for spk_key, spk_cfg in speakers.items():
+        role = spk_cfg.get("role", "")
+        if role in ("satellite", "midrange", "tweeter", "fullrange"):
+            gs_group = gain_staging.get("satellite", {})
+        elif role == "subwoofer":
+            gs_group = gain_staging.get("subwoofer", {})
+        else:
+            gs_group = {}
+        db = gs_group.get("power_limit_db", -60.0)
+        if not isinstance(db, (int, float)):
+            db = -60.0
+        linear = 10.0 ** (db / 20.0) if db > -120 else 0.0
+        # Map spk_key to gain node name using same convention as pw_config_generator
+        suffix_map = {
+            "sat_left": "left_hp", "sat_right": "right_hp",
+            "sub1": "sub1_lp", "sub2": "sub2_lp",
+        }
+        suffix = suffix_map.get(spk_key, spk_key)
+        result[f"gain_{suffix}"] = round(linear, 6)
+    return result
+
+
+async def _activate_profile_impl(
+    name: str,
+    profile: dict,
+    mute_manager,
+    is_mock: bool,
+) -> dict:
+    """Core activation logic. Returns a result dict.
+
+    Steps:
+    1. Validate profile — reject if errors
+    2. Mute all channels (skip in mock mode)
+    3. Generate PW filter-chain config
+    4. Write config file
+    5. Write active-profile marker
+    6. Return target gains for frontend ramp-up (no auto-unmute)
+    """
+    # 1. Validate
+    validation = _deep_validate_profile(profile)
+    if not validation["valid"]:
+        return {
+            "activated": False,
+            "error": "validation_failed",
+            "validation": validation,
+        }
+
+    # 2. Mute (D-043 safety: mute before any config change)
+    if not is_mock and mute_manager is not None:
+        mute_result = await mute_manager.mute()
+        if not mute_result.get("ok"):
+            return {
+                "activated": False,
+                "error": "mute_failed",
+                "detail": mute_result.get("error", "unknown mute error"),
+            }
+
+    # 3. Generate PW filter-chain config
+    try:
+        base = _speakers_dir()
+        profiles_dir = str(base / "profiles") if base else None
+        identities_dir = str(base / "identities") if base else None
+
+        from room_correction.pw_config_generator import generate_filter_chain_conf
+        pw_conf = generate_filter_chain_conf(
+            name,
+            profiles_dir=profiles_dir,
+            identities_dir=identities_dir,
+            validate=False,  # Already validated above
+        )
+    except Exception as exc:
+        log.error("PW config generation failed: %s", exc)
+        return {
+            "activated": False,
+            "error": "config_generation_failed",
+            "detail": str(exc),
+        }
+
+    # 4. Write PW config file
+    try:
+        conf_dir = _PW_CONF_DIR
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        conf_path = conf_dir / _PW_CONF_FILENAME
+        conf_path.write_text(pw_conf)
+    except Exception as exc:
+        log.error("Failed to write PW config: %s", exc)
+        return {
+            "activated": False,
+            "error": "config_write_failed",
+            "detail": str(exc),
+        }
+
+    # 5. Write active-profile marker
+    try:
+        state_dir = _ACTIVE_PROFILE_DIR
+        state_dir.mkdir(parents=True, exist_ok=True)
+        marker = state_dir / "active-profile.yml"
+        marker.write_text(yaml.dump(
+            {"profile": name, "display_name": profile.get("name", name)},
+            default_flow_style=False,
+        ))
+    except Exception as exc:
+        log.warning("Failed to write active-profile marker: %s", exc)
+        # Non-fatal — config was already deployed
+
+    # 6. Compute target gains for ramp-up
+    target_gains = _compute_target_gains(profile)
+
+    log.info("Profile '%s' activated (safety_flow=%s)",
+             name, "muted" if not is_mock else "skipped")
+
+    return {
+        "activated": True,
+        "profile": name,
+        "display_name": profile.get("name", name),
+        "config_path": str(conf_path),
+        "safety_flow": "muted" if not is_mock else "skipped",
+        "target_gains": target_gains,
+        "warnings": validation.get("warnings", []),
+        "instructions": (
+            "All channels are muted. Use the ramp-up endpoint or "
+            "manually set gain values to restore output."
+            if not is_mock else
+            "Mock mode — no PW reload needed. Config file written."
+        ),
+    }
+
+
+@router.post("/profiles/{name}/activate")
+async def activate_profile(name: str, request: Request):
+    """Activate a speaker profile with D-043 safety flow.
+
+    Sequence: validate -> mute -> generate config -> write -> return target gains.
+    Does NOT auto-unmute — ramp-up is a separate explicit action.
+    """
+    data = _read_yaml("profiles", name)
+    if data is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "not_found",
+                     "detail": f"Speaker profile '{name}' not found"},
+        )
+    mute_manager = getattr(request.app.state, "audio_mute", None)
+    is_mock = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
+
+    result = await _activate_profile_impl(name, data, mute_manager, is_mock)
+
+    if not result.get("activated"):
+        status = 422 if result.get("error") == "validation_failed" else 500
+        return JSONResponse(status_code=status, content=result)
+
     return result
 
 

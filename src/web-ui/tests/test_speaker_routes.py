@@ -1127,36 +1127,34 @@ def activate_dir(tmp_path, monkeypatch):
 
 # ── Async tests: _activate_profile_impl ──────────────────────────
 
-class TestActivateProfileImpl:
-    def _run(self, coro):
-        """Helper to run async coroutine."""
-        return asyncio.get_event_loop().run_until_complete(coro)
+def _run_async(coro):
+    """Helper to run async coroutine in sync test context."""
+    return asyncio.run(coro)
 
+
+def _patch_pw_gen(return_value=None, side_effect=None):
+    """Context manager that patches the lazy pw_config_generator import."""
+    mock_fn = MagicMock(return_value=return_value, side_effect=side_effect)
+    return patch.dict("sys.modules", {
+        "room_correction.pw_config_generator": MagicMock(
+            generate_filter_chain_conf=mock_fn
+        ),
+        "room_correction": MagicMock(),
+    })
+
+
+class TestActivateProfileImpl:
     def test_successful_activation_mock_mode(self, activate_dir):
         """Activate succeeds in mock mode — no mute, config written."""
         profile = _make_profile()
-        mock_gen = "# mock PW config\ncontext.modules = []\n"
-        with patch(
-            "app.speaker_routes.generate_filter_chain_conf",
-            return_value=mock_gen,
-            create=True,
-        ) as gen_mock:
-            # Monkeypatch the import inside the function
-            import app.speaker_routes as mod
-            orig_impl = mod._activate_profile_impl
 
-            async def patched_impl(name, profile, mute_manager, is_mock):
-                # Patch the lazy import inside _activate_profile_impl
-                with patch.dict("sys.modules", {
-                    "room_correction.pw_config_generator": MagicMock(
-                        generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-                    ),
-                    "room_correction": MagicMock(),
-                }):
-                    return await orig_impl(name, profile, mute_manager, is_mock)
+        async def run():
+            with _patch_pw_gen("# mock PW config\ncontext.modules = []\n"):
+                return await _activate_profile_impl(
+                    "test-2way", profile, None, True
+                )
 
-            result = self._run(patched_impl("test-2way", profile, None, True))
-
+        result = _run_async(run())
         assert result["activated"] is True
         assert result["profile"] == "test-2way"
         assert result["safety_flow"] == "skipped"
@@ -1176,7 +1174,7 @@ class TestActivateProfileImpl:
         bad_profile = _make_profile(speakers={
             "spk": {"identity": "nonexistent", "role": "satellite", "channel": 0},
         })
-        result = self._run(
+        result = _run_async(
             _activate_profile_impl("bad-profile", bad_profile, None, True)
         )
         assert result["activated"] is False
@@ -1193,7 +1191,7 @@ class TestActivateProfileImpl:
         mute_mgr = MagicMock()
         mute_mgr.mute = mock_mute
 
-        result = self._run(
+        result = _run_async(
             _activate_profile_impl("test-2way", profile, mute_mgr, False)
         )
         assert result["activated"] is False
@@ -1209,20 +1207,14 @@ class TestActivateProfileImpl:
         mock_mute = AsyncMock()
         mute_mgr = MagicMock()
         mute_mgr.mute = mock_mute
-        mock_gen = "# mock PW config\n"
 
         async def run():
-            with patch.dict("sys.modules", {
-                "room_correction.pw_config_generator": MagicMock(
-                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-                ),
-                "room_correction": MagicMock(),
-            }):
+            with _patch_pw_gen("# mock PW config\n"):
                 return await _activate_profile_impl(
                     "test-2way", profile, mute_mgr, True
                 )
 
-        result = self._run(run())
+        result = _run_async(run())
         assert result["activated"] is True
         mock_mute.assert_not_called()
 
@@ -1232,20 +1224,14 @@ class TestActivateProfileImpl:
         mock_mute = AsyncMock(return_value={"ok": True})
         mute_mgr = MagicMock()
         mute_mgr.mute = mock_mute
-        mock_gen = "# mock PW config\n"
 
         async def run():
-            with patch.dict("sys.modules", {
-                "room_correction.pw_config_generator": MagicMock(
-                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-                ),
-                "room_correction": MagicMock(),
-            }):
+            with _patch_pw_gen("# mock PW config\n"):
                 return await _activate_profile_impl(
                     "test-2way", profile, mute_mgr, False
                 )
 
-        result = self._run(run())
+        result = _run_async(run())
         assert result["activated"] is True
         assert result["safety_flow"] == "muted"
         mock_mute.assert_called_once()
@@ -1255,19 +1241,12 @@ class TestActivateProfileImpl:
         profile = _make_profile()
 
         async def run():
-            with patch.dict("sys.modules", {
-                "room_correction.pw_config_generator": MagicMock(
-                    generate_filter_chain_conf=MagicMock(
-                        side_effect=RuntimeError("missing identity file")
-                    )
-                ),
-                "room_correction": MagicMock(),
-            }):
+            with _patch_pw_gen(side_effect=RuntimeError("missing identity file")):
                 return await _activate_profile_impl(
                     "test-2way", profile, None, True
                 )
 
-        result = self._run(run())
+        result = _run_async(run())
         assert result["activated"] is False
         assert result["error"] == "config_generation_failed"
         assert "missing identity" in result["detail"]
@@ -1278,20 +1257,14 @@ class TestActivateProfileImpl:
             "satellite": {"power_limit_db": -6.0},
             "subwoofer": {"power_limit_db": -10.0},
         })
-        mock_gen = "# mock PW config\n"
 
         async def run():
-            with patch.dict("sys.modules", {
-                "room_correction.pw_config_generator": MagicMock(
-                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-                ),
-                "room_correction": MagicMock(),
-            }):
+            with _patch_pw_gen("# mock PW config\n"):
                 return await _activate_profile_impl(
                     "test-2way", profile, None, True
                 )
 
-        result = self._run(run())
+        result = _run_async(run())
         assert result["activated"] is True
         tg = result["target_gains"]
         assert "gain_left_hp" in tg
@@ -1305,20 +1278,14 @@ class TestActivateProfileImpl:
             "sat_right": {"identity": "test-sat", "role": "satellite", "channel": 1, "filter_type": "highpass"},
             "sub1": {"identity": "test-sub", "role": "subwoofer", "channel": 2, "filter_type": "lowpass"},
         })
-        mock_gen = "# mock PW config\n"
 
         async def run():
-            with patch.dict("sys.modules", {
-                "room_correction.pw_config_generator": MagicMock(
-                    generate_filter_chain_conf=MagicMock(return_value=mock_gen)
-                ),
-                "room_correction": MagicMock(),
-            }):
+            with _patch_pw_gen("# mock PW config\n"):
                 return await _activate_profile_impl(
                     "test-2way", profile, None, True
                 )
 
-        result = self._run(run())
+        result = _run_async(run())
         assert result["activated"] is True
         assert "warnings" in result
         warning_checks = [w["check"] for w in result["warnings"]]
