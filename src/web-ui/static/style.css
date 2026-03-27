@@ -728,6 +728,174 @@ html, body {
     font-style: italic;
 }
 
+/* -- Thermal headroom panel (T-092-4) ------------------------------------- */
+
+.thermal-panel {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 6px;
+    gap: 3px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.thermal-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.thermal-panel-label {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.thermal-panel-status {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 5px;
+    border-radius: 6px;
+    background: var(--bg-bar);
+    color: var(--text-dim);
+}
+
+.thermal-panel-status.thermal-ok {
+    background: rgba(121, 226, 91, 0.15);
+    color: var(--safe);
+}
+
+.thermal-panel-status.thermal-warning {
+    background: rgba(226, 192, 57, 0.15);
+    color: var(--warning);
+}
+
+.thermal-panel-status.thermal-limit {
+    background: rgba(229, 69, 58, 0.15);
+    color: var(--danger);
+    animation: pulse-panic 1.5s ease-in-out infinite;
+}
+
+.thermal-channels {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.thermal-ch {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.thermal-ch-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+}
+
+.thermal-ch-name {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--text-label);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.thermal-ch-headroom {
+    font-size: 9px;
+    font-weight: 700;
+    font-family: var(--font-numeric);
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.thermal-ch-bar {
+    height: 6px;
+    background: var(--bg-bar);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+}
+
+.thermal-ch-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.4s ease, background-color 0.3s ease;
+    background: var(--safe);
+}
+
+.thermal-ch-fill.thermal-fill-warning {
+    background: var(--warning);
+}
+
+.thermal-ch-fill.thermal-fill-limit {
+    background: var(--danger);
+}
+
+.thermal-ch-ceiling {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #fff;
+    opacity: 0.5;
+}
+
+.thermal-ch-limit-badge {
+    font-size: 7px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--danger);
+}
+
+.thermal-ch-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.thermal-ch-override-btn {
+    font-family: inherit;
+    font-size: 7px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 4px;
+    background: rgba(226, 192, 57, 0.1);
+    border: 1px solid rgba(226, 192, 57, 0.3);
+    border-radius: 2px;
+    color: var(--warning);
+    cursor: pointer;
+}
+
+.thermal-ch-override-btn:hover {
+    background: rgba(226, 192, 57, 0.2);
+}
+
+.thermal-ch-override-active {
+    font-size: 7px;
+    font-weight: 700;
+    color: var(--warning);
+    letter-spacing: 0.04em;
+}
+
+.thermal-no-data {
+    font-size: 9px;
+    color: var(--text-micro);
+    font-style: italic;
+    text-align: center;
+    padding: 8px 0;
+}
+
 /* -- System view ---------------------------------------------------------- */
 
 .system-grid {
@@ -3845,6 +4013,124 @@ html, body {
 .spk-f-spk-delay {
     width: 56px;
     text-align: right;
+}
+
+/* -- Driver Protection (US-092 / T-092-7) -- */
+
+.cfg-protection-layout {
+    grid-template-columns: 1fr;
+    margin-bottom: 16px;
+}
+
+.prot-no-profile {
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 8px 0;
+}
+
+.prot-channels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.prot-card {
+    background: var(--bg-meter);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    min-width: 180px;
+    flex: 1 1 180px;
+    max-width: 280px;
+}
+
+.prot-card.prot-safe {
+    border-left: 3px solid var(--safe);
+}
+
+.prot-card.prot-warning {
+    border-left: 3px solid var(--warning);
+}
+
+.prot-card.prot-danger {
+    border-left: 3px solid var(--danger);
+    background: var(--danger-bg);
+}
+
+.prot-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+}
+
+.prot-ch-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.prot-ch-role {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.prot-card-badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.prot-badge {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.prot-badge-safe {
+    color: var(--safe);
+    background: rgba(121, 226, 91, 0.12);
+}
+
+.prot-badge-warning {
+    color: var(--warning);
+    background: rgba(226, 192, 57, 0.12);
+}
+
+.prot-badge-dim {
+    color: var(--text-micro);
+    background: rgba(107, 117, 133, 0.1);
+}
+
+.prot-badge-override {
+    color: var(--accent);
+    background: rgba(240, 160, 48, 0.12);
+}
+
+.prot-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.prot-kv {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+}
+
+.prot-k {
+    color: var(--text-dim);
+}
+
+.prot-v {
+    color: var(--text);
+    font-weight: 500;
 }
 
 /* -- Speaker config responsive -- */

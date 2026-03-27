@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pi Audio Workstation</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=41">
+    <link rel="stylesheet" href="/static/style.css?v=42">
 </head>
 <body>
 
@@ -77,6 +77,11 @@
     <span class="sb-item sb-safety-alert hidden" id="sb-safety-alert"
           title="Safety alert active">
         <span class="sb-label">SAFE</span><span class="sb-value c-safe" id="sb-safety-text">OK</span>
+    </span>
+
+    <!-- Thermal protection (T-092-4) -->
+    <span class="sb-item sb-collapse-narrow" id="sb-thermal-item">
+        <span class="sb-label">THM</span><span class="sb-value c-grey" id="sb-thermal">--</span>
     </span>
 
     <!-- Measurement progress (hidden when idle) -->
@@ -186,6 +191,17 @@
                 <div class="lufs-section">
                     <div class="lufs-label">MOM</div>
                     <div class="lufs-value" id="lufs-momentary">--</div>
+                </div>
+            </div>
+
+            <!-- Thermal headroom (T-092-4) -->
+            <div class="thermal-panel" id="thermal-panel">
+                <div class="thermal-panel-header">
+                    <div class="thermal-panel-label">THERMAL</div>
+                    <div class="thermal-panel-status" id="thermal-status-badge">--</div>
+                </div>
+                <div class="thermal-channels" id="thermal-channels">
+                    <!-- Populated by dashboard.js -->
                 </div>
             </div>
         </div>
@@ -418,6 +434,21 @@
                     <div class="fir-results-summary" id="fir-results-summary"></div>
                     <div class="fir-results-channels" id="fir-results-channels"></div>
                     <div class="fir-results-verification" id="fir-results-verification"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Driver Protection Status (US-092 / T-092-7) -->
+    <div class="cfg-layout cfg-protection-layout" id="cfg-protection">
+        <div class="cfg-column" style="grid-column: 1 / -1">
+            <div class="cfg-section">
+                <div class="cfg-section-title">DRIVER PROTECTION</div>
+                <div class="prot-no-profile" id="prot-no-profile">
+                    No speaker profile active. Activate a profile to see protection status.
+                </div>
+                <div class="prot-channels hidden" id="prot-channels">
+                    <!-- Populated by protection.js -->
                 </div>
             </div>
         </div>
@@ -1003,15 +1034,16 @@
 </div>
 
 <script src="/static/js/app.js?v=40"></script>
-<script src="/static/js/statusbar.js?v=40"></script>
+<script src="/static/js/statusbar.js?v=42"></script>
 <script src="/static/js/fft-pipeline.js?v=40"></script>
 <script src="/static/js/spectrum-renderer.js?v=40"></script>
 <script src="/static/js/spectrum.js?v=40"></script>
-<script src="/static/js/dashboard.js?v=40"></script>
+<script src="/static/js/dashboard.js?v=42"></script>
 <script src="/static/js/system.js?v=40"></script>
 <script src="/static/js/graph.js?v=41"></script>
 <script src="/static/js/config.js?v=40"></script>
 <script src="/static/js/speaker-config.js?v=40"></script>
+<script src="/static/js/protection.js?v=40"></script>
 <script src="/static/js/filter-gen.js?v=40"></script>
 <script src="/static/js/measure.js?v=40"></script>
 <script src="/static/js/rc-wizard.js?v=40"></script>

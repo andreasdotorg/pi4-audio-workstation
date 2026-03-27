@@ -76,6 +76,10 @@
 
     var ACTIVE_MEASUREMENT_STATES = ["setup", "gain_cal", "measuring", "filter_gen", "deploy", "verify"];
 
+    // -- Thermal status (T-092-4) --
+    var thermalPollCount = 0;
+    var THERMAL_POLL_EVERY_N = 3;  // Poll every Nth onSystem call (~3s)
+
     // -- Panic button state --
 
     var isMuted = false;
@@ -346,6 +350,13 @@
             updateSafetyAlert(data.safety_alerts);
         }
 
+        // T-092-4: Poll thermal status every Nth system tick (~3s)
+        thermalPollCount++;
+        if (thermalPollCount >= THERMAL_POLL_EVERY_N) {
+            thermalPollCount = 0;
+            thermalPollSb();
+        }
+
         // Sync mute state from server (F-040)
         if (data.is_muted != null && data.is_muted !== isMuted && !isMeasuring) {
             isMuted = data.is_muted;
@@ -386,6 +397,36 @@
             PiAudio.setText("sb-safety-text", "OK", "c-safe");
             el.title = "Safety checks passing";
         }
+    }
+
+    function thermalPollSb() {
+        fetch("/api/v1/thermal/status")
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data) return;
+                var el = document.getElementById("sb-thermal");
+                if (!el) return;
+                if (data.any_limit) {
+                    PiAudio.setText("sb-thermal", "LIM", "c-danger");
+                } else if (data.any_warning) {
+                    PiAudio.setText("sb-thermal", "WARN", "c-warning");
+                } else if (data.channels && data.channels.length > 0) {
+                    // Show minimum headroom across channels
+                    var minHr = null;
+                    for (var i = 0; i < data.channels.length; i++) {
+                        var hr = data.channels[i].headroom_db;
+                        if (hr != null && (minHr == null || hr < minHr)) minHr = hr;
+                    }
+                    if (minHr != null) {
+                        PiAudio.setText("sb-thermal", minHr.toFixed(0) + "dB", "c-safe");
+                    } else {
+                        PiAudio.setText("sb-thermal", "OK", "c-safe");
+                    }
+                } else {
+                    PiAudio.setText("sb-thermal", "--", "c-grey");
+                }
+            })
+            .catch(function () { /* silently retry next interval */ });
     }
 
     function onMeasurement(data) {

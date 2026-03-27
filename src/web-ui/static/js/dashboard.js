@@ -583,6 +583,184 @@
         }
     }
 
+    // -- Thermal headroom panel (T-092-4) --
+
+    var thermalPollTimer = null;
+    var THERMAL_POLL_MS = 2000;  // Poll every 2s (thermal state changes slowly)
+    var thermalLastData = null;
+
+    function thermalPoll() {
+        fetch("/api/v1/thermal/status")
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (data) thermalRender(data);
+            })
+            .catch(function () { /* silently retry next interval */ });
+    }
+
+    function thermalRender(data) {
+        thermalLastData = data;
+        var container = document.getElementById("thermal-channels");
+        var badge = document.getElementById("thermal-status-badge");
+        if (!container || !badge) return;
+
+        var channels = data.channels || [];
+        var limiter = data.limiter || {};
+        var limiterChannels = {};
+        if (limiter.channels) {
+            for (var li = 0; li < limiter.channels.length; li++) {
+                limiterChannels[limiter.channels[li].name] = limiter.channels[li];
+            }
+        }
+
+        // Overall status badge
+        if (data.any_limit) {
+            badge.textContent = "LIMIT";
+            badge.className = "thermal-panel-status thermal-limit";
+        } else if (data.any_warning) {
+            badge.textContent = "WARN";
+            badge.className = "thermal-panel-status thermal-warning";
+        } else if (channels.length > 0) {
+            badge.textContent = "OK";
+            badge.className = "thermal-panel-status thermal-ok";
+        } else {
+            badge.textContent = "--";
+            badge.className = "thermal-panel-status";
+        }
+
+        if (channels.length === 0) {
+            container.innerHTML = '<div class="thermal-no-data">No thermal data</div>';
+            return;
+        }
+
+        // Build or update per-channel rows
+        var html = "";
+        for (var i = 0; i < channels.length; i++) {
+            var ch = channels[i];
+            var lim = limiterChannels[ch.name] || {};
+            var pct = ch.pct_of_ceiling || 0;
+            var headroom = ch.headroom_db;
+            var status = ch.status || "ok";
+            var isLimiting = lim.is_limiting || false;
+            var reductionDb = lim.reduction_db || 0;
+            var override = lim.override || null;
+
+            // Headroom text
+            var hrText = headroom != null ? headroom.toFixed(1) + " dB" : "--";
+
+            // Bar fill percentage (clamped 0-100 for display, can exceed for limit)
+            var fillPct = Math.min(pct, 100);
+
+            // Fill color class
+            var fillClass = "thermal-ch-fill";
+            if (status === "limit") fillClass += " thermal-fill-limit";
+            else if (status === "warning") fillClass += " thermal-fill-warning";
+
+            // Short name for compact display
+            var shortName = ch.name.replace("sat_", "S").replace("sub", "Sub");
+
+            html += '<div class="thermal-ch">';
+            html += '<div class="thermal-ch-header">';
+            html += '<span class="thermal-ch-name">' + _esc(shortName) + '</span>';
+
+            // Right side: limit badge or headroom
+            if (isLimiting) {
+                html += '<span class="thermal-ch-limit-badge">LIM ' + reductionDb.toFixed(1) + 'dB</span>';
+            } else {
+                var hrColor = status === "warning" ? PiAudio.cssVar("--warning")
+                            : status === "limit" ? PiAudio.cssVar("--danger")
+                            : "";
+                html += '<span class="thermal-ch-headroom" style="' + (hrColor ? 'color:' + hrColor : '') + '">' + hrText + '</span>';
+            }
+            html += '</div>';
+
+            // Power bar with ceiling marker
+            html += '<div class="thermal-ch-bar">';
+            html += '<div class="' + fillClass + '" style="width:' + fillPct.toFixed(1) + '%"></div>';
+            // Ceiling marker at 100%
+            if (ch.ceiling_watts != null) {
+                html += '<div class="thermal-ch-ceiling" style="left:100%"></div>';
+            }
+            html += '</div>';
+
+            // Override indicator or override button
+            if (override) {
+                var expiresIn = Math.round(override.expires_in_seconds || 0);
+                html += '<div class="thermal-ch-footer">';
+                html += '<span class="thermal-ch-override-active">OVR ' + expiresIn + 's</span>';
+                html += '<button class="thermal-ch-override-btn" data-action="clear" data-ch="' + _esc(ch.name) + '">CLR</button>';
+                html += '</div>';
+            } else if (isLimiting || status === "warning") {
+                html += '<div class="thermal-ch-footer">';
+                html += '<button class="thermal-ch-override-btn" data-action="set" data-ch="' + _esc(ch.name) + '">OVR 5m</button>';
+                html += '</div>';
+            }
+
+            html += '</div>';
+        }
+        container.innerHTML = html;
+
+        // Bind override buttons
+        var buttons = container.querySelectorAll(".thermal-ch-override-btn");
+        for (var bi = 0; bi < buttons.length; bi++) {
+            buttons[bi].addEventListener("click", thermalOverrideClick);
+        }
+    }
+
+    function thermalOverrideClick(e) {
+        var btn = e.currentTarget;
+        var action = btn.dataset.action;
+        var chName = btn.dataset.ch;
+
+        if (action === "set") {
+            var ok = confirm(
+                "Temporarily increase thermal ceiling for " + chName + "?\n\n" +
+                "This allows 50% more power for 5 minutes.\n" +
+                "Risk: voice coil damage if sustained at high power."
+            );
+            if (!ok) return;
+            fetch("/api/v1/thermal/limiter/override", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    channel: chName,
+                    ceiling_multiplier: 1.5,
+                    duration_seconds: 300,
+                    acknowledged_by: "operator"
+                })
+            }).then(function (r) {
+                if (!r.ok) r.json().then(function (d) { alert("Override failed: " + (d.error || "unknown")); });
+                else thermalPoll();  // Refresh immediately
+            }).catch(function () { alert("Override request failed"); });
+        } else if (action === "clear") {
+            fetch("/api/v1/thermal/limiter/override/clear", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ channel: chName })
+            }).then(function () { thermalPoll(); })
+              .catch(function () {});
+        }
+    }
+
+    function _esc(s) {
+        var d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function thermalStartPoll() {
+        if (thermalPollTimer) return;
+        thermalPoll();  // immediate first fetch
+        thermalPollTimer = setInterval(thermalPoll, THERMAL_POLL_MS);
+    }
+
+    function thermalStopPoll() {
+        if (thermalPollTimer) {
+            clearInterval(thermalPollTimer);
+            thermalPollTimer = null;
+        }
+    }
+
     // -- View lifecycle --
 
     function init() {
@@ -620,10 +798,12 @@
         updateDbScaleLabels();
         animating = true;
         requestAnimationFrame(renderFrame);
+        thermalStartPoll();
     }
 
     function onHide() {
         animating = false;
+        thermalStopPoll();
     }
 
     // -- Register --
