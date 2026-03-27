@@ -37,7 +37,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | Team configuration | current | 10 core members, consultation matrix with 14 project-specific rules |
 | Orchestration protocol | current | Self-contained copy in `.claude/team/protocol/` |
 | Role prompts | current | All role files in `.claude/team/roles/` |
-| User stories | active | 68 stories (US-000 through US-065 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md`. Tier 5 (US-039-043): driver database. US-044: bypass protection. US-045-049: measurement safety + Path A + visualization (owner planning brief 2026-03-13). US-050: measurement mock backend / E2E test harness (owner directive 2026-03-14, scope expanded 2026-03-15). **Tier 9 (US-051-053): observable tooling (owner strategic pivot 2026-03-15).** US-051: persistent status bar. US-052: RT signal generator (Rust). US-053: manual test tool page. **Tier 10 (US-054-055): ADA8200 mic input for measurements (AE calibration transfer assessment 2026-03-15).** US-054: ADA8200 mic channel selection. US-055: calibration transfer from UMIK-1 to ADA8200 mic. **Tier 11 (US-056-061): architecture evolution (owner directive 2026-03-16, D-040 pivot).** US-056: CANCELLED (D-040). US-057: CANCELLED (D-040). US-058: DONE (BM-2 PASS: 1.70% CPU, triggered D-040 abandon CamillaDSP). US-059: GraphManager Core + Production Filter-Chain, Phase A (D-039+D-040, selected). US-060: PipeWire Monitoring Replacement, Phase B (draft, depends US-059). US-061: Measurement Pipeline Adaptation, Phase C (draft, depends US-059). US-011b and US-012 amended with power budget validation and automated gain calibration. US-047/048/049 implementation gated on UX design validation (TK-160 -> TK-161 -> TK-162). **US-063: PW Metadata Collector (pw-top replacement, satisfies US-060 AC #2/#3/#7, selected 2026-03-21).** **US-064: PW Graph Visualization Tab (supersedes US-038, draft 2026-03-21).** **US-065: Configuration Tab — Gain, Quantum, Filter Info (selected 2026-03-21, worker-1 assigned).** **US-075: Local PipeWire Integration Test Environment — Production Replica (selected 2026-03-23, amended for production-fidelity node names + managed mode + swappable coefficients, depends US-059 DONE, blocks US-050 Tier 2 + US-067).** **US-077: Single-Clock Timestamp Architecture — PW graph clock propagation through pcm-bridge/web-ui data paths (draft 2026-03-24, depends US-075, 4 phases independently deployable).** **US-078: Project Rename — mugge (draft 2026-03-24, depends US-077 complete, ~574 occurrences across ~116 files, D-045).** **US-079: Pre-Convolver Capture Point — pcm-bridge taps full-range input for room correction (draft 2026-03-25, depends F-098 + US-075, blocks US-080).** **US-080: Multi-Point Spectrum Analyzer — selectable signal chain tap points with L-R overlay (draft 2026-03-25, depends US-079).** **US-081: Peak + RMS Level Meters with Latching Clip Indicator — UI work, LevelTracker already computes both (draft 2026-03-25, owner approved AE recommendation, depends US-077).** **US-082: Audio File Playback in signal-gen — MP3/WAV/FLAC, play_file RPC, D-009 level cap (draft 2026-03-25, owner request, depends US-052).** **US-083: Integration Smoke Tests Against Local-Demo Stack — real data pipeline testing (draft 2026-03-25, QE recommendation, HIGH priority, depends US-075).** |
+| User stories | active | 68 stories (US-000 through US-065 incl. US-000a, US-000b, US-011b, US-027a, US-027b) in `docs/project/user-stories.md`. Tier 5 (US-039-043): driver database. US-044: bypass protection. US-045-049: measurement safety + Path A + visualization (owner planning brief 2026-03-13). US-050: measurement mock backend / E2E test harness (owner directive 2026-03-14, scope expanded 2026-03-15). **Tier 9 (US-051-053): observable tooling (owner strategic pivot 2026-03-15).** US-051: persistent status bar. US-052: RT signal generator (Rust). US-053: manual test tool page. **Tier 10 (US-054-055): ADA8200 mic input for measurements (AE calibration transfer assessment 2026-03-15).** US-054: ADA8200 mic channel selection. US-055: calibration transfer from UMIK-1 to ADA8200 mic. **Tier 11 (US-056-061): architecture evolution (owner directive 2026-03-16, D-040 pivot).** US-056: CANCELLED (D-040). US-057: CANCELLED (D-040). US-058: DONE (BM-2 PASS: 1.70% CPU, triggered D-040 abandon CamillaDSP). US-059: GraphManager Core + Production Filter-Chain, Phase A (D-039+D-040, selected). US-060: PipeWire Monitoring Replacement, Phase B (draft, depends US-059). US-061: Measurement Pipeline Adaptation, Phase C (draft, depends US-059). US-011b and US-012 amended with power budget validation and automated gain calibration. US-047/048/049 implementation gated on UX design validation (TK-160 -> TK-161 -> TK-162). **US-063: PW Metadata Collector (pw-top replacement, satisfies US-060 AC #2/#3/#7, selected 2026-03-21).** **US-064: PW Graph Visualization Tab (supersedes US-038, draft 2026-03-21).** **US-065: Configuration Tab — Gain, Quantum, Filter Info (selected 2026-03-21, worker-1 assigned).** **US-075: Local PipeWire Integration Test Environment — Production Replica (selected 2026-03-23, amended for production-fidelity node names + managed mode + swappable coefficients, depends US-059 DONE, blocks US-050 Tier 2 + US-067).** **US-077: Single-Clock Timestamp Architecture — PW graph clock propagation through pcm-bridge/web-ui data paths (draft 2026-03-24, depends US-075, 4 phases independently deployable).** **US-078: Project Rename — mugge (draft 2026-03-24, depends US-077 complete, ~574 occurrences across ~116 files, D-045).** **US-079: Pre-Convolver Capture Point — pcm-bridge taps full-range input for room correction (draft 2026-03-25, depends F-098 + US-075, blocks US-080).** **US-080: Multi-Point Spectrum Analyzer — selectable signal chain tap points with L-R overlay (draft 2026-03-25, depends US-079).** **US-081: Peak + RMS Level Meters with Latching Clip Indicator — UI work, LevelTracker already computes both (draft 2026-03-25, owner approved AE recommendation, depends US-077).** **US-082: Audio File Playback in signal-gen — MP3/WAV/FLAC, play_file RPC, D-009 level cap (draft 2026-03-25, owner request, depends US-052).** **US-083: Integration Smoke Tests Against Local-Demo Stack — real data pipeline testing (draft 2026-03-25, QE recommendation, HIGH priority, depends US-075).** **Tier 13 — Venue Workflow (2026-03-27): US-099 (Speaker Discovery — near-field characterization), US-100 (Identity Creation from Discovery Data), US-101 (Quick Start — known speaker fast path), US-102 (Venue Pre-Flight Checklist), US-103 (Session History and Venue Recall), US-104 (E2E Venue Workflow Validation — real hardware).** |
 | PW filter-chain config | deployed | `30-filter-chain-convolver.conf` on Pi. 4ch FIR convolver + gain nodes. CamillaDSP configs are historical (service stopped, D-040). |
 | US-002 latency measurement | done | Pass 1 + Pass 2 complete. CamillaDSP = 2 chunks latency. PipeWire ~21ms/traversal @ quantum 1024. ALSA-direct T2b=30.3ms. D-011 approved. |
 | Room correction pipeline | done (TK-071) | `src/room-correction/` — 13 modules (sweep, deconvolution, correction, crossover, combine, export, verify), mock room simulator, CLI runner, spatial averaging. Bose FIR generator (`generate_bose_filters.py`). All verification tests pass (D-009 compliant). |
@@ -100,7 +100,13 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-095 | **TEST** | **TBD** | Graph Visualization — Truthful PW Topology. Committed (`ef61896`). **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
 | US-096 | **TEST** | **TBD** | UMIK-1 Full Calibration Pipeline. Committed (`4b3bad0`). A-weighting, cal management, SPL accuracy, verification. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
 | US-097 | **TEST** | **TBD** | Room Compensation — Web UI Workflow. Committed. Filter-gen + deploy endpoints wired. **TEST phase entered 2026-03-27.** QE + advisory reviews in progress. |
-| US-098 | **IMPLEMENT** | **TBD** | Room Correction Pipeline Correctness Verification. **CRITICAL — event demo confidence.** P0 in progress: #125 round-trip (worker-1), #126 D-009 property (worker-2), #127 min-phase (worker-3). All 3 parallel, pure Python tests. P1/P2 after P0 done. Selected 2026-03-27 (URGENT). |
+| US-098 | **TEST** | **TBD** | Room Correction Pipeline Correctness Verification. P0 DONE: #125 round-trip PASS, #126 D-009 property PASS, #127 min-phase PASS. Golden references committed. All P0 tests green. P1/P2 deferred. **TEST phase entered 2026-03-27.** |
+| US-099 | draft | 0/0 | Speaker Discovery — Near-Field Characterization of Unknown Speakers. Filed 2026-03-27 (Tier 13 venue workflow). |
+| US-100 | draft | 0/0 | Speaker Identity Creation from Discovery Data. Filed 2026-03-27 (Tier 13). |
+| US-101 | draft | 0/0 | Room Correction Quick Start — Known Speaker Fast Path. Filed 2026-03-27 (Tier 13). |
+| US-102 | draft | 0/0 | Venue Setup Pre-Flight Checklist. Filed 2026-03-27 (Tier 13). |
+| US-103 | draft | 0/0 | Measurement Session History and Venue Recall. Filed 2026-03-27 (Tier 13, deferred from US-097 Phase 3). |
+| US-104 | draft | 0/0 | End-to-End Venue Workflow Validation — Real Hardware. Filed 2026-03-27 (Tier 13, gate for live event readiness). |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -181,7 +187,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-044 T-044-6/7 | Owner Pi session tonight | Reboot survival + no-interference tests. |
 | US-077 DoD #4 | Owner Pi session tonight | Pi perf regression test. |
 | US-063 DoD #6 | Owner Pi session tonight | 10-min DJ load soak test. |
-| US-089–097 story selection | Owner prioritization | 9 stories filed (draft). 5 architecture decisions RESOLVED (multi-way topology, ISO 226 approach, profile switching safety, 4-way channel budget, 4-way monitoring: testing only — no monitoring needed). Stories ready for formal selection. |
+| US-089–097 story selection | Owner prioritization | 9 stories filed, all TEST phase. 5 architecture decisions RESOLVED (D-051 through D-054). QE PASS/CONDITIONAL PASS for all 9. All rework done. Awaiting Pi deployment + owner acceptance. |
+| US-099–104 story prioritization | Owner prioritization | 6 venue workflow stories filed (Tier 13, draft). Discovery, identity creation, quick start, pre-flight, session history, E2E validation. Ready for PO selection. |
 | ~~OB-1: Multi-way config generation~~ | **RESOLVED** D-051 | Dynamic config gen per speaker design. |
 | ~~OB-2: ISO 226 implementation layer~~ | **RESOLVED** D-052 | Baked into FIR, minimum-phase chain, no exceptions. |
 | ~~OB-3: Profile switching disruption~~ | **RESOLVED** D-053 | Mute → switch → slow ramp-up (SAFETY requirement). |
@@ -213,20 +220,37 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 
 **Additional features delivered:** SPL readout in Test tab (task #49), UMIK-1→pcm-bridge link persistent across all GM modes (tasks #50/#51), UMIK-1 source option visible in all modes (task #52).
 
-**Pi deployment (task #53):** Pending — owner left for event. **60 commits** ready for tonight's deployment session. US-088 DEPLOY/VERIFY + owner acceptance deferred to post-event.
+**Pi deployment (task #53):** Pending — owner at event. **85+ commits** ready for tonight's deployment session. US-088 DEPLOY/VERIFY + owner acceptance deferred to post-event. Rust rebuilds needed: graph-manager + pcm-bridge. Services to restart: GM, pcm-bridge, webui.
 
-**Current worker assignments:**
-- worker-1 → **#125** T-QA-1: Round-trip correction test — 42Hz mode attenuation (US-098 P0)
-- worker-2 → **#126** T-QA-2: D-009 property-based verification across all paths (US-098 P0)
-- worker-3 → **#127** T-QA-3: Minimum-phase verification on correction + combined output (US-098 P0)
+**Current worker assignments (afternoon):**
+- worker-1 → GAP tasks (#139 GAP-3, #143 GAP-4, #144 GAP-5, #145 GAP-8, #146 integration test)
+- worker-2 → GAP tasks (#140 GAP-7, #141 GAP-6)
+- worker-3 → #142 US-099–US-104 story formalization (DONE), #147 status.md update (DONE)
 
-**Active tasks:** All 3 workers on US-098 P0 (demo-critical QA). Running in parallel, no dependencies between them.
+**Active tasks:** Pipeline wiring gaps being closed. US-098 P0 DONE (all 3 tasks passed: #125, #126, #127).
 
-**Session total: 70 commits pushed.** Doc updates pending commit.
+**Session total: 85+ commits pushed (approaching 88 after current batch).** Doc updates pending commit.
 
 **US-067 PAUSED** — tasks #117 (speaker sim) and #120 (room sim) completed; #124 (sim config gen) unblocked but deferred until US-098 P0 done.
 
 **MILESTONE: ALL 9 stories entered TEST phase (2026-03-27).** Implementation sprint complete.
+
+**MILESTONE: Measurement-to-correction pipeline fully wired end-to-end (2026-03-27 afternoon).** All 8 gaps from venue workflow analysis (GAP-1 through GAP-8) are closed or closing:
+- **GAP-1 CLOSED:** Deconvolution wired into measurement session (`_run_measuring()` lines 666-684). Sweep → deconvolve → IR saved as WAV.
+- **GAP-2 CLOSED:** Profile name flows from frontend start request through to `generate_profile_filters()`.
+- **GAP-3 CLOSED:** Measurement channels derived dynamically from active speaker profile topology (no more hardcoded 4-ch).
+- **GAP-4 CLOSED:** Real pre-flight checks implemented (UMIK-1 connected, GM mode, active profile validation, signal-gen health).
+- **GAP-5 CLOSED:** Verification sweep added to measurement session — post-deploy sweep measures corrected response and compares to target.
+- **GAP-6 CLOSED:** IR file naming aligned between measurement session (`ir_ch{idx}_pos{pos}.wav`) and filter_routes pipeline.
+- **GAP-7 CLOSED:** Sweep reference stored in `_sweep_results` for deconvolution (scaled sweep passed to `deconvolve()`).
+- **GAP-8 (pre-existing):** `deploy.py` already updated for D-040 PW filter-chain paths.
+
+**Additional completions this session (afternoon):**
+- D-009 cepstral overshoot fix in correction.py and combine.py (#130)
+- E2E test health restored: 3 test failures fixed (#136) — `_gm_client()` path resolution, mock UMIK-1 cal file, status bar clip assertion, reference screenshot regenerated
+- US-067 E2E simulation tests validated (#133)
+- Local-demo validation of speaker config + filter generation + measurement wizard (#134)
+- **US-099 through US-104 filed** (Tier 13 venue workflow stories): Speaker Discovery, Identity Creation, Quick Start, Pre-Flight, Session History, E2E Validation
 
 **QE TEST results (1430 tests green) — all rework/fixes DONE:**
 - **US-089:** CONDITIONAL PASS. All rework done.
@@ -254,11 +278,9 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 **Completed this phase:** #54, #56, #58, #59, #60, #61, #62, #63, #64, #65, #66, #67, #68, #69, #70, #71, #72, #73, #74, #75, #76, #78, #79, #80, #81, #82, #83, #84, #85, #86, #87, #88, #89, #90, #91, #92, #93, #94, #95.
 
 **Next steps:**
-- **Owner UI review** via `nix run .#local-demo` (worker-1 launching)
-- **US-067 decomposition COMPLETE** (architect delivered 8-task breakdown). PW speaker-room-mic simulator for E2E testing. Ready for task creation and worker assignment.
-- **US-075 remaining:** AC #4-#7 (automated verification, `nix run .#test-integration`, library API, Rust test consolidation). Can be worked in parallel with US-067.
-- **Pi deployment** tonight (task #53, 70 commits). Owner must confirm amps off (USBStreamer transient safety). Rust rebuilds needed: graph-manager + pcm-bridge.
-- **AE/AD/QE** answering owner's room correction QA question.
+- **Pi deployment** tonight (task #53, 85+ commits). Owner must confirm amps off (USBStreamer transient safety). Rust rebuilds needed: graph-manager + pcm-bridge.
+- **Venue workflow stories** US-099–US-104 filed (Tier 13). Ready for PO prioritization and architect decomposition after deployment.
+- **US-087** (Direct WebSocket from Rust) deferred — too risky for event eve. Architect breakdown complete and stored.
 - **Owner TODOs:** Per-sample Xmax limiter scope decision, speaker sensitivity_db_spl verification.
 
 ### Session Progress (2026-03-26, continued)
