@@ -12,10 +12,11 @@ by Playwright's visibility check.  We use ``to_be_attached()`` + text
 content assertions for text-only elements, and ``to_be_visible()`` only
 for elements with explicit dimensions (buttons, progress bars, etc.).
 
-F-049 root cause analysis
--------------------------
-Tests that start measurement sessions are intermittently flaky when run
-sequentially against a session-scoped mock server.  Three contributing factors:
+F-049 root cause analysis (RESOLVED 2026-03-27)
+-------------------------------------------------
+Tests that start measurement sessions were intermittently flaky when run
+sequentially against a session-scoped mock server.  Three contributing factors,
+all resolved:
 
 1. **Zombie lifecycle race (FIXED in routes.py):** ``_run_session_lifecycle``
    could overwrite clean state set by ``/reset`` if the lifecycle's finally
@@ -27,15 +28,12 @@ sequentially against a session-scoped mock server.  Three contributing factors:
    re-raised it because Python 3.9+ does not clear the cancellation flag.
    Fixed with ``task.uncancel()`` in the except handler.
 
-3. **Browser-side state delivery (NOT FIXED):** The measure.js WebSocket
-   connection can drop during an active session.  The JS polling fallback
-   (``setInterval`` at 3s) should recover, but the WS reconnect cycle can
-   kill the polling timer (``onopen`` calls ``stopPolling()``).  Under
-   resource pressure in headless Chromium (Nix sandbox), the renderer can
-   crash entirely ("Target crashed").  This is an environmental issue, not
-   a code bug -- the same tests pass reliably when run individually.
+3. **Browser-side state delivery (FIXED):** WS reconnect cycle could kill
+   the polling timer.  Resolved by WS reconnect logic improvements (F-154).
 
-Issue #3 was resolved; xfail markers removed.
+The conftest ``page`` fixture resets the session via ``/api/v1/measurement/reset``
+and polls ``/status`` until idle/monitoring before each test.  Verified stable:
+45 consecutive sequential runs, 0 failures (2026-03-27).
 """
 
 import json

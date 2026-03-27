@@ -272,15 +272,13 @@ echo "[local-demo] GraphManager running (PID ${PIDS[-1]})"
 # ---- 5. Start signal-gen (managed mode) ----
 # Managed mode: no AUTOCONNECT, no --target. GraphManager creates links.
 # F-097: 1 mono output channel. GM routes to all 4 convolver inputs.
-# F-159: capture-target set to UMIK-1 loopback source so that playrec
-#   works for measurement sessions. In local-demo the UMIK-1 source is
-#   a PW loopback module (umik1-loopback.conf) that echoes audio from
-#   the room-sim convolver output back as simulated mic input.
+# US-067: signal-gen is play-only. Capture is handled by pw-record in the
+#   Python measurement session (Track A). The UMIK-1 loopback source
+#   (umik1-loopback.conf) provides simulated mic input for local-demo.
 echo ""
-echo "[local-demo] Starting signal-gen (port 4001, managed mode, mono, UMIK-1 capture)..."
+echo "[local-demo] Starting signal-gen (port 4001, managed mode, mono)..."
 "$SG_BIN" \
     --managed \
-    --capture-target "alsa_input.usb-miniDSP_UMIK-1" \
     --channels 1 \
     --rate 48000 \
     --listen tcp:127.0.0.1:4001 \

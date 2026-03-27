@@ -511,14 +511,14 @@ else
     # Migrate legacy certs from ~/web-ui/ to /etc/pi4audio/certs/ if needed
     if ssh "$PI" "test -f ~/web-ui/cert.pem && test -f ~/web-ui/key.pem && ! test -f /etc/pi4audio/certs/cert.pem"; then
         echo "  Migrating TLS certs from ~/web-ui/ to /etc/pi4audio/certs/..."
-        ssh "$PI" "sudo mkdir -p /etc/pi4audio/certs && sudo cp ~/web-ui/cert.pem ~/web-ui/key.pem /etc/pi4audio/certs/ && sudo chmod 644 /etc/pi4audio/certs/cert.pem && sudo chmod 600 /etc/pi4audio/certs/key.pem && sudo chown root:root /etc/pi4audio/certs/cert.pem /etc/pi4audio/certs/key.pem && rm ~/web-ui/cert.pem ~/web-ui/key.pem"
+        ssh "$PI" "sudo mkdir -p /etc/pi4audio/certs && sudo cp ~/web-ui/cert.pem ~/web-ui/key.pem /etc/pi4audio/certs/ && sudo chmod 644 /etc/pi4audio/certs/cert.pem && sudo chmod 600 /etc/pi4audio/certs/key.pem && sudo chown ela:ela /etc/pi4audio/certs/key.pem && rm ~/web-ui/cert.pem ~/web-ui/key.pem"
         echo "  TLS certs migrated."
     fi
     if ssh "$PI" "test -f /etc/pi4audio/certs/cert.pem && test -f /etc/pi4audio/certs/key.pem"; then
         echo "  SKIP: TLS cert already exists at /etc/pi4audio/certs/."
     else
         echo "  Generating self-signed TLS cert (CN=mugge, 10 years)..."
-        ssh "$PI" 'sudo mkdir -p /etc/pi4audio/certs && sudo openssl req -x509 -newkey rsa:2048 -keyout /etc/pi4audio/certs/key.pem -out /etc/pi4audio/certs/cert.pem -days 3650 -nodes -subj "/CN=mugge" 2>/dev/null && sudo chmod 644 /etc/pi4audio/certs/cert.pem && sudo chmod 600 /etc/pi4audio/certs/key.pem'
+        ssh "$PI" 'sudo mkdir -p /etc/pi4audio/certs && sudo openssl req -x509 -newkey rsa:2048 -keyout /etc/pi4audio/certs/key.pem -out /etc/pi4audio/certs/cert.pem -days 3650 -nodes -subj "/CN=mugge" 2>/dev/null && sudo chmod 644 /etc/pi4audio/certs/cert.pem && sudo chmod 600 /etc/pi4audio/certs/key.pem && sudo chown ela:ela /etc/pi4audio/certs/key.pem'
         echo "  TLS cert generated at /etc/pi4audio/certs/."
     fi
 fi

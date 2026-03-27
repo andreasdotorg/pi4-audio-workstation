@@ -122,6 +122,9 @@ async def lifespan(app: FastAPI):
     app.state.mode_manager = mode_manager
     app.state.measurement_task = None
     app.state.audio_mute = AudioMuteManager()
+    # F-162: Event set when measurement session needs the signal-gen RPC slot.
+    # The /ws/siggen proxy checks this and disconnects to free the single-client slot.
+    app.state.siggen_evict = asyncio.Event()
 
     # 2. Startup recovery check (blocks until complete).
     # PI4AUDIO_SKIP_GM_RECOVERY=1 disables the orphan-measurement recovery.
@@ -649,11 +652,18 @@ async def ws_siggen(ws: WebSocket):
                 line = json.dumps(sanitized, separators=(",", ":")) + "\n"
                 await asyncio.to_thread(tcp_sock.sendall, line.encode())
 
-        # Run both directions concurrently; cancel the other on exit.
+        async def evict_watcher():
+            """F-162: Close proxy when measurement session needs signal-gen."""
+            await app.state.siggen_evict.wait()
+            log.info("Signal generator WS proxy evicted for measurement session")
+
+        # Run all directions concurrently; cancel the others on exit.
         tcp_task = asyncio.create_task(tcp_to_ws())
         ws_task = asyncio.create_task(ws_to_tcp())
+        evict_task = asyncio.create_task(evict_watcher())
         done, pending = await asyncio.wait(
-            {tcp_task, ws_task}, return_when=asyncio.FIRST_COMPLETED)
+            {tcp_task, ws_task, evict_task},
+            return_when=asyncio.FIRST_COMPLETED)
         for t in pending:
             t.cancel()
 
@@ -667,6 +677,8 @@ async def ws_siggen(ws: WebSocket):
                 tcp_sock.close()
             except OSError:
                 pass
+        # Reset evict event so the proxy can reconnect after measurement.
+        app.state.siggen_evict.clear()
 
 
 def _siggen_tcp_connect(host: str, port: int) -> socket.socket:

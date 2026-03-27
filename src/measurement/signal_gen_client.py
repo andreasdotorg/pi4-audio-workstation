@@ -298,7 +298,7 @@ class SignalGenClient:
                 f"playrec did not complete within {duration + 5.0}s"
             )
 
-        # Fetch the recorded audio
+        # Fetch the recorded audio from signal-gen capture stream.
         recording = self.get_recording()
 
         # Trim or pad to match input length (sd.playrec returns same length)

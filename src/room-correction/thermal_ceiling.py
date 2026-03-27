@@ -49,6 +49,11 @@ log = logging.getLogger(__name__)
 # Matches SWEEP_LEVEL_HARD_CAP_DBFS in measure_nearfield.py.
 DEFAULT_HARD_CAP_DBFS = -20.0
 
+# Operator warning threshold: ceilings above this are dangerously high.
+# At -6 dBFS the amp is approaching full output — operator must verify
+# gain staging before proceeding.
+OPERATOR_WARNING_DBFS = -6.0
+
 # Default hardware parameters (McGrey PA4504 + Behringer ADA8200)
 DEFAULT_AMP_VOLTAGE_GAIN = 42.4  # V/V at full gain
 DEFAULT_ADA8200_0DBFS_VRMS = 4.9  # Vrms at 0 dBFS (+16 dBu)
@@ -202,7 +207,13 @@ def safe_ceiling_dbfs(pe_max_watts, impedance_ohm,
         log.warning("pe_max_watts is missing or invalid — using hard cap "
                     "%.1f dBFS as fallback", hard_cap_dbfs)
         return hard_cap_dbfs
-    return min(raw, hard_cap_dbfs)
+
+    ceiling = min(raw, hard_cap_dbfs)
+    if ceiling > OPERATOR_WARNING_DBFS:
+        log.warning("Thermal ceiling %.1f dBFS exceeds operator warning "
+                    "threshold (%.1f dBFS) — verify gain staging before "
+                    "proceeding", ceiling, OPERATOR_WARNING_DBFS)
+    return ceiling
 
 
 def compute_amp_adjusted_ceiling(speaker_identity, amp_profile,
@@ -469,15 +480,21 @@ def load_hardware_config(project_root=None):
     if amp_path.exists():
         amp = _load_yaml(amp_path)
         if amp and "specs" in amp:
-            result["amp_voltage_gain"] = amp["specs"].get(
-                "voltage_gain", DEFAULT_AMP_VOLTAGE_GAIN)
+            if "voltage_gain" not in amp["specs"]:
+                raise ValueError(
+                    f"Hardware config {amp_path} has 'specs' section but "
+                    f"missing required key 'voltage_gain'")
+            result["amp_voltage_gain"] = amp["specs"]["voltage_gain"]
 
     dac_path = hw_dir / "dac-behringer-ada8200.yml"
     if dac_path.exists():
         dac = _load_yaml(dac_path)
         if dac and "specs" in dac:
-            result["ada8200_0dbfs_vrms"] = dac["specs"].get(
-                "output_level_0dbfs_vrms", DEFAULT_ADA8200_0DBFS_VRMS)
+            if "output_level_0dbfs_vrms" not in dac["specs"]:
+                raise ValueError(
+                    f"Hardware config {dac_path} has 'specs' section but "
+                    f"missing required key 'output_level_0dbfs_vrms'")
+            result["ada8200_0dbfs_vrms"] = dac["specs"]["output_level_0dbfs_vrms"]
 
     return result
 
@@ -511,9 +528,14 @@ def load_speaker_identity(identity_name, project_root=None):
 
     data = _load_yaml(identity_path)
 
+    if "impedance_ohm" not in data:
+        raise ValueError(
+            f"Speaker identity {identity_path} missing required key "
+            f"'impedance_ohm'")
+
     return {
         "pe_max_watts": data.get("max_power_watts"),
-        "impedance_ohm": data.get("impedance_ohm"),
+        "impedance_ohm": data["impedance_ohm"],
         "sensitivity_db_spl": data.get(
             "sensitivity_db_spl", DEFAULT_SENSITIVITY_DB_SPL),
     }
@@ -634,6 +656,11 @@ def load_channel_ceilings(profile_name, pw_gain_mults=None,
             ceiling = hard_cap_dbfs
         else:
             ceiling = min(raw_ceiling, hard_cap_dbfs)
+
+        if ceiling > OPERATOR_WARNING_DBFS:
+            log.warning("Channel %s ceiling %.1f dBFS exceeds operator "
+                        "warning threshold (%.1f dBFS) — verify gain "
+                        "staging", spk_name, ceiling, OPERATOR_WARNING_DBFS)
 
         entry = {
             "channel": channel,

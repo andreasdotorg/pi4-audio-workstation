@@ -260,6 +260,43 @@ class TestSafeCeilingDbfs(unittest.TestCase):
         self.assertEqual(ceiling, thermal_ceiling.DEFAULT_HARD_CAP_DBFS)
 
 
+class TestOperatorWarning(unittest.TestCase):
+    """Tests for F-070: -6 dBFS operator warning in safe_ceiling_dbfs."""
+
+    def test_warning_when_ceiling_exceeds_threshold(self):
+        """Ceiling > -6 dBFS must log a warning."""
+        # PS28 III: 62W, 2.33 ohm, Mult=0.1 -> raw ceiling ~-4.75 dBFS
+        # Hard cap at -3.0 to let it through -> ceiling = -4.75
+        with self.assertLogs(thermal_ceiling.log, level="WARNING") as cm:
+            ceiling = thermal_ceiling.safe_ceiling_dbfs(
+                pe_max_watts=62,
+                impedance_ohm=2.33,
+                pw_gain_mult=MULT_MINUS_20DB,
+                sensitivity_db_spl=87.0,
+                hard_cap_dbfs=-3.0,
+            )
+        self.assertAlmostEqual(ceiling, -4.75, places=1)
+        self.assertTrue(any("operator warning" in msg.lower() for msg in cm.output))
+
+    def test_no_warning_when_ceiling_below_threshold(self):
+        """Ceiling <= -6 dBFS must NOT log an operator warning."""
+        # CHN-50P with Mult=1.0 -> ceiling = -31.88 dBFS, well below -6
+        with self.assertLogs(thermal_ceiling.log, level="DEBUG") as cm:
+            thermal_ceiling.log.debug("trigger log capture")
+            ceiling = thermal_ceiling.safe_ceiling_dbfs(
+                pe_max_watts=7,
+                impedance_ohm=4,
+                pw_gain_mult=1.0,
+                sensitivity_db_spl=87.0,
+            )
+        self.assertLess(ceiling, -6.0)
+        self.assertFalse(any("operator warning" in msg.lower() for msg in cm.output))
+
+    def test_constant_exported(self):
+        """OPERATOR_WARNING_DBFS constant must be accessible."""
+        self.assertEqual(thermal_ceiling.OPERATOR_WARNING_DBFS, -6.0)
+
+
 class TestLoadHardwareConfig(unittest.TestCase):
     """Tests for hardware config loading."""
 
@@ -277,6 +314,85 @@ class TestLoadHardwareConfig(unittest.TestCase):
                              thermal_ceiling.DEFAULT_AMP_VOLTAGE_GAIN)
             self.assertEqual(hw["ada8200_0dbfs_vrms"],
                              thermal_ceiling.DEFAULT_ADA8200_0DBFS_VRMS)
+
+
+class TestSchemaValidation(unittest.TestCase):
+    """Tests for F-069: reject missing required fields when config file exists."""
+
+    def test_hw_config_missing_voltage_gain_raises(self):
+        """Amp config with specs section but no voltage_gain must raise."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw_dir = os.path.join(tmpdir, "configs", "hardware")
+            os.makedirs(hw_dir)
+            # Write amp config with specs but missing voltage_gain
+            with open(os.path.join(hw_dir, "amp-mcgrey-pa4504.yml"), "w") as f:
+                f.write("name: test\nspecs:\n  channels: 4\n")
+            with self.assertRaises(ValueError) as ctx:
+                thermal_ceiling.load_hardware_config(tmpdir)
+            self.assertIn("voltage_gain", str(ctx.exception))
+
+    def test_hw_config_missing_output_level_raises(self):
+        """DAC config with specs section but no output_level_0dbfs_vrms must raise."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw_dir = os.path.join(tmpdir, "configs", "hardware")
+            os.makedirs(hw_dir)
+            # Write DAC config with specs but missing output_level_0dbfs_vrms
+            with open(os.path.join(hw_dir, "dac-behringer-ada8200.yml"), "w") as f:
+                f.write("name: test\nspecs:\n  channels: 8\n")
+            with self.assertRaises(ValueError) as ctx:
+                thermal_ceiling.load_hardware_config(tmpdir)
+            self.assertIn("output_level_0dbfs_vrms", str(ctx.exception))
+
+    def test_hw_config_no_specs_section_uses_defaults(self):
+        """Config file exists but has no specs section -> defaults are OK."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw_dir = os.path.join(tmpdir, "configs", "hardware")
+            os.makedirs(hw_dir)
+            with open(os.path.join(hw_dir, "amp-mcgrey-pa4504.yml"), "w") as f:
+                f.write("name: test\n")
+            hw = thermal_ceiling.load_hardware_config(tmpdir)
+            self.assertEqual(hw["amp_voltage_gain"],
+                             thermal_ceiling.DEFAULT_AMP_VOLTAGE_GAIN)
+
+    def test_hw_config_no_file_uses_defaults(self):
+        """No config file at all -> defaults are OK (already tested, here for completeness)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hw = thermal_ceiling.load_hardware_config(tmpdir)
+            self.assertEqual(hw["amp_voltage_gain"],
+                             thermal_ceiling.DEFAULT_AMP_VOLTAGE_GAIN)
+
+    def test_speaker_identity_missing_impedance_raises(self):
+        """Speaker identity file exists but missing impedance_ohm must raise."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            id_dir = os.path.join(tmpdir, "configs", "speakers", "identities")
+            os.makedirs(id_dir)
+            with open(os.path.join(id_dir, "broken-speaker.yml"), "w") as f:
+                f.write("name: Broken\nmax_power_watts: 100\n")
+            with self.assertRaises(ValueError) as ctx:
+                thermal_ceiling.load_speaker_identity("broken-speaker", tmpdir)
+            self.assertIn("impedance_ohm", str(ctx.exception))
+
+    def test_speaker_identity_missing_sensitivity_uses_default(self):
+        """Missing sensitivity_db_spl is OK — uses default (not safety-critical)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            id_dir = os.path.join(tmpdir, "configs", "speakers", "identities")
+            os.makedirs(id_dir)
+            with open(os.path.join(id_dir, "no-sens.yml"), "w") as f:
+                f.write("name: NoSens\nimpedance_ohm: 8\nmax_power_watts: 100\n")
+            identity = thermal_ceiling.load_speaker_identity("no-sens", tmpdir)
+            self.assertEqual(identity["sensitivity_db_spl"],
+                             thermal_ceiling.DEFAULT_SENSITIVITY_DB_SPL)
+
+    def test_speaker_identity_missing_pe_max_returns_none(self):
+        """Missing max_power_watts is OK — returns None (handled downstream)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            id_dir = os.path.join(tmpdir, "configs", "speakers", "identities")
+            os.makedirs(id_dir)
+            with open(os.path.join(id_dir, "no-power.yml"), "w") as f:
+                f.write("name: NoPower\nimpedance_ohm: 8\n")
+            identity = thermal_ceiling.load_speaker_identity("no-power", tmpdir)
+            self.assertIsNone(identity["pe_max_watts"])
+            self.assertEqual(identity["impedance_ohm"], 8)
 
 
 class TestLoadSpeakerIdentity(unittest.TestCase):

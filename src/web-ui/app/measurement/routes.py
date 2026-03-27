@@ -164,6 +164,13 @@ async def start_measurement(body: StartRequest, request: Request):
     siggen_mode = os.environ.get("PI4AUDIO_SIGGEN", "") == "1"
     sd_override: Any = None
     if siggen_mode:
+        # F-162: Evict the /ws/siggen WebSocket proxy so the measurement
+        # session can claim the single-client signal-gen RPC slot.
+        siggen_evict = getattr(request.app.state, "siggen_evict", None)
+        if siggen_evict is not None:
+            siggen_evict.set()
+            await asyncio.sleep(0.5)  # let proxy disconnect
+
         # Production mode with RT signal generator (SG-11).
         # SignalGenClient replaces sounddevice for all audio I/O.
         try:
