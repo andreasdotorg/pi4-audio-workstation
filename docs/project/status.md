@@ -91,6 +91,15 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-084 | **IMPLEMENT** | **7/13** | Phases 1-6 DONE (crate extraction, pcm-bridge strip, local-demo, web UI 3 LB wiring `dd0bc3a`, local-demo 3 instances `468533e`, signal-gen mono `468533e`). **T-084-10 local-demo verification PASSED** (24 meters, 3 LB instances). F-104 RESOLVED (`5269fe7`). F-100 RESOLVED (`af2372f`). Systemd template (T-084-8) awaiting diff confirmation. Remaining: Pi deployment (T-084-9), Pi self-link verification (T-084-11). |
 | US-087 | **DECOMPOSE** | **TBD** | **Selected** (owner directive 2026-03-26: CPU consumption priority #3, event in 2 days). Direct WebSocket from Rust — eliminate Python PCM/level relay (~31% CPU on Pi). Awaiting architect breakdown. Phase 1: pcm-bridge direct WS (highest impact). F-146 CLOSED (not-a-bug: pw-dump doesn't run during Dashboard; root cause is Python relay overhead, addressed by US-087). |
 | US-088 | **REVIEW** | **4/7 AC** | **REVIEW phase** (2026-03-27). QE TEST PASS: 764 tests, 0 regressions. AC-1/5sw/6 full automated coverage PASS. AC-2/3/4/7 code reviewed, deferred to owner manual verification. Commits: `89c37e8`, `465d0ee`, `81ef4e0` + batch 4 pending (T-088-7 addendum). DEPLOY/VERIFY deferred — combined with owner acceptance on Pi. **Advisory sign-offs: QE APPROVED, AE APPROVED (full review), UX APPROVED (all items met).** All software sign-offs complete. **DEPLOY/VERIFY deferred — owner left for event. Pi deployment tonight (task #53).** |
+| US-089 | **DECOMPOSE** | **0/9 AC** | Speaker Configuration Management — Web UI. Depends: US-011b, US-039, US-045. Blocks: US-090, US-092. HIGH. **Architect decomposition delivered (2026-03-27): 9 subtasks (T-089-1–T-089-9), 4 tracks.** T-089-2 (PW config gen) and T-089-3 (write API) already completed (#64, #63). T-089-4 (frontend list) in progress (#65). D-041–D-044 decisions integrated into ACs. |
+| US-090 | **draft** | **TBD** | FIR Filter Generation & Application — Web UI. Depends: US-089, US-010, US-011, US-012, US-097. HIGH. |
+| US-091 | **draft** | **TBD** | Multi-way Crossover Support (3-way/4-way). Depends: US-011, US-011b, US-089. MEDIUM. D-041 (dynamic config gen), D-044 (4-way in scope, configurable wiring). 4-way = testing only, no monitoring needed. |
+| US-092 | **draft** | **TBD** | Per-Driver Thermal Protection & SPL Limiting. Depends: US-046, US-045, US-039, US-089. HIGH (safety-critical). |
+| US-093 | **draft** | **TBD** | Amplifier Sensitivity & Power Calibration. Depends: US-045, US-092, US-089. MEDIUM. |
+| US-094 | **draft** | **TBD** | ISO 226 Equal Loudness Compensation. Depends: US-090, US-096. MEDIUM. Owner decision: baked into FIR, entire chain minimum-phase. |
+| US-095 | **draft** | **TBD** | Graph Visualization Improvements — Pan, Zoom. Depends: US-064. MEDIUM. |
+| US-096 | **draft** | **TBD** | UMIK-1 Full Calibration Pipeline. Depends: US-088, US-045. Blocks: US-097, US-047. HIGH (owner priority #1 area). |
+| US-097 | **draft** | **TBD** | Room Compensation from Measurements — Web UI Workflow. Depends: US-096, US-089, US-090, US-008-US-012. Blocks: US-013. HIGH (owner strategic goal). |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -158,6 +167,25 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **US-004** (**DONE** — owner-accepted 2026-03-21): Assumption register (A1-A28). CLAUDE.md reference corrected.
 - **US-000a** (**DONE** — owner-accepted 2026-03-21): Platform security hardening. F-002/F-011 resolved, reboot-verified.
 
+### Owner-Blocking TODOs (rule: record every owner-blocked item here)
+
+| Item | Blocked on | Notes |
+|------|-----------|-------|
+| US-088 DEPLOY/VERIFY + acceptance | Owner Pi session tonight | All advisory sign-offs done. 14 commits to deploy. |
+| US-079 re-validation | Owner local-demo test | All blockers cleared. |
+| US-080 re-validation | Owner local-demo test | All blockers cleared. |
+| US-081 re-validation | Owner local-demo test | All blockers cleared. |
+| US-082 re-validation | Owner local-demo test | All blockers cleared. |
+| US-084 Pi deployment (task #9) | Owner Pi session tonight | T-084-9, T-084-11. |
+| US-044 T-044-6/7 | Owner Pi session tonight | Reboot survival + no-interference tests. |
+| US-077 DoD #4 | Owner Pi session tonight | Pi perf regression test. |
+| US-063 DoD #6 | Owner Pi session tonight | 10-min DJ load soak test. |
+| US-089–097 story selection | Owner prioritization | 9 stories filed (draft). 5 architecture decisions RESOLVED (multi-way topology, ISO 226 approach, profile switching safety, 4-way channel budget, 4-way monitoring: testing only — no monitoring needed). Stories ready for formal selection. |
+| ~~OB-1: Multi-way config generation~~ | **RESOLVED** D-041 | Dynamic config gen per speaker design. |
+| ~~OB-2: ISO 226 implementation layer~~ | **RESOLVED** D-042 | Baked into FIR, minimum-phase chain, no exceptions. |
+| ~~OB-3: Profile switching disruption~~ | **RESOLVED** D-043 | Mute → switch → slow ramp-up (SAFETY requirement). |
+| ~~OB-4: Max speaker topology~~ | **RESOLVED** D-044 | 4-way stereo in scope, configurable channel assignment per profile. |
+
 ### Session Progress (2026-03-27, overnight autonomous)
 
 **Owner sleeping, event TOMORROW. Autonomous overnight session. Owner left for event — deployment deferred to tonight.**
@@ -185,6 +213,15 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 **Additional features delivered:** SPL readout in Test tab (task #49), UMIK-1→pcm-bridge link persistent across all GM modes (tasks #50/#51), UMIK-1 source option visible in all modes (task #52).
 
 **Pi deployment (task #53):** Pending — owner left for event. 14 commits ready for tonight's deployment session. US-088 DEPLOY/VERIFY + owner acceptance deferred to post-event.
+
+**Current worker assignments (US-089 decomposition phase):**
+- worker-1 → available (task #63 complete, awaiting assignment — #65 speaker frontend UI recommended)
+- worker-2 → task #66: FIR generation API endpoint (in progress)
+- worker-3 → task #61: Speaker design research (in progress)
+
+**Completed this phase:** F-086+F-039+F-068 (task #54, worker-1), F-058+F-060 (task #56, worker-2), ISO 226 module (task #60, worker-2), speaker config read API (task #59, worker-1), graph pan/zoom (task #58, worker-2), speaker config write API (task #63, worker-1), PW config generator (task #64, worker-2).
+
+**New story pipeline:** 9 stories filed (US-089–097). US-089 (speaker config management) routed to architect for decomposition. US-089 amended with MEH topology, enclosure types, 15+ speaker templates. US-091 amended with MEH crossover support, sub configurations. US-095 queued after US-089. 5 architecture decisions RESOLVED by owner.
 
 ### Session Progress (2026-03-26, continued)
 

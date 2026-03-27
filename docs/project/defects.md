@@ -1306,10 +1306,10 @@ consolidation).
 
 ---
 
-## F-039: DSP load gauge shows 0% — FilterChainCollector hardcodes processing_load (OPEN)
+## F-039: DSP load gauge shows 0% — FilterChainCollector hardcodes processing_load (DEFERRED)
 
 **Severity:** Medium (cosmetic — gauge shows green/0% instead of actual load)
-**Status:** Open
+**Status:** DEFERRED (2026-03-27 — no UI consumer for processing_load post-F-088. Deferred to US-087 which eliminates the Python relay entirely.)
 **Found in:** Web UI review post-D-040 (2026-03-21)
 **Affects:** US-060 (PipeWire monitoring replacement), D-020 (web UI dashboard)
 **Found by:** Team (D-040 transition gap analysis)
@@ -2228,10 +2228,10 @@ incident — a latching indicator would have caught this).
 
 ---
 
-## F-058: E2E screenshot tests write to read-only Nix store path (OPEN)
+## F-058: E2E screenshot tests write to read-only Nix store path (RESOLVED)
 
 **Severity:** Medium (test infrastructure — causes 6+ false failures in every pure sandbox run)
-**Status:** Open
+**Status:** RESOLVED (2026-03-27 — already fixed, screenshots already go to /tmp. worker-2 verified.)
 **Found in:** Nix pure sandbox E2E test run (2026-03-22)
 **Affects:** E2E test suite (`test_status_bar.py`, `test_visual_regression.py`, `test_config_tab.py`)
 **Found by:** Team (CI/sandbox test execution)
@@ -2317,10 +2317,10 @@ F-054 and F-055 fixes to the hardcoded layout are also superseded.
 
 ---
 
-## F-060: L-042 process docs need corrections — nix develop vs nix run, separation of concerns (OPEN)
+## F-060: L-042 process docs need corrections — nix develop vs nix run, separation of concerns (RESOLVED)
 
 **Severity:** Medium (process documentation — incorrect gate definitions and role/project coupling)
-**Status:** Open
+**Status:** RESOLVED (2026-03-27 — Correction 1 already fixed. Correction 2 (doc restructuring) deferred as non-blocking enhancement. worker-2 verified.)
 **Found in:** Owner review of `17a0cb2` (L-042 process docs commit, 2026-03-22)
 **Affects:** `.claude/team/roles/worker.md`, `docs/project/testing-process.md`
 **Found by:** Owner
@@ -2629,10 +2629,10 @@ owner acceptance.
 
 ---
 
-## F-068: graph_routes.py accesses private `_state` attribute of FilterChainCollector (OPEN)
+## F-068: graph_routes.py accesses private `_state` attribute of FilterChainCollector (RESOLVED)
 
 **Severity:** Low
-**Status:** Open (tech debt)
+**Status:** RESOLVED (2026-03-27, worker-1 — public `get_gm_state()` method replaces private `_state` access. Pending Rule 13 + commit.)
 **Found in:** Phase 2a QE code review (task #97)
 **Affects:** US-064 (graph topology endpoint)
 **Found by:** Quality Engineer
@@ -3010,10 +3010,10 @@ are missing UX fundamentals that weren't caught without real-topology testing.
 
 ---
 
-## F-086: Config tab quantum button not pre-selected (OPEN)
+## F-086: Config tab quantum button not pre-selected (RESOLVED)
 
 **Severity:** Medium
-**Status:** Open
+**Status:** RESOLVED (2026-03-27, worker-1 — quantum fallback to 256 when `find_quantum()` returns None. Pending Rule 13 + commit.)
 **Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
 **Affects:** Config tab, US-065
 **Found by:** Owner
@@ -5305,3 +5305,35 @@ Add `/ws/pcm` to the error filter list in conftest.py's `page` fixture
 teardown handler, matching the existing `/ws/siggen` pattern. Alternatively,
 implement a blanket WebSocket 502 filter during teardown for all `/ws/*`
 endpoints.
+
+---
+
+## F-150: PW filter-chain config has no delay builtin nodes — time alignment deployment gap (OPEN)
+
+**Filed:** 2026-03-27
+**Severity:** Medium
+**Status:** OPEN
+**Affects:** Time alignment (US-009, US-091), multi-way and mixed-sub configurations
+**Found by:** Architect (US-089 decomposition review 2026-03-27)
+**Related:** US-091 (multi-way crossover), US-009 (time alignment), T-089-1 (schema)
+
+### Description
+
+`time_align.py` computes per-channel delay values but there is no deployment
+path — the PW filter-chain config (`30-filter-chain-convolver.conf`) has no
+`delay` builtin nodes. PipeWire filter-chain supports `delay` builtin natively
+but it is not currently configured.
+
+This blocks real multi-way and mixed-sub time alignment. Without delay nodes,
+computed time alignment values from `time_align.py` have nowhere to be applied.
+
+### Recommended Fix
+
+Add `delay` builtin nodes to the PW filter-chain config between gain output
+and filter-chain output, one per speaker channel. The PW config generator
+(task #64 / T-089-2) should emit these nodes with default delay 0.0ms. The
+time alignment pipeline then sets actual delay values via `pw-cli` at runtime
+or writes them into the `.conf` defaults.
+
+This is addressed in US-091 AC: "Per-channel delay nodes" item. Should be
+implemented as part of T-089-1 (schema) + T-089-2 (config gen extension).
