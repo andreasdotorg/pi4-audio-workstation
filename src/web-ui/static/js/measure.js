@@ -165,18 +165,32 @@
             return;
         }
 
+        if (type === "deconvolution_start" || type === "deconvolution_done") {
+            updateDeconvolution(msg);
+            return;
+        }
+
         if (type === "filter_gen_progress") {
             updatePipelineStage("filter_gen", msg);
+            if (window.RCWizard && window.RCWizard.onFilterGenProgress) {
+                window.RCWizard.onFilterGenProgress(msg);
+            }
             return;
         }
 
         if (type === "deploy_progress") {
             updatePipelineStage("deploy", msg);
+            if (window.RCWizard && window.RCWizard.onDeployProgress) {
+                window.RCWizard.onDeployProgress(msg);
+            }
             return;
         }
 
         if (type === "verify_progress") {
             updatePipelineStage("verify", msg);
+            if (window.RCWizard && window.RCWizard.onVerifyProgress) {
+                window.RCWizard.onVerifyProgress(msg);
+            }
             return;
         }
 
@@ -549,6 +563,19 @@
                     '<span class="c-safe">Done</span>';
                 list.appendChild(item);
             }
+        }
+    }
+
+    function updateDeconvolution(msg) {
+        var statusEl = $("mw-sweep-status");
+        if (!statusEl) return;
+        if (msg.type === "deconvolution_start") {
+            statusEl.textContent = "Deconvolving Ch" + msg.channel + "...";
+            statusEl.className = "c-warning";
+        } else if (msg.type === "deconvolution_done") {
+            statusEl.textContent = "Deconvolved Ch" + msg.channel +
+                " (" + msg.ir_samples + " samples)";
+            statusEl.className = "c-safe";
         }
     }
 
