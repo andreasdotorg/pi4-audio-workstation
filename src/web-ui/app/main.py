@@ -248,6 +248,12 @@ try:
 except ImportError:
     pass  # speaker_routes not yet available (pre-commit)
 
+try:
+    from .filter_routes import router as filter_router
+    app.include_router(filter_router)
+except ImportError:
+    pass  # filter_routes not yet available (pre-commit)
+
 
 # -- Routes --
 
