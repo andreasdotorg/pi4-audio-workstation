@@ -89,7 +89,8 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-081 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `c4fc54b`+`8b84518`). F-103 RESOLVED. F-112 FIXED (`9a8bae2`). F-113 **RESOLVED** (`dd0bc3a`). **All blockers cleared — ready for owner re-validation.** |
 | US-082 | **IMPLEMENT** | **TBD** | **Owner validation FAILED** (2026-03-25, tested `8b84518`). symphonia decoder works. F-104 RESOLVED (`5269fe7`), F-106 RESOLVED, F-107 RESOLVED, F-108 RESOLVED, F-109 RESOLVED. **All blockers cleared — ready for owner re-validation.** |
 | US-084 | **IMPLEMENT** | **7/13** | Phases 1-6 DONE (crate extraction, pcm-bridge strip, local-demo, web UI 3 LB wiring `dd0bc3a`, local-demo 3 instances `468533e`, signal-gen mono `468533e`). **T-084-10 local-demo verification PASSED** (24 meters, 3 LB instances). F-104 RESOLVED (`5269fe7`). F-100 RESOLVED (`af2372f`). Systemd template (T-084-8) awaiting diff confirmation. Remaining: Pi deployment (T-084-9), Pi self-link verification (T-084-11). |
-| US-087 | **DECOMPOSE** | **TBD** | **Selected** (owner directive 2026-03-26: CPU consumption priority #3, event in 2 days). Direct WebSocket from Rust — eliminate Python PCM/level relay (~31% CPU on Pi). Awaiting architect breakdown. Phase 1: pcm-bridge direct WS (highest impact). |
+| US-087 | **DECOMPOSE** | **TBD** | **Selected** (owner directive 2026-03-26: CPU consumption priority #3, event in 2 days). Direct WebSocket from Rust — eliminate Python PCM/level relay (~31% CPU on Pi). Awaiting architect breakdown. Phase 1: pcm-bridge direct WS (highest impact). F-146 CLOSED (not-a-bug: pw-dump doesn't run during Dashboard; root cause is Python relay overhead, addressed by US-087). |
+| US-088 | **REVIEW** | **4/7 AC** | **REVIEW phase** (2026-03-27). QE TEST PASS: 764 tests, 0 regressions. AC-1/5sw/6 full automated coverage PASS. AC-2/3/4/7 code reviewed, deferred to owner manual verification. Commits: `89c37e8`, `465d0ee`, `81ef4e0` + batch 4 pending (T-088-7 addendum). DEPLOY/VERIFY deferred — combined with owner acceptance on Pi. **Advisory sign-offs: QE APPROVED, AE APPROVED (full review), UX APPROVED (all items met).** All software sign-offs complete. **DEPLOY/VERIFY deferred — owner left for event. Pi deployment tonight (task #53).** |
 | US-062 | done | **7/7** | **done** (owner-accepted 2026-03-20). Boot-to-DJ Mode. Pi boots into DJ mode: Mixxx auto-launches, routing established via pw-link script, audio plays through convolver at correct attenuation. Delivered: q1024 static config (D-042), Mult persistence (C-009), Mixxx systemd service (`0df1e56`), DJ routing service (`0df1e56`+`ff40766`), WirePlumber unmasked with auto-link suppression, JACK bypass cleanup, CamillaDSP system service disabled, reboot test PASS (D-001, 6 iterations, 12 links, zero bypass, ERR=0). D-039 amendment needed (WirePlumber auto-link suppression). |
 
 ## In Progress
@@ -156,6 +157,34 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **F-016** (open, medium): 2 audible glitches after PipeWire restart with capture adapter active. Does not reproduce without restart.
 - **US-004** (**DONE** — owner-accepted 2026-03-21): Assumption register (A1-A28). CLAUDE.md reference corrected.
 - **US-000a** (**DONE** — owner-accepted 2026-03-21): Platform security hardening. F-002/F-011 resolved, reboot-verified.
+
+### Session Progress (2026-03-27, overnight autonomous)
+
+**Owner sleeping, event TOMORROW. Autonomous overnight session. Owner left for event — deployment deferred to tonight.**
+
+**US-088 FULLY IMPLEMENTED.** All 8 subtasks complete:
+- T-088-1: GM routing (pcm-bridge taps UMIK-1) — committed `89c37e8`
+- T-088-3: Permanent peak hold in spectrum renderer — committed `89c37e8`
+- T-088-4: Peak Hold toggle + Reset Peak button — committed `89c37e8`
+- T-088-5: Backend calibration endpoint for UMIK-1 — committed `89c37e8`
+- T-088-6: Frontend calibration curve application — committed `89c37e8`
+- T-088-8: Tests for calibration + routing — committed `89c37e8`
+- T-088-2: UMIK-1 PCM source config — committed `465d0ee`
+- T-088-7: Wire source selector to measurement mode — batch 3 pending Rule 13
+
+**Defects resolved this session:** F-134 (spectrum/meter freeze — staleness watchdog), F-141 (quantum 2048 removed), F-142 (already fixed `162e9ab`+`99bc7a4`), F-085 (graph tab rendering), F-146 (closed not-a-bug). F-149 filed (E2E teardown filter gap, Low).
+
+**Defects resolved (continued):** F-136 (DSP status bar, worker-2), F-148 (spectrum decay, worker-1), F-057 (config tab gain, worker-3), F-064 (collector timeout, worker-1), F-081 (pcm-bridge FD leak, worker-3), F-056 (xrun counters, worker-2), F-095 (journald CPU — already fixed, worker-1 confirmed), F-030 (JACK client xruns `c5c20be`, worker-2), F-033 (JACK thread RT `47663a5`, worker-3), F-038 (duplicate status bar `72def21`+`afc8528`, worker-2), F-087 (latency label, QE approved). **Total 11 HIGH + 2 Medium/Low defects resolved overnight.**
+
+**Recovery batch committed:** F-148, F-144, F-138, F-133 fixes landed (cache-bust v=34).
+
+**US-088 REVIEW sign-offs complete:** QE APPROVED, AE APPROVED (full review), UX APPROVED (all items met). Awaiting owner acceptance on Pi (event TOMORROW). DEPLOY/VERIFY deferred.
+
+**Defects resolved (final batch):** F-051/F-052/F-053 (dashboard contrast, worker-1), F-054/F-055 (graph view HP line + gain nodes, worker-3), F-038 (duplicate status bar, worker-2).
+
+**Additional features delivered:** SPL readout in Test tab (task #49), UMIK-1→pcm-bridge link persistent across all GM modes (tasks #50/#51), UMIK-1 source option visible in all modes (task #52).
+
+**Pi deployment (task #53):** Pending — owner left for event. 14 commits ready for tonight's deployment session. US-088 DEPLOY/VERIFY + owner acceptance deferred to post-event.
 
 ### Session Progress (2026-03-26, continued)
 

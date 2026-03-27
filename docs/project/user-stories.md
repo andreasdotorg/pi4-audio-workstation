@@ -6423,7 +6423,7 @@ analyzer with a non-decaying peak hold overlay and a manual reset button,
 during a measurement sweep or sustained signal, which is the first step
 toward integrating the spectrum display into the room correction workflow.
 
-**Status:** selected (owner directive 2026-03-26: measurement capability is next strategic priority)
+**Status:** in-review (2026-03-27: all advisory sign-offs complete — QE, AE, UX APPROVED. DEPLOY/VERIFY + owner acceptance deferred to Pi deployment tonight)
 **Depends on:** F-144 (auto-switch to measurement mode — FILED), US-084
 (level-bridge wiring for PHYS IN group — UMIK-1 on hw-in ch1, phases 1-3
 done, web UI wiring remaining), US-079 (pre-convolver capture point)

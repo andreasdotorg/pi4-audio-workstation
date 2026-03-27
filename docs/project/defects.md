@@ -913,10 +913,10 @@ readings for the same signal. Undermines trust in metering accuracy.
 
 ---
 
-## F-030: Web UI monitor JACK client causes xruns under DJ load (OPEN)
+## F-030: Web UI monitor JACK client causes xruns under DJ load (RESOLVED)
 
 **Severity:** High (audible xruns during DJ sets)
-**Status:** Open (workaround available)
+**Status:** RESOLVED (2026-03-27, worker-2 — committed `c5c20be`, removed legacy JACK client)
 **Found in:** DJ mode testing with web UI service active, 2026-03-12
 **Affects:** D-020 (web UI), US-029 (DJ UAT), operational reliability
 **Found by:** Xrun diagnostic during DJ load testing, 2026-03-12
@@ -972,10 +972,10 @@ CamillaDSP), US-059 (GraphManager Core).
 
 ---
 
-## F-033: PW RT module fails to promote JACK client threads on PREEMPT_RT (OPEN)
+## F-033: PW RT module fails to promote JACK client threads on PREEMPT_RT (RESOLVED)
 
 **Severity:** High
-**Status:** Open (workaround available)
+**Status:** RESOLVED (2026-03-27, worker-3 — committed `47663a5`, LimitRTPRIO=88 in mixxx.service)
 **Found in:** CHANGE C-007 session, 2026-03-17
 **Affects:** q256 live-mode stability (xruns from SCHED_OTHER bridge threads)
 **Found by:** Worker (C-007 investigation), confirmed by architect analysis
@@ -1265,10 +1265,10 @@ encryption), A28 (venue network self-sufficiency)
 
 ---
 
-## F-038: Dashboard tab has duplicate status bar — not consolidated into persistent bar (OPEN)
+## F-038: Dashboard tab has duplicate status bar — not consolidated into persistent bar (RESOLVED)
 
 **Severity:** Medium (UI confusion, no audio impact)
-**Status:** Open
+**Status:** RESOLVED (2026-03-27 — commits `72def21` + `afc8528`, worker-2 verified)
 **Found in:** Owner web UI review (2026-03-21)
 **Affects:** US-051 (persistent status bar)
 **Found by:** Owner
@@ -1947,10 +1947,10 @@ TK-112 (spectrum color approach).
 
 ---
 
-## F-051: Spectrum background should be black — F-050 accidentally brightened it (OPEN)
+## F-051: Spectrum background should be black — F-050 accidentally brightened it (RESOLVED)
 
 **Severity:** Medium (usability regression from F-050 fix)
-**Status:** Open
+**Status:** RESOLVED (committed `774c2ee`, worker-1)
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Dashboard tab (spectrum display), D-020
 **Found by:** Owner
@@ -1971,10 +1971,10 @@ background color), `src/web-ui/static/style.css` (container background).
 
 ---
 
-## F-052: Meter contrast still insufficient after F-050 (OPEN)
+## F-052: Meter contrast still insufficient after F-050 (RESOLVED)
 
 **Severity:** Medium (usability — meters hard to read)
-**Status:** Open
+**Status:** RESOLVED (committed `774c2ee`, worker-1)
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Dashboard tab (level meters), D-020
 **Found by:** Owner
@@ -1995,10 +1995,10 @@ display.
 
 ---
 
-## F-053: PHYS IN inactive state too low contrast — 30% opacity invisible (OPEN)
+## F-053: PHYS IN inactive state too low contrast — 30% opacity invisible (RESOLVED)
 
 **Severity:** Low (usability — feature exists but not discoverable)
-**Status:** Open
+**Status:** RESOLVED (committed `774c2ee`, worker-1)
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Dashboard tab (PHYS IN group), T-066-3
 **Found by:** Owner
@@ -2019,10 +2019,10 @@ group opacity/styling).
 
 ---
 
-## F-054: Graph view — HP connection lines render behind Convolver node (OPEN)
+## F-054: Graph view — HP connection lines render behind Convolver node (RESOLVED)
 
 **Severity:** Low (cosmetic — visual layering issue)
-**Status:** Open
+**Status:** RESOLVED (committed `93567db`, worker-3)
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Graph tab (`graph.js`), US-064
 **Found by:** Owner
@@ -2043,10 +2043,10 @@ elements after node `<rect>/<g>` elements in the DOM order.
 
 ---
 
-## F-055: Graph view missing four gain nodes (OPEN)
+## F-055: Graph view missing four gain nodes (RESOLVED)
 
 **Severity:** Medium (incomplete visualization — safety-relevant nodes not shown)
-**Status:** Open
+**Status:** RESOLVED (committed `93567db`, worker-3)
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Graph tab (`graph.js`), US-064
 **Found by:** Owner
@@ -2113,10 +2113,10 @@ dialog), US-060 (PW monitoring — xrun counter is AC #7).
 
 ---
 
-## F-057: Config tab gain controls show -INF and are not editable (REVISED — IN PROGRESS)
+## F-057: Config tab gain controls show -INF and are not editable (RESOLVED)
 
 **Severity:** High (non-functional feature — gain controls unusable)
-**Status:** In progress — previous fix `e75b73a` based on incorrect assumption, full rewrite needed
+**Status:** RESOLVED (2026-03-27, worker-3)
 **Found in:** Owner deployment review (2026-03-22)
 **Affects:** Config tab (`config.js`, `config_routes.py`, `pw_helpers.py`), US-065
 **Found by:** Owner
@@ -2500,10 +2500,10 @@ and connection management.
 - `src/web-ui/pi4audio-webui.service` (systemd unit, ExecStart uvicorn args)
 - `src/web-ui/app/main.py` (uvicorn startup)
 
-## F-064: Collector timeout cycles block event loop — web-ui unreachable (OPEN)
+## F-064: Collector timeout cycles block event loop — web-ui unreachable (RESOLVED)
 
 **Severity:** High (web-ui unreachable for owner)
-**Status:** Open
+**Status:** RESOLVED (2026-03-27, worker-1 — system_collector async fix)
 **Found in:** Pi operation after F-063 thread pool deploy (2026-03-22)
 **Affects:** Web UI availability when backend services (pcm-bridge, GraphManager) are down or slow
 **Found by:** Owner report / team-lead diagnosis
@@ -2766,10 +2766,10 @@ web UI status bar. Addresses US-044 AC-3/4/5. Pi deployment pending.
 
 ---
 
-## F-081: pcm-bridge file descriptor leak — "Too many open files" after extended runtime (REOPENED)
+## F-081: pcm-bridge file descriptor leak — "Too many open files" after extended runtime (RESOLVED)
 
 **Severity:** High
-**Status:** Reopened (S-021 binary redeploy did NOT fix — code bug confirmed)
+**Status:** RESOLVED (2026-03-27, worker-3 — committed `fae08ce`)
 **Found in:** S-020 deploy session (2026-03-22)
 **Affects:** pcm-bridge stability, US-066 (Spectrum and Meter Polish), F-083, F-084
 **Found by:** team-lead (deployment observation), worker-spa (root cause, S-024)
@@ -2950,10 +2950,10 @@ audio data. Level meters now receive real data locally. Pi deployment pending.
 
 ---
 
-## F-085: Graph tab rendering issues — layout, direction, wiring, values, filter types (OPEN)
+## F-085: Graph tab rendering issues — layout, direction, wiring, values, filter types (RESOLVED)
 
 **Severity:** High
-**Status:** Open
+**Status:** RESOLVED (committed 2026-03-27)
 **Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
 **Affects:** Graph tab, US-064 (PW Graph Visualization)
 **Found by:** Owner
@@ -3038,10 +3038,10 @@ flow exists in the code but is not working on Pi.
 
 ---
 
-## F-087: Config tab latency display missing "Latency" label (OPEN)
+## F-087: Config tab latency display missing "Latency" label (RESOLVED)
 
 **Severity:** Low
-**Status:** Open
+**Status:** RESOLVED (2026-03-27, QE approved — held for batch commit)
 **Found in:** Owner web UI review on Pi (2026-03-22, post S-022 deploy)
 **Affects:** Config tab, US-065
 **Found by:** Owner
@@ -3314,10 +3314,10 @@ serves over HTTPS (port 8080) and needs these certs.
 
 ---
 
-## F-095: journald consuming 62% CPU on Pi — GM pw-cli subprocess flood (OPEN)
+## F-095: journald consuming 62% CPU on Pi — GM pw-cli subprocess flood (RESOLVED)
 
 **Severity:** High
-**Status:** Open
+**Status:** RESOLVED (2026-03-27)
 **Found in:** S-027 Pi deployment verification (2026-03-22)
 **Affects:** Pi system performance, audio headroom
 **Found by:** team-lead (deployment verification + root cause analysis)
@@ -3348,6 +3348,10 @@ remains the primary cause.
 
 **Files:**
 - `src/graph-manager/src/` (node polling logic — identify subprocess spawn loop)
+
+**Resolution (2026-03-27):** Verified already fixed in current code. N+1 subprocess
+calls reduced to 2 (batch queries). Polling interval increased from 1s to 5s.
+journald CPU load eliminated. worker-1 confirmed fix present.
 
 ---
 
@@ -4674,7 +4678,7 @@ align with the visual grid.
 
 **Filed:** 2026-03-26
 **Severity:** High
-**Status:** OPEN
+**Status:** RESOLVED (committed 2026-03-27)
 **Affects:** Web UI dashboard (spectrum + meters)
 **Found by:** Owner (live testing 2026-03-26)
 **Related:** F-127 (CPU 75%)
@@ -4707,6 +4711,13 @@ storm** (128+ PW client connect/disconnects per minute) creates CPU
 pressure spikes that cause WebSocket frame drops. Fixing F-127 (reduce
 poll rates + cache pw-dump + eliminate subprocess) should resolve F-134.
 
+### Resolution (2026-03-27)
+
+**RESOLVED.** Root cause: no client-side staleness watchdog — browser kept
+rendering stale decay frames without detecting data delivery had stopped.
+Fix: added WebSocket staleness watchdog in `app.js` that detects data
+gaps and force-reconnects. Committed by worker-2.
+
 ---
 
 ## F-135: Status bar mini meters show peak instead of RMS
@@ -4738,7 +4749,7 @@ data already provides both peak and RMS — this is a rendering-side fix.
 
 **Filed:** 2026-03-26
 **Severity:** High
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-27, worker-2)
 **Affects:** Web UI status bar DSP indicators (`statusbar.js`, backend collectors)
 **Found by:** Owner (live testing 2026-03-26)
 
@@ -4920,7 +4931,7 @@ linked to convolver input. Test RPC directly: `curl http://localhost:4001/status
 
 **Filed:** 2026-03-26
 **Severity:** High
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-27)
 **Affects:** PipeWire quantum configuration / USBStreamer ALSA backend
 **Found by:** Owner (live testing 2026-03-26)
 **Related:** US-065 (config tab quantum control), D-042 (quantum management)
@@ -4952,13 +4963,19 @@ Investigate on Pi:
    selector to validated values (256, 512, 1024) and grey out unsupported
    options
 
+### Resolution (2026-03-27)
+
+**RESOLVED.** Quantum 2048 option removed from the config tab UI. Production
+only uses validated quantum values (256, 512, 1024). Untested quantum values
+should not be offered to the operator.
+
 ---
 
 ## F-142: Spectrum doesn't render below 30 Hz — sub-bass invisible
 
 **Filed:** 2026-03-26
 **Severity:** High
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-27, commits `162e9ab` + `99bc7a4`)
 **Affects:** Web UI spectrum renderer (frequency axis layout)
 **Found by:** Owner (live testing 2026-03-26)
 **Related:** Design Principle #4 (20 Hz correction headroom), D-046 (FFT presets)
@@ -4990,6 +5007,13 @@ Options:
 
 The key requirement: sub-bass content at 20-30 Hz must be visible in the
 spectrum display. This is non-negotiable for the project's use case.
+
+### Resolution (2026-03-27)
+
+**RESOLVED.** Spectrum floor lowered from 30 Hz to 10 Hz in both dashboard
+and test tab renderers. Commit `162e9ab` (spectrum smooth snap, 10Hz floor,
+auto-range floor — F-133/F-142/F-147). Follow-up commit `99bc7a4` (test
+panel spectrum freqLo 20→10 Hz). Sub-bass content at 20-30 Hz now visible.
 
 ---
 
@@ -5144,7 +5168,7 @@ Investigate the FFT pipeline (`fft-pipeline.js`, `spectrum-renderer.js`):
 
 **Filed:** 2026-03-26
 **Severity:** Medium
-**Status:** OPEN
+**Status:** CLOSED (not-a-bug, 2026-03-27)
 **Affects:** Pi performance / Web UI responsiveness
 **Found by:** Owner (live testing 2026-03-26)
 **Related:** F-127 (pw-dump storm, mitigated), F-134 (freezes), US-087 (direct WS)
@@ -5164,6 +5188,14 @@ Profile on Pi during spectrum display:
 2. Monitor Python uvicorn process CPU (US-087 would eliminate this entirely)
 3. Check if spikes correlate with WebSocket reconnects or buffer flushes
 4. Browser-side: check if canvas redraws are triggering expensive reflows
+
+### Resolution (2026-03-27)
+
+**CLOSED as not-a-bug.** Investigation by worker-1 confirmed pw-dump does
+not run during Dashboard view — the PipeWireCollector uses GM RPC (Phase 2a
+migration), not subprocess calls. The periodic CPU spikes are attributable
+to the Python uvicorn PCM relay overhead, which US-087 (direct WebSocket
+from Rust) will eliminate at root cause. No separate fix needed.
 
 ---
 
@@ -5204,7 +5236,7 @@ must ensure the floor never rises above the noise floor of the signal
 
 **Filed:** 2026-03-26
 **Severity:** High
-**Status:** OPEN
+**Status:** RESOLVED (2026-03-27, worker-1)
 **Affects:** Web UI spectrum renderer (decay path)
 **Found by:** Owner (live testing 2026-03-26)
 **Related:** F-145 (spikes, resolved), F-133 (auto-scaling, reopened), F-142 (sub-30Hz)
