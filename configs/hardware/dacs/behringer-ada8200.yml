@@ -1,0 +1,20 @@
+# Behringer ADA8200 — 8-channel ADAT-to-analog converter
+# Connected to USBStreamer via ADAT. Provides 8 balanced analog outputs.
+#
+# Output level at 0 dBFS (full scale digital):
+#   +16 dBu = 4.9 Vrms (balanced)
+#
+# This is the reference level for all thermal ceiling calculations.
+# The ADA8200 output connects directly to the McGrey PA4504 amp inputs.
+
+name: "Behringer ADA8200"
+manufacturer: "Behringer"
+model: "ADA8200"
+type: adat_converter
+channels: 8
+output_0dbfs_vrms: 4.9
+output_0dbfs_dbu: 16
+bit_depth: 24
+sample_rates:
+  - 44100
+  - 48000

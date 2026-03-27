@@ -260,6 +260,12 @@ try:
 except ImportError:
     pass  # thermal_routes not yet available (pre-commit)
 
+try:
+    from .hardware_routes import router as hardware_router
+    app.include_router(hardware_router)
+except ImportError:
+    pass  # hardware_routes not yet available (pre-commit)
+
 
 # -- Routes --
 

@@ -1,0 +1,18 @@
+# McGrey PA4504 — 4-channel Class D amplifier
+# 4x450W @ 4 ohm, bridgeable.
+#
+# Voltage gain measured at full gain position.
+# At 4 ohm: 450W -> V_out = sqrt(450*4) = 42.4V peak
+# Input sensitivity: 1.0V for full output (+2.2 dBu)
+# -> Voltage gain = 42.4V / 1.0V = 42.4x
+
+name: "McGrey PA4504"
+manufacturer: "McGrey"
+model: "PA4504"
+type: class_d
+channels: 4
+power_per_channel_watts: 450
+impedance_rated_ohms: 4
+voltage_gain: 42.4
+input_sensitivity_vrms: 1.0
+clip_indicator: false
