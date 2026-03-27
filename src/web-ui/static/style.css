@@ -1754,6 +1754,8 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
     margin-bottom: 8px;
 }
 
@@ -2074,6 +2076,39 @@ html, body {
 .tt-source-select:focus {
     outline: none;
     border-color: var(--primary);
+}
+
+.tt-peak-toggle,
+.tt-peak-reset {
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 8px;
+    background: var(--bg-bar);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    color: var(--text-dim);
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+}
+
+.tt-peak-toggle:hover,
+.tt-peak-reset:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+}
+
+.tt-peak-toggle.active {
+    background: rgba(240, 160, 48, 0.15);
+    color: var(--accent);
+    border-color: rgba(240, 160, 48, 0.5);
+}
+
+.tt-peak-reset.flash-reset {
+    background: rgba(240, 160, 48, 0.3);
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .tt-spectrum-container {

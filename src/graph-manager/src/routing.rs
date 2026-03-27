@@ -577,7 +577,7 @@ impl RoutingTable {
     /// (e.g., play through left main only for per-speaker measurement).
     ///
     /// UMIK-1 captures the room response back to signal-gen for analysis.
-    /// pcm-bridge taps the signal-gen output for pre-convolver metering (D-043).
+    /// pcm-bridge taps the UMIK-1 capture for room-response metering (US-088).
     fn measurement_links() -> Vec<DesiredLink> {
         let mut links = Vec::new();
         let sg = AppPortNaming::SignalGenOutput;
@@ -601,14 +601,15 @@ impl RoutingTable {
         // Convolver → USBStreamer (ch 1-4: measurement signal to speakers).
         links.extend(Self::convolver_to_usbstreamer_links());
 
-        // US-079: pcm-bridge taps signal-gen mono output (pre-convolver).
-        // F-097: Only 1 signal-gen output, so just 1 link to pcm-bridge ch 1.
+        // US-088: pcm-bridge taps UMIK-1 capture (room response for spectrum).
+        // Replaces signal-gen tap — the spectrum analyzer shows what the mic
+        // picks up from the room, not the stimulus signal.
         links.push(DesiredLink {
-            output_node: NodeMatch::Exact(SIGNAL_GEN.to_string()),
-            output_port: sg.port_name(1),
+            output_node: NodeMatch::Prefix(UMIK1_PREFIX.to_string()),
+            output_port: umik.port_name(1),
             input_node: NodeMatch::Exact(PCM_BRIDGE.to_string()),
             input_port: pcm.port_name(1),
-            optional: true,
+            optional: true, // UMIK-1 may not be plugged in
         });
 
         // UMIK-1 → signal-gen capture (mono measurement mic).
@@ -913,7 +914,7 @@ mod tests {
     #[test]
     fn measurement_has_27_links() {
         // F-097: signal-gen mono fan-out → convolver (4) + convolver → USBStreamer (4)
-        // + signal-gen → pcm-bridge (1) + UMIK-1 → signal-gen-capture (1)
+        // + US-088: UMIK-1 → pcm-bridge (1) + UMIK-1 → signal-gen-capture (1)
         // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
         // + F-124: signal-gen → level-bridge-sw (1) = 27.
         let table = RoutingTable::production();
@@ -938,15 +939,16 @@ mod tests {
     }
 
     #[test]
-    fn measurement_umik1_link_is_optional() {
+    fn measurement_umik1_links_are_optional() {
+        // US-088: UMIK-1 has 2 links: → signal-gen-capture + → pcm-bridge.
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let umik_links: Vec<_> = meas_links
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("UMIK")))
             .collect();
-        assert_eq!(umik_links.len(), 1);
-        assert!(umik_links[0].optional);
+        assert_eq!(umik_links.len(), 2);
+        assert!(umik_links.iter().all(|l| l.optional));
     }
 
     #[test]
@@ -1019,8 +1021,8 @@ mod tests {
     }
 
     #[test]
-    fn pcm_bridge_measurement_uses_pre_convolver() {
-        // US-079 + F-097: Measurement mode taps mono signal-gen output.
+    fn pcm_bridge_measurement_taps_umik1() {
+        // US-088: Measurement mode taps UMIK-1 capture (room response for spectrum).
         let table = RoutingTable::production();
         let links = table.links_for(Mode::Measurement);
         let pcm_links: Vec<_> = links
@@ -1029,13 +1031,13 @@ mod tests {
                 matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-pcm-bridge")
             })
             .collect();
-        assert_eq!(pcm_links.len(), 1, "F-097: mono signal-gen → 1 pcm-bridge link");
+        assert_eq!(pcm_links.len(), 1, "US-088: UMIK-1 mono → 1 pcm-bridge link");
         assert!(
-            matches!(&pcm_links[0].output_node, NodeMatch::Exact(n) if n == "pi4audio-signal-gen"),
-            "Measurement pcm-bridge link should come from signal-gen, got: {}",
+            matches!(&pcm_links[0].output_node, NodeMatch::Prefix(p) if p.contains("UMIK")),
+            "Measurement pcm-bridge link should come from UMIK-1, got: {}",
             pcm_links[0].output_node,
         );
-        assert_eq!(pcm_links[0].output_port, "output_AUX0", "F-097: mono output port");
+        assert_eq!(pcm_links[0].output_port, "capture_MONO", "US-088: UMIK-1 mono capture port");
         assert_eq!(pcm_links[0].input_port, "input_1", "pcm-bridge ch 1");
     }
 
@@ -1253,15 +1255,16 @@ mod tests {
     #[test]
     fn signal_gen_uses_output_aux_ports() {
         // F-097: Signal-gen is mono — all links use output_AUX0.
-        // 4 fan-out links to convolver + 1 link to pcm-bridge
-        // + F-124: 1 link to level-bridge-sw = 6.
+        // 4 fan-out links to convolver
+        // + F-124: 1 link to level-bridge-sw = 5.
+        // (US-088: pcm-bridge now taps UMIK-1, not signal-gen.)
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let siggen_links: Vec<_> = meas_links
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Exact(n) if n == "pi4audio-signal-gen"))
             .collect();
-        assert_eq!(siggen_links.len(), 6);
+        assert_eq!(siggen_links.len(), 5);
         for link in &siggen_links {
             assert_eq!(
                 link.output_port, "output_AUX0",
@@ -1286,14 +1289,15 @@ mod tests {
 
     #[test]
     fn umik1_uses_capture_mono_port() {
+        // US-088: 2 UMIK-1 links (→ signal-gen-capture + → pcm-bridge), both use capture_MONO.
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let umik_links: Vec<_> = meas_links
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("UMIK")))
             .collect();
-        assert_eq!(umik_links.len(), 1);
-        assert_eq!(umik_links[0].output_port, "capture_MONO");
+        assert_eq!(umik_links.len(), 2);
+        assert!(umik_links.iter().all(|l| l.output_port == "capture_MONO"));
     }
 
     #[test]

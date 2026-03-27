@@ -684,6 +684,109 @@
     // Shared renderer (F-101)
     var specRenderer = null;
 
+    // UMIK-1 calibration correction (T-088-6).
+    // Raw calibration data from backend (sparse freq/dB pairs).
+    var calFreqs = null;       // Array of calibration frequencies (Hz)
+    var calDb = null;          // Array of calibration dB deviations
+    var calBinLUT = null;      // Float32Array[fftSize/2+1] — per-bin correction
+    var calEnabled = false;    // True when cal data loaded and LUT built
+
+    // -- UMIK-1 calibration helpers (T-088-6) --
+
+    /**
+     * Fetch calibration data from the backend and build the per-bin LUT.
+     * Non-blocking: calibration is applied once available, display works
+     * without it (uncorrected) in the meantime.
+     */
+    function fetchCalibration() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "/api/v1/test-tool/calibration", true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4) return;
+            if (xhr.status !== 200) {
+                console.warn("[test] UMIK-1 calibration not available:",
+                    xhr.status, xhr.statusText);
+                return;
+            }
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (!data.frequencies || !data.db_corrections ||
+                    data.frequencies.length === 0) {
+                    return;
+                }
+                calFreqs = data.frequencies;
+                calDb = data.db_corrections;
+                buildCalBinLUT();
+                calEnabled = true;
+            } catch (e) {
+                console.warn("[test] Failed to parse calibration data:", e);
+            }
+        };
+        xhr.send();
+    }
+
+    /**
+     * Build a per-FFT-bin correction LUT from the sparse calibration data.
+     *
+     * Uses linear-frequency interpolation with flat extrapolation at
+     * boundaries, matching the offline pipeline (recording.py np.interp).
+     * The LUT values are the dB deviation to SUBTRACT from measured values.
+     */
+    function buildCalBinLUT() {
+        if (!calFreqs || !calDb || calFreqs.length === 0) {
+            calBinLUT = null;
+            calEnabled = false;
+            return;
+        }
+
+        var binCount = SPEC_FFT_SIZE / 2 + 1;
+        var binHz = SPEC_SAMPLE_RATE / SPEC_FFT_SIZE;
+        calBinLUT = new Float32Array(binCount);
+
+        for (var i = 0; i < binCount; i++) {
+            var freq = i * binHz;
+            calBinLUT[i] = interpCalDb(freq);
+        }
+    }
+
+    /**
+     * Linear interpolation of calibration dB at a given frequency.
+     * Clamps to nearest boundary value for out-of-range frequencies.
+     */
+    function interpCalDb(freq) {
+        var n = calFreqs.length;
+        // Below first cal point — clamp.
+        if (freq <= calFreqs[0]) return calDb[0];
+        // Above last cal point — clamp.
+        if (freq >= calFreqs[n - 1]) return calDb[n - 1];
+        // Binary search for bracketing interval.
+        var lo = 0;
+        var hi = n - 1;
+        while (hi - lo > 1) {
+            var mid = (lo + hi) >> 1;
+            if (calFreqs[mid] <= freq) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        // Linear interpolation between calFreqs[lo] and calFreqs[hi].
+        var t = (freq - calFreqs[lo]) / (calFreqs[hi] - calFreqs[lo]);
+        return calDb[lo] + t * (calDb[hi] - calDb[lo]);
+    }
+
+    /**
+     * Apply calibration correction to an FFT frequency data array in-place.
+     * Subtracts the mic's dB deviation so the display shows true SPL.
+     */
+    function applyCalibration(freqData) {
+        if (!calEnabled || !calBinLUT || !freqData) return;
+        var len = Math.min(freqData.length, calBinLUT.length);
+        for (var i = 0; i < len; i++) {
+            freqData[i] -= calBinLUT[i];
+        }
+    }
+
     /** (Re)create the test tab FFT pipeline with current SPEC_FFT_SIZE. */
     function specRecreatePipeline() {
         if (specPipeline) specPipeline.reset();
@@ -697,6 +800,8 @@
         });
         specFreqData = null;
         if (specRenderer) specRenderer.setFFTSize(SPEC_FFT_SIZE);
+        // T-088-6: Rebuild calibration LUT for new bin count.
+        if (calFreqs) buildCalBinLUT();
     }
 
     function specRender() {
@@ -709,6 +814,8 @@
             specPipeline.processFFT();
         }
         specFreqData = specPipeline ? specPipeline.freqData : null;
+        // T-088-6: Apply UMIK-1 calibration correction before display.
+        applyCalibration(specFreqData);
         specRenderer.render(specFreqData, specPcmConnected);
         specAnimFrame = requestAnimationFrame(specRender);
     }
@@ -868,7 +975,7 @@
             freqHi: 20000,
             fftSize: SPEC_FFT_SIZE,
             sampleRate: SPEC_SAMPLE_RATE,
-            peakHold: false,
+            peakHold: true,
             autoRange: true,
             gridDetail: "simple",
             noSignalText: "No capture signal"
@@ -880,6 +987,9 @@
         });
 
         specRecreatePipeline();
+
+        // T-088-6: Fetch UMIK-1 calibration (async, display works without it).
+        fetchCalibration();
 
         // US-080: Wire up FFT size selector
         var fftSelect = $("tt-fft-size");
@@ -911,6 +1021,30 @@
         specDisconnectPcm();
     }
 
+    // -- Peak hold controls (T-088-4) --
+
+    function initPeakHold() {
+        var holdBtn = $("tt-peak-hold");
+        var resetBtn = $("tt-peak-reset");
+        if (!holdBtn) return;
+
+        holdBtn.addEventListener("click", function () {
+            var active = holdBtn.classList.toggle("active");
+            if (specRenderer) specRenderer.setPeakPermanent(active);
+            if (resetBtn) resetBtn.style.display = active ? "" : "none";
+        });
+
+        if (resetBtn) {
+            resetBtn.addEventListener("click", function () {
+                if (specRenderer) specRenderer.resetPeaks();
+                resetBtn.classList.add("flash-reset");
+                setTimeout(function () {
+                    resetBtn.classList.remove("flash-reset");
+                }, 300);
+            });
+        }
+    }
+
     // -- View lifecycle --
 
     PiAudio.registerView("test", {
@@ -924,6 +1058,7 @@
             initPlayStop();
             initEmergencyStop();
             initSourceSelector();
+            initPeakHold();
             initTappableReadout("tt-freq-value", "tt-freq-slider", {
                 min: 20, max: 20000, step: 1,
                 getValue: function () { return currentFreq; },

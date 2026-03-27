@@ -17,6 +17,8 @@ Endpoints:
                                     Switch GM to measurement mode (F-144)
     GET  /api/v1/test-tool/current-mode
                                     Query current GM routing mode (F-144)
+    GET  /api/v1/test-tool/calibration
+                                    UMIK-1 calibration curve (T-088-5)
 
 Safety:
     - D-009 hard cap (-0.5 dBFS) enforced server-side on all level fields.
@@ -47,6 +49,11 @@ log = logging.getLogger(__name__)
 SIGGEN_HOST = os.environ.get("PI4AUDIO_SIGGEN_HOST", "127.0.0.1")
 SIGGEN_PORT = int(os.environ.get("PI4AUDIO_SIGGEN_PORT", "4001"))
 SIGGEN_MODE = os.environ.get("PI4AUDIO_SIGGEN", "") == "1"
+
+# UMIK-1 calibration file (miniDSP format).
+UMIK1_CAL_PATH = os.environ.get(
+    "PI4AUDIO_UMIK1_CAL", "/home/ela/7161942.txt"
+)
 
 # D-009: hard level cap.
 HARD_CAP_DBFS = -0.5
@@ -410,3 +417,67 @@ async def ensure_measurement_mode():
             status_code=502,
             content={"error": "gm_mode_switch_failed", "detail": str(exc)},
         )
+
+
+# ---------------------------------------------------------------------------
+# UMIK-1 calibration data (T-088-5)
+# ---------------------------------------------------------------------------
+
+def _parse_umik1_calibration(path: str) -> tuple[list[float], list[float]]:
+    """Parse a miniDSP UMIK-1 calibration file.
+
+    Format: tab/space-separated freq<tab>dB lines.  Header lines
+    starting with ``"`` or ``*`` are skipped.
+
+    Returns (frequencies, db_corrections) as two parallel float lists.
+    Raises FileNotFoundError if the file does not exist, ValueError if
+    it contains no usable data.
+    """
+    freqs: list[float] = []
+    db_corrections: list[float] = []
+    with open(path, "r") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith('"') or line.startswith("*"):
+                continue
+            parts = line.split()
+            if len(parts) >= 2:
+                try:
+                    freqs.append(float(parts[0]))
+                    db_corrections.append(float(parts[1]))
+                except ValueError:
+                    continue
+    if not freqs:
+        raise ValueError(f"No calibration data found in {path}")
+    return freqs, db_corrections
+
+
+@router.get("/calibration")
+async def calibration():
+    """Return UMIK-1 calibration curve as JSON (T-088-5).
+
+    Reads the calibration file specified by ``PI4AUDIO_UMIK1_CAL``
+    (default ``/home/ela/7161942.txt``).  The response contains two
+    parallel arrays: frequencies (Hz) and dB corrections.
+    """
+    try:
+        freqs, db_corrections = await asyncio.to_thread(
+            _parse_umik1_calibration, UMIK1_CAL_PATH,
+        )
+    except FileNotFoundError:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "calibration_file_not_found",
+                "detail": f"UMIK-1 calibration file not found: {UMIK1_CAL_PATH}",
+            },
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "calibration_parse_error",
+                "detail": str(exc),
+            },
+        )
+    return {"frequencies": freqs, "db_corrections": db_corrections}

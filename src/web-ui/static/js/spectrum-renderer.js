@@ -12,7 +12,8 @@
  *       dbMin: -60, dbMax: 0,
  *       freqLo: 10, freqHi: 20000,
  *       fftSize: 4096, sampleRate: 48000,
- *       peakHold: true, autoRange: true,
+ *       peakHold: true, peakPermanent: false,
+ *       autoRange: true,
  *       gridDetail: "full",   // "full" or "simple"
  *   });
  *   // In rAF loop:
@@ -21,6 +22,9 @@
  *   renderer.invalidate();
  *   // On FFT size change:
  *   renderer.setFFTSize(n);
+ *   // Peak hold controls:
+ *   renderer.setPeakPermanent(true);  // lock peaks (no decay)
+ *   renderer.resetPeaks();            // clear peak envelope
  */
 
 "use strict";
@@ -132,6 +136,7 @@
         var fftSize = opts.fftSize || 4096;
         var sampleRate = opts.sampleRate || 48000;
         var peakHoldEnabled = opts.peakHold !== undefined ? opts.peakHold : true;
+        var peakPermanent = opts.peakPermanent !== undefined ? opts.peakPermanent : false;
         var autoRangeEnabled = opts.autoRange !== undefined ? opts.autoRange : true;
         var gridDetail = opts.gridDetail || "full"; // "full" or "simple"
         var noSignalText = opts.noSignalText || "No live audio";
@@ -476,25 +481,22 @@
                     }
                 }
 
-                // Peak hold update: hold for PEAK_DECAY_MS, then decay
+                // Peak hold update
                 if (peakHoldEnabled && peakEnvelope) {
                     if (db > peakEnvelope[x]) {
                         // New peak exceeds held value — capture it
                         peakEnvelope[x] = db;
                         peakTimes[x] = now;
-                    } else {
+                    } else if (!peakPermanent) {
+                        // Decay logic — skipped entirely in permanent mode
                         var holdAge = now - peakTimes[x];
                         if (holdAge > PEAK_DECAY_MS) {
-                            // Decay at PEAK_DECAY_DB_PER_S after hold period
                             var decayDb = PEAK_DECAY_DB_PER_S * (holdAge - PEAK_DECAY_MS) / 1000;
                             var decayed = peakEnvelope[x] - decayDb;
                             if (db > decayed) {
-                                // Current signal is above decayed peak — recapture
                                 peakEnvelope[x] = db;
                                 peakTimes[x] = now;
                             }
-                            // Otherwise peakEnvelope[x] stays at original value;
-                            // drawMountainRange computes decayed position at render time.
                         }
                     }
                 }
@@ -523,27 +525,30 @@
             ctx.lineWidth = 1.5;
             ctx.stroke();
 
-            // Peak hold line (with gradual decay after hold period).
-            // Apply 3-point weighted average (0.25/0.5/0.25) to the decayed
-            // values to smooth segmented drops from bin-mapping boundaries.
+            // Peak hold line (with gradual decay after hold period, or
+            // permanent when peakPermanent is true).
+            // Apply 3-point weighted average (0.25/0.5/0.25) to smooth
+            // segmented drops from bin-mapping boundaries (F-148).
             if (peakHoldEnabled && peakEnvelope) {
-                // Build decayed peak array
-                var decayedPeaks = new Float32Array(lutLen);
+                // Build peak array (apply decay only in non-permanent mode)
+                var resolvedPeaks = new Float32Array(lutLen);
                 for (var xp = 0; xp < lutLen; xp++) {
                     var pd = peakEnvelope[xp];
-                    var pa = now - peakTimes[xp];
-                    if (pa > PEAK_DECAY_MS) {
-                        pd -= PEAK_DECAY_DB_PER_S * (pa - PEAK_DECAY_MS) / 1000;
+                    if (!peakPermanent) {
+                        var pa = now - peakTimes[xp];
+                        if (pa > PEAK_DECAY_MS) {
+                            pd -= PEAK_DECAY_DB_PER_S * (pa - PEAK_DECAY_MS) / 1000;
+                        }
                     }
-                    decayedPeaks[xp] = pd;
+                    resolvedPeaks[xp] = pd;
                 }
                 // Draw smoothed peak hold line
                 var inPeakStroke = false;
                 ctx.beginPath();
                 for (var x3 = 0; x3 < lutLen; x3++) {
-                    var peakDb = decayedPeaks[x3] * 0.5;
-                    peakDb += (x3 > 0 ? decayedPeaks[x3 - 1] : decayedPeaks[x3]) * 0.25;
-                    peakDb += (x3 < lutLen - 1 ? decayedPeaks[x3 + 1] : decayedPeaks[x3]) * 0.25;
+                    var peakDb = resolvedPeaks[x3] * 0.5;
+                    peakDb += (x3 > 0 ? resolvedPeaks[x3 - 1] : resolvedPeaks[x3]) * 0.25;
+                    peakDb += (x3 < lutLen - 1 ? resolvedPeaks[x3 + 1] : resolvedPeaks[x3]) * 0.25;
                     if (peakDb <= floorDb) {
                         inPeakStroke = false;
                         continue;
@@ -556,8 +561,13 @@
                         ctx.lineTo(plotX + x3, peakY);
                     }
                 }
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.lineWidth = 1;
+                if (peakPermanent) {
+                    ctx.strokeStyle = "rgba(240, 160, 48, 0.55)";
+                    ctx.lineWidth = 1;
+                } else {
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+                    ctx.lineWidth = 1;
+                }
                 ctx.stroke();
             }
         }
@@ -673,20 +683,27 @@
             if (plotW > 0) {
                 buildFreqLUT(Math.floor(plotW));
             }
-            // Reset peak hold
-            if (peakHoldEnabled && peakEnvelope) {
+            resetPeaks();
+            if (autoRangeEnabled) {
+                resetAutoRange();
+            }
+        }
+
+        function resetPeaks() {
+            if (peakEnvelope) {
                 for (var i = 0; i < peakEnvelope.length; i++) {
                     peakEnvelope[i] = currentDbMin();
                     peakTimes[i] = 0;
                 }
             }
-            // Reset auto-range
-            if (autoRangeEnabled) {
-                autoDbMin = dbMin;
-                autoDbMax = dbMax;
-                smoothSnapMin = dbMin;
-                smoothSnapMax = dbMax;
-                lastAutoTime = 0;
+        }
+
+        function setPeakPermanent(enabled) {
+            peakPermanent = !!enabled;
+            if (!peakPermanent) {
+                // When switching from permanent to decaying, reset peaks so
+                // stale max-ever values don't linger with no decay timestamp.
+                resetPeaks();
             }
         }
 
@@ -703,6 +720,8 @@
             render: render,
             invalidate: invalidate,
             setFFTSize: setFFTSize,
+            resetPeaks: resetPeaks,
+            setPeakPermanent: setPeakPermanent,
             resetAutoRange: resetAutoRange,
             freqToNorm: freqToNorm,
             // Expose for external consumers (e.g. spectrogram overlays)
