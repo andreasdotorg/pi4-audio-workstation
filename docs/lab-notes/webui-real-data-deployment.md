@@ -124,15 +124,19 @@ the PoC validation (Bug 5/Step 5 in `D-020-poc-validation.md`) where the
 workaround was an SSH tunnel providing a `localhost` URL. For production
 deployment, HTTPS is needed.
 
-**Fix:** Self-signed certificate deployed on the Pi:
+**Fix:** Self-signed certificate deployed on the Pi at `/etc/pi4audio/certs/`
+(F-094: relocated outside `~/web-ui/` to survive `rsync --delete` deployments):
 
 ```bash
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+sudo mkdir -p /etc/pi4audio/certs
+sudo openssl req -x509 -newkey rsa:2048 \
+    -keyout /etc/pi4audio/certs/key.pem -out /etc/pi4audio/certs/cert.pem \
     -days 3650 -nodes -subj "/CN=mugge"
 ```
 
-uvicorn started with `--ssl-keyfile` and `--ssl-certfile`. The browser shows
-a self-signed certificate warning on first connection; operator accepts once.
+uvicorn started with `--ssl-keyfile` and `--ssl-certfile` pointing to
+`/etc/pi4audio/certs/`. The browser shows a self-signed certificate warning
+on first connection; operator accepts once.
 
 **Decision filed:** D-032 ("Web UI requires HTTPS for AudioWorklet secure
 context") in `docs/project/decisions.md`. Architecture documentation updated

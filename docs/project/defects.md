@@ -1801,7 +1801,7 @@ interactive elements like MUTE button that should be keyboard-accessible).
 ## F-048: 41 E2E test failures — stale selectors and CSS visibility issues (IN PROGRESS)
 
 **Severity:** Medium (test suite unreliable — cannot gate deployments)
-**Status:** In progress — 38 of 41 fixed (pending commit). Remaining ~1-8 are F-049 (measurement wizard state isolation).
+**Status:** RESOLVED — 41 of 41 fixed. F-049 (measurement wizard state isolation) resolved 2026-03-27.
 **Found in:** E2E verification run (2026-03-21, post-F-041 fix)
 **Affects:** E2E test suite (`src/web-ui/tests/e2e/`), US-050/US-051 TEST phase
 **Found by:** worker-1 (E2E verification run)
@@ -1865,10 +1865,10 @@ US-050 (TEST phase needs green suite), US-051 (TEST phase needs green suite).
 
 ---
 
-## F-049: Measurement wizard mock session state isolation in E2E tests (OPEN)
+## F-049: Measurement wizard mock session state isolation in E2E tests (RESOLVED)
 
 **Severity:** Medium (test reliability — sequential test runs hang)
-**Status:** Open
+**Status:** RESOLVED (2026-03-27, verified 45/45 consecutive sequential passes)
 **Found in:** F-048 fix session (2026-03-22)
 **Affects:** `src/web-ui/tests/e2e/test_measurement_wizard.py`
 **Found by:** Worker (E2E fix effort)
@@ -2652,10 +2652,10 @@ code works correctly; this is purely about encapsulation.
 
 ---
 
-## F-069: US-045 schema validation uses defaults instead of rejecting missing fields (OPEN)
+## F-069: US-045 schema validation uses defaults instead of rejecting missing fields (RESOLVED)
 
 **Severity:** Medium (upgraded — architect MUST-FIX)
-**Status:** Open
+**Status:** RESOLVED (task #166 — ValueError raised for missing required fields, 7 new tests)
 **Found in:** US-045/US-046 DoD review (worker-review)
 **Affects:** US-045 (Hardware Config Schema)
 **Found by:** worker-review
@@ -2678,10 +2678,10 @@ but has missing/misspelled required keys, the loader must raise a clear error.
 
 ---
 
-## F-070: US-046 missing -6 dBFS operator warning (OPEN)
+## F-070: US-046 missing -6 dBFS operator warning (RESOLVED)
 
 **Severity:** Medium
-**Status:** Open
+**Status:** RESOLVED (task #168 — warning added when ceiling > -6 dBFS, 3 new tests)
 **Found in:** US-045/US-046 DoD review (worker-review)
 **Affects:** US-046 (Thermal Ceiling Computation)
 **Found by:** worker-review
@@ -2705,10 +2705,10 @@ core safety logic is sound.
 
 ---
 
-## F-071: US-046 silent fallback when pe_max_watts missing (OPEN)
+## F-071: US-046 silent fallback when pe_max_watts missing (RESOLVED)
 
 **Severity:** Low
-**Status:** Open
+**Status:** RESOLVED (task #168 — already implemented, existing code had logging.warning)
 **Found in:** US-045/US-046 DoD review (AD review)
 **Affects:** US-046 (Thermal Ceiling Computation)
 **Found by:** Advocatus Diaboli
@@ -3291,10 +3291,10 @@ F-083/F-084 (meters/spectrum — channel 1 data missing due to this bug)
 
 ---
 
-## F-094: rsync --delete wiped TLS certs from ~/web-ui/ during deployment (OPEN)
+## F-094: rsync --delete wiped TLS certs from ~/web-ui/ during deployment (RESOLVED)
 
 **Severity:** Medium
-**Status:** Open
+**Status:** RESOLVED (Option 2: certs relocated to `/etc/pi4audio/certs/`)
 **Found in:** S-027 Pi deployment (2026-03-22)
 **Affects:** Web UI HTTPS, US-037 (Web UI)
 **Found by:** team-lead (deployment verification)
@@ -3304,11 +3304,14 @@ F-083/F-084 (meters/spectrum — channel 1 data missing due to this bug)
 were present in the deployment directory but not in the source tree. The web UI
 serves over HTTPS (port 8080) and needs these certs.
 
-**Fix options:**
-1. Add `--exclude` for cert files in the rsync deploy command
-2. Relocate TLS certs outside `~/web-ui/` (e.g., `~/certs/` or `/etc/pi4audio/certs/`)
-   and update the web-UI service config to reference the new path
-3. Add cert files to `.gitignore` and document their expected location
+**Fix (Option 2):** Relocated TLS certs from `~/web-ui/` to `/etc/pi4audio/certs/`.
+This puts them outside the deployment-managed directory, making them immune to
+`rsync --delete`. Changes:
+- `deploy.sh`: cert generation targets `/etc/pi4audio/certs/`, auto-migrates
+  legacy certs from `~/web-ui/`, removed rsync `--exclude` workarounds
+- `pi4-audio-webui.service`: `--ssl-keyfile` and `--ssl-certfile` updated
+- `docs/architecture/web-ui.md`: documentation updated
+- `docs/project/decisions.md`: D-032 impact section updated
 
 **Related:** F-082 (deployment dir mismatch that created the rsync pattern)
 
@@ -3355,10 +3358,10 @@ journald CPU load eliminated. worker-1 confirmed fix present.
 
 ---
 
-## F-096: Measurement wizard test_happy_path_completes flaky failure (OPEN)
+## F-096: Measurement wizard test_happy_path_completes flaky failure (RESOLVED)
 
 **Severity:** Low (test reliability — intermittent, does not affect production)
-**Status:** Open
+**Status:** RESOLVED (2026-03-27, same root cause as F-049 — verified 45/45 passes)
 **Found in:** US-077 Phase 3 E2E run (2026-03-24)
 **Affects:** `src/web-ui/tests/e2e/test_measurement_wizard.py:158`
 **Found by:** worker-demo-fix (US-077 Phase 3 E2E verification)
@@ -5308,11 +5311,11 @@ endpoints.
 
 ---
 
-## F-150: PW filter-chain config has no delay builtin nodes — time alignment deployment gap (OPEN)
+## F-150: PW filter-chain config has no delay builtin nodes — time alignment deployment gap (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** Medium
-**Status:** OPEN
+**Status:** RESOLVED (T-091-4, task #95 — per-driver delay nodes added to PW filter-chain config)
 **Affects:** Time alignment (US-009, US-091), multi-way and mixed-sub configurations
 **Found by:** Architect (US-089 decomposition review 2026-03-27)
 **Related:** US-091 (multi-way crossover), US-009 (time alignment), T-089-1 (schema)
@@ -5386,11 +5389,11 @@ validation could not be performed.
 
 ---
 
-## F-153: Pre-flight doesn't check PipeWire/convolver/USBStreamer state (OPEN)
+## F-153: Pre-flight doesn't check PipeWire/convolver/USBStreamer state (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** Medium
-**Status:** OPEN
+**Status:** RESOLVED (task #160 completed)
 **Affects:** Measurement wizard pre-flight, US-097, demo reliability
 **Found by:** Advocatus Diaboli (AD-DEMO-1, demo readiness assessment 2026-03-27)
 
@@ -5403,11 +5406,11 @@ the measurement to fail after passing pre-flight.
 
 ---
 
-## F-154: Measurement WebSocket has no reconnect logic (OPEN)
+## F-154: Measurement WebSocket has no reconnect logic (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** Medium
-**Status:** OPEN
+**Status:** RESOLVED (task #161 completed — exponential backoff, reconnect banner, status re-sync)
 **Affects:** Measurement wizard WebSocket connection, US-097, demo reliability
 **Found by:** Advocatus Diaboli (AD-DEMO-2, demo readiness assessment 2026-03-27)
 **Related:** Signal-gen WebSocket (has reconnect logic)
@@ -5421,11 +5424,11 @@ reconnect logic that could serve as a pattern.
 
 ---
 
-## F-155: DSP smoothing issues — windowing transition, psychoacoustic smoothing, spatial averaging (OPEN)
+## F-155: DSP smoothing issues — windowing transition, psychoacoustic smoothing, spatial averaging (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** Low (design quality, not demo-blocking)
-**Status:** OPEN
+**Status:** RESOLVED (task #164 — raised cosine crossfade, taper, IQR outlier rejection)
 **Affects:** Room correction pipeline (`correction.py`, `combine.py`), US-090, US-097
 **Found by:** Advocatus Diaboli (AD-DEMO-3, demo readiness assessment 2026-03-27)
 
@@ -5444,11 +5447,11 @@ addressed for production use.
 
 ---
 
-## F-156: POST /api/v1/filters/generate returns 500 — numpy bool_ not JSON serializable (OPEN)
+## F-156: POST /api/v1/filters/generate returns 500 — numpy bool_ not JSON serializable (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** High (demo-blocking — crossover-only filter generation fails)
-**Status:** OPEN
+**Status:** RESOLVED (task #159 completed — numpy types converted to native Python types)
 **Affects:** US-090 (FIR Filter Generation), filter_routes.py, E2E journey test Phase 2
 **Found by:** E2E journey test (#154) — 3 tests skipped due to 500 response
 
@@ -5472,11 +5475,11 @@ types before JSON serialization. Common patterns: `bool(np_bool)`,
 
 ---
 
-## F-157: deploy.sh stale — still references CamillaDSP, missing D-040 configs and Rust binaries (OPEN)
+## F-157: deploy.sh stale — still references CamillaDSP, missing D-040 configs and Rust binaries (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** High (deployment blocker — worker had to improvise during #53 deployment)
-**Status:** OPEN
+**Status:** RESOLVED (task #162 — full deploy.sh rewrite for D-040, all 10 gap points covered)
 **Affects:** All Pi deployments, operational reliability
 **Found by:** Architect assessment during #53 deployment review
 **Scope:** Immediate defect fix (mechanical rewrite). Prerequisite to US-105 (Nix-Based Deployment Pipeline).
@@ -5522,11 +5525,11 @@ dir mismatch)
 
 ---
 
-## F-158: No repeatable Rust binary deployment process (OPEN)
+## F-158: No repeatable Rust binary deployment process (RESOLVED)
 
 **Filed:** 2026-03-27
 **Severity:** High (deployment blocker)
-**Status:** OPEN
+**Status:** RESOLVED (task #163 completed — Section 6b added to deploy.sh, documented in development.md 4.4)
 **Affects:** graph-manager, pcm-bridge, signal-gen, level-bridge deployment
 **Found by:** Architect assessment during #53 deployment review
 **Scope:** Immediate defect fix — document the rsync procedure from #53, add Rust binary section to deploy.sh. Prerequisite to US-105 (Nix-Based Deployment Pipeline).
@@ -5585,3 +5588,100 @@ reach the filesystem layer.
 - **F-037** (web UI no auth): Amplifies severity. Without auth, any network
   client can exploit this.
 - **OWASP A01:2021** — Broken Access Control (path traversal)
+
+---
+
+## F-159: Measurement session fails to start in local-demo (RESOLVED)
+
+**Filed:** 2026-03-27
+**Severity:** High (blocks owner demo validation of measurement pipeline)
+**Status:** RESOLVED (2026-03-27)
+**Affects:** Measurement wizard, US-097, US-067 (E2E simulator story)
+**Found by:** Owner (local-demo testing 2026-03-27)
+
+### Description
+
+Launching `nix run .#local-demo` and attempting to start a measurement session
+via the measurement wizard fails with `ImportError` on `sounddevice`.
+
+### Root Cause
+
+In `session.py:run()`, when `PI_AUDIO_MOCK=0` (local-demo), the code tried to
+`import sounddevice` and resolve real audio device indices. But when
+`PI4AUDIO_SIGGEN=1` is also set (which local-demo sets), audio I/O is handled
+by SignalGenClient — `sounddevice` is not needed and is not in the Nix
+`testPython` environment, so the import fails.
+
+### Fix (2 changes in `src/web-ui/app/measurement/session.py`)
+
+1. Device resolution guard changed from `if not _MOCK_MODE:` to
+   `if not _MOCK_MODE and self._sd_override is None:` — skips `sounddevice`
+   import/resolution when SignalGenClient is active
+2. Added `elif` branch to set synthetic device indices (0=output, 1=input)
+   matching SignalGenClient's `query_devices()` output
+
+Tests: 906 passed, zero new failures.
+
+---
+
+## F-160: Mode restore bug — Test/Measure tabs restore Monitoring instead of previous mode (OPEN)
+
+**Filed:** 2026-03-27
+**Severity:** High (operational — owner gets stuck in wrong mode with Mixxx still running)
+**Status:** OPEN
+**Affects:** GraphManager mode transitions, Test tab, Measurement wizard
+**Found by:** Owner (live Pi testing 2026-03-27)
+
+### Description
+
+When the Test or Measure tabs switch the GraphManager to measurement mode, the
+`finally` block that restores the previous mode always restores to **Monitoring**
+instead of the mode that was active before entering measurement. The owner was
+in DJ mode (Mixxx running), opened the Test tab, and when done was left in
+Monitoring mode — not DJ mode. Mixxx was still running but audio routing was
+wrong.
+
+### Impact
+
+- Owner loses DJ mode during a gig when checking test/measurement tools
+- No automatic recovery — requires manual CLI intervention (`nc` to GM RPC)
+- Dangerous during live performance: Mixxx running but audio not routed correctly
+
+### Fix
+
+The `finally` block in the measurement/test tab code must save the current GM
+mode before switching to measurement, and restore that saved mode (not hardcoded
+Monitoring) when done.
+
+---
+
+## F-161: No mode switcher in web UI — stuck mode requires CLI workaround (OPEN)
+
+**Filed:** 2026-03-27
+**Severity:** Medium (usability — no recovery path without CLI knowledge)
+**Status:** OPEN
+**Affects:** Web UI, GraphManager mode management
+**Found by:** Owner (live Pi testing 2026-03-27)
+
+### Description
+
+The web UI has no mode switcher control. Once the GraphManager is stuck in the
+wrong mode (e.g., Monitoring instead of DJ — see F-160), the only way to switch
+back is via CLI using `nc` to the GM RPC port (4002). There is no UI element to
+view or change the current GM mode.
+
+### Impact
+
+- Owner cannot recover from mode bugs without SSH + CLI access
+- At a gig, there is no laptop available — the web UI on a phone/tablet is the
+  only interface
+- Any mode-related bug becomes a show-stopper without CLI workaround
+
+### Fix
+
+Add a mode selector control to the web UI (likely in the Config or Dashboard
+tab) that shows the current GM mode and allows switching between DJ, Live, and
+Monitoring modes. Should include confirmation dialog for safety (mode switch
+involves audio mute → topology change → unmute).
+
+**Related:** US-097 (Measurement Backend), US-067 (E2E Simulator)

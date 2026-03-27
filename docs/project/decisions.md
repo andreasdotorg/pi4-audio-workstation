@@ -548,8 +548,9 @@ is generated once on the Pi with a 10-year validity period.
 
 **Impact:**
 - `configs/systemd/user/pi4-audio-webui.service` includes SSL flags.
-- Certificate files (`cert.pem`, `key.pem`) must be generated on the Pi
-  during initial setup (see `docs/architecture/web-ui.md` Section 12).
+- Certificate files (`cert.pem`, `key.pem`) live in `/etc/pi4audio/certs/`
+  (F-094: outside deployment-managed dirs). Generated automatically by
+  `deploy.sh` on first deploy (see `docs/architecture/web-ui.md` Section 12).
 - S6 in web-ui.md Section 9 (security requirements) is now implemented:
   "HTTPS required before deployment on untrusted networks."
 - Cross-references: D-020 (web UI architecture), web-ui.md Section 12.

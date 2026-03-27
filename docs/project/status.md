@@ -274,9 +274,32 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **Security Specialist:** S-001/S-002 HIGH RESOLVED (#109 + #115 committed). No open security findings.
 - **Architect:** 3 rework items ALL RESOLVED (#110, #112, #111). 5 warnings noted (not blocking). 9 GOOD.
 **Current worker assignments (2026-03-27 late evening):**
-- worker-1 → **local-demo.sh pw-link cleanup** — remove redundant manual pw-link workaround (lines 377-423). GM now creates all 26 links. AD finding W-1 follow-up.
-- worker-2 → **F-154** (AD-DEMO-2, Medium) — measurement WebSocket reconnect logic. Task #161 IN PROGRESS.
-- worker-3 → **F-153 COMPLETED** (#160 done). Available for next assignment.
+- **ALL THREE WORKERS → US-067** — PipeWire Speaker-Room-Microphone Simulator for E2E Testing. Owner #1 priority. F-159 RESOLVED (prerequisite).
+- **Architect design received + owner-approved.** Capture separation: signal-gen play-only, capture via pw-record subprocess, zero special code paths.
+- worker-1 → **US-067 Track D** (#178) — Playwright E2E test against vanilla local-demo. IN PROGRESS.
+- worker-2 → **idle** — Ready for Pi deployment once CM commits. Track A review fixes applied.
+- worker-3 → **idle** — All venue profiles done incl. final amp gains (sub 42dB, mid 38dB, HF 28dB). Awaiting CM commit.
+- US-067: Tracks A/B/C COMPLETED. Track D IN PROGRESS (worker-1). F-161 COMPLETED.
+- Venue YAMLs: 6 files + amp gains finalized. Awaiting CM commit → Pi deployment.
+- **DEPLOYMENT PENDING:** 18+ commits behind. Rust rebuild needed (signal-gen + GM). Owner must confirm amps off.
+- AE delivered full venue specs: 3-way active via mugge (CVR DSP bypassed). HOQS C3D + ELF + XRK10F.
+- F-049 / F-096 confirmed RESOLVED by worker-3 (45/45 E2E passes, no code changes needed).
+- F-160 COMPLETED by worker-1.
+
+**US-067 Implementation Plan (Architect-approved capture separation, 2026-03-27):**
+
+Signal-gen capture architecture was broken: `--capture-target ""` in local-demo meant no PW capture stream. Owner decision: fix properly, no workarounds. Architect design:
+
+| Track | Scope | Description | Dependencies | Status |
+|-------|-------|-------------|--------------|--------|
+| A | Python | `pw-record` capture utility in measurement session. Rewire session to use separated play (signal-gen RPC) + capture (`pw-record` subprocess targeting UMIK-1 node). ~30 lines. Zero special code paths — works identically in production and local-demo. | None | IN PROGRESS (worker-2) |
+| B | Rust | Signal-gen becomes play-only. Add/verify `play`-only RPC. Deprecate+remove `playrec` RPC and `--capture-target` CLI arg. Rust rebuild required. | Track A working first | PENDING (worker-1 after F-160) |
+| C | PW config | Room-sim convolver node in local-demo PW graph. Pre-generate FIR WAV from `room_simulator.py`. Link topology: speaker-convolver → room-sim-convolver → UMIK-1 loopback. | None | IN PROGRESS (worker-3) |
+| D | E2E test | Playwright test against vanilla local-demo (no `PI_AUDIO_MOCK`). Full measurement → correction → deploy → verify. | A + B + C | BLOCKED |
+
+**New defects from owner live Pi testing (2026-03-27):**
+- **F-160** (HIGH): Mode restore bug — Test/Measure tabs restore Monitoring instead of previous mode. Worker-1 assigned.
+- **F-161** (MEDIUM): No mode switcher in web UI — stuck mode requires CLI `nc` workaround. Unassigned.
 
 **#150 COMPLETED** (`494c90d`). Null-sink fix landed. All previous tasks committed (`ab81745`).
 

@@ -660,16 +660,27 @@ uvicorn with SSL:
 
 ```
 ExecStart=.../uvicorn app.main:app --host 0.0.0.0 --port 8080 \
-    --ssl-keyfile /home/ela/web-ui/key.pem \
-    --ssl-certfile /home/ela/web-ui/cert.pem
+    --ssl-keyfile /etc/pi4audio/certs/key.pem \
+    --ssl-certfile /etc/pi4audio/certs/cert.pem
 ```
+
+**Certificate location:** `/etc/pi4audio/certs/` (F-094: relocated outside the
+deployment-managed `~/web-ui/` directory so `rsync --delete` cannot wipe them).
 
 **Certificate generation (one-time setup on Pi):**
 
 ```bash
-openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+sudo mkdir -p /etc/pi4audio/certs
+sudo openssl req -x509 -newkey rsa:2048 \
+    -keyout /etc/pi4audio/certs/key.pem -out /etc/pi4audio/certs/cert.pem \
     -days 3650 -nodes -subj "/CN=mugge"
+sudo chmod 644 /etc/pi4audio/certs/cert.pem
+sudo chmod 600 /etc/pi4audio/certs/key.pem
+sudo chown ela:ela /etc/pi4audio/certs/key.pem
 ```
+
+`deploy.sh` handles this automatically — it generates the cert on first deploy
+and migrates legacy certs from `~/web-ui/` if present.
 
 The 10-year validity avoids cert expiry during venue use. The `-nodes` flag
 produces an unencrypted private key (acceptable for a LAN-only service on a
