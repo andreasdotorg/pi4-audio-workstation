@@ -628,17 +628,28 @@
     // -- Actions --
 
     function startMeasurement() {
-        // Build default channel config from the existing measure tab data
-        var channels = [
-            { index: 0, name: "Left wideband", target_spl_db: 75.0, thermal_ceiling_dbfs: -20.0 },
-            { index: 1, name: "Right wideband", target_spl_db: 75.0, thermal_ceiling_dbfs: -20.0 },
-            { index: 2, name: "Subwoofer 1", target_spl_db: 75.0, thermal_ceiling_dbfs: -14.0 },
-            { index: 3, name: "Subwoofer 2", target_spl_db: 75.0, thermal_ceiling_dbfs: -14.0 }
-        ];
+        // Derive channels from the selected speaker profile if available,
+        // otherwise fall back to the hardcoded 2-way default.
+        var channels = (window.RCWizard && window.RCWizard.buildChannelsFromProfile)
+            ? window.RCWizard.buildChannelsFromProfile()
+            : null;
+        if (!channels || channels.length === 0) {
+            channels = [
+                { index: 0, name: "Left wideband", target_spl_db: 75.0, thermal_ceiling_dbfs: -20.0 },
+                { index: 1, name: "Right wideband", target_spl_db: 75.0, thermal_ceiling_dbfs: -20.0 },
+                { index: 2, name: "Subwoofer 1", target_spl_db: 75.0, thermal_ceiling_dbfs: -14.0 },
+                { index: 3, name: "Subwoofer 2", target_spl_db: 75.0, thermal_ceiling_dbfs: -14.0 }
+            ];
+        }
 
         // Read position count from input if available
         var posInput = $("mw-setup-positions");
         var positions = posInput ? parseInt(posInput.value, 10) || 5 : 5;
+
+        // Read speaker profile from setup form
+        var profileSelect = $("mw-setup-profile");
+        var profileName = profileSelect ? profileSelect.value : null;
+        if (profileName === "") profileName = null;
 
         var body = {
             channels: channels,
@@ -646,7 +657,8 @@
             sweep_duration_s: 5.0,
             sweep_level_dbfs: -20.0,
             hard_limit_spl_db: 84.0,
-            umik_sensitivity_dbfs_to_spl: 121.4
+            umik_sensitivity_dbfs_to_spl: 121.4,
+            profile_name: profileName
         };
 
         var startBtn = $("mw-start-btn");

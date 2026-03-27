@@ -193,6 +193,7 @@ class SessionConfig:
     sample_rate: int = 48000
     input_device_name: str = "UMIK"        # Substring match for UMIK-1
     output_device_name: str = "pipewire"   # Must match PipeWire sink, not ALSA sysdefault
+    profile_name: Optional[str] = None     # Speaker profile for filter generation
 
     def __post_init__(self):
         if _MOCK_MODE:
@@ -880,7 +881,7 @@ class MeasurementSession:
         self._check_abort("CP-5a")
 
         # Resolve profile name from session config or default.
-        profile_name = getattr(self._config, "profile_name", None)
+        profile_name = self._config.profile_name
         if not profile_name:
             profile_name = "2way-80hz-sealed"
 

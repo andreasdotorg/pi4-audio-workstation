@@ -56,6 +56,7 @@ class StartRequest(BaseModel):
     output_dir: str = "/tmp/pi4audio-measurement"
     input_device_name: str = "UMIK"
     output_device_name: str = "pipewire"
+    profile_name: Optional[str] = None
 
 
 class StartResponse(BaseModel):
@@ -156,6 +157,7 @@ async def start_measurement(body: StartRequest, request: Request):
         gm_port=gm_port,
         input_device_name=body.input_device_name,
         output_device_name=body.output_device_name,
+        profile_name=body.profile_name,
     )
 
     mock_mode = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
