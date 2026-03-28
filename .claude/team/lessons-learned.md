@@ -1199,3 +1199,135 @@ don't survive reboots, and they can't be reproduced from git.
 4. **The GM reconciler is the single biggest source of manual workarounds.**
    Fixing US-106 (GM production readiness) eliminates the entire manual
    pw-link stack. This should be the highest priority post-venue work.
+
+---
+
+## L-061: Worker hallucinated test verification (F-201)
+
+**Date:** 2026-03-28
+**Context:** F-201 defect — worker-1 reported meters at -9 to -11 dB and
+spectrum peaks as "working correctly," declared F-201 fixed. PM closed the
+defect based on this evidence. The owner caught the error.
+
+Worker-1 did not reason about what correct behavior should look like. With
+no audio playing, meters should show silence. Meters at -9 to -11 dB with
+no audio playing IS the bug — the mock PCM bridge generates synthetic signal
+data, so "meters rendering" proves only that mock_pcm.py produces fake data.
+The worker interpreted the bug as correct behavior.
+
+**Root cause:** Worker did not compare expected vs actual behavior. "It
+renders something" was accepted as verification without asking "should it
+render something when nothing is playing?"
+
+**Prevention:**
+1. Defect verification must include explicit expected-vs-actual comparison.
+   "It renders something" is not verification — what SHOULD it render?
+2. QE should own defect verification, not the implementing worker. The
+   implementer has confirmation bias — they want their fix to work.
+3. Verification evidence must include the test conditions: what was
+   playing (nothing), what was expected (silence), what was observed
+   (signal at -9 to -11 dB = bug, not fix).
+
+---
+
+## L-062: Mock mode masks real bugs (D-057 vindication)
+
+**Date:** 2026-03-28
+**Context:** `nix run .#serve` mock PCM bridge generates synthetic audio data
+that always shows signal. This made it impossible to distinguish "working"
+from "broken." The owner lost two hours (one at venue, one this session)
+chasing the same bug because mock verification was accepted as proof.
+
+**Root cause:** Testing against mocks instead of real software violates D-057
+(Local-demo mock boundary). The mock PCM bridge (`mock_pcm.py`) generates
+synthetic signal data regardless of whether real audio is flowing. Any test
+that uses mock mode will always show "working" meters and spectrum — even
+when the real pipeline is broken.
+
+**Prevention:**
+1. D-057 is now enforced — `nix run .#serve` eliminated (task #250),
+   `nix run .#local-demo` is the only local dev target.
+2. `mock_pcm.py` deleted. No mock PCM bridge exists anymore.
+3. All local testing uses real pcm-bridge binary connected to host PipeWire.
+4. Correct behavior with no audio: meters show silence, spectrum shows noise
+   floor. Any other reading requires investigation.
+
+---
+
+## L-063: Orchestrator repeatedly overrode PM role
+
+**Date:** 2026-03-28
+**Context:** Post-venue session — the orchestrator directly assigned workers,
+gave them task instructions, sent priority overrides, and managed task
+tracking. All are PM responsibilities. The owner corrected this explicitly.
+
+**Root cause:** The orchestrator treats "urgent" as permission to bypass role
+boundaries. When the owner is waiting, the orchestrator feels pressure to
+"get things moving" and takes over the PM's job — assigning workers, writing
+task instructions, managing priorities. This is wrong regardless of urgency.
+
+**Prevention:**
+1. ALL worker assignments and prioritization go through PM. The orchestrator
+   routes work requests to PM, PM handles execution.
+2. The orchestrator's response to "urgent" is: message the PM with the
+   urgency level and the request. Not: do the PM's job.
+3. Role boundaries exist precisely for urgent situations. When things are
+   calm, anyone can coordinate. When things are urgent, clear roles prevent
+   conflicting instructions and dropped handoffs.
+
+---
+
+## L-064: Workers do PM work instead of their assigned tasks
+
+**Date:** 2026-03-28
+**Context:** Worker-1 spent time updating task tracking and running status
+checks instead of starting `nix run .#local-demo` as urgently requested.
+The owner waited while the worker did the PM's job.
+
+**Root cause:** Workers received conflicting messages (multiple tasks piled
+up per L-009/L-040) and chose administrative work over the urgent
+operational request. Task tracking feels productive but is not the worker's
+job — it delays the actual work the owner is waiting for.
+
+**Prevention:**
+1. PM owns all task tracking. Workers execute work. Period.
+2. When the owner says "do X now," that means now — not after finishing
+   housekeeping, not after updating status, not after reading other tasks.
+3. Worker instructions should be explicit about priority: "Do this BEFORE
+   anything else, including task updates."
+4. Workers should never update task status — that is the PM's job. Workers
+   report completion to the PM, and the PM updates tracking.
+
+---
+
+## L-065: Premature defect closure without valid verification
+
+**Date:** 2026-03-28
+**Context:** F-201 was closed based on worker self-verification using mock
+mode. The PM accepted this without questioning whether the verification
+method was sound. The owner had to catch it.
+
+**Root cause:** No independent verification. The implementing worker verified
+their own fix against a system that always shows "success" (mock PCM bridge).
+The PM closed the defect based on this evidence without questioning:
+- Was the verification environment valid? (No — mock mode, D-057 violation)
+- Did the verification test the right thing? (No — "meters render" ≠ "pipeline works")
+- Was the expected behavior defined? (No — nobody stated "silence when nothing plays")
+
+**Prevention:**
+1. QE verifies defect fixes, not the implementing worker. The implementer
+   has confirmation bias.
+2. Verification must use real software (D-057), not mocks. If real software
+   is not available, the defect stays open with a note explaining why
+   verification is blocked.
+3. PM must question verification evidence before closing a defect:
+   - What environment was used? (Must be real, not mock)
+   - What was the expected behavior? (Must be explicitly stated)
+   - What was the actual behavior? (Must match expected)
+   - Who verified? (Must not be the implementer)
+4. Defect DoD lifecycle: BACKLOG -> PLAN -> IMPLEMENT -> TEST -> VERIFY ->
+   REVIEW -> CLOSED. TEST and VERIFY are not optional phases.
+
+**Recurrence of:** L-003 (worker verification is not owner verification),
+L-016 (mock compatibility shims mask real API mismatches), L-017 (don't
+deploy without DoD).
