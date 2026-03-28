@@ -4123,6 +4123,21 @@ html, body {
     background: rgba(229, 69, 58, 0.25);
 }
 
+.spk-activate-btn {
+    flex: 2;
+}
+
+.spk-activate-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.spk-detail-status {
+    margin-top: 8px;
+    font-size: 11px;
+    min-height: 1em;
+}
+
 /* -- Speaker chips (detail view) -- */
 
 .spk-speaker-chip {
@@ -4195,6 +4210,36 @@ html, body {
     cursor: help;
     margin-left: 4px;
     vertical-align: middle;
+    position: relative;
+    outline: none;
+}
+
+.spk-help[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    background: var(--bg-card, #23272e);
+    color: var(--text, #d4d4d4);
+    border: 1px solid var(--border, #3a3f47);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.4;
+    white-space: normal;
+    width: max-content;
+    max-width: 280px;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.spk-help[data-tip]:hover::after,
+.spk-help[data-tip]:focus::after {
+    opacity: 1;
 }
 
 .spk-form-input {

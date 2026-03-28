@@ -27,6 +27,7 @@
     var VALID_POLARITIES = ["normal", "inverted"];
     var VALID_SLOPES = [24, 48, 96];
     var VALID_TOPOLOGIES = ["2way", "3way", "4way", "custom"];
+    var VALID_TARGET_CURVES = ["flat", "harman", "pa"];
 
     // Topology templates: define default speaker rows per topology.
     // Each entry: { key, role, filter_type, channel }
@@ -83,6 +84,19 @@
     var currentDetail = null;
     var editMode = false;
 
+    // -- Tooltip text (shared between detail and form views) --
+
+    var TIPS = {
+        sensitivity: "SPL output at 1W/1m. Used for gain staging and thermal ceiling calculation.",
+        impedance: "Nominal impedance. Used for power and thermal calculations.",
+        max_boost: "Maximum safe boost for this driver. D-009 safety: correction filters are cut-only, so this limits target curve boost. Default 0 (no boost allowed).",
+        hpf: "Minimum safe frequency. A highpass protection filter is applied below this. For ported: use port tuning frequency. For sealed: use Fs.",
+        max_power: "Continuous power handling (RMS watts). Used for thermal ceiling calculation.",
+        port_tuning: "Port resonance frequency (ported enclosures only). Below this frequency, cone excursion increases rapidly.",
+        filter_taps: "FIR filter length in samples. 16384 taps = 341ms at 48kHz, giving 2.9Hz frequency resolution. Lower values (8192) save CPU but reduce low-frequency correction quality.",
+        target_curve: "Target frequency response for room correction. ISO 226 loudness compensation can be added via the SPL target setting."
+    };
+
     // -- Helpers --
 
     function $(id) { return document.getElementById(id); }
@@ -98,6 +112,13 @@
         if (!el) return;
         el.textContent = text;
         el.className = cls ? ("spk-form-status " + cls) : "spk-form-status";
+    }
+
+    function setDetailStatus(text, cls) {
+        var el = $("spk-detail-status");
+        if (!el) return;
+        el.textContent = text;
+        el.className = cls ? ("spk-detail-status " + cls) : "spk-detail-status";
     }
 
     function showPanel(which) {
@@ -212,14 +233,14 @@
         var html = '<div class="cfg-kv-grid">';
         html += kvRow("Name", data.name);
         html += kvRow("Type", data.type);
-        html += kvRow("Impedance", data.impedance_ohm + " Ohm");
-        html += kvRow("Max Boost", data.max_boost_db + " dB");
-        html += kvRow("HPF", data.mandatory_hpf_hz + " Hz");
+        html += kvRow("Impedance", data.impedance_ohm + " Ohm", TIPS.impedance);
+        html += kvRow("Max Boost", data.max_boost_db + " dB", TIPS.max_boost);
+        html += kvRow("HPF", data.mandatory_hpf_hz + " Hz", TIPS.hpf);
         if (data.manufacturer) html += kvRow("Manufacturer", data.manufacturer);
         if (data.model) html += kvRow("Model", data.model);
-        if (data.sensitivity_db_spl != null) html += kvRow("Sensitivity", data.sensitivity_db_spl + " dB SPL");
-        if (data.max_power_watts != null) html += kvRow("Max Power", data.max_power_watts + " W");
-        if (data.port_tuning_hz != null) html += kvRow("Port Tuning", data.port_tuning_hz + " Hz");
+        if (data.sensitivity_db_spl != null) html += kvRow("Sensitivity", data.sensitivity_db_spl + " dB SPL", TIPS.sensitivity);
+        if (data.max_power_watts != null) html += kvRow("Max Power", data.max_power_watts + " W", TIPS.max_power);
+        if (data.port_tuning_hz != null) html += kvRow("Port Tuning", data.port_tuning_hz + " Hz", TIPS.port_tuning);
         html += '</div>';
         body.innerHTML = html;
     }
@@ -289,17 +310,20 @@
         if (data.filter_taps) {
             html += '<div class="spk-detail-sub-title">Filter</div>';
             html += '<div class="cfg-kv-grid">';
-            html += kvRow("Taps", String(data.filter_taps));
-            if (data.target_curve) html += kvRow("Target", data.target_curve);
+            html += kvRow("Taps", String(data.filter_taps), TIPS.filter_taps);
+            if (data.target_curve) html += kvRow("Target", data.target_curve, TIPS.target_curve);
             html += '</div>';
         }
 
         body.innerHTML = html;
     }
 
-    function kvRow(label, value) {
+    function kvRow(label, value, tooltip) {
+        var helpHtml = tooltip
+            ? ' <span class="spk-help" data-tip="' + escapeHtml(tooltip) + '" tabindex="0">?</span>'
+            : '';
         return '<div class="cfg-kv-item"><span class="cfg-kv-label">' +
-            escapeHtml(label) + '</span><span class="cfg-kv-value">' +
+            escapeHtml(label) + helpHtml + '</span><span class="cfg-kv-value">' +
             escapeHtml(String(value != null ? value : "--")) + '</span></div>';
     }
 
@@ -323,6 +347,10 @@
             } else {
                 renderProfileDetail(data);
             }
+            var activateBtn = $("spk-activate-btn");
+            if (activateBtn) activateBtn.classList.toggle("hidden", kind !== "profiles");
+            var detailStatus = $("spk-detail-status");
+            if (detailStatus) { detailStatus.textContent = ""; detailStatus.className = "spk-detail-status"; }
             showPanel("detail");
             refreshListHighlight();
         });
@@ -470,8 +498,7 @@
         html += '<div class="spk-form-sub-title">Filter Settings</div>';
         html += formInput("spk-f-taps", "Filter Taps", "number", d.filter_taps || 16384,
             "FIR filter length in samples. 16384 taps = 341ms at 48kHz, giving 2.9Hz frequency resolution. Lower values (8192) save CPU but reduce low-frequency correction quality.");
-        html += formInput("spk-f-target", "Target Curve", "text", d.target_curve || "flat",
-            "Target frequency response for room correction. Options: flat, harman. ISO 226 loudness compensation can be added via the SPL target setting.");
+        html += formSelect("spk-f-target", "Target Curve", VALID_TARGET_CURVES, d.target_curve || "flat");
 
         body.innerHTML = html;
 
@@ -875,7 +902,7 @@
 
     function formInput(id, label, type, value, tooltip) {
         var helpHtml = tooltip
-            ? ' <span class="spk-help" title="' + escapeHtml(tooltip) + '">?</span>'
+            ? ' <span class="spk-help" data-tip="' + escapeHtml(tooltip) + '" tabindex="0">?</span>'
             : '';
         return '<div class="spk-form-row">' +
             '<label class="spk-form-label" for="' + id + '">' + escapeHtml(label) + helpHtml + '</label>' +
@@ -964,6 +991,31 @@
                     showPanel("empty");
                     refreshLists();
                 });
+            });
+        }
+
+        var activateBtn = $("spk-activate-btn");
+        if (activateBtn) {
+            activateBtn.addEventListener("click", function () {
+                if (!currentDetail || currentDetail.kind !== "profiles") return;
+                var name = currentDetail.name;
+                activateBtn.disabled = true;
+                setDetailStatus("Activating...", "c-warning");
+                fetch(API + "/profiles/" + encodeURIComponent(name) + "/activate", { method: "POST" })
+                    .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+                    .then(function (resp) {
+                        activateBtn.disabled = false;
+                        if (resp.body.activated) {
+                            setDetailStatus("Activated: " + (resp.body.display_name || name), "c-safe");
+                        } else {
+                            var errMsg = resp.body.detail || resp.body.error || "Activation failed";
+                            setDetailStatus("Error: " + errMsg, "c-danger");
+                        }
+                    })
+                    .catch(function (err) {
+                        activateBtn.disabled = false;
+                        setDetailStatus("Error: " + err.message, "c-danger");
+                    });
             });
         }
 

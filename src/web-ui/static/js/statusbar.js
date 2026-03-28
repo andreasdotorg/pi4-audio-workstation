@@ -507,7 +507,7 @@
 
     function onModeBadgeClick(e) {
         e.stopPropagation();
-        if (currentModeFromWs === "measurement" || modeSwitching) return;
+        if (modeSwitching) return;
         var dropdown = document.getElementById("sb-mode-dropdown");
         if (dropdown && !dropdown.classList.contains("hidden")) {
             closeModeDropdown();

@@ -35,8 +35,28 @@ if str(_RC_DIR) not in sys.path:
     sys.path.insert(0, str(_RC_DIR))
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_PROFILES_DIR = _PROJECT_ROOT / "configs" / "speakers" / "profiles"
-_IDENTITIES_DIR = _PROJECT_ROOT / "configs" / "speakers" / "identities"
+
+# Resolve speaker config directories: Pi path first, then repo fallback.
+# Matches speaker_routes.py pattern (PI4AUDIO_SPEAKERS_DIR env var).
+_PI_SPEAKERS_DIR = Path(os.environ.get("PI4AUDIO_SPEAKERS_DIR", "/etc/pi4audio/speakers"))
+_REPO_SPEAKERS_DIR = _PROJECT_ROOT / "configs" / "speakers"
+
+
+def _speakers_base() -> Path:
+    """Return the speakers config base directory (Pi path or repo fallback)."""
+    if _PI_SPEAKERS_DIR.is_dir():
+        return _PI_SPEAKERS_DIR
+    if _REPO_SPEAKERS_DIR.is_dir():
+        return _REPO_SPEAKERS_DIR
+    return _REPO_SPEAKERS_DIR  # fallback even if missing
+
+
+def _profiles_dir() -> Path:
+    return _speakers_base() / "profiles"
+
+
+def _identities_dir() -> Path:
+    return _speakers_base() / "identities"
 
 # Default directories (overridable via env vars for testing)
 DEFAULT_OUTPUT_DIR = os.environ.get(
@@ -187,10 +207,10 @@ def _run_pipeline(req: FilterGenerateRequest) -> dict:
     # Load and validate profile
     profile, identities = load_profile_with_identities(
         req.profile,
-        profiles_dir=str(_PROFILES_DIR),
-        identities_dir=str(_IDENTITIES_DIR),
+        profiles_dir=str(_profiles_dir()),
+        identities_dir=str(_identities_dir()),
     )
-    validate_and_raise(profile, identities, identities_dir=str(_IDENTITIES_DIR))
+    validate_and_raise(profile, identities, identities_dir=str(_identities_dir()))
 
     n_taps = req.n_taps
     sr = req.sample_rate
@@ -287,8 +307,8 @@ def _run_pipeline(req: FilterGenerateRequest) -> dict:
             },
             gains_db=req.gains_db,
             delays_ms=req.delays_ms,
-            profiles_dir=str(_PROFILES_DIR),
-            identities_dir=str(_IDENTITIES_DIR),
+            profiles_dir=str(_profiles_dir()),
+            identities_dir=str(_identities_dir()),
             validate=False,  # Already validated above
         )
         pw_conf_path = os.path.join(output_dir, "30-filter-chain-convolver.conf")
@@ -376,12 +396,25 @@ async def get_target_curve(
         )
 
 
+@router.get("/target-curves")
+async def list_target_curves():
+    """List available target curve names for the profile form dropdown."""
+    return {
+        "curves": [
+            {"name": "flat", "label": "Flat", "description": "Uniform response. Baseline reference."},
+            {"name": "harman", "label": "Harman", "description": "Bass shelf +3dB, treble rolloff. Best for 75-85 dB SPL."},
+            {"name": "pa", "label": "PA / Psytrance", "description": "Sub-bass +1.5dB, gentle treble rolloff. For 95-105 dB SPL."},
+        ]
+    }
+
+
 @router.get("/profiles")
 async def list_profiles():
     """List available speaker profiles for filter generation."""
     profiles = []
-    if _PROFILES_DIR.is_dir():
-        for p in sorted(_PROFILES_DIR.glob("*.yml")):
+    pdir = _profiles_dir()
+    if pdir.is_dir():
+        for p in sorted(pdir.glob("*.yml")):
             profiles.append(p.stem)
     return {"profiles": profiles}
 
