@@ -1255,7 +1255,9 @@ class MeasurementSession:
         # Reload PipeWire convolver so it picks up the new coefficients.
         # Destroy the convolver node; PipeWire re-reads .conf.d/ and recreates
         # it with the newly deployed WAV files.
-        if not dry_run:
+        # Skip reload if no WAVs were actually deployed — reloading without
+        # new coefficients destroys the active audio chain for nothing.
+        if not dry_run and deployed_wavs:
             self._enqueue_progress({
                 "type": "deploy_progress", "phase": "in_progress",
                 "step": "reload",

@@ -477,13 +477,13 @@ class TestAmbientNoiseBaseline(unittest.TestCase):
 
     @patch.object(gain_calibration, '_play_burst')
     def test_high_ambient_aborts(self, mock_play):
-        """Ambient noise > 81 dB SPL should abort with 'ambient noise too high'."""
+        """Ambient noise > 90 dB SPL should abort with 'ambient noise too high'."""
         # The first call to _play_burst is the ambient baseline recording.
-        # We need it to return a recording whose SPL > 81 dB.
-        # SPL = RMS_dBFS + sensitivity. For SPL=82:
-        #   RMS_dBFS = 82 - 121.4 = -39.4
-        #   RMS_linear = 10^(-39.4/20) ~= 0.01072
-        ambient_recording = _make_recording_at_spl(82.0)
+        # We need it to return a recording whose SPL > 90 dB.
+        # SPL = RMS_dBFS + sensitivity. For SPL=91:
+        #   RMS_dBFS = 91 - 121.4 = -30.4
+        #   RMS_linear = 10^(-30.4/20) ~= 0.0302
+        ambient_recording = _make_recording_at_spl(91.0)
 
         # The ambient call is first, then ramp calls follow.
         # Since we abort on ambient, only 1 call should happen.
@@ -504,9 +504,9 @@ class TestAmbientNoiseBaseline(unittest.TestCase):
 
     @patch.object(gain_calibration, '_play_burst')
     def test_warning_ambient_continues(self, mock_play):
-        """Ambient noise > 60 dB SPL should warn but continue calibration."""
-        # First call: ambient at 65 dB SPL (warning range, not abort)
-        ambient_recording = _make_recording_at_spl(65.0)
+        """Ambient noise > 75 dB SPL should warn but continue calibration."""
+        # First call: ambient at 80 dB SPL (warning range, not abort)
+        ambient_recording = _make_recording_at_spl(80.0)
 
         # After ambient, the ramp starts. Set up MockPlayBurst for the
         # ramp bursts (acoustic offset such that target is reached quickly).

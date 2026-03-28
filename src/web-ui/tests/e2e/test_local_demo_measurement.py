@@ -48,10 +48,11 @@ SCREENSHOTS_DIR = Path("/tmp/pi4audio-e2e-screenshots/local-demo")
 SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Timeouts — real audio I/O is much slower than mock.
-# Gain cal: ~30-40s (9 ramp steps with 2s captures each + ambient baseline).
-# Sweep + filter gen + deploy: ~15-20s.
+# Gain cal per channel: ~30-60s depending on thermal ceiling (lower ceiling
+# = more ramp steps).  With 4 channels (2way profile), total gain cal can
+# be 120-240s.  Sweeps + filter gen + deploy + verify add ~30-40s.
 GAIN_CAL_TIMEOUT = 90_000   # ms
-SESSION_TIMEOUT = 300_000   # ms (full session: 4ch gain cal + 4 sweeps + filter gen)
+SESSION_TIMEOUT = 600_000   # ms (full session: 4ch gain cal + 4 sweeps + filter gen)
 STATE_TIMEOUT = 10_000      # ms (UI state transitions)
 
 # Speaker profile that exists in the local-demo seed data.

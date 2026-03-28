@@ -1018,6 +1018,19 @@ def _play_and_record_pw_capture(output_signal, output_channel, sr,
                                 signal_gen, capture_target):
     """Play via signal-gen RPC and capture via pw-record (US-067 Track A).
 
+    Uses a two-phase approach to handle the PipeWire loopback cold-start
+    race (F-177):
+
+    Phase 1 (warmup): Play a brief pink noise burst through signal-gen to
+    ensure the loopback chain is actively passing audio.  The loopback
+    module's source side may produce zeros when no audio flows through its
+    sink side — this warmup prevents pw-record from connecting to a cold
+    source.
+
+    Phase 2 (capture): Start pw-record on the now-warm chain, wait for
+    the pre-roll (captures actual silence for noise floor estimation),
+    then play the sweep/signal through the same channel.
+
     Returns the same (trimmed_recording, pre_roll) tuple as the legacy
     sd.playrec path for backward compatibility with callers.
     """
@@ -1025,6 +1038,10 @@ def _play_and_record_pw_capture(output_signal, output_channel, sr,
     from pw_capture import start_capture, stop_capture, load_wav
 
     duration_s = len(output_signal) / sr
+    # Time for the warmup burst to propagate through the loopback chain.
+    # 1.0s is sufficient based on empirical testing (10/10 pass rate vs
+    # ~30% failure without warmup).
+    _CHAIN_WARMUP_S = 1.0
 
     # Compute signal level (RMS in dBFS) for the signal-gen play RPC.
     rms = np.sqrt(np.mean(output_signal.astype(np.float64) ** 2))
@@ -1043,9 +1060,22 @@ def _play_and_record_pw_capture(output_signal, output_channel, sr,
     pre_roll_samples = int(pre_roll_s * sr)
 
     try:
-        # 1. Start capture (pw-record begins writing to WAV file).
-        # Start pre_roll_s before playing so we capture ambient silence
-        # for noise floor estimation.
+        # Phase 1: Warm the loopback chain with a brief pink noise burst.
+        # This ensures the loopback source is actively producing audio
+        # before pw-record connects.  The warmup must last long enough to
+        # cover: the wait below (1.0s) + start_capture's internal settle
+        # time (1.0s) + margin.  Use -40 dBFS to stay above PipeWire's
+        # silence detection threshold.
+        signal_gen.play(
+            signal="pink",
+            channels=[output_channel + 1],  # 1-indexed for RPC
+            level_dbfs=-40.0,
+            duration=_CHAIN_WARMUP_S + 2.0,
+        )
+        time.sleep(_CHAIN_WARMUP_S)
+
+        # Phase 2: Capture with the chain warm.
+        # Start pw-record (connects to an already-active loopback source).
         proc = start_capture(
             output_path=cap_path,
             target=capture_target or "alsa_input.usb-miniDSP_UMIK-1",
@@ -1054,10 +1084,10 @@ def _play_and_record_pw_capture(output_signal, output_channel, sr,
         )
 
         try:
-            # Brief settle time matching the pre-roll concept
+            # Pre-roll: capture silence for noise floor estimation.
             time.sleep(pre_roll_s)
 
-            # 2. Play signal via signal-gen RPC (play-only, no record)
+            # Play the actual signal via signal-gen RPC.
             play_kwargs = {
                 "signal": sig_type,
                 "channels": [output_channel + 1],  # 1-indexed for RPC
@@ -1069,17 +1099,17 @@ def _play_and_record_pw_capture(output_signal, output_channel, sr,
                 play_kwargs["sweep_end"] = 20000.0
             signal_gen.play(**play_kwargs)
 
-            # 3. Wait for playback + post-roll (room decay)
+            # Wait for playback + post-roll (room decay).
             time.sleep(duration_s + post_roll_s)
         finally:
-            # 4. Stop capture (SIGINT -> pw-record finalizes WAV)
+            # Stop capture (SIGINT -> pw-record finalizes WAV).
             stop_capture(proc)
 
-        # 5. Load the captured audio
+        # Load the captured audio.
         recording = load_wav(cap_path)
         rec = recording[:, 0].astype(np.float64)
 
-        # Split into pre-roll and signal-aligned recording
+        # Split into pre-roll and signal-aligned recording.
         if len(rec) > pre_roll_samples:
             pre_roll = rec[:pre_roll_samples]
             trimmed = rec[pre_roll_samples:]

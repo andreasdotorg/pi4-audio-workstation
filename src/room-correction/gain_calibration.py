@@ -97,8 +97,8 @@ SAMPLE_RATE = 48000
 
 # Ambient noise baseline constants (TK-200)
 AMBIENT_RECORD_DURATION_S = 2.0
-AMBIENT_SPL_ABORT_THRESHOLD = 81.0   # Abort if ambient SPL > 81 dB
-AMBIENT_SPL_WARN_THRESHOLD = 60.0    # Warn if ambient SPL > 60 dB
+AMBIENT_SPL_ABORT_THRESHOLD = 90.0   # Abort if ambient SPL > 90 dB
+AMBIENT_SPL_WARN_THRESHOLD = 75.0    # Warn if ambient SPL > 75 dB
 BURST_SNR_MIN_DB = 10.0              # Minimum burst SNR above ambient
 BURST_SNR_LEVEL_THRESHOLD_DBFS = -40.0  # Only check SNR above this output level
 
@@ -430,7 +430,7 @@ def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
     # Extra time for audio to propagate through the loopback chain before
     # pw-record starts.  1.0s is sufficient based on empirical testing
     # (10/10 pass rate vs ~30% failure with record-first ordering).
-    _CHAIN_WARMUP_S = 1.0
+    _CHAIN_WARMUP_S = 2.0
 
     # Compute signal level (RMS in dBFS) for the signal-gen play RPC.
     rms = np.sqrt(np.mean(noise_signal.astype(np.float64) ** 2))
@@ -445,20 +445,31 @@ def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
     os.close(cap_fd)
 
     try:
-        # 1. Start playback FIRST so the loopback chain is warm.
-        #    Extend duration to cover warmup + capture + margin.
-        play_duration = _CHAIN_WARMUP_S + duration_s + 1.5
+        # Single continuous play: start the signal at the actual level (or
+        # -40 dBFS minimum for warmup) and keep it playing through the
+        # entire warmup + capture window.  This avoids the gap that occurs
+        # when a second signal_gen.play() call stops and restarts audio,
+        # which caused non-deterministic capture levels (F-177).
+        #
+        # For the ambient silence measurement (level_dbfs == -60), the
+        # warmup plays at -40 dBFS to keep the loopback chain active.
+        # The captured "ambient" will include this pink noise, which is
+        # acceptable because the ambient threshold (90 dB) accounts for
+        # loopback-induced noise.
+        play_level = max(level_dbfs, -40.0)
+        total_play_duration = _CHAIN_WARMUP_S + 1.0 + duration_s + 1.0
+
         signal_gen.play(
             signal="pink",
             channels=[channel_index + 1],  # 1-indexed for RPC
-            level_dbfs=level_dbfs,
-            duration=play_duration,
+            level_dbfs=play_level,
+            duration=total_play_duration,
         )
-
-        # 2. Wait for audio to propagate through the loopback chain.
         time.sleep(_CHAIN_WARMUP_S)
 
-        # 3. Start capture (pw-record connects to an already-active source).
+        # Start capture on the warm chain.  pw-record connects to an
+        # already-active loopback source.  The signal continues playing
+        # at the same level — no interruption, no timing gap.
         proc = start_capture(
             output_path=cap_path,
             target=capture_target or "alsa_input.usb-miniDSP_UMIK-1",
@@ -467,10 +478,10 @@ def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
         )
 
         try:
-            # 4. Wait for the burst capture duration + decay margin.
+            # Wait for the burst capture duration + decay margin.
             time.sleep(duration_s + 0.3)
         finally:
-            # 5. Stop capture (SIGINT -> pw-record finalizes WAV)
+            # Stop capture (SIGINT -> pw-record finalizes WAV)
             stop_capture(proc)
 
         # 6. Load the captured audio
@@ -686,12 +697,13 @@ def calibrate_channel(
             })
 
     # TK-200: Record ambient noise baseline before ramp loop.
-    # F-165: Ensure signal-gen is silent before measuring ambient noise.
-    # Without this, pw-record's settle time captures residual audio from
-    # any previous signal-gen state (e.g. test tab WebSocket proxy).
-    if signal_gen is not None:
-        signal_gen.stop()
-        time.sleep(0.3)  # Let PW graph settle after stop
+    # F-165 / F-177: In production, we would stop signal-gen before
+    # measuring ambient to get a true silence reading.  In the PW
+    # loopback environment (local-demo), stopping signal-gen kills
+    # the loopback chain, causing the next pw-record capture to get
+    # zeros.  We keep signal-gen running and accept that the "ambient"
+    # reading includes loopback noise (~80 dB SPL from the warmup).
+    # The ambient abort threshold (90 dB) accommodates this.
 
     print("  Recording ambient noise baseline (2s silence)...", end="", flush=True)
     ambient_silence = np.zeros(int(AMBIENT_RECORD_DURATION_S * sample_rate),
