@@ -146,6 +146,11 @@ class RollbackRequest(BaseModel):
     dry_run: bool = False
 
 
+class SnapshotRequest(BaseModel):
+    """Request body for POST /api/v1/filters/snapshot."""
+    label: str = ""
+
+
 class CleanupRequest(BaseModel):
     """Request body for POST /api/v1/filters/cleanup."""
     confirmed: bool = False
@@ -736,6 +741,106 @@ async def get_active_filters():
         )
 
     return {"active": active, "pw_conf_dir": DEFAULT_PW_CONF_DIR}
+
+
+def _run_snapshot(label: str) -> dict:
+    """Snapshot current active filter files as versioned copies.
+
+    Copies each active coefficient file (versioned or unversioned) to a new
+    versioned file with the current timestamp. This creates a rollback point
+    for manually created or otherwise untracked filter files.
+    """
+    import shutil
+    import glob as globmod
+    from room_correction.deploy import (
+        DEFAULT_COEFFS_DIR,
+        DEFAULT_PW_CONF_DIR,
+        _VERSIONED_RE,
+        _PW_FILENAME_RE,
+    )
+    from room_correction.export import CHANNEL_FILENAMES, TIMESTAMP_FORMAT
+
+    coeffs_dir = DEFAULT_COEFFS_DIR
+    if not os.path.isdir(coeffs_dir):
+        raise FileNotFoundError(f"Coefficients directory not found: {coeffs_dir}")
+
+    # Parse active filenames from PW config
+    active_basenames = set()
+    conf_dir = DEFAULT_PW_CONF_DIR
+    if os.path.isdir(conf_dir):
+        for conf_file in globmod.glob(os.path.join(conf_dir, "*.conf")):
+            with open(conf_file) as f:
+                for line in f:
+                    m = _PW_FILENAME_RE.search(line)
+                    if m:
+                        active_basenames.add(os.path.basename(m.group(1)))
+
+    # If no active files found in PW config, fall back to unversioned filenames
+    if not active_basenames:
+        for ch_file in CHANNEL_FILENAMES.values():
+            if os.path.exists(os.path.join(coeffs_dir, ch_file)):
+                active_basenames.add(ch_file)
+
+    if not active_basenames:
+        raise FileNotFoundError("No active filter files found to snapshot")
+
+    # Generate timestamp for the snapshot
+    ts = datetime.now()
+    ts_str = ts.strftime(TIMESTAMP_FORMAT)
+    copied = []
+
+    for basename in sorted(active_basenames):
+        src = os.path.join(coeffs_dir, basename)
+        if not os.path.exists(src):
+            continue
+
+        # Determine channel name
+        m = _VERSIONED_RE.match(basename)
+        if m:
+            channel = m.group(1)
+        elif basename.startswith("combined_") and basename.endswith(".wav"):
+            channel = basename[len("combined_"):-len(".wav")]
+        else:
+            continue
+
+        dst_name = f"combined_{channel}_{ts_str}.wav"
+        dst = os.path.join(coeffs_dir, dst_name)
+        shutil.copy2(src, dst)
+        copied.append({"channel": channel, "source": basename, "snapshot": dst_name})
+
+    return {
+        "timestamp": ts_str,
+        "label": label,
+        "files": copied,
+        "coeffs_dir": coeffs_dir,
+    }
+
+
+@router.post("/snapshot")
+async def snapshot_filters(req: SnapshotRequest):
+    """Snapshot current active filters as a versioned rollback point.
+
+    Copies the currently active coefficient files to new versioned copies
+    with the current timestamp. Use this to preserve manually-created
+    filters before running automated room correction.
+    """
+    try:
+        result = await asyncio.to_thread(_run_snapshot, req.label)
+    except FileNotFoundError as e:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "not_found", "detail": str(e)},
+        )
+    except Exception as e:
+        log.exception("Filter snapshot failed")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "snapshot_failed", "detail": str(e)},
+        )
+
+    log.info("Filter snapshot created: %s (%d files, label=%s)",
+             result["timestamp"], len(result["files"]), req.label)
+    return result
 
 
 def _run_rollback(req: RollbackRequest) -> dict:
