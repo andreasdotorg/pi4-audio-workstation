@@ -2257,3 +2257,150 @@ spike is the minimum-cost way to de-risk the decision.
 **Related:** D-039 (GM sole session manager — original), D-043 (WP retained
 — current), US-106 (reconciler tasks), US-108 (WP removal story draft),
 GM-12 Finding 2 (zero ports without WP).
+
+---
+
+## D-057: One bridge instance per audio source (2026-03-28)
+
+**Context:** The original bridge architecture used a single multi-channel
+pcm-bridge instance that tapped the convolver input (4 channels, port 9090).
+When D-049 added level-bridge instances for 24-channel metering, these were
+already one-per-tap-point (sw/hw-out/hw-in). However, the pcm-bridge itself
+remained a single instance, and the Web UI configured its channel count at
+startup.
+
+The venue session (2026-03-28) exposed the problem: the 3-way speaker
+profile produces 6 convolver output channels, but pcm-bridge was configured
+for 4 channels (`CHANNELS=4` in `monitor.env`). Changing the channel count
+required restarting pcm-bridge, which disrupted monitoring. More critically,
+the UMIK-1 spectrum display needed raw PCM from a different source (the
+UMIK-1 capture node) with a different channel count (1-2 channels). A single
+pcm-bridge instance cannot serve both the speaker monitoring and UMIK-1
+spectrum simultaneously — they tap different PW nodes with different channel
+counts.
+
+The venue also revealed that topology changes in one monitoring path
+(reconfiguring pcm-bridge from 4ch to 6ch for 3-way) broke unrelated
+monitoring (spectrum display went silent because the JS expected 4 channels).
+This is the F-188 class of defects: coupled channel counts cause cascade
+failures.
+
+**Decision (owner directive):** One bridge instance per audio source / tap
+point. Each instance has its own TCP port, channel count, PW node name, and
+systemd unit. Instances are independently configurable and restartable.
+
+**Production bridge inventory (as deployed at venue 2026-03-28):**
+
+| Instance | Binary | Port | Channels | PW target / node | Purpose |
+|----------|--------|------|----------|-----------------|---------|
+| pcm-bridge (monitor) | pcm-bridge | 9090 | 2* | pi4audio-convolver | Mixxx stereo spectrum (post-routing, pre-FIR) |
+| pcm-bridge (capture-usb) | pcm-bridge | 9091 | 8 | USBStreamer input | ADA8200 ADAT capture (mic inputs) |
+| level-bridge-sw | level-bridge | 9100 | 6** | pi4audio-level-bridge-sw | Software output levels (convolver out) |
+| level-bridge-hw-out | level-bridge | 9101 | 8 | pi4audio-level-bridge-hw-out | Hardware output levels (USBStreamer out) |
+| level-bridge-hw-in | level-bridge | 9102 | 8 | pi4audio-level-bridge-hw-in | Hardware input levels (USBStreamer in) |
+| pcm-bridge-umik | pcm-bridge | 9093 | 1 | UMIK-1 capture | UMIK-1 measurement spectrum (planned) |
+
+\* Venue workaround: reconfigured from 4ch to 2ch for Mixxx stereo.
+\** Venue: 6ch to match 3-way convolver output. Lab default: 8ch.
+
+**Rationale:**
+
+1. **Decoupled channel counts.** Each source has its own natural channel
+   count: Mixxx stereo = 2, convolver output = 4 or 6 (depends on speaker
+   profile), USBStreamer = 8, UMIK-1 = 1. A single bridge instance forces a
+   lowest-common-denominator channel count or wastes bandwidth padding unused
+   channels. Separate instances let each match its source exactly.
+
+2. **Independent lifecycle.** Restarting or reconfiguring one bridge does not
+   affect others. Changing the speaker profile from 2-way (4ch) to 3-way
+   (6ch) requires restarting level-bridge-sw with a new channel count — this
+   should not disrupt UMIK-1 spectrum display or hardware input monitoring.
+
+3. **Failure isolation.** If one bridge instance crashes or disconnects, the
+   others continue operating. A TCP connection failure on port 9100 (sw
+   levels) does not affect spectrum display on port 9090 (pcm) or
+   measurement capture on port 9093 (UMIK-1).
+
+4. **Eliminates F-188 class defects.** When all channels flow through a
+   single bridge, the Web UI must agree on a global channel count. Any
+   mismatch (profile says 6, JS expects 4) causes rendering failures. With
+   separate instances, each WebSocket connection knows its own channel count
+   independently.
+
+5. **GM link management scales naturally.** Each bridge instance has a unique
+   PW node name. GM's routing table defines links per instance per mode.
+   Adding a new tap point means adding a new instance + routing table entry —
+   no changes to existing instances.
+
+**Consequences:**
+
+1. Port range 9090-9102 reserved for bridge instances. New instances take
+   the next available port.
+2. Each instance has its own env file in `configs/pcm-bridge/` or
+   `configs/level-bridge/` and its own systemd unit.
+3. Web UI's `PCM_BRIDGE_URLS` environment variable accepts a JSON map of
+   source names to TCP addresses, enabling per-source connection
+   configuration.
+4. The `CHANNELS` parameter in each env file must be updated when the
+   speaker profile changes the number of output channels for that tap point
+   (e.g., 2-way → 3-way changes level-bridge-sw from 8 to 6 active
+   channels). This is a manual step today; future automation via profile
+   activation is desirable.
+
+### D-057 Addendum: Local-demo mock boundary (owner directive)
+
+**Rule: Only physical hardware may be mocked in local-demo. Everything else
+must be real.**
+
+The per-source bridge architecture must be testable on a development machine
+without audio hardware. This requires a clear boundary between what is mocked
+and what runs as real code. The owner has defined this boundary explicitly.
+
+**Allowed mocks (hardware not present on dev machine):**
+
+| Component | What is mocked | Why |
+|-----------|---------------|-----|
+| USBStreamer audio sink | PW null-sink or adapter node | No physical DAC/amp chain on dev machine |
+| USBStreamer audio source | PW null-source or adapter node | No physical ADC/mic preamp on dev machine |
+| UMIK-1 | PW null-source or room-sim convolver output | No physical measurement mic on dev machine |
+| Mixxx | signal-gen or any PW audio source | DJ software not required for integration testing |
+
+**Must be REAL (no mocks allowed):**
+
+| Component | Why real |
+|-----------|---------|
+| PipeWire | Actual audio graph, actual link creation, actual port negotiation |
+| PipeWire filter-chain / convolver | Real FIR convolution with real filter coefficients |
+| GraphManager | Real reconciler, real mode transitions, real link management |
+| pcm-bridge (all instances) | Real TCP server, real PCM streaming, real PW capture |
+| level-bridge (all instances) | Real TCP server, real level computation, real PW capture |
+| Web UI backend (FastAPI) | Real API endpoints, real WebSocket connections, real data flow |
+
+**Rationale:** The mock boundary exists at the hardware interface. Everything
+above the PW adapter nodes — the entire software stack — runs identically in
+local-demo and production. This ensures that bugs caught in local-demo are
+real bugs, not mock artifacts. The venue session demonstrated that mock-only
+testing misses real integration failures (D-049 Revision: self-linking worked
+in local-demo but failed on production because WP auto-linking was disabled).
+
+**Impact on local-demo:**
+- `scripts/local-demo.sh` must start real PipeWire, real GM, real bridge
+  instances, and real convolver — not simulated versions
+- Hardware nodes are replaced by PW null-sink/null-source adapters with
+  matching channel counts and port names
+- Room simulation (US-067) provides a synthetic UMIK-1 signal by convolving
+  speaker output through a simulated room impulse response — this is real DSP
+  running in a real PW filter-chain node, not a mock
+- Test fixtures that bypass PipeWire (e.g., calling `generate_filter_chain_conf()`
+  directly in unit tests) remain valid for unit testing. The mock boundary
+  applies to integration and E2E testing only.
+
+**Amends:** D-049 point 2 (pcm-bridge described as "0-1 instances"). The
+per-source model means multiple pcm-bridge instances may run concurrently,
+each tapping a different source. D-049's level-bridge design (3 instances)
+already followed this pattern.
+
+**Related:** D-049 (level-bridge/pcm-bridge separation), D-049 Revision
+(GM-managed links), US-084 (level-bridge Pi deployment), F-188 (channel
+count coupling defects), F-193 (UMIK-1 channel index hardcoding), US-067
+(room simulation for local-demo).
