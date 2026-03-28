@@ -65,6 +65,10 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 MOCK_MODE = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
 
+# Number of interleaved PCM channels from pcm-bridge (must match --channels).
+# 2 = stereo main mix (Mixxx L/R, default), 4 = legacy 2-way, 6 = 3-way.
+PCM_CHANNELS = int(os.environ.get("PI4AUDIO_PCM_CHANNELS", "2"))
+
 
 # -- Systemd watchdog (D-036 / WP-G) ---------------------------------------
 
@@ -312,7 +316,7 @@ async def index():
 @app.get("/api/v1/status")
 async def status():
     """Health-check endpoint — returns 200 when the service is up."""
-    return {"status": "ok"}
+    return {"status": "ok", "pcm_channels": PCM_CHANNELS}
 
 
 @app.get("/api/v1/pcm-sources")
@@ -421,7 +425,7 @@ async def _pcm_tcp_relay(ws: WebSocket, host: str, port: int,
     cycles when pcm-bridge starts after the web UI.
     """
     _V2_HEADER = 24
-    _NUM_CHANNELS = 4
+    _NUM_CHANNELS = PCM_CHANNELS
     tcp_sock = None
     try:
         # F-102: retry TCP connection to pcm-bridge with short backoff.
