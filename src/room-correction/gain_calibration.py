@@ -414,13 +414,23 @@ def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
                            capture_target):
     """Play a burst via signal-gen RPC and capture via pw-record.
 
-    Separated play + capture pattern (US-067 Track A).  The signal
-    generator plays the noise on the specified channel while pw-record
-    captures from the UMIK-1 PW source node simultaneously.
+    Separated play + capture pattern (US-067 Track A).  Signal-gen starts
+    playing BEFORE pw-record starts capturing.  This ensures the PipeWire
+    loopback chain (used in local-demo) is actively passing audio when
+    pw-record connects — the loopback module's source side may produce
+    zeros if no audio is flowing through its sink side when a consumer
+    first links (F-177: PW loopback cold-start race).
+
+    The burst duration is extended by a warmup margin so that the captured
+    portion still contains the full requested duration of audio.
     """
     from pw_capture import start_capture, stop_capture, load_wav
 
     duration_s = len(noise_signal) / sr
+    # Extra time for audio to propagate through the loopback chain before
+    # pw-record starts.  1.0s is sufficient based on empirical testing
+    # (10/10 pass rate vs ~30% failure with record-first ordering).
+    _CHAIN_WARMUP_S = 1.0
 
     # Compute signal level (RMS in dBFS) for the signal-gen play RPC.
     rms = np.sqrt(np.mean(noise_signal.astype(np.float64) ** 2))
@@ -435,7 +445,20 @@ def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
     os.close(cap_fd)
 
     try:
-        # 1. Start capture (pw-record begins writing to WAV file)
+        # 1. Start playback FIRST so the loopback chain is warm.
+        #    Extend duration to cover warmup + capture + margin.
+        play_duration = _CHAIN_WARMUP_S + duration_s + 1.5
+        signal_gen.play(
+            signal="pink",
+            channels=[channel_index + 1],  # 1-indexed for RPC
+            level_dbfs=level_dbfs,
+            duration=play_duration,
+        )
+
+        # 2. Wait for audio to propagate through the loopback chain.
+        time.sleep(_CHAIN_WARMUP_S)
+
+        # 3. Start capture (pw-record connects to an already-active source).
         proc = start_capture(
             output_path=cap_path,
             target=capture_target or "alsa_input.usb-miniDSP_UMIK-1",
@@ -444,21 +467,13 @@ def _play_burst_pw_capture(noise_signal, channel_index, sr, signal_gen,
         )
 
         try:
-            # 2. Play pink noise via signal-gen RPC (play-only, no record)
-            signal_gen.play(
-                signal="pink",
-                channels=[channel_index + 1],  # 1-indexed for RPC
-                level_dbfs=level_dbfs,
-                duration=duration_s,
-            )
-
-            # 3. Wait for playback to complete + decay margin
+            # 4. Wait for the burst capture duration + decay margin.
             time.sleep(duration_s + 0.3)
         finally:
-            # 4. Stop capture (SIGINT -> pw-record finalizes WAV)
+            # 5. Stop capture (SIGINT -> pw-record finalizes WAV)
             stop_capture(proc)
 
-        # 5. Load the captured audio
+        # 6. Load the captured audio
         recording = load_wav(cap_path)
         # Return mono float64, trimmed to signal duration
         n_signal = len(noise_signal)
