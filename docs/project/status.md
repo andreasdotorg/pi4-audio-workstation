@@ -274,9 +274,9 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **Security Specialist:** S-001/S-002 HIGH RESOLVED (#109 + #115 committed). No open security findings.
 - **Architect:** 3 rework items ALL RESOLVED (#110, #112, #111). 5 warnings noted (not blocking). 9 GOOD.
 **VENUE SESSION (2026-03-28 evening) — Pi at 172.17.78.246:**
-- worker-2 → **ACTIVE — Task #213: F-188 (pcm-bridge 4ch/6ch mismatch) + F-192 (wrong tap point)** (venue-immediate)
-- worker-3 → **ACTIVE — Task #214: F-191 (GM routing 4ch hardcode) + Task #215: F-189/F-190 (web UI 4ch hardcode)**
-- worker-1 → status unknown — JS mono sum work (needs F-number assignment when details arrive)
+- worker-2 → **IDLE** — #213, #216 completed. 2 untracked local fixes awaiting Architect review + CM commit (`pw_config_generator.py:194` gain-staging, `generate_bose_filters.py:54` frequency_hz list). 1122+823 tests pass.
+- worker-3 → **IDLE** — #214, #215, #218 completed. #217 (GM deploy to Pi) **STOPPED by owner**. Pi in broken state (GM crash-looping, stashes not dropped, orphaned Nix builds).
+- worker-1 → **UNKNOWN** — never responded this session. JS mono sum work mentioned but no details received.
 - **ADVISORY CONSENSUS REACHED:** Architect + AE + AD all agree on D-049 architecture with Option A (dedicated pcm-bridge-umik on port 9093). Process gate CLEARED — workers may commit.
 - **AD challenge findings (5):**
   - AD-MON-1 (HIGH): Level-bridge never deployed to Pi — task #9 priority elevated
@@ -289,6 +289,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 - **PO DECISION on UMIK-1 (REVISED):** Extend US-084 with new AC for dedicated pcm-bridge-umik (port 9093). PO agreed with PM recommendation — same architecture pattern, one additional instance. AC added to user-stories.md. Existing US-084 ACs unchanged. Monitoring architecture (non-UMIK) covered by US-084 + existing docs (TW gap only).
 - **Task #9 priority elevated:** Level-bridge Pi deployment — zero production validation of the architecture all venue fixes depend on.
 - **Open independent defects:** F-192 (wrong tap point, MEDIUM, US-084 gap), F-193 (UMIK ch index, MEDIUM), F-194 (bridge disconnect UX, MEDIUM).
+- **US-107 filed:** GM Runtime Layout Reconfiguration via RPC. MEDIUM priority. Activate endpoint sends new layout to GM via RPC (port 4002), GM reconciles links in-place without restart. Avoids USBStreamer transient risk. Depends on US-059, US-106, US-091. Draft status, needs Architect + AE + AD spec.
 - **Venue fixes committed:** commit 145 (UMIK ch index JS fix), commit 146 (F-186 3-way config gen fix), commit 147 (D-055 IIR HPF removal)
 - **6 crossover-only FIR filters generated + deployed to Pi**
 - **PROCESS GATE CLEARED:** Advisory consensus reached (Architect + AE + AD). Workers may commit. Key constraint from AD: level-bridge instances must use `--managed` flag (AD-MON-5).

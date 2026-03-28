@@ -6639,3 +6639,101 @@ Add distinct visual states:
 
 **Related:** US-084 (multiple bridge instances make this more important),
 F-188 (bridge mismatch caused debugging confusion at venue)
+
+## F-195: pw_config_generator gain staging lookup fails for 3-way roles (OPEN)
+
+**Filed:** 2026-03-28
+**Severity:** High (wrong gain values for midrange/tweeter in 3-way configs)
+**Status:** OPEN — fix ready (worker-2), awaiting Architect review + CM commit
+**Affects:** `pw_config_generator.py:194`, PW filter-chain gain node generation
+**Found by:** Venue testing (2026-03-28)
+**Related story:** US-091 (N-way crossover AC failure)
+
+### Description
+
+The gain staging lookup in `pw_config_generator.py` (line 194) fails for
+3-way driver roles. When generating a PW filter-chain config for a 3-way
+speaker profile, the role-to-gain-staging mapping does not include entries
+for midrange and tweeter roles, causing these drivers to receive incorrect
+gain values in the generated config.
+
+### Impact
+
+- Midrange and tweeter channels get wrong gain values in 3-way configs
+- Could result in dangerously incorrect levels on mid/HF drivers
+- Blocks correct 3-way filter-chain config generation
+
+### Fix
+
+Worker-2 has fixed the role-to-gain-staging mapping at line 194 to include
+all N-way driver roles. 1122 tests pass. Awaiting Architect review + CM commit.
+
+**Related:** F-186 (3-way config gen produced wrong convolver count),
+US-091 (N-way crossover support), F-188 (reclassified US-091 finding)
+
+## F-196: generate_bose_filters crashes on frequency_hz list input (OPEN)
+
+**Filed:** 2026-03-28
+**Severity:** High (crashes filter generation for 3-way profiles)
+**Status:** OPEN — fix ready (worker-2), awaiting Architect review + CM commit
+**Affects:** `generate_bose_filters.py:54`, FIR filter generation pipeline
+**Found by:** Venue testing (2026-03-28)
+**Related story:** US-091 (N-way crossover AC failure)
+
+### Description
+
+The `generate_bose_filters.py` module crashes at line 54 when `frequency_hz`
+is a list (as it is for 3-way profiles with two crossover points). The code
+expects a scalar value but 3-way profiles provide a list of crossover
+frequencies (e.g., `[300, 2000]` for a low/mid and mid/high crossover).
+
+### Impact
+
+- Cannot generate FIR filters for any 3-way speaker profile
+- Blocks the entire filter generation → deployment workflow for 3-way
+- Directly blocked venue 3-way speaker operation
+
+### Fix
+
+Worker-2 has fixed the `frequency_hz` list handling at line 54. 823 tests
+pass. Awaiting Architect review + CM commit.
+
+**Related:** F-186 (3-way config gen issues), US-091 (N-way crossover support),
+F-195 (gain staging for 3-way roles)
+
+## F-197: speaker_routes.py _compute_target_gains wrong for 3-way profiles (OPEN)
+
+**Filed:** 2026-03-28
+**Severity:** High (wrong ramp-up target gains for 3-way — safety-critical path)
+**Status:** OPEN — not yet fixed
+**Affects:** `speaker_routes.py:861-862`, `_compute_target_gains()`, D-043 safety ramp-up flow
+**Found by:** Architect review (2026-03-28, flagged as pre-existing)
+**Related story:** US-091 (N-way crossover AC failure)
+
+### Description
+
+The `_compute_target_gains()` function at `speaker_routes.py:861-862` has the
+same unconditional satellite mapping bug that F-195 identified in
+`pw_config_generator.py:194`. The gain lookup does not handle 3-way driver
+roles (midrange, tweeter), producing wrong ramp-up target gains when
+activating a 3-way speaker profile via the D-043 safety flow (mute -> switch
+-> ramp-up).
+
+### Impact
+
+- D-043 safety ramp-up applies incorrect target gains to midrange/tweeter
+  channels in 3-way configs
+- Could ramp up mid/HF drivers to dangerously wrong levels during profile
+  activation
+- Same class of bug as F-195 but in the activation safety path, making it
+  potentially more dangerous (safety-critical code path)
+
+### Fix
+
+Apply the same role-to-gain-staging mapping fix from F-195 to the
+`_compute_target_gains()` function. The fix pattern is identical — extend
+the mapping to include all N-way driver roles.
+
+**Related:** F-195 (same bug in pw_config_generator.py — fix ready),
+US-091 (N-way crossover support), task #69 (T-089-8: activate + D-043
+safety flow)

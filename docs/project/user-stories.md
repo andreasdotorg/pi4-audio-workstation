@@ -7391,6 +7391,67 @@ Task #150 committed a fix (`494c90d`) adding these properties and triggering rec
 
 ---
 
+## US-107: GM Runtime Layout Reconfiguration via RPC
+
+**As** the system operator,
+**I want** the GraphManager to update its speaker layout and link topology at runtime via an RPC command (without restarting),
+**so that** switching speaker profiles from the web UI does not tear down live audio links, avoids USBStreamer transient risk, and maintains continuous audio output.
+
+**Status:** draft (2026-03-28)
+**Priority:** MEDIUM — operational need, not venue-urgent
+**Depends on:** US-059 (GraphManager Core — DONE), US-106 (Reconciler — planned), US-091 (N-way topology — in-review)
+**Related:** US-089 (speaker config management — activate endpoint triggers this)
+
+### Background
+
+GM currently accepts speaker layout via CLI args (`--speaker-channels`, `--sub-channels`) at startup. Changing the active speaker profile (e.g., switching from a 2-way to a 3-way config) requires restarting GM with new CLI args. Restarting GM tears down all PipeWire links it manages, causing:
+
+1. Audio dropout (all speaker outputs momentarily lost)
+2. USBStreamer transient risk (loss of audio stream can produce transients through the amplifier chain — see `docs/operations/safety.md`)
+3. Race conditions during link re-creation (WirePlumber may interfere during the restart window)
+
+The web UI's activate endpoint (`POST /api/v1/speakers/profiles/{name}/activate`) needs to send the new layout to GM via RPC on port 4002 instead of requiring a GM restart. GM should update its internal routing table and reconcile links in-place — destroying links that are no longer needed and creating new ones for the updated topology. This follows the existing `SetMode` RPC pattern.
+
+### Acceptance Criteria
+
+**AC1: Layout RPC command**
+- [ ] New GM RPC command `SetLayout` (or similar) on port 4002
+- [ ] Accepts speaker channel count, sub channel count, and channel assignment map
+- [ ] Returns success/failure with the resulting link topology summary
+
+**AC2: In-place link reconciliation**
+- [ ] GM updates its routing table without tearing down ALL links
+- [ ] Links common to both old and new topology are preserved (e.g., if left main stays on ch1 in both 2-way and 3-way, that link is not destroyed and recreated)
+- [ ] Only delta links are created/destroyed (minimize audio disruption)
+- [ ] No USBStreamer transient from the transition
+
+**AC3: Web UI integration**
+- [ ] Activate endpoint calls GM `SetLayout` RPC instead of requiring GM restart
+- [ ] UI reports success/failure from GM response
+- [ ] Graph tab updates to reflect new topology after layout change
+
+**AC4: Safety**
+- [ ] Layout change during active audio output produces at most a brief dropout on channels being reconfigured, NOT a full audio loss
+- [ ] No transient risk on channels not being reconfigured
+- [ ] If the new layout is invalid (e.g., exceeds USBStreamer channel count), GM rejects with error and keeps the current layout
+
+### Definition of Done
+
+- [ ] All acceptance criteria met
+- [ ] Architect review (RPC protocol, reconciliation strategy)
+- [ ] AE review (audio continuity, transient safety)
+- [ ] AD challenge (failure modes, edge cases)
+- [ ] Tested with 2-way → 3-way → 2-way round-trip on Pi with live audio
+- [ ] No GM restart needed for profile activation
+
+### Out of scope
+
+- Mode switching (already handled by `SetMode` RPC)
+- Level-bridge reconfiguration (covered by US-084)
+- Filter hot-swap (covered by filter deploy endpoint)
+
+---
+
 ## Process Gate: Measurement UI Development Cycle (owner directive 2026-03-14)
 
 **GATE:** US-047, US-048, and US-049 implementation is blocked until the
