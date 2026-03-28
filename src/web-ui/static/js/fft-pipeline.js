@@ -29,7 +29,7 @@
      * @param {Object} opts
      * @param {number} [opts.fftSize=2048]
      * @param {number} [opts.sampleRate=48000]
-     * @param {number} [opts.numChannels=4]
+     * @param {number} [opts.numChannels=2]
      * @param {number} [opts.dbMin=-60]
      * @param {number} [opts.dbMax=0]
      * @param {number} [opts.smoothing=0.3]
@@ -40,7 +40,7 @@
         opts = opts || {};
         var FFT_SIZE = opts.fftSize || 2048;
         var SAMPLE_RATE = opts.sampleRate || 48000;
-        var NUM_CHANNELS = opts.numChannels || 4;
+        var NUM_CHANNELS = opts.numChannels || 2;
         var DB_MIN = opts.dbMin !== undefined ? opts.dbMin : -60;
         var DB_MAX = opts.dbMax !== undefined ? opts.dbMax : 0;
         var SMOOTHING = opts.smoothing !== undefined ? opts.smoothing : 0.3;

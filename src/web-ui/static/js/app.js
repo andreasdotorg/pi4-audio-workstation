@@ -28,7 +28,7 @@ var PiAudio = (function () {
     var globalConsumers = {}; // { name: { init(), onMonitoring(), onSystem(), onMeasurement() } }
     var sockets = {};        // { path: { ws, connected, attempt, onMessage, onConn } }
     var initialized = false;
-    var pcmChannels = 6;     // default; overwritten by /api/v1/status fetch at init
+    var pcmChannels = 2;     // default; overwritten by /api/v1/status fetch at init
 
     // Map WebSocket paths to globalConsumer callback names
     var WS_PATH_TO_CALLBACK = {
