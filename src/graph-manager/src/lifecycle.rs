@@ -21,7 +21,7 @@
 //! | pcm-bridge         | Managed  | `pi4audio-pcm-bridge` (Exact)                  |
 //! | convolver          | PW module| `pi4audio-convolver` (Exact)                   |
 //! | usbstreamer        | Hardware | `alsa_output.usb-MiniDSP_USBStreamer*` (Prefix)|
-//! | umik1              | Hardware | `alsa_input.usb-miniDSP_UMIK-1*` (Prefix)     |
+//! | umik1              | Hardware | `alsa_input.usb-miniDSP_Umik-1*` (Prefix)     |
 //! | level-bridge-sw    | Managed  | `pi4audio-level-bridge-sw` (Exact)             |
 //! | level-bridge-hw-out| Managed  | `pi4audio-level-bridge-hw-out` (Exact)         |
 //! | level-bridge-hw-in | Managed  | `pi4audio-level-bridge-hw-in` (Exact)          |
@@ -112,7 +112,7 @@ impl ComponentRegistry {
                 TrackedComponent {
                     name: "umik1".to_string(),
                     matcher: NodeMatch::Prefix(
-                        "alsa_input.usb-miniDSP_UMIK-1".to_string(),
+                        "alsa_input.usb-miniDSP_Umik-1".to_string(),
                     ),
                     health: ComponentHealth::Disconnected,
                 },

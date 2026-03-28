@@ -184,7 +184,7 @@ impl DeviceStatus {
             },
             Self {
                 name: "umik1".to_string(),
-                node_name: "alsa_input.usb-miniDSP_UMIK-1-00.mono-fallback".to_string(),
+                node_name: "alsa_input.usb-miniDSP_Umik-1-00.mono-fallback".to_string(),
                 status: "unknown".to_string(),
             },
             Self {

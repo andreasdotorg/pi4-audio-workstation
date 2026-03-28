@@ -937,13 +937,13 @@ mod tests {
         g.add_node(make_node(800, "pi4audio-signal-gen-capture", "Stream/Input/Audio"));
         g.add_port(make_port(80000, 800, "input_MONO", "in"));
 
-        // -- UMIK-1 capture: 1 port (mono) --
+        // -- UMIK-1 capture: 1 port (stereo presented as FL/FR by ALSA) --
         g.add_node(make_node(
             900,
-            "alsa_input.usb-miniDSP_UMIK-1-00.mono-fallback",
+            "alsa_input.usb-miniDSP_Umik-1-00.analog-stereo",
             "Audio/Source",
         ));
-        g.add_port(make_port(90000, 900, "capture_MONO", "out"));
+        g.add_port(make_port(90000, 900, "capture_FL", "out"));
 
         g
     }

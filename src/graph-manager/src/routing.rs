@@ -274,8 +274,9 @@ pub enum AppPortNaming {
     /// Signal generator capture input: `input_MONO`.
     /// Only channel 1 is valid.
     SignalGenCaptureInput,
-    /// UMIK-1 capture: `capture_MONO`.
-    /// Only channel 1 is valid.
+    /// UMIK-1 capture: `capture_FL`.
+    /// The UMIK-1 is mono but ALSA/PipeWire presents it as stereo (FL/FR).
+    /// We use only the left channel.
     Umik1Capture,
     /// pcm-bridge input: `input_1`, `input_2`, ...
     /// PipeWire creates one-based input ports for streams without position info.
@@ -293,7 +294,7 @@ pub enum AppPortNaming {
     /// Same format as PcmBridgeInput (PW convention for no SPA positions).
     /// Channel 1 -> "input_1", channel 2 -> "input_2", etc.
     LevelBridgeInput,
-    /// UMIK-1 loopback sink playback port: `playback_MONO` (F-159).
+    /// UMIK-1 loopback sink playback port: `playback_FL` (F-159).
     /// Local-demo only — loopback module's Audio/Sink capture side.
     /// Only channel 1 is valid.
     Umik1LoopbackPlayback,
@@ -322,7 +323,7 @@ impl AppPortNaming {
             }
             AppPortNaming::Umik1Capture => {
                 assert_eq!(channel, 1, "UMIK-1 is mono, only channel 1");
-                "capture_MONO".to_string()
+                "capture_FL".to_string()
             }
             AppPortNaming::PcmBridgeInput => format!("input_{}", channel),
             AppPortNaming::ConvolverMonitor => format!("monitor_AUX{}", zero_based),
@@ -330,7 +331,7 @@ impl AppPortNaming {
             AppPortNaming::LevelBridgeInput => format!("input_{}", channel),
             AppPortNaming::Umik1LoopbackPlayback => {
                 assert_eq!(channel, 1, "UMIK-1 loopback sink is mono, only channel 1");
-                "playback_MONO".to_string()
+                "playback_FL".to_string()
             }
         }
     }
@@ -669,7 +670,7 @@ impl RoutingTable {
             output_node: NodeMatch::Exact(ROOM_SIM_OUT.to_string()),
             output_port: rs_out.port_name(1), // output_AUX0
             input_node: NodeMatch::Exact(UMIK1_LOOPBACK_SINK.to_string()),
-            input_port: lb.port_name(1), // playback_MONO
+            input_port: lb.port_name(1), // playback_FL
             optional: true, // only present in local-demo
         });
 
@@ -879,7 +880,7 @@ mod tests {
         let m = NodeMatch::Prefix("alsa_output.usb-MiniDSP_USBStreamer".to_string());
         assert!(m.matches("alsa_output.usb-MiniDSP_USBStreamer-00.analog-stereo"));
         assert!(m.matches("alsa_output.usb-MiniDSP_USBStreamer-01.pro-output-0"));
-        assert!(!m.matches("alsa_input.usb-miniDSP_UMIK-1"));
+        assert!(!m.matches("alsa_input.usb-miniDSP_Umik-1"));
     }
 
     #[test]
@@ -917,7 +918,7 @@ mod tests {
     fn desired_link_display_optional() {
         let link = DesiredLink {
             output_node: NodeMatch::Exact("umik-1".to_string()),
-            output_port: "capture_MONO".to_string(),
+            output_port: "capture_FL".to_string(),
             input_node: NodeMatch::Exact("signal-gen-capture".to_string()),
             input_port: "input_MONO".to_string(),
             optional: true,
@@ -1019,7 +1020,7 @@ mod tests {
         let meas_links = table.links_for(Mode::Measurement);
         let umik_links: Vec<_> = meas_links
             .iter()
-            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("UMIK")))
+            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("Umik")))
             .collect();
         assert_eq!(umik_links.len(), 2);
         assert!(umik_links.iter().all(|l| l.optional));
@@ -1074,7 +1075,7 @@ mod tests {
             })
             .collect();
         assert_eq!(pcm_links.len(), 1);
-        assert!(matches!(&pcm_links[0].output_node, NodeMatch::Prefix(p) if p.contains("UMIK")));
+        assert!(matches!(&pcm_links[0].output_node, NodeMatch::Prefix(p) if p.contains("Umik")));
         assert_eq!(pcm_links[0].input_port, "input_3");
         assert!(pcm_links[0].optional);
     }
@@ -1100,7 +1101,7 @@ mod tests {
         assert_eq!(pcm_links[1].output_port, "out_1");
         assert_eq!(pcm_links[1].input_port, "input_2");
         // Third link: UMIK-1 on ch3.
-        assert!(matches!(&pcm_links[2].output_node, NodeMatch::Prefix(p) if p.contains("UMIK")));
+        assert!(matches!(&pcm_links[2].output_node, NodeMatch::Prefix(p) if p.contains("Umik")));
         assert_eq!(pcm_links[2].input_port, "input_3");
     }
 
@@ -1117,11 +1118,11 @@ mod tests {
             .collect();
         assert_eq!(pcm_links.len(), 1, "UMIK-1 mono → 1 pcm-bridge link");
         assert!(
-            matches!(&pcm_links[0].output_node, NodeMatch::Prefix(p) if p.contains("UMIK")),
+            matches!(&pcm_links[0].output_node, NodeMatch::Prefix(p) if p.contains("Umik")),
             "Measurement pcm-bridge link should come from UMIK-1, got: {}",
             pcm_links[0].output_node,
         );
-        assert_eq!(pcm_links[0].output_port, "capture_MONO", "UMIK-1 mono capture port");
+        assert_eq!(pcm_links[0].output_port, "capture_FL", "UMIK-1 capture port (FL channel)");
         assert_eq!(pcm_links[0].input_port, "input_3", "pcm-bridge ch3 (dedicated UMIK-1)");
     }
 
@@ -1373,15 +1374,15 @@ mod tests {
 
     #[test]
     fn umik1_uses_capture_mono_port() {
-        // US-088: 2 UMIK-1 links (→ signal-gen-capture + → pcm-bridge), both use capture_MONO.
+        // US-088: 2 UMIK-1 links (→ signal-gen-capture + → pcm-bridge), both use capture_FL.
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let umik_links: Vec<_> = meas_links
             .iter()
-            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("UMIK")))
+            .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("Umik")))
             .collect();
         assert_eq!(umik_links.len(), 2);
-        assert!(umik_links.iter().all(|l| l.output_port == "capture_MONO"));
+        assert!(umik_links.iter().all(|l| l.output_port == "capture_FL"));
     }
 
     #[test]
@@ -1573,7 +1574,7 @@ mod tests {
 
     #[test]
     fn port_naming_umik1_capture() {
-        assert_eq!(AppPortNaming::Umik1Capture.port_name(1), "capture_MONO");
+        assert_eq!(AppPortNaming::Umik1Capture.port_name(1), "capture_FL");
     }
 
     #[test]
