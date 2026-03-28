@@ -268,6 +268,7 @@
                     var mono;
                     if (channelIndex >= 0) {
                         // Task #52: Extract single channel (e.g. ch3 = UMIK-1)
+                        if (channelIndex >= NUM_CHANNELS) continue;
                         var s = pcm[i * NUM_CHANNELS + channelIndex];
                         if (s !== s || s > 2 || s < -2) continue;
                         mono = s;

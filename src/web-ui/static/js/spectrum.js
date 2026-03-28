@@ -130,7 +130,7 @@
         fftPipeline = PiAudioFFT.create({
             fftSize: FFT_SIZE,
             sampleRate: SAMPLE_RATE,
-            numChannels: 4,
+            numChannels: PiAudio.pcmChannels,
             dbMin: DB_MIN,
             dbMax: DB_MAX,
             smoothing: ANALYSER_SMOOTHING

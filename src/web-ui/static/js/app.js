@@ -28,6 +28,7 @@ var PiAudio = (function () {
     var globalConsumers = {}; // { name: { init(), onMonitoring(), onSystem(), onMeasurement() } }
     var sockets = {};        // { path: { ws, connected, attempt, onMessage, onConn } }
     var initialized = false;
+    var pcmChannels = 6;     // default; overwritten by /api/v1/status fetch at init
 
     // Map WebSocket paths to globalConsumer callback names
     var WS_PATH_TO_CALLBACK = {
@@ -271,10 +272,7 @@ var PiAudio = (function () {
 
     // -- Initialization --
 
-    function init() {
-        if (initialized) return;
-        initialized = true;
-
+    function initModules() {
         var tabs = document.querySelectorAll(".nav-tab");
         for (var i = 0; i < tabs.length; i++) {
             tabs[i].addEventListener("click", function () {
@@ -293,6 +291,21 @@ var PiAudio = (function () {
         if (views[activeView] && views[activeView].onShow) {
             views[activeView].onShow();
         }
+    }
+
+    function init() {
+        if (initialized) return;
+        initialized = true;
+
+        // Fetch PCM channel count from server before initializing modules
+        // so FFT pipelines use the correct value from the start.
+        fetch("/api/v1/status")
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.pcm_channels) pcmChannels = data.pcm_channels;
+            })
+            .catch(function () { /* keep default */ })
+            .then(initModules);
     }
 
     document.addEventListener("DOMContentLoaded", init);
@@ -318,6 +331,7 @@ var PiAudio = (function () {
         splColor: splColor,
         splColorRaw: splColorRaw,
         scenario: scenario,
+        get pcmChannels() { return pcmChannels; },
     };
 
 })();

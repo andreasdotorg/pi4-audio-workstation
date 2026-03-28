@@ -947,7 +947,7 @@
         splPipeline = PiAudioFFT.create({
             fftSize: 4096,
             sampleRate: SPEC_SAMPLE_RATE,
-            numChannels: 4,
+            numChannels: PiAudio.pcmChannels,
             dbMin: -90,
             dbMax: 0,
             smoothing: 0,
@@ -1041,7 +1041,7 @@
         specPipeline = PiAudioFFT.create({
             fftSize: SPEC_FFT_SIZE,
             sampleRate: SPEC_SAMPLE_RATE,
-            numChannels: 4,
+            numChannels: PiAudio.pcmChannels,
             dbMin: SPEC_DB_MIN,
             dbMax: SPEC_DB_MAX,
             smoothing: 0.3,
