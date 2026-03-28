@@ -373,8 +373,8 @@ html, body {
 .sb-mode-dropdown {
     position: absolute;
     right: 0;
-    bottom: calc(100% + 6px);
-    background: var(--card);
+    top: calc(100% + 6px);
+    background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 4px;
@@ -382,7 +382,7 @@ html, body {
     flex-direction: column;
     gap: 2px;
     z-index: 200;
-    box-shadow: 0 -2px 8px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
 .sb-mode-dropdown.hidden { display: none; }
 .sb-mode-option {

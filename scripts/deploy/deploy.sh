@@ -562,24 +562,32 @@ echo ""
 echo "=== Section 7b: Deploy speaker + hardware configs ==="
 
 # Speaker profiles and identities (YAML files)
-echo "  configs/speakers/ -> ~/speakers/"
+# F-163: Deploy to /etc/pi4audio/speakers/ to match web UI API default path
+# (speaker_routes.py checks PI4AUDIO_SPEAKERS_DIR, default /etc/pi4audio/speakers/).
+echo "  configs/speakers/ -> /etc/pi4audio/speakers/"
 if $DRY_RUN; then
-    echo "  [dry-run] rsync -a --delete $REPO_ROOT/configs/speakers/ $PI:~/speakers/"
+    echo "  [dry-run] rsync -a --delete --rsync-path='sudo rsync' $REPO_ROOT/configs/speakers/ $PI:/etc/pi4audio/speakers/"
 else
+    ssh "$PI" "sudo mkdir -p /etc/pi4audio/speakers"
     rsync -a --delete \
+        --rsync-path="sudo rsync" \
         "$REPO_ROOT/configs/speakers/" \
-        "$PI:~/speakers/"
+        "$PI:/etc/pi4audio/speakers/"
     file_count=$((file_count + 1))
 fi
 
 # Hardware configs (amplifiers, DACs, microphones)
-echo "  configs/hardware/ -> ~/hardware/"
+# F-163: Deploy to /etc/pi4audio/hardware/ to match web UI API default path
+# (hardware_routes.py checks PI4AUDIO_HARDWARE_DIR, default /etc/pi4audio/hardware/).
+echo "  configs/hardware/ -> /etc/pi4audio/hardware/"
 if $DRY_RUN; then
-    echo "  [dry-run] rsync -a --delete $REPO_ROOT/configs/hardware/ $PI:~/hardware/"
+    echo "  [dry-run] rsync -a --delete --rsync-path='sudo rsync' $REPO_ROOT/configs/hardware/ $PI:/etc/pi4audio/hardware/"
 else
+    ssh "$PI" "sudo mkdir -p /etc/pi4audio/hardware"
     rsync -a --delete \
+        --rsync-path="sudo rsync" \
         "$REPO_ROOT/configs/hardware/" \
-        "$PI:~/hardware/"
+        "$PI:/etc/pi4audio/hardware/"
     file_count=$((file_count + 1))
 fi
 echo ""

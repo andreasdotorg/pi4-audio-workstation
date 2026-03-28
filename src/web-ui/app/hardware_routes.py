@@ -43,6 +43,7 @@ _PI_HARDWARE_DIR = pathlib.Path(
 _REPO_HARDWARE_DIR = (
     pathlib.Path(__file__).resolve().parents[3] / "configs" / "hardware"
 )
+_PI_REPO_HARDWARE_DIR = pathlib.Path.home() / "pi4-audio-workstation" / "configs" / "hardware"
 
 # Allowed filename characters (prevent path traversal).
 _SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
@@ -54,6 +55,8 @@ def _hardware_dir() -> pathlib.Path | None:
         return _PI_HARDWARE_DIR
     if _REPO_HARDWARE_DIR.is_dir():
         return _REPO_HARDWARE_DIR
+    if _PI_REPO_HARDWARE_DIR.is_dir():
+        return _PI_REPO_HARDWARE_DIR
     return None
 
 

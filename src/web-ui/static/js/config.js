@@ -302,4 +302,13 @@
         onHide: function () {}
     });
 
+    PiAudio.registerGlobalConsumer("config-quantum", {
+        onSystem: function (data) {
+            var pw = data && data.pipewire;
+            if (pw && pw.quantum) {
+                updateQuantumButtons(pw.quantum, pw.sample_rate || currentSampleRate);
+            }
+        }
+    });
+
 })();
