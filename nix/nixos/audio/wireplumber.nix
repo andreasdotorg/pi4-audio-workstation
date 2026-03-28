@@ -2,10 +2,12 @@
 #
 # Deploys all WirePlumber configuration from configs/wireplumber/:
 #   50  — Disable ACP for USBStreamer (static adapters handle it)
-#   51  — Disable ACP for ALSA Loopback (legacy CamillaDSP path)
 #   52  — Lower UMIK-1 priority (measurement mic, not a driver)
 #   53  — Lua script: deny unauthorized USBStreamer ALSA access
 #   90  — Disable automatic linking (GraphManager handles all links)
+#
+# D-040: 51-loopback-disable-acp.conf REMOVED — CamillaDSP abandoned,
+# snd-aloop not loaded, no ALSA Loopback device to disable.
 #
 # Uses environment.etc to place files where WirePlumber's user config
 # search finds them, since NixOS does not expose a configPackages
@@ -22,9 +24,7 @@
     "wireplumber/wireplumber.conf.d/50-usbstreamer-disable-acp.conf" = {
       source = ../../../configs/wireplumber/50-usbstreamer-disable-acp.conf;
     };
-    "wireplumber/wireplumber.conf.d/51-loopback-disable-acp.conf" = {
-      source = ../../../configs/wireplumber/51-loopback-disable-acp.conf;
-    };
+    # D-040: 51-loopback-disable-acp.conf removed — no ALSA Loopback device.
     "wireplumber/wireplumber.conf.d/52-umik1-low-priority.conf" = {
       source = ../../../configs/wireplumber/52-umik1-low-priority.conf;
     };

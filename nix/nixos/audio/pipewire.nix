@@ -15,7 +15,8 @@ let
     cp ${../../../configs/pipewire/10-audio-settings.conf}     $out/share/pipewire/pipewire.conf.d/
     cp ${../../../configs/pipewire/20-usbstreamer.conf}         $out/share/pipewire/pipewire.conf.d/
     cp ${../../../configs/pipewire/21-usbstreamer-playback.conf} $out/share/pipewire/pipewire.conf.d/
-    cp ${../../../configs/pipewire/25-loopback-8ch.conf}        $out/share/pipewire/pipewire.conf.d/
+    # D-040: 25-loopback-8ch.conf REMOVED — CamillaDSP abandoned, no ALSA
+    # Loopback needed.  PW filter-chain convolver handles all DSP natively.
     cp ${../../../configs/pipewire/30-filter-chain-convolver.conf} $out/share/pipewire/pipewire.conf.d/
 
     # JACK config fragment (separate conf.d directory)

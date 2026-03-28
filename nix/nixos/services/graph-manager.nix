@@ -22,6 +22,18 @@ in
       default = "info";
       description = "Log verbosity level.";
     };
+
+    speakerChannels = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 4;
+      description = "Total number of speaker output channels (e.g. 4 for 2-way stereo, 6 for 3-way stereo).";
+    };
+
+    subChannels = lib.mkOption {
+      type = lib.types.str;
+      default = "3,4";
+      description = "Comma-separated 1-based sub channel numbers (e.g. '3,4' for 2-way, '1,2' for 3-way).";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -34,7 +46,7 @@ in
 
       serviceConfig = {
         Type = "simple";
-        ExecStart = "${pi4audio-packages.graph-manager}/bin/pi4audio-graph-manager --mode ${cfg.mode} --log-level ${cfg.logLevel}";
+        ExecStart = "${pi4audio-packages.graph-manager}/bin/pi4audio-graph-manager --mode ${cfg.mode} --log-level ${cfg.logLevel} --speaker-channels ${toString cfg.speakerChannels} --sub-channels ${cfg.subChannels}";
         Restart = "on-failure";
         RestartSec = 3;
 
