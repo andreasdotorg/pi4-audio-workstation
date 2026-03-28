@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4002
 DEFAULT_TIMEOUT = 2.0
-MAX_LINE_BYTES = 4096
+MAX_CMD_BYTES = 4096
+MAX_RESPONSE_BYTES = 262144
 
 
 class GraphManagerError(RuntimeError):
@@ -119,9 +120,9 @@ class GraphManagerClient:
             raise ConnectionError("Not connected to GraphManager")
         line = json.dumps(cmd, separators=(",", ":")) + "\n"
         encoded = line.encode()
-        if len(encoded) > MAX_LINE_BYTES:
+        if len(encoded) > MAX_CMD_BYTES:
             raise GraphManagerError(
-                f"Command exceeds max line length ({len(encoded)} > {MAX_LINE_BYTES})")
+                f"Command exceeds max line length ({len(encoded)} > {MAX_CMD_BYTES})")
         self._sock.sendall(encoded)
         return self._read_response(cmd.get("cmd", ""))
 
@@ -156,13 +157,13 @@ class GraphManagerClient:
         """Read a newline-delimited line from the socket."""
         while b"\n" not in self._recv_buf:
             try:
-                chunk = self._sock.recv(4096)
+                chunk = self._sock.recv(65536)
             except socket.timeout:
                 raise TimeoutError("Timed out waiting for GraphManager response")
             if not chunk:
                 raise ConnectionError("GraphManager connection closed")
             self._recv_buf += chunk
-            if len(self._recv_buf) > MAX_LINE_BYTES:
+            if len(self._recv_buf) > MAX_RESPONSE_BYTES:
                 raise GraphManagerError("Response exceeds max line length")
         idx = self._recv_buf.index(b"\n")
         line = self._recv_buf[:idx].decode("utf-8")
