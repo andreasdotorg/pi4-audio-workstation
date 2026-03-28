@@ -1969,3 +1969,71 @@ US-091 (multi-way topology support) implement this.
 
 **Related:** D-051 (dynamic config gen), US-089 (speaker config
 management), US-091 (multi-way crossover support)
+
+---
+
+## D-055: Amend D-031 — no IIR on signal chain; HPF baked into FIR (2026-03-28)
+
+**Context:** D-031 point 2 mandated a safety-net IIR highpass filter
+(4th-order Butterworth `bq_highpass` biquad) in the PipeWire filter-chain
+config, applied BEFORE the FIR convolver. The config generator
+(`pw_config_generator.py`) emits two cascaded `bq_highpass` stages per
+channel when the speaker identity declares `mandatory_hpf_hz`. This
+directly contradicts the project's foundational design principle (D-001):
+the entire architecture exists to avoid IIR group delay on the signal
+chain. An IIR biquad upstream of the convolver defeats the purpose of the
+combined minimum-phase FIR approach.
+
+**Decision (owner directive, STRONG):** No IIR filters on the audio
+signal chain. The D-031 mandatory subsonic protection requirement remains
+in full effect, but the implementation method changes:
+
+1. **The config generator MUST NOT emit `bq_highpass` nodes.** Remove all
+   IIR HPF node generation from `pw_config_generator.py`. The generated
+   filter-chain topology is: `convolver → linear gain [→ delay]` per
+   channel — no biquad stages.
+
+2. **The FIR generation pipeline MUST embed the HPF** at or below
+   `mandatory_hpf_hz` into the combined minimum-phase FIR coefficients.
+   This is the same approach used for the crossover slope: the HPF
+   becomes part of the single convolution per channel. D-031 point 4
+   already required this; D-055 makes it the SOLE protection mechanism.
+
+3. **During placeholder/dirac operation** (before room-corrected FIR
+   filters are generated), the placeholder FIR itself must include the
+   HPF slope. The dirac filter generator must produce a minimum-phase
+   HPF-only FIR (not a flat passthrough) when `mandatory_hpf_hz` is
+   declared. This closes the safety gap that D-031 point 2 was designed
+   to address, without using IIR.
+
+4. **D-031 points 1, 3, and 4 remain in effect.** Every identity must
+   declare `mandatory_hpf_hz`. Config validation must reject unprotected
+   channels. The combined FIR must embed the HPF. Only point 2 (IIR
+   safety-net) is revoked.
+
+**Rationale:** Owner directive: "An IIR filter. On the signal chain.
+Completely defeating the whole purpose of everything we are doing. Scrap
+it. Bake into FIR. I do not want to have that on stage." The project
+exists specifically to avoid IIR group delay artifacts for psytrance
+transient fidelity. Adding IIR biquads — even as "safety" — undermines
+the core value proposition. The protection is still mandatory; only the
+implementation changes from IIR to FIR.
+
+**Amends:** D-031 point 2 only. D-031 points 1, 3, 4 remain in effect.
+
+**Impact:**
+- `pw_config_generator.py`: Remove `bq_highpass` node generation, HPF
+  link generation, and HPF input routing. Remove `_BUTTERWORTH_4_Q`
+  constant. Simplify chain to `convolver → linear gain [→ delay]`.
+- Placeholder/dirac FIR generator: Must produce HPF-shaped FIR (not flat
+  passthrough) when `mandatory_hpf_hz` is set.
+- US-092 (thermal/mechanical protection): Implementation updated — HPF
+  protection is via FIR coefficients, not runtime IIR nodes.
+- No change to production `30-filter-chain-convolver.conf` (it already
+  has no HPF nodes — only `convolver → linear gain`).
+- Tests referencing `bq_highpass` nodes in generated configs must be
+  updated.
+
+**Related:** D-001 (minimum-phase FIR, no IIR), D-031 (mandatory
+subsonic protection), D-052 (ISO 226 baked into FIR), US-092 (thermal/
+mechanical protection).

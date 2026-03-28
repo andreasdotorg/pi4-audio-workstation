@@ -291,6 +291,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
   - **F-181** (HIGH): UMIK-1 port name mismatch — `capture_MONO` vs Pi `capture_FL`. Worker-2 fix ready, Rule 13 review.
   - **F-178** (MEDIUM): Target curve overlay drawn at 0dB instead of target SPL level
   - **F-179** (MEDIUM): DSP status shows "Idle" while Mixxx playing — wrong node or D-040 stale logic
+  - **F-183** (HIGH): Remove IIR HPF biquad from config generator — defeats all-FIR design (OWNER DIRECTIVE). D-031 point 2 must be amended. HPF baked into FIR instead.
   - F-174: NOT A DEFECT — quantum preselection confirmed working
 - **Note:** Reconciler fix is NOT in current deployment (DEPLOY-004 = F-166 + Track D only). 0/0 links expected.
 - **US-106 GM RECONCILER FIX — HIGH PRIORITY (owner directive).** Root cause identified: production WirePlumber config has `policy.standard = disabled` in `90-no-auto-link.conf`, preventing adapter nodes from activating (zero ports → nothing to link). NOT a code bug — config fix only. Task #150 fixed local-demo but production config was never updated.
