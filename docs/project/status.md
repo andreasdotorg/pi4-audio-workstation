@@ -76,7 +76,7 @@ stability tests (T3d, T4) and DJ controller integration (US-005/US-006).
 | US-070 | **TEST** | **3/7** | **Merged to main (2026-03-24).** GitHub-hosted runners with `cachix/install-nix-action`, two parallel jobs (test-all + test-e2e), Nix store caching, concurrency groups. CI green (run 23487581871). DoD #1-3 met (workflow, caching, jobs pass). Remaining: #4 branch protection, #5 test PR, #6 docs, #7 QE sign-off. |
 | US-065 | IMPLEMENT | 6/10 | **committed** (`965f501` + `5dad57e`). Config Tab + E2E test (#6, `5dad57e`). F-046 quantum confirm dialog committed (`30a25e1`). Remaining: UX screenshot gate (#7), Pi integration test (#8), architect sign-off (#9), safety review (#10). **STALLED** — all remaining need Pi. |
 | US-071 | **REVIEW** | **9/9** | **Owner Gate 3 FAILED (F-067).** Two issues: (1) SETUP-MANUAL writing quality — terse bullet points, needs prose and explanations; (2) CamillaDSP references should be scrubbed except one brief historical note. DoD 9/9 technically met but owner not satisfied with quality. Fix: TW full prose pass + CamillaDSP consolidation. **worker-docs assigned 2026-03-23.** |
-| US-072 | DEFERRED | 0/8 | **DEFERRED (owner directive 2026-03-22).** P1-P5 complete and committed. P6 SD image build cancelled (OOM, insufficient resources). P7 nixos-anywhere not started. Work preserved for future resumption. |
+| US-072 | **PLAN→IMPLEMENT** | **1/20** | **REACTIVATED (owner directive 2026-03-28).** Phase: PLAN complete (DECOMPOSE done by Architect, 20 tasks filed #229-#248). Entering IMPLEMENT. #229 (D-040 gap audit) DONE. 19 tasks pending across 4 phases. Decisions: D-058 (GM supervises services — target arch, US-072 uses static units as interim). Test Pi: root@192.168.178.35. |
 | US-044 | **TEST** | **6/11** | **Gap analysis complete.** 6 subtasks committed (T-044-1/2/3/4/5/8). **Code gap F-072:** GM safety alerts (link audit, watchdog mute, gain integrity) not surfaced to web UI status bar — AC-3/4/5 partially unmet. Remaining: F-072 implementation, T-044-6 reboot survival (Pi), T-044-7 no-interference (Pi), 4 advisory sign-offs (Security, AE, Architect, AD). Safety-critical. **worker-safety assigned F-072 2026-03-23.** |
 | US-063 | **VERIFY** | **5/6** | **VERIFY phase (advanced 2026-03-22).** Phase 2a delivered AC1-AC9 + DoD1-DoD5. GM RPC replaces pw-top entirely. Remaining: DoD6 (10-min DJ load soak test on Pi). Two minor doc cleanups committed. 308/308 unit tests pass. |
 | US-028 | CANCELLED | 0/0 | **cancelled** (PO grooming 2026-03-22: D-040 eliminated ALSA Loopback entirely. PW filter-chain handles routing natively. Story purpose obsolete.) |
@@ -319,17 +319,30 @@ Owner assessment: venue exposed that features were declared done without proper 
 - AD challenge: 5 findings incorporated (AD-MON-1 through AD-MON-5)
 - Pi left at venue in broken state (#217 stopped — GM crash-looping, stashes not dropped)
 
-**Open defects:**
-- F-169 (MEDIUM): Graph tab 0/0 links — blocked by US-106
-- F-173 (LOW): THM missing — needs active profile
-- F-178 (MEDIUM): Target curve offset — config-driven fix needed
-- F-179 (MEDIUM): DSP shows Idle while playing
-- F-180 (LOW): Events newest-first
-- F-182 (MEDIUM): Target curve selection + ISO 226 toggle
-- F-187 (CRITICAL): Venue noise — likely resolved by bridge reconfig
-- F-192 (MEDIUM): Wrong tap point — US-084 gap
-- F-193 (MEDIUM): UMIK ch index hardcoded in spl-global.js
-- F-194 (MEDIUM): No bridge-disconnected vs silent UI distinction
+**Active story DoD phase tracking:**
+
+| Story | Phase | Evidence |
+|-------|-------|----------|
+| US-072 | PLAN complete → IMPLEMENT | DECOMPOSE: Architect audit (15 modules, 10 gaps). PLAN: 20 tasks filed (#229-#248) with deps. Worker on #229 (done). Entering IMPLEMENT. |
+| US-085 | APPROVED (not started) | Owner directive 2026-03-28 (D-058). ACs updated with Architect technical notes. No tasks filed yet. |
+| US-075 | IMPLEMENT (AC 1-3 done) | Core complete. Remaining: AC #4-#7. F-202 belongs here (mock→real boundary). |
+
+**Open defects (with DoD phase tracking):**
+
+| Defect | Severity | Phase | Notes |
+|--------|----------|-------|-------|
+| F-169 | MEDIUM | BLOCKED | Graph tab 0/0 links — blocked by US-106 |
+| F-173 | LOW | BACKLOG | THM missing — needs active profile |
+| F-178 | MEDIUM | BACKLOG | Target curve offset — config-driven fix needed |
+| F-179 | MEDIUM | BACKLOG | DSP shows Idle while playing |
+| F-180 | LOW | BACKLOG | Events newest-first |
+| F-182 | MEDIUM | BACKLOG | Target curve selection + ISO 226 toggle |
+| F-187 | CRITICAL | BACKLOG | Venue noise — likely resolved by bridge reconfig |
+| F-192 | MEDIUM | BACKLOG | Wrong tap point — US-084 gap |
+| F-193 | MEDIUM | BACKLOG | UMIK ch index hardcoded in spl-global.js |
+| F-194 | MEDIUM | BACKLOG | No bridge-disconnected vs silent UI distinction |
+| F-201 | HIGH | IMPLEMENT (3/7) | pcmChannels 6→2 fix insufficient — deeper root cause under investigation (worker-1) |
+| F-202 | HIGH | PLAN | Local demo must use real pcm-bridge (D-057 governs) |
 - **Venue fixes committed:** commit 145 (UMIK ch index JS fix), commit 146 (F-186 3-way config gen fix), commit 147 (D-055 IIR HPF removal)
 - **6 crossover-only FIR filters generated + deployed to Pi**
 - **PROCESS GATE CLEARED:** Advisory consensus reached (Architect + AE + AD). Workers may commit. Key constraint from AD: level-bridge instances must use `--managed` flag (AD-MON-5).

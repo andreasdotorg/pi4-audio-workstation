@@ -4760,9 +4760,11 @@ signal-gen, web UI, all systemd services),
 can be provisioned in minutes, and the current manual Debian Trixie setup
 can be replaced with a declarative NixOS configuration.
 
-**Status:** deferred (owner directive 2026-03-22. SD image build needs more
-resources than available. P6/P7 cancelled. P1-P5 work preserved in
-`nix/nixos/` — boot, audio, services, display, RT kernel modules all build.)
+**Status:** REACTIVATED (owner directive 2026-03-28. Previously deferred
+2026-03-22 due to resource constraints. P1-P5 work preserved in `nix/nixos/`
+— boot, audio, services, display, RT kernel modules all build. Owner has
+provided a dedicated test Pi and refined the scope — see "Owner scope
+refinement" below.)
 **Depends on:** US-019 (state capture — NixOS config IS the captured state),
 US-059 (GraphManager must be buildable), all Rust binaries in flake
 (pcm-bridge, signal-gen, graph-manager)
@@ -4886,6 +4888,28 @@ current Pi state declaratively. Two deployment paths from the same config:
   isolation match US-000a requirements
 - [ ] Owner smoke test: flash SD image, boot Pi, verify audio output works
 
+### Owner scope refinement (2026-03-28)
+
+**Goal:** A flake (or set of flakes) that completely describes the Pi system,
+supporting three deployment methods:
+
+1. **Bootable SD card image:** `nix build .#images.sd-card` produces a
+   flashable image for provisioning a new Pi from scratch
+2. **Fresh install via nixos-anywhere:** Install NixOS on a Pi accessible
+   via SSH (e.g., a Pi running Raspberry Pi OS or a minimal NixOS)
+3. **Upgrade via nixos-anywhere:** Upgrade an already-NixOS Pi to the
+   latest configuration (incremental deployment, not full reinstall)
+
+**Test target available:** Fresh NixOS install at `root@192.168.178.35`,
+password `raspberry`, reachable via SSH. This is a dedicated test Pi — not
+the production system. Eliminates Risk #6 (data migration on production
+card).
+
+**Note:** Method #3 (upgrade existing NixOS) was not explicitly covered in
+the original ACs. Needs Architect review — may be as simple as
+`nixos-rebuild switch --flake .#mugge --target-host root@<ip>` or may
+require additional ACs for incremental deployment safety.
+
 ### Risks
 
 1. **PREEMPT_RT kernel availability:** The Raspberry Pi PREEMPT_RT kernel
@@ -4908,16 +4932,74 @@ current Pi state declaratively. Two deployment paths from the same config:
    card is destructive. Must have a tested rollback plan (keep Debian SD
    card as backup)
 
-### Phasing (architect to refine)
+### Phasing and task breakdown (Architect assessment 2026-03-28)
 
-- **Phase 1:** NixOS config builds and produces bootable image with basic
-  services (PipeWire, network, SSH). Validate kernel and V3D
-- **Phase 2:** Add custom Rust services (GraphManager, pcm-bridge, signal-gen,
-  web UI). Validate audio pipeline end-to-end
-- **Phase 3:** Add applications (Mixxx, Reaper), desktop (labwc, wayvnc),
-  udev rules. Full production parity
-- **Phase 4:** nixos-anywhere deployment tested. Documentation. Owner
-  acceptance
+**Codebase audit summary:** 15 NixOS module files exist in `nix/nixos/`
+(more than the 5 documented in the problem statement). 10 modules are
+confirmed correct post-D-040: kernel-rt, hardware, network, users, display,
+applications, sd-image, udev, service security hardening, pipewire FIFO/88.
+10 D-040 gaps identified: stale CamillaDSP/Loopback references, missing
+level-bridge service module, missing flake outputs for SD image, missing
+disko config for nixos-anywhere, missing web-ui Nix derivation, missing
+mutable-data strategy for coefficients/certs.
+
+**Phase 1 — Foundation (kernel + boot + base NixOS):**
+- T-072-01: Audit and fix D-040 gaps in existing `nix/nixos/` modules
+  (remove CamillaDSP refs, ALSA Loopback, update PipeWire config)
+- T-072-02: Validate PREEMPT_RT kernel builds for Pi 4B in Nix (highest
+  risk item — custom derivation may be needed)
+- T-072-03: Validate hardware V3D GL on NixOS PREEMPT_RT (D-022 compat)
+- T-072-04: Expose `nixosConfigurations.mugge` properly in flake.nix
+  (currently partial)
+- T-072-05: Basic boot smoke test — NixOS image boots on test Pi, SSH
+  works, PipeWire starts
+
+**Phase 2 — Audio services (PipeWire + Rust binaries):**
+- T-072-06: PipeWire filter-chain convolver NixOS module (config file
+  management, coefficient WAV deployment)
+- T-072-07: GraphManager systemd service module (port 4002, depends on
+  PipeWire)
+- T-072-08: pcm-bridge systemd service module(s) — multiple instances per
+  D-057 (ports 9090-9102)
+- T-072-09: level-bridge service module (MISSING — needs new module)
+- T-072-10: signal-gen systemd service module (port 4001)
+- T-072-11: Web UI Nix derivation and service module (FastAPI + static
+  assets, HTTPS, port 8080)
+- T-072-12: Service dependency ordering (PipeWire -> filter-chain ->
+  GraphManager -> bridges -> web UI)
+- T-072-13: End-to-end audio pipeline smoke test on test Pi
+
+**Phase 3 — Applications and desktop:**
+- T-072-14: Mixxx + Reaper packaging (nixpkgs versions or overlays)
+- T-072-15: labwc + wayvnc desktop module (hardware V3D, no lightdm)
+- T-072-16: USB device udev rules module
+
+**Phase 4 — Deployment methods and acceptance:**
+- T-072-17: SD card image output (`nix build .#images.sd-card` →
+  `.img.zst`)
+- T-072-18: nixos-anywhere fresh install (disko config for Pi
+  partitioning, tested on 192.168.178.35)
+- T-072-19: nixos-anywhere upgrade path (`nixos-rebuild switch
+  --target-host` or equivalent)
+
+**Cleanup:**
+- T-072-C1: Remove stale CamillaDSP/Loopback NixOS modules after D-040
+  migration confirmed
+
+**Architect risk updates:**
+- Risk #1 (RT kernel): MEDIUM — `raspberrypi/linux` RT branch well
+  maintained; custom derivation feasible but needs testing
+- Risk #5 (nixos-anywhere): MEDIUM-HIGH — Pi firmware partition handling
+  is the main unknown. disko config needs careful partitioning
+- Risk #6 (data migration): ELIMINATED — test Pi at 192.168.178.35
+  removes production risk
+- NEW Risk #7: Mutable state management — coefficient WAVs, SSL certs,
+  and PipeWire runtime state need a strategy (NixOS is declarative but
+  these are generated per-venue)
+- NEW Risk #8: Web UI source packaging — no Nix derivation exists yet
+  for the Python/FastAPI app; needs `buildPythonApplication` or similar
+- NEW Risk #9: nixos-anywhere Pi firmware handling — RPi boot firmware
+  lives on a FAT partition that disko must preserve or correctly provision
 
 ---
 
@@ -6204,12 +6286,26 @@ pcm-bridge, and eventually Mixxx/Reaper,
 right links, set the right quantum in a single operation), eliminating
 split-brain state between systemd services and GM routing.
 
-**Status:** draft
+**Status:** APPROVED (owner directive 2026-03-28, elevated from draft by D-058)
 **Depends on:** US-059 (GM core), US-084 (level-bridge extraction), D-050
-(GM as session state manager)
+(GM as session state manager), D-058 (GM supervises signal-chain services)
 **Blocks:** none directly, but resolves the architectural root cause of
-F-140 (signal-gen not started) and the D-049 self-linking disaster
-**Decisions:** D-050
+F-140 (signal-gen not started) and the D-049 self-linking disaster.
+US-072 deploys static systemd units as interim — US-085 replaces them.
+**Decisions:** D-050, D-058
+
+### Owner directive (2026-03-28, recorded as D-058)
+
+Owner rationale: "Only GM knows how many instances are needed for a given
+speaker configuration." Static systemd units cannot express dynamic
+topology requirements (e.g., 3-way needs 6 bridge instances, 2-way needs
+4). GM must supervise pcm-bridge, level-bridge, and signal-gen as child
+processes, spawning the correct number based on the active speaker profile.
+
+US-072 (NixOS deployment) proceeds with static systemd units matching
+current production topology. US-085 replaces these with GM-managed
+lifecycle once implemented. This is a deliberate two-step approach:
+US-072 gets NixOS working, US-085 makes service management dynamic.
 
 ### Background
 
@@ -6259,6 +6355,52 @@ quantum.
 - [ ] Mode transition is atomic: single `set_mode` RPC handles links + quantum + process lifecycle
 - [ ] Graceful handling of process crashes (GM detects, restarts or reports)
 - [ ] No regression in existing GM link management (US-059)
+- [ ] Thread spawning: GM spawns pcm-bridge, level-bridge (N instances),
+  signal-gen as `std::thread::spawn` or tokio tasks within its own process.
+  Each service's `main()` refactored into library entry point callable from GM.
+  No `std::process::Command`, no child processes.
+- [ ] Topology-derived configuration: thread parameters (port, channels,
+  target, mode) derived from active profile topology. No hardcoded configs.
+- [ ] Profile-triggered reconfiguration: on mode transition, GM stops
+  affected threads (via shutdown flag/channel), reconfigures from new
+  profile, respawns. D-053 mute safety during transition window.
+- [ ] Graceful shutdown: shared `AtomicBool` or channel signals threads to
+  exit. On GM SIGTERM, all threads signaled and joined with 5s timeout.
+  No `unsafe` code for shutdown coordination.
+- [ ] Crash recovery: `catch_unwind` at thread boundary captures panics.
+  GM logs, increments restart counter, respawns with backoff. After N
+  consecutive failures (default 3), marks component as Failed.
+- [ ] Health reporting: GM status endpoint includes thread liveness
+  alongside PW node presence. States: Running, Stopped, Failed(reason),
+  Restarting.
+- [ ] No `unsafe` Rust: thread communication uses safe abstractions only
+  (channels, atomics, Arc/Mutex). No raw pointers, no `libc::kill`.
+- [ ] No regression in existing GM link management (US-059)
+
+### Architect technical notes (2026-03-28, revised: threads-inside-GM)
+
+**Design change:** Services become library code compiled INTO the GM binary.
+No separate binaries for pcm-bridge/level-bridge/signal-gen in target state.
+`std::thread::spawn` or tokio tasks, not `std::process::Command`.
+
+**Topology derivation examples:**
+- 2-way stereo: pcm-bridge monitor (4ch/9090), pcm-bridge Mixxx (2ch/9092),
+  level-bridge-sw (8ch/9100), level-bridge-hw-out (8ch/9101), signal-gen (8ch/4001)
+- 3-way stereo: pcm-bridge monitor becomes 6ch, channel counts adjust
+
+**Key constraint:** Topology derivation needs to understand speaker profile
+YAML structure, currently only parsed by Python web-ui. GM must either
+parse YAML directly or receive the derived instance list via RPC.
+
+**Crash isolation risk:** Thread-level isolation is weaker than process-level.
+A truly catastrophic failure (stack overflow, memory corruption from a
+dependency) can take down the entire GM process. Mitigation: extensive
+testing, no `unsafe`, and systemd restart of GM unit as outer safety net.
+
+**Consequence for US-072:** Once US-085 delivers, pcm-bridge.nix,
+signal-gen.nix, and level-bridge.nix NixOS modules become dead code
+(no separate binaries to deploy). Only graph-manager.nix and web-ui.nix
+remain as systemd units.
 
 ### Definition of Done
 

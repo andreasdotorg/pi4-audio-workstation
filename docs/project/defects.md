@@ -6876,11 +6876,12 @@ task #69 (T-089-8: activate + D-043), F-197 (target gains bug)
 
 ---
 
-## F-201: Local-demo meters and spectrum broken — same symptoms as prior Pi bugs (OPEN)
+## F-201: Local-demo meters and spectrum broken — same symptoms as prior Pi bugs (IMPLEMENT)
 
 **Filed:** 2026-03-28
 **Severity:** High (core monitoring UI non-functional in local-demo mode)
-**Status:** OPEN
+**Status:** IMPLEMENT (initial fix insufficient — deeper root cause under investigation)
+**Phase:** IMPLEMENT (3/7) — pcmChannels 6→2 fix committed but did NOT resolve bug. Worker-1 investigating deeper root cause.
 **Affects:** Dashboard meters, spectrum display (local-demo / mock mode)
 **Found by:** Owner (2026-03-28, local dev session)
 **Repro:** `nix run .#serve` (mock mode), open http://0.0.0.0:8080, Shift-reload confirmed not browser cache

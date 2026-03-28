@@ -2404,3 +2404,204 @@ already followed this pattern.
 (GM-managed links), US-084 (level-bridge Pi deployment), F-188 (channel
 count coupling defects), F-193 (UMIK-1 channel index hardcoding), US-067
 (room simulation for local-demo).
+
+---
+
+## D-058: GM as process supervisor for signal-chain services — target architecture (2026-03-28)
+
+**Context:** The current GraphManager implementation (`lifecycle.rs:4-6`)
+explicitly states "GraphManager is an OBSERVER, not a supervisor. systemd
+manages process restarts." Each signal-chain service (pcm-bridge,
+level-bridge, signal-gen) runs as an independent systemd user service with
+its own unit file and static configuration.
+
+This architecture breaks down with dynamic speaker topologies. A 2-way
+stereo setup needs different bridge instances (different channel counts,
+ports, targets) than a 3-way configuration. The venue session (2026-03-28)
+demonstrated this: reconfiguring from 2-way to 3-way required manually
+stopping services, editing env files, and restarting with different
+parameters. Static systemd units with fixed configurations cannot express
+topology-dependent instance counts.
+
+D-050 already identified "Dynamic process lifecycle" as having **no owner**
+(table row 4: "pcm-bridge on-demand taps, audio-recorder for measurement —
+no owner existed"). D-058 assigns that ownership to GM.
+
+**Decision:** The **target architecture** is that GraphManager subsumes
+the signal-chain services — pcm-bridge, level-bridge, and signal-gen —
+as **threads within the GM process** rather than separate executables.
+GM creates and destroys these threads with configuration derived from the
+active speaker topology. systemd manages only the static/singleton
+services.
+
+**Preferred implementation: threads, not child processes.** Owner
+directive: "with a bit of care avoiding unsafe code, those tools could
+all be threads inside GM." This eliminates child process lifecycle
+complexity (no `waitpid`, no SIGCHLD, no orphan cleanup, no IPC) and
+keeps everything in a single address space. The constraint is that all
+code must remain safe Rust (see D-059: no `unsafe` code project-wide).
+
+The current observer-only implementation (`lifecycle.rs`) is **transitional**.
+Static systemd units remain operational until GM threading is implemented.
+US-072 (NixOS build) deploys static systemd units as an interim step —
+these will be replaced when GM threading lands.
+
+**Target: What GM runs as internal threads:**
+
+| Service | Why dynamic | Instance count depends on |
+|---------|-------------|--------------------------|
+| pcm-bridge | Channel count, target node, and port vary by topology | Active speaker profile (2-way: 4ch convolver tap; 3-way: 6ch) + Mixxx stereo tap + USB capture |
+| level-bridge | Channel count and self-link targets vary by topology | Number of metering points (sw, hw-out, hw-in) and their channel counts |
+| signal-gen | Output channel count varies by topology | Speaker channel count from active profile |
+
+**Unchanged: What systemd manages (static units):**
+
+| Service | Why static | NixOS unit |
+|---------|-----------|------------|
+| PipeWire | System audio server, singleton | Built-in NixOS module |
+| WirePlumber | Device management, singleton (D-043) | Built-in NixOS module |
+| GraphManager | Contains all signal-chain threads | `graph-manager.nix` |
+| Web UI | HTTP server, singleton, no PW dependency | `web-ui.nix` |
+
+**Target: GM thread management responsibilities:**
+
+1. **Spawn** threads with topology-derived configuration (channel count,
+   port, target node name, link mode) when a speaker profile is activated
+   or the system boots with a saved profile.
+2. **Monitor** threads via join handles. Restart panicked threads
+   automatically (bounded retry with backoff). Thread panics are caught
+   via `std::thread::JoinHandle` or `catch_unwind` — they do not bring
+   down the GM process.
+3. **Reconfigure** on topology change: when a new speaker profile is
+   activated, GM signals old threads to stop (via channel/atomic flag),
+   joins them, computes new thread set from the profile, and spawns
+   replacements.
+4. **Graceful shutdown** is simplified: GM's SIGTERM handler sets a
+   shutdown flag, all threads check it and exit cleanly. No child
+   process cleanup, no orphans possible.
+5. **Report health** of managed threads via the existing lifecycle
+   registry (ComponentHealth::Connected/Disconnected), now informed by
+   both PW node presence AND thread liveness.
+
+**Rationale:**
+
+1. **Only GM knows the topology.** The active speaker profile determines
+   how many bridge instances are needed, with what channel counts, and
+   connected to which PW nodes. Static systemd units cannot express this.
+2. **Eliminates manual reconfiguration.** Switching from 2-way to 3-way
+   currently requires SSH + manual service management. With GM supervision,
+   profile activation in the web UI triggers automatic service
+   reconfiguration.
+3. **Consistent with D-050.** D-050 established GM as the audio session
+   state manager. Process supervision is the natural extension — the same
+   component that owns link topology should own the processes that create
+   those links' endpoints.
+4. **Simplifies NixOS deployment long-term.** Once implemented, one systemd
+   unit (`graph-manager.service`) replaces N templated units with complex
+   inter-dependencies.
+
+**Interim state (US-072):**
+
+US-072 deploys static systemd units (`pcm-bridge.nix`, `signal-gen.nix`,
+`level-bridge.nix`) matching the current production topology. These are
+explicitly transitional — they will be **removed** when GM supervision is
+implemented. The NixOS modules for these services are correct engineering
+for the current state and should not be treated as wasted work; they
+validate the service configuration and binary paths that GM will
+eventually use.
+
+**Implementation path (separate story):**
+
+- `lifecycle.rs` header comment ("OBSERVER, not a supervisor") updated.
+- New module: `supervisor.rs` — thread spawn, monitor, restart, shutdown.
+- Each service's `main()` logic refactored into a library entry point
+  callable from GM (e.g., `pcm_bridge::run(config, shutdown_flag)`).
+- `main.rs` startup sequence: after PW connection, GM reads the active
+  speaker profile and spawns the required threads.
+- RPC: profile activation triggers thread reconfiguration (signal old
+  threads to stop, join, spawn new).
+- Existing lifecycle health tracking gains a third input: thread
+  liveness from the supervisor, in addition to PW registry node presence.
+- Static service NixOS modules (`pcm-bridge.nix`, `signal-gen.nix`,
+  `level-bridge.nix`) removed once GM threading is verified.
+
+**Amends:** D-050 table row 4 ("Dynamic process lifecycle — no owner").
+GM is the designated owner. Also amends D-057 production inventory —
+instance counts become dynamic rather than static (once implemented).
+
+**Related:** D-050 (GM as session state manager), D-057 (one bridge per
+source — still valid, but instances become GM-managed), US-072 (NixOS
+standalone build — interim static units), US-059 (GraphManager core).
+
+## D-059: No unsafe code in Rust binaries (2026-03-28)
+
+**Context:** The project's Rust codebase (graph-manager, pcm-bridge,
+level-bridge, signal-gen, audio-common) currently contains `unsafe` blocks
+in two categories:
+
+1. **PipeWire FFI** — `pipewire-rs` crate bindings require `unsafe` for
+   raw pointer access to PW objects (format pods, core proxies, stream
+   buffers). Present in all four binaries' `main.rs` and
+   `graph-manager/src/registry.rs`.
+2. **Lock-free data structures** — `audio-common` implements `SpscQueue`,
+   `CaptureRingBuffer`, `RingBuffer`, and `LevelTracker` with `unsafe`
+   for `UnsafeCell` access and manual `Send`/`Sync` impls to achieve
+   lock-free RT-safe producer/consumer patterns.
+
+D-058 introduced a constraint for the GM threading integration ("no
+`unsafe` blocks for the threading integration"). The owner has now
+elevated this to a blanket project rule.
+
+**Decision:** No `unsafe` code in our Rust binaries.
+
+**Owner directive (verbatim):** "No unsafe code in our Rust binaries."
+
+**Scope and interpretation:**
+
+- **New code:** No new `unsafe` blocks may be introduced in any Rust
+  source file in this project. This applies to all crates: graph-manager,
+  pcm-bridge, level-bridge, signal-gen, audio-common, and any future
+  crates.
+- **Existing `unsafe`:** The current `unsafe` blocks (PipeWire FFI and
+  lock-free structures) are **legacy** and should be eliminated over time.
+  They are not grandfathered indefinitely — they are technical debt.
+- **PipeWire FFI path forward:** The `pipewire-rs` crate requires
+  `unsafe` at the binding boundary. Options: (a) wrap all PW interactions
+  in a thin safe abstraction layer within the project, pushing `unsafe`
+  to a single audited module; (b) contribute safe wrappers upstream to
+  `pipewire-rs`; (c) evaluate alternative PW bindings if they emerge.
+  Until resolved, existing PW `unsafe` blocks are tolerated but must not
+  proliferate — no new `unsafe` PW calls without architectural review.
+- **Lock-free structures path forward:** Evaluate replacing custom
+  `SpscQueue`/`RingBuffer`/`CaptureRingBuffer` with safe crate
+  alternatives (e.g., `ringbuf`, `crossbeam`). The `LevelTracker` manual
+  `Send`/`Sync` impl should be replaced with safe atomics or channel
+  patterns. These replacements must preserve RT-safety (no allocation,
+  no locks in the audio callback path).
+- **Dependencies:** This rule applies to *our* code. Third-party crate
+  internals are outside scope (they have their own `unsafe` which we
+  accept by depending on them). However, prefer crates with minimal or
+  well-audited `unsafe` when choosing dependencies.
+- **`#![forbid(unsafe_code)]`:** Target state is to add this attribute
+  to each crate's `lib.rs`/`main.rs` once legacy `unsafe` is eliminated.
+  Not immediately enforceable due to existing PW FFI usage.
+
+**Rationale:**
+
+1. **D-058 threading safety.** GM will subsume signal-chain services as
+   threads. Thread-level crash isolation is weaker than process-level —
+   memory corruption from `unsafe` in one thread can corrupt the entire
+   GM process. Eliminating `unsafe` removes this class of risk.
+2. **Maintainability.** This is a personal project maintained by one
+   person. `unsafe` code requires expert review for soundness — every
+   `unsafe` block is a future maintenance burden and a potential source
+   of undefined behavior that safe Rust prevents by construction.
+3. **Correctness over performance.** The RT audio path has ample CPU
+   headroom (BM-2: 1.70% at quantum 1024). Safe alternatives to custom
+   lock-free structures may have marginally higher overhead but remain
+   well within budget.
+
+**Supersedes:** D-058's scoped "no `unsafe` for threading integration"
+constraint. D-059 broadens this to all Rust code project-wide.
+
+**Related:** D-058 (GM threads), D-040 (PW filter-chain architecture).
