@@ -5,7 +5,7 @@ Post-D-040 replacement for CamillaDSP config generation. Reads a speaker
 profile (Layer 2) referencing speaker identities (Layer 1) and emits a
 PipeWire filter-chain `.conf` drop-in file with the correct topology:
 
-    [HPF biquad nodes ->] convolver nodes -> linear gain nodes
+    convolver nodes -> linear gain nodes
 
 per output channel, with internal links, inputs, outputs, and capture/playback
 props matching the GraphManager's expected node names.
@@ -61,10 +61,6 @@ _KEY_TO_SUFFIX = {
     "sub2": "sub2_lp",
 }
 
-
-# 4th-order Butterworth HPF: two cascaded 2nd-order biquads.
-# Q values from Butterworth polynomial factorisation for n=4.
-_BUTTERWORTH_4_Q = (0.5412, 1.3066)
 
 
 def channel_suffix(spk_key: str) -> str:
@@ -250,20 +246,8 @@ def generate_filter_chain_conf(
     # Build node definitions
     nodes_lines = []
 
-    # D-031: Mandatory HPF nodes (subsonic protection, BEFORE convolver).
-    # 4th-order Butterworth = two cascaded 2nd-order bq_highpass stages.
-    for ch in channels:
-        hpf_hz = ch["mandatory_hpf_hz"]
-        if hpf_hz is not None:
-            for stage, q_val in enumerate(_BUTTERWORTH_4_Q):
-                nodes_lines.append(
-                    f'                {{\n'
-                    f'                    type    = builtin\n'
-                    f'                    name    = hpf_{ch["suffix"]}_s{stage}\n'
-                    f'                    label   = bq_highpass\n'
-                    f'                    control = {{ "Freq" = {hpf_hz:.1f} "Q" = {q_val:.4f} }}\n'
-                    f'                }}'
-                )
+    # D-055: No IIR biquad HPF nodes on the signal chain. All subsonic/crossover
+    # protection is baked into the FIR filters by generate_profile_filters().
 
     # Convolver nodes
     for ch in channels:
@@ -304,21 +288,9 @@ def generate_filter_chain_conf(
                     f'                }}'
                 )
 
-    # Build internal links: [hpf_s0 -> hpf_s1 ->] conv -> gain [-> delay]
+    # Build internal links: conv -> gain [-> delay]
     links_lines = []
     for ch in channels:
-        hpf_hz = ch["mandatory_hpf_hz"]
-        if hpf_hz is not None:
-            # HPF stage 0 -> stage 1
-            links_lines.append(
-                f'                {{ output = "hpf_{ch["suffix"]}_s0:Out"  '
-                f'input = "hpf_{ch["suffix"]}_s1:In" }}'
-            )
-            # HPF stage 1 -> convolver
-            links_lines.append(
-                f'                {{ output = "hpf_{ch["suffix"]}_s1:Out"  '
-                f'input = "conv_{ch["suffix"]}:In" }}'
-            )
         # conv -> gain
         links_lines.append(
             f'                {{ output = "conv_{ch["suffix"]}:Out"  '
@@ -330,13 +302,10 @@ def generate_filter_chain_conf(
                 f'input = "delay_{ch["suffix"]}:In" }}'
             )
 
-    # Build inputs (first node in chain: HPF stage 0 if present, else convolver)
+    # Build inputs (first node in chain: convolver)
     inputs_lines = []
     for ch in channels:
-        if ch["mandatory_hpf_hz"] is not None:
-            inputs_lines.append(f'                "hpf_{ch["suffix"]}_s0:In"')
-        else:
-            inputs_lines.append(f'                "conv_{ch["suffix"]}:In"')
+        inputs_lines.append(f'                "conv_{ch["suffix"]}:In"')
 
     # Build outputs (last node in chain: delay if present, else gain)
     outputs_lines = []
