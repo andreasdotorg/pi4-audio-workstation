@@ -215,7 +215,8 @@ class TestWsPcmTcpRouting:
         sources = {"monitor": ("127.0.0.1", port)}
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg = ws.receive_bytes()
@@ -235,7 +236,8 @@ class TestWsPcmTcpRouting:
         }
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/umik1") as ws:
                 msg = ws.receive_bytes()
@@ -264,7 +266,8 @@ class TestWsPcmTcpRouting:
 
         # Test monitor source.
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg_a = ws.receive_bytes()
@@ -275,7 +278,8 @@ class TestWsPcmTcpRouting:
         ready_b.wait(timeout=5)
 
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/umik1") as ws:
                 msg_b = ws.receive_bytes()
@@ -309,7 +313,8 @@ class TestBinaryFrameProxy:
         sources = {"monitor": ("127.0.0.1", port)}
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg = ws.receive_bytes()
@@ -333,7 +338,8 @@ class TestBinaryFrameProxy:
         sources = {"monitor": ("127.0.0.1", port)}
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 # The relay now sends one complete v2 frame per WS message.
@@ -368,7 +374,8 @@ class TestBinaryFrameProxy:
         sources = {"test-src": ("127.0.0.1", port)}
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/test-src") as ws:
                 msg = ws.receive_bytes()
@@ -391,7 +398,8 @@ class TestUnknownSourceRejection:
         sources = {"monitor": ("127.0.0.1", 9090)}
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             # Starlette TestClient raises an exception when WebSocket is
             # closed before accept.  The close code 4004 triggers this.
@@ -410,7 +418,8 @@ class TestUnknownSourceRejection:
         sources = {"monitor": ("127.0.0.1", port)}
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
-             patch("app.main.PCM_SOURCES", sources):
+             patch("app.main.PCM_SOURCES", sources), \
+             patch("app.main.PCM_CHANNELS", 4):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg = ws.receive_bytes()
@@ -451,10 +460,14 @@ class TestPcmSourcesREST:
 # ---------------------------------------------------------------------------
 
 FRAMES_PER_CHUNK = 256
-NUM_CHANNELS = 4
 HEADER_SIZE = 24  # v2: version(1) + pad(3) + frame_count(4) + pos(8) + nsec(8)
-EXPECTED_PAYLOAD_SIZE = FRAMES_PER_CHUNK * NUM_CHANNELS * 4  # float32
-EXPECTED_TOTAL_SIZE = HEADER_SIZE + EXPECTED_PAYLOAD_SIZE  # 4120 bytes
+
+def _expected_sizes():
+    from app.main import PCM_CHANNELS
+    payload = FRAMES_PER_CHUNK * PCM_CHANNELS * 4  # float32
+    return PCM_CHANNELS, payload, HEADER_SIZE + payload
+
+NUM_CHANNELS, EXPECTED_PAYLOAD_SIZE, EXPECTED_TOTAL_SIZE = _expected_sizes()
 
 
 class TestWsPcmSourceMock:

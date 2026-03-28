@@ -80,10 +80,14 @@ class TestTK128ProcessingLoadPercentage:
 # ---------------------------------------------------------------------------
 
 FRAMES_PER_CHUNK = 256
-NUM_CHANNELS = 4
 HEADER_SIZE = 24  # v2: version(1) + pad(3) + frame_count(4) + pos(8) + nsec(8)
-EXPECTED_PAYLOAD_SIZE = FRAMES_PER_CHUNK * NUM_CHANNELS * 4  # float32 = 4 bytes
-EXPECTED_TOTAL_SIZE = HEADER_SIZE + EXPECTED_PAYLOAD_SIZE  # 24 + 4096 = 4120
+
+def _pcm_sizes():
+    from app.main import PCM_CHANNELS
+    payload = FRAMES_PER_CHUNK * PCM_CHANNELS * 4  # float32 = 4 bytes
+    return PCM_CHANNELS, payload, HEADER_SIZE + payload
+
+NUM_CHANNELS, EXPECTED_PAYLOAD_SIZE, EXPECTED_TOTAL_SIZE = _pcm_sizes()
 
 
 class TestTK132MockPCMStream:
