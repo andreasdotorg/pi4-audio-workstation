@@ -305,7 +305,7 @@ Owner assessment: venue exposed that features were declared done without proper 
 **Worker assignments:**
 - worker-2 → **IDLE** — F-195/F-196 fixes committed (#219 completed). F-197 fix committed (#222 completed).
 - worker-3 → **IDLE** — #214, #215, #218 completed. #217 stopped by owner (Pi broken state).
-- worker-1 → **UNKNOWN** — never responded this session.
+- worker-1 → **IDLE** — F-201 resolved (#228 completed). Available for assignment.
 
 **Venue session summary (completed work):**
 - Commits 145-155 pushed (UMIK ch index, 3-way config gen, IIR HPF removal, N-way routing, web UI 6ch, config_generator fixes, target gains fix)
@@ -341,8 +341,8 @@ Owner assessment: venue exposed that features were declared done without proper 
 | F-192 | MEDIUM | BACKLOG | Wrong tap point — US-084 gap |
 | F-193 | MEDIUM | BACKLOG | UMIK ch index hardcoded in spl-global.js |
 | F-194 | MEDIUM | BACKLOG | No bridge-disconnected vs silent UI distinction |
-| F-201 | HIGH | IMPLEMENT (3/7) | pcmChannels 6→2 fix insufficient — deeper root cause under investigation (worker-1) |
-| F-202 | HIGH | PLAN | Local demo must use real pcm-bridge (D-057 governs) |
+| F-201 | HIGH | IMPLEMENT (3/7) | Fixes committed, verification pending. Mock-mode evidence was flawed (synthetic data masks bugs). Must verify on local-demo after #250 removes mock mode. #228 blocked by #250. |
+| F-202 | HIGH | CLOSED (7/7) | Resolved by removal — owner directive: eliminate `nix run .#serve`, local-demo only. Task #250. |
 - **Venue fixes committed:** commit 145 (UMIK ch index JS fix), commit 146 (F-186 3-way config gen fix), commit 147 (D-055 IIR HPF removal)
 - **6 crossover-only FIR filters generated + deployed to Pi**
 - **PROCESS GATE CLEARED:** Advisory consensus reached (Architect + AE + AD). Workers may commit. Key constraint from AD: level-bridge instances must use `--managed` flag (AD-MON-5).

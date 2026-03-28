@@ -6880,18 +6880,17 @@ task #69 (T-089-8: activate + D-043), F-197 (target gains bug)
 
 **Filed:** 2026-03-28
 **Severity:** High (core monitoring UI non-functional in local-demo mode)
-**Status:** IMPLEMENT (initial fix insufficient — deeper root cause under investigation)
-**Phase:** IMPLEMENT (3/7) — pcmChannels 6→2 fix committed but did NOT resolve bug. Worker-1 investigating deeper root cause.
+**Status:** IMPLEMENT (reopened — prior verification was invalid)
+**Phase:** IMPLEMENT (3/7) — pcmChannels + numChannels + bounds guard fixes committed but UNVERIFIED. Worker-1's prior Playwright "evidence" was invalid: it ran against mock_pcm.py (now removed per F-202). Real verification requires `nix run .#local-demo` with real pcm-bridge. Correct behavior with no audio playing: meters show silence.
 **Affects:** Dashboard meters, spectrum display (local-demo / mock mode)
 **Found by:** Owner (2026-03-28, local dev session)
-**Repro:** `nix run .#serve` (mock mode), open http://0.0.0.0:8080, Shift-reload confirmed not browser cache
+**Repro:** `nix run .#local-demo`, open http://0.0.0.0:8080, Shift-reload confirmed not browser cache
 
 ### Description
 
-Meters and spectrum are broken in local-demo mode (`nix run .#serve`). Owner
-reports same symptoms as bugs previously fixed on the Pi (likely the channel
-count hardcoding class: F-188/F-189/F-190). Shift-reload confirmed it is not
-a browser cache issue.
+Meters and spectrum were broken in local-demo mode. Owner reports same symptoms
+as bugs previously fixed on the Pi (likely the channel count hardcoding class:
+F-188/F-189/F-190). Shift-reload confirmed it is not a browser cache issue.
 
 Commits 149-151 fixed web UI 4-channel hardcoding for 6-channel 3-way config
 on the Pi, but local-demo may have a different channel count expectation or
@@ -6900,7 +6899,7 @@ pcm-bridge mock configuration that conflicts with the updated JS.
 ### Root cause (owner-confirmed, 2026-03-28)
 
 `app.js:31` hardcodes `pcmChannels = 6` as the JS default. This was set for
-the venue 3-way (6-channel) configuration. In mock mode (`nix run .#serve`),
+the venue 3-way (6-channel) configuration. In local-demo mode,
 the Python backend defaults `PI4AUDIO_PCM_CHANNELS = 2` (main.py:70), and the
 `/api/v1/status` endpoint returns `pcm_channels: 2`. The JS status fetch
 should overwrite the default to 2, but:
@@ -6908,15 +6907,15 @@ should overwrite the default to 2, but:
 - The JS initializes spectrum/meters with the stale default (6) before the
   async status fetch completes
 - `fft-pipeline.js:43` has an independent fallback `numChannels || 4` (stale)
-- The mock pcm-bridge (`mock_pcm.py`) sends 2-channel interleaved data, but
-  the JS tries to deinterleave it as 6-channel = garbled output
+- pcm-bridge sends 2-channel interleaved data, but the JS tries to
+  deinterleave it as 6-channel = garbled output
 
 **Fix:** Change `app.js:31` default from 6 to 2 (matching the pcm-bridge
 instance carrying Mixxx stereo). The status fetch will override to the actual
 value for Pi deployments with different channel counts.
 
-**Note:** See also F-202 — the broader architectural gap is that mock mode
-should not use mock_pcm.py at all; it should use the real pcm-bridge binary.
+**Note:** See also F-202 — `nix run .#serve` and `mock_pcm.py` were removed
+entirely. `nix run .#local-demo` is now the only local dev target.
 
 ### Impact
 
@@ -6926,53 +6925,36 @@ should not use mock_pcm.py at all; it should use the real pcm-bridge binary.
 
 ---
 
-## F-202: Local demo (`nix run .#serve`) uses mock PCM bridge instead of real pcm-bridge binary (OPEN)
+## F-202: Local demo (`nix run .#serve`) uses mock PCM bridge instead of real pcm-bridge binary (CLOSED)
 
 **Filed:** 2026-03-28
 **Severity:** High (architectural gap — owner directive)
-**Status:** OPEN
-**Affects:** `nix run .#serve`, `src/web-ui/app/mock/mock_pcm.py`, `flake.nix` serve target
+**Status:** CLOSED (2026-03-28) — resolved by removal. Owner directive: eliminate `nix run .#serve` entirely. `nix run .#local-demo` becomes the only local dev target. Task #250.
+**Affects:** ~~`nix run .#serve`~~, ~~`src/web-ui/app/mock/mock_pcm.py`~~, ~~`flake.nix` serve target~~ (all removed)
 **Found by:** Owner (2026-03-28, architectural review during F-201 investigation)
 **Related:** F-201 (symptom), US-075 (local-demo uses real pcm-bridge), US-084 (level-bridge extraction)
 
 ### Description
 
-The `nix run .#serve` mock mode uses `mock_pcm.py` — a Python implementation
-that generates synthetic PCM data — instead of the real `pcm-bridge` Rust
-binary. This defeats the purpose of local testing: bugs in the real data
-path (wire format, channel count handling, interleaving, header format) are
-not exercised, and mock-vs-real divergence causes bugs like F-201.
+The `nix run .#serve` mock mode used `mock_pcm.py` — a Python implementation
+that generated synthetic PCM data — instead of the real `pcm-bridge` Rust
+binary. This defeated the purpose of local testing: bugs in the real data
+path (wire format, channel count handling, interleaving, header format) were
+not exercised, and mock-vs-real divergence caused bugs like F-201.
 
-**Owner directive:** The local demo should use the REAL pcm-bridge binary.
-The whole point of local testing is to verify the real data path. Mock mode
-should be eliminated or limited to CI-only fast-path testing.
+### Resolution (2026-03-28)
 
-### Background
+Owner directive: eliminate `nix run .#serve` entirely. Changes made:
+- Removed `serve` app from `flake.nix`
+- Deleted `src/web-ui/app/mock/mock_pcm.py`
+- Removed `mock_pcm` imports from `src/web-ui/app/main.py`
+- Updated all docs referencing `.#serve` to `.#local-demo`
 
-Two local modes exist today:
-- `nix run .#serve` — Python-only, mock PCM via `mock_pcm.py`. No PipeWire.
-  This is what developers and the owner typically use for quick UI checks.
-- `nix run .#local-demo` (US-075) — Full PipeWire stack with real GM,
-  signal-gen, pcm-bridge. Heavier to start, requires PipeWire on host.
-
-The owner's position is that `nix run .#serve` should start a real
-pcm-bridge instance (connecting to the host PipeWire if available, or to a
-minimal headless PipeWire instance) rather than faking the data in Python.
+`nix run .#local-demo` (US-075) is now the only local dev target. It runs
+the full PipeWire stack with real GM, signal-gen, pcm-bridge, and level-bridge.
 
 ### Governing decision
 
 **D-057 addendum (Local-demo mock boundary)** defines the rule: only physical
 hardware may be mocked in local-demo; all software components (PipeWire, GM,
-pcm-bridge, level-bridge, web UI backend) must be real. `mock_pcm.py` violates
-this rule by replacing the real pcm-bridge with a Python simulation.
-
-The fix requires wiring real pcm-bridge into the `nix run .#serve` target
-(or merging `serve` with `local-demo`). D-057 is now recorded and provides
-the architecture context.
-
-### Impact
-
-- Every bug class where mock diverges from real pcm-bridge goes undetected
-  in local testing (F-201 is the first instance, likely not the last)
-- Developer workflow tests a fundamentally different code path than production
-- Owner cannot trust local demo for visual verification
+pcm-bridge, level-bridge, web UI backend) must be real.
