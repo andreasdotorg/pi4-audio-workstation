@@ -573,14 +573,7 @@
             }
         }
 
-        // SPL (optional field)
-        if (data.spl != null) {
-            var heroVal = document.getElementById("spl-value");
-            if (heroVal) {
-                heroVal.textContent = Math.round(data.spl);
-                heroVal.style.color = PiAudio.splColorRaw(data.spl);
-            }
-        }
+        // SPL: handled by spl-global.js (real UMIK-1 PCM via client-side FFT)
     }
 
     // -- Thermal headroom panel (T-092-4) --

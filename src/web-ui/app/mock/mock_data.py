@@ -344,8 +344,8 @@ class MockDataGenerator:
         rate_adjust = s["rate_adjust"] + 0.00002 * math.sin(t * 0.1)
 
         # -- PHYS IN (USBStreamer capture) mock data (US-084) --
-        # Generate 8 channels of PHYS IN levels. In live mode channels 0-1
-        # are active (mic/spare); otherwise silent.
+        # Generate 8 channels of PHYS IN levels. In live mode ch0 = UMIK-1
+        # and ch1 = spare mic are active; in DJ mode all PHYS IN are silent.
         usbstreamer_rms = []
         usbstreamer_peak = []
         live_phys_active = {0, 1} if s["mode"] == "live" else set()
