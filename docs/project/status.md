@@ -302,10 +302,12 @@ Owner assessment: venue exposed that features were declared done without proper 
 - Phase: NEEDS ARCHITECT DECOMPOSITION — no implementation tasks until gaps are properly scoped
 - Task #224 filed: audit and plan for all 4 test gaps
 
-**Worker assignments:**
-- worker-2 → **IDLE** — F-195/F-196 fixes committed (#219 completed). F-197 fix committed (#222 completed).
-- worker-3 → **IDLE** — #214, #215, #218 completed. #217 stopped by owner (Pi broken state).
-- worker-1 → **IDLE** — F-201 resolved (#228 completed). Available for assignment.
+**Worker assignments (overnight 2026-03-28):**
+- worker-1 → US-072 Track A: level-bridge.nix NixOS service module (T-072-09)
+- worker-2 → US-072 Track B: RT kernel validation (T-072-02)
+- worker-3 → Local-demo fixes: signal-gen continuous play, F-203 zombie cleanup, F-204 spectrum/app-tap gap
+- Architect + QE → Rule 13 review of 9 dirty files from task #250 (serve removal)
+- CM → Standing by for commits post-Rule 13 approval
 
 **Venue session summary (completed work):**
 - Commits 145-155 pushed (UMIK ch index, 3-way config gen, IIR HPF removal, N-way routing, web UI 6ch, config_generator fixes, target gains fix)
@@ -319,13 +321,50 @@ Owner assessment: venue exposed that features were declared done without proper 
 - AD challenge: 5 findings incorporated (AD-MON-1 through AD-MON-5)
 - Pi left at venue in broken state (#217 stopped — GM crash-looping, stashes not dropped)
 
+### Session Progress (2026-03-28 evening, owner asleep — overnight autonomous)
+
+**US-075 local-demo review complete.** Findings captured:
+- F-201 VERIFIED (QE confirmed JS fix working, owner's symptom was signal-gen stopping)
+- F-203 filed (zombie processes, MEDIUM)
+- F-204 filed (measurement-mode only, MEDIUM)
+- US-083 ACs rewritten with QE definitive gap analysis: 213 mock tests / 17 real-service tests / 6 FULL GAP pipelines
+
+**Overnight commits pushed (2026-03-29 morning):**
+- `0c38e59` — fix(local-demo): F-203 zombie cleanup, monitoring mode, PCM channels
+- `1764089` — docs(local-demo): monitoring mode banner note
+- `0340ef3` — feat(nix): level-bridge.nix NixOS service module (T-072-09)
+- `722d824` — chore(web-ui): remove orphaned mock classes (Rule 13 #250 cleanup)
+
+**US-072 task status (Phase 1+2):**
+- T-072-01: DONE (D-040 gap audit)
+- T-072-02: IN PROGRESS (worker-2 — kernel compiles correctly, builder ran out of disk space, build restarted after GC)
+- T-072-04: DONE (flake.nix nixosConfigurations)
+- T-072-06: IN PROGRESS (worker-1 — has architect guidance on filter-chain convolver module, holding for session wrap)
+- T-072-09: DONE (level-bridge.nix, commit `0340ef3`)
+- T-072-05: PENDING (boot smoke test, blocked by T-072-02)
+- T-072-03: PENDING (V3D GL validation, needs kernel/boot)
+- T-072-07 through T-072-12: Phase 2 service modules PENDING (except T-072-06/09)
+
+**Defect updates:**
+- F-203: RESOLVED (commit `0c38e59`)
+- F-204: Design agreed (AppSource parameterization + `--demo-source` flag). Implementation not started.
+- F-205: Filed (LOW) — test_server.py title assertions outdated after mugge branding rename
+- F-206: Filed (MEDIUM) — 2 GM enter-measurement tests fail (test logic vs implementation mismatch)
+- F-207: Filed (LOW) — No NixOS module integration tests (nixosTest) for any service module
+
+**Test failures (229 errors):** test_speaker_routes.py and test_thermal_wiring.py — pre-existing (not regressions from overnight commits). Related to venue 3-way config changes.
+
+**Task #250 (serve removal):** Rule 13 review COMPLETE. `722d824` committed orphaned mock class removal. 9 dirty files resolved.
+
+**Session wrap-up in progress (owner directive: no new work, tidy for fresh team).**
+
 **Active story DoD phase tracking:**
 
 | Story | Phase | Evidence |
 |-------|-------|----------|
-| US-072 | PLAN complete → IMPLEMENT | DECOMPOSE: Architect audit (15 modules, 10 gaps). PLAN: 20 tasks filed (#229-#248) with deps. Worker on #229 (done). Entering IMPLEMENT. |
+| US-072 | **IMPLEMENT** (4/20 tasks done, 2 in progress) | Phase 1: T-072-01 DONE, T-072-02 IN PROGRESS (kernel compiles, disk space issue, restarted after GC), T-072-04 DONE. Phase 2: T-072-09 DONE (`0340ef3`), T-072-06 IN PROGRESS (worker-1, has architect guidance, holding). T-072-05 blocked by T-072-02. |
 | US-085 | APPROVED (not started) | Owner directive 2026-03-28 (D-058). ACs updated with Architect technical notes. No tasks filed yet. |
-| US-075 | IMPLEMENT (AC 1-3 done) | Core complete. Remaining: AC #4-#7. F-202 belongs here (mock→real boundary). |
+| US-075 | IMPLEMENT (AC 1-3 done) | Core complete. Remaining: AC #4-#7. F-202 CLOSED (mock removed). AC #5 (`test-integration`) = US-083 delivery vehicle. F-203 (zombie cleanup), F-204 (measurement-mode only) filed. |
 
 **Open defects (with DoD phase tracking):**
 
@@ -341,8 +380,13 @@ Owner assessment: venue exposed that features were declared done without proper 
 | F-192 | MEDIUM | BACKLOG | Wrong tap point — US-084 gap |
 | F-193 | MEDIUM | BACKLOG | UMIK ch index hardcoded in spl-global.js |
 | F-194 | MEDIUM | BACKLOG | No bridge-disconnected vs silent UI distinction |
-| F-201 | HIGH | IMPLEMENT (3/7) | Fixes committed, verification pending. Mock-mode evidence was flawed (synthetic data masks bugs). Must verify on local-demo after #250 removes mock mode. #228 blocked by #250. |
+| F-201 | HIGH | VERIFIED | QE confirmed JS fixes working against live local-demo. pcmChannels=2 correct. Owner's "values then zeros" was signal-gen stopping, not F-201. |
 | F-202 | HIGH | CLOSED (7/7) | Resolved by removal — owner directive: eliminate `nix run .#serve`, local-demo only. Task #250. |
+| F-203 | MEDIUM | RESOLVED | Zombie cleanup committed `0c38e59`. |
+| F-204 | MEDIUM | OPEN | Local-demo measurement-mode only — no DJ/Live switching. Design agreed (AppSource + `--demo-source`), not started. |
+| F-205 | LOW | OPEN | test_server.py title assertions outdated after mugge branding rename. 2 test failures. |
+| F-206 | MEDIUM | OPEN | 2 GM enter-measurement tests fail — test logic vs implementation mismatch (F-160 refactor). |
+| F-207 | LOW | OPEN | No NixOS module integration tests (nixosTest) for any service module. Systemic gap. |
 - **Venue fixes committed:** commit 145 (UMIK ch index JS fix), commit 146 (F-186 3-way config gen fix), commit 147 (D-055 IIR HPF removal)
 - **6 crossover-only FIR filters generated + deployed to Pi**
 - **PROCESS GATE CLEARED:** Advisory consensus reached (Architect + AE + AD). Workers may commit. Key constraint from AD: level-bridge instances must use `--managed` flag (AD-MON-5).
@@ -599,7 +643,7 @@ Signal-gen capture architecture was broken: `--capture-target ""` in local-demo 
 
 **Lessons learned:** L-053 (don't kill workers before owner validation), L-054 (browser cache causes phantom bugs — hard reload mandatory after JS changes).
 
-**US-083 filed:** Integration Smoke Tests Against Local-Demo Stack (HIGH priority). QE test gap analysis: E2E tests run against mock server, bypassing real data pipeline where all recent bugs live. New `nix run .#test-integration` target recommended.
+**US-083 filed:** Integration Smoke Tests Against Local-Demo Stack (HIGH priority). **WARNING: 213 mock E2E tests provide a false sense of security for data pipeline correctness.** They verify UI structure against synthetic data but exercise zero real data pipelines. Only 17 real-service tests exist (measurement-only). QE definitive gap analysis (2026-03-28): 6 FULL GAP pipelines — level meters, spectrum, SPL hero, graph viz, config tab, mode switching. US-083 ACs fully rewritten with definitive gap list, target renamed to `nix run .#test-local-demo-e2e`. DJ/Live coverage blocked by F-204. **F-201 VERIFIED** by QE against live local-demo — owner's "values then zeros" was signal-gen stopping, not a bug.
 
 **Process change: Local-Demo Verification Gate** added to DoD (user-stories.md). Workers must run `nix run .#local-demo` and visually verify before reporting "done" on any story touching web UI, pcm-bridge, signal-gen, or WebSocket code.
 

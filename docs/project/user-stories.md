@@ -6185,24 +6185,88 @@ been caught by integration tests against the real stack.
    DOM structure, element visibility, and navigation. Integration tests
    must verify data flow: real audio in → real processing → real display.
 
+### Architect Gap Analysis (2026-03-28)
+
+Architect confirmed the gap extends beyond the original QE findings. Current
+E2E tests (Tier 1, `nix run .#test-e2e`) run entirely against the **mock
+server** — they never exercise the real data pipeline. Only
+`test_local_demo_measurement.py` (Tier 3) exercises real PipeWire, and it
+covers measurement mode only.
+
+**Zero integration test coverage for these pipelines:**
+
+| Pipeline | What it exercises | Defects it would catch |
+|----------|------------------|----------------------|
+| Level meter data (real level-bridge -> WebSocket -> JS meter render) | End-to-end level metering | F-103 class |
+| Spectrum data (real pcm-bridge -> WebSocket -> JS FFT -> canvas) | End-to-end spectrum display | F-098, F-101, F-102 class |
+| Graph visualization with real GM topology | Live PW graph rendering | F-085 class |
+| Status bar with real PW state | Live system status | F-056, F-057 class |
+| DJ/Live mode switching | Mode transition routing | F-204 (local-demo measurement-only) |
+
+**Note:** DJ/Live mode coverage blocked by F-204 (local-demo lacks Mixxx/Reaper
+node substitutes). Initial integration tests will cover measurement mode;
+DJ/Live coverage requires F-204 resolution first.
+
+### QE Definitive Coverage Analysis (2026-03-28)
+
+QE confirmed the full scope of the gap with hard numbers:
+
+- **213 mock E2E tests** (Tier 1, `nix run .#test-e2e`): Verify UI structure
+  against synthetic data from mock server. Provide **zero coverage** of the
+  real data pipeline. These tests give a false sense of security — all pass
+  while the real pipeline has bugs.
+- **17 real-service tests** (Tier 3, `test_local_demo_measurement.py`):
+  Exercise real PipeWire, but cover measurement mode only.
+- **0 tests** for: meters with live audio from real level-bridge, spectrum
+  with live PCM from real pcm-bridge, SPL hero from real UMIK PCM, graph
+  viz from real GM topology, config tab from real gain nodes, mode switching
+  against real GM.
+
+**Definitive pipeline coverage gaps (QE 2026-03-28):**
+
+| Pipeline | Mock E2E? | Real-service test? | Gap |
+|----------|-----------|-------------------|-----|
+| Level meters (level-bridge -> WS -> JS meter) | Synthetic only | NO | **FULL GAP** |
+| Spectrum (pcm-bridge -> WS -> FFT -> canvas) | Synthetic only | NO | **FULL GAP** |
+| SPL hero (UMIK pcm-bridge -> WS -> dBFS) | Synthetic only | NO | **FULL GAP** |
+| Graph viz (GM topology -> SVG render) | Synthetic only | NO | **FULL GAP** |
+| Config tab (real gain nodes -> display) | Synthetic only | NO | **FULL GAP** |
+| Mode switching (GM mode -> routing change) | Synthetic only | NO | **FULL GAP** |
+| Measurement workflow | Synthetic only | 17 tests (basic) | Partial |
+
+**Relationship to US-075 AC #5:** US-075 AC #5 requires a `nix run
+.#test-integration` target — currently unimplemented. US-083 is the story
+that delivers the test content for that target. Both must be completed
+together.
+
 ### Acceptance criteria
 
-- [ ] `nix run .#test-integration` starts local-demo stack automatically
+- [ ] `nix run .#test-local-demo-e2e` target auto-starts local-demo, runs
+  tests, tears down (QE-recommended naming)
 - [ ] Stack readiness detection (wait for PW socket, GM links, web-ui port)
-- [ ] Spectrum data assertion: non-zero canvas pixels within 5s on both tabs
-- [ ] Meter data assertion: non-zero level values within 5s
+- [ ] Meter data assertion: meters show live audio from real level-bridge
+  within 5s
+- [ ] Spectrum data assertion: non-zero canvas pixels from real pcm-bridge
+  PCM within 5s on both tabs
+- [ ] SPL hero assertion: SPL reading from real UMIK pcm-bridge data
 - [ ] WebSocket message rate assertion: levels arriving at 25-30 Hz
 - [ ] No JS console errors during 30s observation window
 - [ ] signal-gen status query returns playing state
+- [ ] Graph visualization shows real GM topology (non-empty node/link sets)
+- [ ] Config tab displays real gain node values from PW
+- [ ] Status bar reflects real PW state (connected, mode, link count)
+- [ ] Mode switching against real GM (blocked by F-204 — defer to Phase 2)
 - [ ] Clean shutdown of local-demo stack after test completion
 - [ ] Tests run in CI (GitHub Actions) — may need PipeWire in CI environment
 
 ### Definition of Done
 
-- [ ] `nix run .#test-integration` target in flake.nix
+- [ ] `nix run .#test-local-demo-e2e` target in flake.nix (or
+  `nix run .#test-integration` — naming TBD with architect)
 - [ ] All integration assertions pass against local-demo
 - [ ] CI integration (or documented reason for exclusion)
-- [ ] QE review (test coverage vs gap analysis)
+- [ ] QE review (test coverage vs gap analysis — must close all FULL GAP
+  items from the coverage table above)
 - [ ] Architect review (test infrastructure, local-demo lifecycle management)
 
 ---

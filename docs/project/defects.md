@@ -6880,8 +6880,8 @@ task #69 (T-089-8: activate + D-043), F-197 (target gains bug)
 
 **Filed:** 2026-03-28
 **Severity:** High (core monitoring UI non-functional in local-demo mode)
-**Status:** IMPLEMENT (reopened — prior verification was invalid)
-**Phase:** IMPLEMENT (3/7) — pcmChannels + numChannels + bounds guard fixes committed but UNVERIFIED. Worker-1's prior Playwright "evidence" was invalid: it ran against mock_pcm.py (now removed per F-202). Real verification requires `nix run .#local-demo` with real pcm-bridge. Correct behavior with no audio playing: meters show silence.
+**Status:** VERIFIED (2026-03-28 — QE confirmed JS fixes working against live local-demo)
+**Phase:** VERIFY (6/7) — pcmChannels default fix confirmed working. QE verified against live `nix run .#local-demo` instance: pcmChannels=2 is correct, meters and spectrum display data correctly when signal-gen is playing. Owner's original observation of "values then zeros" was signal-gen stopping after its default duration, not an F-201 regression. JS fix is deployed and functional.
 **Affects:** Dashboard meters, spectrum display (local-demo / mock mode)
 **Found by:** Owner (2026-03-28, local dev session)
 **Repro:** `nix run .#local-demo`, open http://0.0.0.0:8080, Shift-reload confirmed not browser cache
@@ -6958,3 +6958,237 @@ the full PipeWire stack with real GM, signal-gen, pcm-bridge, and level-bridge.
 **D-057 addendum (Local-demo mock boundary)** defines the rule: only physical
 hardware may be mocked in local-demo; all software components (PipeWire, GM,
 pcm-bridge, level-bridge, web UI backend) must be real.
+
+---
+
+## F-203: local-demo.sh zombie process accumulation (~70 zombies per session) (RESOLVED)
+
+**Filed:** 2026-03-28
+**Severity:** Medium (resource leak, confuses process inspection, may exhaust PID space on long sessions)
+**Status:** RESOLVED (2026-03-29, commit `0c38e59` — zombie cleanup + monitoring mode + PCM channels fix)
+**Affects:** `scripts/local-demo.sh`, local development workflow
+**Found by:** AD (2026-03-28, local-demo review session)
+**Related:** F-100 (RESOLVED `af2372f` — orphan process fix, incomplete)
+
+### Description
+
+After running `nix run .#local-demo`, approximately 70 zombie processes
+accumulate from previous local-demo runs. F-100 was filed for orphan process
+cleanup and marked RESOLVED (commit `af2372f`), but the fix is incomplete:
+zombie processes (defunct children that were never `wait()`ed by their parent)
+still accumulate.
+
+This is distinct from F-100's original scope (orphan processes holding ports).
+Zombies don't hold resources other than a PID table entry, but:
+- They confuse `ps` / process inspection during debugging
+- They accumulate across repeated local-demo start/stop cycles
+- On long development sessions they could exhaust PID space (unlikely but
+  possible with `/proc/sys/kernel/pid_max` default 32768)
+
+### Root cause (suspected)
+
+The cleanup trap in `local-demo.sh` kills child processes but does not
+`wait` on them. When a parent script exits without `wait()`ing on killed
+children, they become zombies adopted by init. Additionally, backgrounded
+subprocesses (PipeWire, GM, signal-gen, pcm-bridge, uvicorn) may spawn
+their own children that are not tracked in the `PIDS` array.
+
+### Fix
+
+1. Add explicit `wait` calls after killing tracked PIDs in the cleanup trap
+2. Use process group kill (`kill -- -$$` or `kill 0`) to catch all descendants
+3. Add a post-cleanup `wait` to reap any remaining children
+4. Consider using `setsid` or a dedicated process group for all child processes
+
+### Priority
+
+Medium — affects developer experience and session hygiene. Does not affect
+production. Workaround: `pkill -f 'pipewire.*local-demo'` or reboot.
+
+---
+
+## F-204: Local-demo only supports measurement mode — no DJ/Live mode switching (OPEN)
+
+**Filed:** 2026-03-28
+**Severity:** Medium (gap vs owner intent: "use it like the real thing")
+**Status:** OPEN
+**Affects:** `scripts/local-demo.sh`, `nix run .#local-demo`, US-075
+**Found by:** AE + Architect (2026-03-28, local-demo review session)
+**Related:** US-075 (local PipeWire test env), US-083 (integration smoke tests)
+
+### Description
+
+The local-demo environment starts GraphManager in measurement mode only.
+While GM internally supports DJ, Live, and Measurement modes, the local-demo
+lacks the node substitutes needed for DJ/Live:
+
+- **DJ mode** requires a Mixxx node (or substitute audio source) — no virtual
+  Mixxx exists in local-demo
+- **Live mode** requires a Reaper node (or substitute) — same gap
+- **Measurement mode** works because signal-gen serves as the audio source
+
+The owner's requirement for US-075 is "launch a browser and use it as if it
+were the real thing." Mode switching between DJ/Live/Measurement is a core
+production workflow that cannot be exercised in local-demo today.
+
+### Additional finding (AE)
+
+In measurement mode, the pcm-bridge app tap (spectrum for the application
+source) is missing. Signal path works for convolver output monitoring but
+the pre-convolver tap point is not wired.
+
+### Impact
+
+- Cannot validate mode-switching UI behavior locally
+- Cannot test DJ/Live routing topology without Pi
+- Owner cannot "use it like the real thing" for mode switching
+- Limits US-083 integration test coverage to measurement mode only
+
+### Possible fix
+
+1. Create a virtual audio source node (e.g., `pw-loopback` or null source
+   with `node.name` matching Mixxx/Reaper patterns) that GM recognizes
+2. Signal-gen could serve as a Mixxx substitute in DJ mode (it already
+   produces audio) — needs GM routing table update or a mode-aware alias
+3. Add pcm-bridge app tap to measurement mode routing table
+
+### Priority
+
+Medium — significant gap for local development fidelity but does not block
+production operation. Blocks full US-083 integration test coverage.
+
+---
+
+## F-205: test_server.py title assertions outdated after branding rename (OPEN)
+
+**Filed:** 2026-03-29
+**Severity:** Low (2 test failures, cosmetic)
+**Status:** OPEN
+**Affects:** `src/web-ui/tests/test_server.py` — `TestFastAPIApp::test_app_title`, `TestFastAPIApp::test_index_page`
+**Found by:** QE (2026-03-29, Rule 13 review for #250)
+
+### Description
+
+Two tests in `test_server.py` assert the app title is `"Pi Audio Workstation"`,
+but commit `cb59681` (`chore(web-ui): rename branding from "Pi Audio" to "mugge"`)
+changed `app.title` and the HTML `<title>` to `"mugge"`. The tests were not
+updated as part of the rename.
+
+### Failing tests
+
+```
+FAILED tests/test_server.py::TestFastAPIApp::test_app_title
+  AssertionError: assert 'mugge' == 'Pi Audio Workstation'
+
+FAILED tests/test_server.py::TestFastAPIApp::test_index_page
+  assert 'Pi Audio Workstation' in '...<title>mugge</title>...'
+```
+
+### Fix
+
+Update assertions in `test_server.py`:
+- `test_app_title`: `assert app.title == "mugge"`
+- `test_index_page`: `assert "mugge" in resp.text`
+
+---
+
+## F-206: test_measurement_integration.py — 2 GM enter-measurement tests fail (OPEN)
+
+**Filed:** 2026-03-29
+**Severity:** Medium (2 tests dead in full suite, test-vs-implementation mismatch)
+**Status:** OPEN
+**Affects:** `src/web-ui/tests/test_measurement_integration.py` — `TestGMEnterMeasurementMode`
+**Found by:** QE (2026-03-29, pre-existing failure triage)
+**Related:** F-062 (RESOLVED — asyncio fix, different root cause)
+
+### Description
+
+Two tests in `TestGMEnterMeasurementMode` fail with assertion errors (NOT the
+asyncio event loop issue from F-062):
+
+```
+FAILED test_enter_measurement_mode_verifies_mode_after_set
+  assert ('get_mode',) == ('set_mode', 'measurement')
+  # Test expects set_mode called first, but implementation now calls get_mode first
+
+FAILED test_enter_measurement_mode_failure_restores_production
+  assert 0 == 1
+  # Test expects restore_production_mode called on failure, but it is not called
+```
+
+### Root cause
+
+The `_enter_measurement_mode()` method in `session.py` was refactored after
+these tests were written (likely in `edc2c45` or a subsequent commit). The
+implementation now:
+1. Calls `get_mode()` before `set_mode()` (to save pre-measurement mode per F-160)
+2. Does not call `restore_production_mode()` on verification failure (behavior change)
+
+The tests still assert the original call order and restore behavior.
+
+**Note:** This is distinct from F-062 (asyncio deprecation). F-062 was about
+`get_event_loop()` → `asyncio.run()` migration and is correctly marked RESOLVED.
+These 2 failures are test logic mismatches with the current implementation.
+
+### Fix
+
+Update the 2 test methods to match current `_enter_measurement_mode()` behavior:
+1. `test_enter_measurement_mode_verifies_mode_after_set`: expect `get_mode` call
+   before `set_mode` (F-160 saves pre-measurement mode)
+2. `test_enter_measurement_mode_failure_restores_production`: verify current
+   failure handling behavior (may need to check if restore is now done differently)
+
+---
+
+## F-207: No NixOS module integration tests (nixosTest) for any service module (OPEN)
+
+**Filed:** 2026-03-29
+**Severity:** Low (systemic gap, all 5 service modules affected)
+**Status:** OPEN
+**Affects:** All NixOS service modules in `nix/nixos/services/`:
+  - `graph-manager.nix`
+  - `level-bridge.nix`
+  - `pcm-bridge.nix`
+  - `signal-gen.nix`
+  - `web-ui.nix`
+**Found by:** QE (2026-03-29, Rule 13 retroactive review of `0340ef3`)
+
+### Description
+
+The project has no NixOS VM integration test infrastructure. NixOS provides
+a `nixos/tests` framework (`nixosTest`) that can spin up a QEMU VM, start
+services, and verify they function correctly. None of the 5 custom service
+modules have such tests.
+
+Current validation is limited to:
+1. `nix build .#nixosConfigurations.mugge.config.system.build.toplevel` —
+   verifies the NixOS configuration evaluates and builds without errors
+   (syntax and type checking only)
+2. Boot smoke test on Pi (task #3, manual) — verifies services start on
+   real hardware
+
+Neither validates that:
+- Services bind to correct ports
+- Service dependencies are correctly ordered (After/Wants)
+- Security hardening directives are applied
+- Multi-instance templates (level-bridge) produce correct per-instance configs
+- Services restart correctly on failure
+
+### Impact
+
+Low immediate risk — the modules follow consistent patterns and are validated
+by NixOS build + Pi boot test. However, regressions in service configuration
+would only be caught on the Pi, not in CI.
+
+### Possible fix
+
+Add `nixosTest` entries to `flake.nix` for each service module. A minimal
+test per module would:
+1. Boot a NixOS VM with the service enabled
+2. Wait for the service to start (`systemctl --user status ...`)
+3. Verify the listening port (`ss -tlnp | grep PORT`)
+4. For level-bridge: verify all 3 instances start
+
+### Priority
+
+Low — nice-to-have for CI robustness. Does not block any current work.
