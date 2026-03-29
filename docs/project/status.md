@@ -42,6 +42,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
 | US-110 | ready | Web UI passkey authentication | Unblocked by D-060 (local CA) |
+| US-111 | ready | Local-demo PW graph topology redesign | Architect design complete, AE signed off |
 
 
 ### Owner-Blocking Items
@@ -69,7 +70,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | Room correction pipeline | done (TK-071) | 13 DSP modules. Bose profiles measured |
 | SETUP-MANUAL.md | draft | ~2200 lines. Gate 3 prose rewrite pending |
 | Core software | installed | PipeWire 1.4.9, Mixxx 2.5.0, Reaper 7.64, wayvnc |
-| Platform security | partial | Firewall active, SSH hardened. Web UI auth: US-110 (draft, passkey design) |
+| Platform security | partial | Firewall active, SSH hardened. Web UI auth: US-110 (ready, passkey design, D-060 local CA) |
 | GitHub Actions CI | merged | Two parallel jobs, Nix store caching. Branch protection pending |
 | NixOS build (US-072) | in progress | RT kernel compiles, convolver module designed, 4 tasks remaining (need Pi) |
 
@@ -114,7 +115,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | Metric | Value |
 |--------|-------|
 | Git commits | ~185 |
-| Total stories filed | 114 |
+| Total stories filed | 115 |
 | Stories done | 13 |
 | Stories in TEST | 12 |
 | Stories in IMPLEMENT/REVIEW | ~12 |
@@ -136,8 +137,8 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 
 ## Key Decisions
 
-See `decisions/` directory and `decisions-index.md` for all 59 decisions (D-001
-through D-058). Most significant recent decisions:
+See `decisions/` directory and `decisions-index.md` for all 60 decisions (D-001
+through D-060). Most significant recent decisions:
 
 - **D-040** (2026-03-16): Abandon CamillaDSP — pure PipeWire filter-chain pipeline
 - **D-043** (2026-03-20): WirePlumber retained for device management, linking disabled
