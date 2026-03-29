@@ -9,6 +9,8 @@
 #   5. GM reports correct link count via get_links RPC
 #   6. Convolver node (pi4audio-convolver) present in PW graph
 #   7. GM get_graph_info returns valid graph metadata
+#   8. US-077: level-bridge timestamps (pos/nsec) monotonically increasing
+#   9. US-077: pcm-bridge binary v2 header includes non-zero graph_pos/graph_nsec
 #
 # Full cycle target: < 30 seconds.
 #
@@ -87,6 +89,17 @@ read_levels() {
         exec 4>&- 2>/dev/null
     fi
     echo "$line"
+}
+
+# Read N JSON lines from a level-bridge TCP port (one per line, newline-delimited).
+# Usage: read_levels_multi <port> <count>
+# Prints each line on a separate stdout line.
+read_levels_multi() {
+    local port="$1" count="$2"
+    if exec 4<>/dev/tcp/127.0.0.1/"$port" 2>/dev/null; then
+        timeout 5 head -n"$count" <&4 2>/dev/null || true
+        exec 4>&- 2>/dev/null
+    fi
 }
 
 # Extract a JSON field value using Python (reliable JSON parsing).
@@ -477,6 +490,180 @@ if [ -n "$STATUS_RESP" ]; then
 else
     check_fail "signal-gen status: no response"
 fi
+
+# ---- Check 8: US-077 timestamp monotonicity (level-bridge pos/nsec) ----
+#
+# DoD #3: Verify that the level-bridge levels JSON includes graph-clock
+# fields "pos" (u64 sample counter) and "nsec" (u64 wall-clock nanoseconds)
+# and that both increase monotonically across consecutive snapshots.
+
+log "Check 8: level-bridge timestamp monotonicity (US-077 DoD #3)"
+# Read 8 lines; skip the first (may be partial from mid-stream connection)
+# and filter out pos=0 lines (normal: double-buffer reset between PW callbacks).
+# Verify at least 3 non-zero snapshots have monotonically increasing pos/nsec.
+TS_LINES=$(read_levels_multi $LEVEL_SW_PORT 8)
+if [ -z "$TS_LINES" ]; then
+    check_fail "timestamp check: no data from level-bridge-sw"
+else
+    TS_OK=$("$PYTHON" -c "
+import json, sys
+
+raw = [l.strip() for l in sys.stdin if l.strip()]
+# Skip the first line (may be partial from mid-stream connection).
+raw = raw[1:]
+
+# Parse all lines and filter out pos=0 snapshots. The level tracker
+# returns pos=0 when no new PW process callback data has arrived since
+# the last take_snapshot() (double-buffer reset). This is normal at
+# 30 Hz snapshot rate vs ~47 Hz PW callback rate.
+parsed = []
+for line in raw:
+    try:
+        d = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    if d.get('pos', 0) > 0 and d.get('nsec', 0) > 0:
+        parsed.append(d)
+
+if len(parsed) < 3:
+    print('error:got only %d non-zero snapshots, need at least 3' % len(parsed))
+    sys.exit(0)
+
+# Check monotonicity across the non-zero snapshots.
+prev_pos = -1
+prev_nsec = -1
+for i, d in enumerate(parsed):
+    pos = d['pos']
+    nsec = d['nsec']
+
+    if not isinstance(pos, int):
+        print('error:snapshot %d pos is not an integer: %r' % (i, pos))
+        sys.exit(0)
+    if not isinstance(nsec, int):
+        print('error:snapshot %d nsec is not an integer: %r' % (i, nsec))
+        sys.exit(0)
+
+    if i > 0:
+        if pos <= prev_pos:
+            print('error:pos not monotonic: snapshot %d pos=%d <= prev=%d' % (i, pos, prev_pos))
+            sys.exit(0)
+        if nsec <= prev_nsec:
+            print('error:nsec not monotonic: snapshot %d nsec=%d <= prev=%d' % (i, nsec, prev_nsec))
+            sys.exit(0)
+
+    prev_pos = pos
+    prev_nsec = nsec
+
+print('ok:%d snapshots, pos %d..%d, nsec %d..%d' % (
+    len(parsed), parsed[0]['pos'], prev_pos,
+    parsed[0]['nsec'], prev_nsec))
+" <<< "$TS_LINES")
+
+    case "$TS_OK" in
+        ok:*)
+            check_pass "timestamps monotonic: ${TS_OK#ok:}"
+            ;;
+        error:*)
+            check_fail "timestamps: ${TS_OK#error:}"
+            ;;
+        *)
+            check_fail "timestamps: unexpected result: $TS_OK"
+            ;;
+    esac
+fi
+
+# ---- Check 9: pcm-bridge binary v2 header includes timestamps (US-077 DoD #3) ----
+#
+# pcm-bridge serves binary frames: [version:1][pad:3][frame_count:4][graph_pos:8 LE][graph_nsec:8 LE][PCM...]
+# Read the first frame's 24-byte header and verify graph_pos/graph_nsec are non-zero.
+
+log "Check 9: pcm-bridge v2 header includes non-zero graph_pos/graph_nsec"
+PCM_TS_RESULT=$("$PYTHON" -c "
+import socket, struct, sys, time
+
+CHANNELS = 4
+QUANTUM = 1024
+PCM_PAYLOAD = QUANTUM * CHANNELS * 4  # float32
+HEADER = 24
+FRAME_SIZE = HEADER + PCM_PAYLOAD
+
+try:
+    s = socket.create_connection(('127.0.0.1', $PCM_PORT), timeout=5)
+    s.settimeout(5)
+except Exception as e:
+    print('error:connection failed: %s' % e)
+    sys.exit(0)
+
+# Read frames until we get one with frame_count > 0 (skip heartbeats).
+# Try up to 10 reads over ~3 seconds.
+found = False
+for attempt in range(10):
+    try:
+        buf = b''
+        while len(buf) < HEADER:
+            chunk = s.recv(HEADER - len(buf))
+            if not chunk:
+                break
+            buf += chunk
+    except socket.timeout:
+        continue
+
+    if len(buf) < HEADER:
+        continue
+
+    version = buf[0]
+    if version != 2:
+        print('error:unexpected version byte %d (expected 2)' % version)
+        s.close()
+        sys.exit(0)
+
+    frame_count = struct.unpack_from('<I', buf, 4)[0]
+    graph_pos = struct.unpack_from('<Q', buf, 8)[0]
+    graph_nsec = struct.unpack_from('<Q', buf, 16)[0]
+
+    if frame_count == 0:
+        # Heartbeat frame (24 bytes total, no PCM payload). Skip it.
+        continue
+
+    # Data frame — consume the PCM payload before checking result.
+    payload = b''
+    remaining = frame_count * CHANNELS * 4
+    while len(payload) < remaining:
+        try:
+            chunk = s.recv(remaining - len(payload))
+        except socket.timeout:
+            break
+        if not chunk:
+            break
+        payload += chunk
+
+    if graph_pos > 0 and graph_nsec > 0:
+        print('ok:v2 header version=%d frame_count=%d graph_pos=%d graph_nsec=%d' % (
+            version, frame_count, graph_pos, graph_nsec))
+        found = True
+        break
+    else:
+        print('error:data frame but graph_pos=%d graph_nsec=%d (zero)' % (
+            graph_pos, graph_nsec))
+        found = True
+        break
+
+if not found:
+    print('error:no data frames received after 10 attempts (only heartbeats)')
+s.close()
+" 2>&1)
+
+case "$PCM_TS_RESULT" in
+    ok:*)
+        check_pass "pcm-bridge ${PCM_TS_RESULT#ok:}"
+        ;;
+    error:*)
+        check_fail "pcm-bridge ${PCM_TS_RESULT#error:}"
+        ;;
+    *)
+        check_fail "pcm-bridge unexpected result: $PCM_TS_RESULT"
+        ;;
+esac
 
 # =========================================================================
 # RESULTS
