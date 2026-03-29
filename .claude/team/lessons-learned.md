@@ -1380,3 +1380,42 @@ prevent this.
 DoD) and L-042 (Rule 13 approval process). This is the first instance of
 the approval *gate* being bypassed (previous lessons were about verification
 *quality*, not gate enforcement).
+
+## L-067: Inbox files are not an indicator of active agents — use config.json members array
+
+**Date:** 2026-03-29
+**Context:** During session shutdown, the orchestrator read
+`~/.claude/teams/mugge/config.json` and saw only 3 members (team-lead,
+worker-2, worker-3). The orchestrator concluded most agents were already
+gone. In reality, all 13 agents were alive — terminated agents had been
+removed from the config, but the orchestrator had been reading a cached
+version from early in the session.
+
+Separately, the `inboxes/` directory showed 15 `.json` files (all agents
+including terminated ones), which is misleading in the opposite direction —
+it makes terminated agents look alive.
+
+**What happened:**
+- Orchestrator used a stale cached read of `config.json` to determine the
+  team roster. The file had been read hours earlier when all members were
+  present, but by then many had been spawned after that read.
+- The `inboxes/` directory was checked as an alternative, but inbox files
+  persist after agent termination and do not reflect active status.
+- Result: confusion about which agents were alive, delayed shutdown of
+  agents that should have been terminated earlier.
+
+**Root cause:** No documented procedure for discovering active team members.
+The orchestration protocol said "trust the compaction summary" but did not
+explain the mechanical step: read `config.json` `members` array.
+
+**Corrective actions:**
+1. **Orchestration protocol updated** (Rule 8 + compaction recovery section):
+   read `~/.claude/teams/{team-name}/config.json` `members` array as the
+   authoritative roster. Re-read each time — do not trust cached reads.
+2. **Do NOT use `inboxes/` directory** to determine who is alive. Inbox
+   files persist after termination.
+3. **Do NOT rely on compaction summary alone** for roster — it may be stale
+   or incomplete. The config.json file is ground truth.
+
+**Recurrence of:** L-040 (agent communication assumptions). Extends the
+"theory of mind" principle to roster discovery.

@@ -213,17 +213,23 @@ the state files.
 Context compaction is NOT a session end. The team continues.
 
 **CRITICAL: Agents survive compaction. They are alive. Do NOT delete the team,
-do NOT recreate agents, do NOT ping everyone to "verify." The compaction summary
-tells you who is alive — trust it.** The only reason to respawn an agent is if
-you send them a message and the system tells you they don't exist. (L-040)
+do NOT recreate agents, do NOT ping everyone to "verify."** The only reason to
+respawn an agent is if you send them a message and the system tells you they
+don't exist. (L-040)
 
 After compaction:
 
 1. Re-read this file, project config, and project state files
-2. **Trust that agents are alive** (per compaction summary). Do NOT ping, verify,
-   TeamDelete, or TeamCreate. Simply resume communication as needed.
-3. Check task list for in-progress work
-4. Resume from where compaction interrupted
+2. **Read `~/.claude/teams/{team-name}/config.json`** to discover who is on
+   the team. The `members` array is the **authoritative roster** of active
+   agents. Terminated agents are removed from this array. Do NOT use the
+   `inboxes/` directory to determine who is alive — inbox files persist after
+   termination and are misleading. Re-read `config.json` each time you need
+   the current roster; a cached read goes stale as agents terminate. (L-067)
+3. Do NOT ping, verify, TeamDelete, or TeamCreate. Simply resume communication
+   as needed with the members listed in `config.json`.
+4. Check task list for in-progress work
+5. Resume from where compaction interrupted
 
 ## Work Phases Within a Story
 
@@ -469,11 +475,13 @@ MUST be included in the session summary / continuation prompt so they survive:
 3. **When you see a problem**, your job is to DESCRIBE it to a worker and ask
    them to fix it. Not to fix it yourself.
 4. **After compaction, your first action** is to read the orchestration protocol
-   and project config, then check team state — not to start executing commands.
-5. **Core team persists across compactions. Agents are alive — trust the
-   compaction summary.** Do NOT ping, TeamDelete, TeamCreate, or respawn.
-   Only respawn if the system reports an agent doesn't exist when you message
-   them. (L-040)
+   and project config, then read `~/.claude/teams/{team-name}/config.json` to
+   discover the active team roster — not to start executing commands.
+5. **Core team persists across compactions.** Read `config.json` `members`
+   array for the authoritative list of active agents. Do NOT use inbox files
+   (they persist after termination). Do NOT ping, TeamDelete, TeamCreate, or
+   respawn. Only respawn if the system reports an agent doesn't exist when you
+   message them. (L-040, L-067)
    **ABSOLUTE RULE: The orchestrator MUST NEVER send `shutdown_request` to
    ANY core team member without explicit owner instruction.** Not after
    compaction. Not after "internal errors." Not ever. The owner — and ONLY
