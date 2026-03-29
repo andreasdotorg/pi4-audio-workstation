@@ -6,9 +6,8 @@
 # to production. GM is the sole link manager (D-039).
 #
 # WirePlumber handles node activation and port creation (required by PW
-# 1.6+ for adapter nodes) but does NOT create links — our nodes use
-# node.autoconnect=false / no AUTOCONNECT flag, so WP's linking policy
-# leaves them alone. GM creates all links via its reconciler.
+# 1.6+ for adapter nodes) but does NOT create links — policy.standard
+# is disabled (F-210). GM creates all links via its reconciler.
 #
 # Usage:
 #   ./scripts/local-pw-test-env.sh start   # Start PipeWire + WirePlumber
@@ -91,6 +90,12 @@ create_configs() {
 # WirePlumber handles node activation; GM manages all links (D-039).
 context.properties = {
     support.dbus = false
+    default.clock.rate          = 48000
+    default.clock.quantum       = 1024
+    default.clock.min-quantum   = 256
+    default.clock.max-quantum   = 2048
+    # F-210: increase link buffer pool to prevent "out of buffers" with 7+ streams.
+    link.max-buffers            = 16
 }
 
 context.objects = [
@@ -110,6 +115,7 @@ context.objects = [
             audio.position   = [ AUX0 AUX1 AUX2 AUX3 AUX4 AUX5 AUX6 AUX7 ]
             node.autoconnect = false
             node.always-process = true
+            node.latency     = 1024/48000
             session.suspend-timeout-seconds = 0
             node.pause-on-idle = false
         }
@@ -134,6 +140,7 @@ context.objects = [
             audio.position   = [ AUX0 AUX1 AUX2 AUX3 AUX4 AUX5 AUX6 AUX7 ]
             node.autoconnect = false
             node.always-process = true
+            node.latency     = 1024/48000
             session.suspend-timeout-seconds = 0
             node.pause-on-idle = false
         }
@@ -163,6 +170,7 @@ context.objects = [
             audio.position   = [ AUX0 AUX1 AUX2 AUX3 AUX4 AUX5 AUX6 AUX7 ]
             node.autoconnect = false
             node.always-process = true
+            node.latency     = 1024/48000
             session.suspend-timeout-seconds = 0
             node.pause-on-idle = false
         }
@@ -182,52 +190,22 @@ context.properties = {
 }
 EOF
 
-    # WirePlumber drop-ins: disable auto-linking and ACP channel renegotiation.
-    # Without these, WP's default policy renegotiates null-audio-sink nodes
-    # from 8ch (AUX0..7) to stereo (FL/FR), breaking GraphManager routing.
+    # WirePlumber config: node activation only, no linking policy (F-210).
+    # WP is required to activate adapter nodes (create AUX0-AUX7 ports).
+    # Without WP, adapter factory nodes appear but have zero ports.
+    # We disable policy.standard to eliminate the GM-vs-WP link fight
+    # that caused F-210 (create/destroy cycles stressing PW).
+    # policy.node handles node/port lifecycle; GM manages all links (D-039).
     mkdir -p "$XDG_CONFIG_DIR/wireplumber/wireplumber.conf.d"
 
-    # 90-local-demo-policy: WP policy.standard enabled so pw-record streams
-    # get auto-linked to the default source (F-164). Our static nodes all
-    # have node.autoconnect=false, so WP's linking policy ignores them —
-    # GM remains the sole link manager for static topology (D-039).
-    #
-    # pw-record capture uses the default audio source (set via pw-metadata
-    # by pw_capture.py before starting pw-record). WP auto-links the stream
-    # to the default source without needing --target.
-    #
-    # The UMIK-1 loopback source clears node.link-group (F-163) so WP can
-    # link pw-record to it without the loopback feedback-prevention logic
-    # blocking the connection.
     cat > "$XDG_CONFIG_DIR/wireplumber/wireplumber.conf.d/90-local-demo-policy.conf" << 'EOF'
 wireplumber.profiles = {
   main = {
-    policy.standard = required
+    policy.standard = disabled
+    policy.node = required
     support.standard-event-source = required
   }
 }
-EOF
-
-    # 80-preserve-channels: prevent ACP from renegotiating channel counts
-    # on our null-audio-sink adapter nodes. Matches node names used in
-    # 00-headless-test.conf above.
-    cat > "$XDG_CONFIG_DIR/wireplumber/wireplumber.conf.d/80-preserve-channels.conf" << 'EOF'
-monitor.audio-adapter.rules = [
-  {
-    matches = [
-      { node.name = "~alsa_output.usb-MiniDSP_USBStreamer*" }
-      { node.name = "~alsa_input.usb-MiniDSP_USBStreamer*" }
-      { node.name = "~alsa_input.usb-miniDSP_UMIK*" }
-      { node.name = "ada8200-in" }
-    ]
-    actions = {
-      update-props = {
-        audio.adapt.follower = ""
-        channelmix.disable = true
-      }
-    }
-  }
-]
 EOF
 }
 
@@ -271,11 +249,10 @@ cmd_start() {
     fi
     echo "  PipeWire running (PID $pw_pid)"
 
-    # Start WirePlumber for node activation and port creation.
-    # WP's default linking policy respects node.autoconnect=false on our
-    # static nodes and the absence of AUTOCONNECT on managed streams, so
-    # it won't create links — GM remains the sole link manager (D-039).
-    echo "Starting WirePlumber (node activation only)..."
+    # Start WirePlumber for node activation and port creation only.
+    # policy.standard is disabled (F-210) — WP will NOT create any links.
+    # GM remains the sole link manager (D-039).
+    echo "Starting WirePlumber (node activation only, no linking policy)..."
     "$WP_STORE/bin/wireplumber" 2>/tmp/wp-test-stderr.log &
     local wp_pid=$!
     echo "$wp_pid" > "$WP_PIDFILE"

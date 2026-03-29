@@ -43,10 +43,9 @@ SAMPLE_RATE = 48000
 def _set_default_source(target: str) -> None:
     """Set the PipeWire default audio source via pw-metadata.
 
-    WirePlumber's linking policy auto-links capture streams to the default
-    source. Setting this before starting pw-record ensures the stream
-    connects to the correct node without needing ``--target`` (which
-    doesn't work when WP's linking is configured for headless use).
+    Best-effort hint for environments where WP's linking policy is active
+    (production).  In local-demo, policy.standard is disabled (F-210) and
+    pw-record uses ``--target`` directly instead.
     """
     cmd = [
         "pw-metadata", "-n", "default", "0",
@@ -88,14 +87,16 @@ def start_capture(
         The running pw-record process.  Call ``stop_capture()`` to
         terminate it cleanly.
     """
-    # F-164: Set the default audio source so WP auto-links the stream.
-    # pw-record's --target flag doesn't work in headless WP environments
-    # because WP's linking policy needs a default source to match against.
+    # Set default source as best-effort hint (works with WP policy.standard).
+    # Also pass --target to pw-record for direct targeting (works without
+    # WP linking policy, e.g., local-demo where policy.standard is disabled
+    # per F-210).
     _set_default_source(target)
 
     bin_path = pw_record_bin or "pw-record"
     cmd = [
         bin_path,
+        "--target", target,
         "--rate", str(sample_rate),
         "--channels", str(channels),
         "--format", "f32",
@@ -111,7 +112,7 @@ def start_capture(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )
-    # Settle time for pw-record to connect and WP to create the link.
+    # Settle time for pw-record to connect to the target node.
     time.sleep(1.0)
 
     if proc.poll() is not None:
