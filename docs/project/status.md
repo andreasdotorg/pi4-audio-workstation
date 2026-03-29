@@ -19,7 +19,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | Story | Phase | Summary | Blocker |
 |-------|-------|---------|---------|
 | US-072 | IMPLEMENT 4/20 | NixOS reproducible build | Builder disk space (19G after GC) |
-| US-075 | IMPLEMENT | Local PW integration test env | AC 4-7 remaining |
+| US-075 | COMPLETE | Local PW integration test env | Done (AC 1-7, `dd019ea`+`25ed785`+`0eaf87c`) |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | QE + advisory reviews |
 | US-090 | TEST | FIR filter generation web UI | QE + advisory reviews |
@@ -31,11 +31,11 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-096 | TEST | UMIK-1 full calibration pipeline | QE + advisory reviews |
 | US-097 | TEST | Room compensation web UI workflow | QE + advisory reviews |
 | US-098 | TEST | Room correction pipeline verification | P0 done, P1/P2 deferred |
-| US-077 | TEST 8/9 | Single-clock timestamp arch | DoD #4: Pi perf regression |
+| US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
-| US-044 | TEST 6/11 | Safety protection suite | Pi tests + 4 advisory sign-offs |
+| US-044 | IMPLEMENT/TEST | Safety protection suite | AC #3-5 implemented (54 tests), AC #1-2/6-8 need Pi. Local-demo verification in progress. |
 | US-071 | REVIEW 9/9 | SETUP-MANUAL doc quality | Gate 3 failed: prose rewrite |
-| US-084 | IMPLEMENT 7/13 | Level-bridge crate extraction | Pi deployment |
+| US-084 | IMPLEMENT 10/13 | Level-bridge crate extraction | Pi systemd templates + owner acceptance |
 | US-079 | IMPLEMENT | Pre-convolver capture point | Owner re-validation |
 | US-080 | IMPLEMENT | Multi-point spectrum analyzer | Owner re-validation |
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
