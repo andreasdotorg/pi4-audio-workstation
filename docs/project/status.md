@@ -43,8 +43,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
-| US-110 | ready | Web UI passkey authentication | Unblocked by D-060 (local CA) |
-| US-111 | ready | Local-demo PW graph topology redesign | Architect design complete, AE signed off |
+| US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
+| US-111 | IMPLEMENT 0/14 | Local-demo PW graph topology redesign | T-111-01 spike is critical gate (WP-free filter-chain validation) |
 
 
 ### Owner-Blocking Items
@@ -110,7 +110,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts (diagnosing) |
 | F-209 | P1 / High | US-044 watchdog/gain integrity assume builtins are separate PW nodes (fix in progress) |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
-| F-061 | High | pw-dump subprocess hangs under WebSocket load — event loop saturation |
+| F-061 | ~~High~~ | ~~pw-dump subprocess hangs under WebSocket load~~ VERIFIED (session 4) |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
 | F-039 | Medium | DSP load gauge 0% — needs pw-top BUSY parsing |
@@ -123,9 +123,9 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Total stories filed | 115 |
 | Stories done | 13 |
 | Stories in TEST | 12 |
-| Stories in IMPLEMENT/REVIEW | ~12 |
-| Stories ready | 2 (US-110, US-111) |
-| Open defects (HIGH+) | 4 (F-187, F-209, F-037, F-061) |
+| Stories in IMPLEMENT/REVIEW | ~14 |
+| Stories ready | 0 |
+| Open defects (HIGH+) | 3 (F-187, F-209, F-037) |
 | Open defects (Medium) | ~15 |
 | Total defects filed | 216 |
 | Test suites | test-all (537), test-e2e (194) |
