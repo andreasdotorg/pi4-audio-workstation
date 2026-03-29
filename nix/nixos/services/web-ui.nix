@@ -19,6 +19,10 @@ let
     ps.websockets
     ps.pyyaml
     ps.httpx
+    # US-110: Passkey auth dependencies
+    ps.webauthn    # py-webauthn (WebAuthn registration/authentication)
+    ps.aiosqlite   # async SQLite for credential + session storage
+    ps.qrcode      # QR code generation for invite links
   ]);
 
   # Web UI source bundle: web-ui + room-correction + measurement as siblings.

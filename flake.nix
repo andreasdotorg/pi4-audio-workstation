@@ -60,6 +60,10 @@
           ps.soundfile
           ps.websockets
           ps.pyyaml
+          # US-110: Passkey auth dependencies
+          ps.webauthn    # py-webauthn (WebAuthn registration/authentication)
+          ps.aiosqlite   # async SQLite for credential + session storage
+          ps.qrcode      # QR code generation for invite links
           # Testing
           ps.pytest
           ps.httpx
@@ -78,6 +82,10 @@
           ps.soundfile
           ps.websockets
           ps.pyyaml
+          # US-110: Passkey auth dependencies
+          ps.webauthn
+          ps.aiosqlite
+          ps.qrcode
           # Testing
           ps.pytest
           ps.httpx

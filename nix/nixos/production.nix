@@ -110,9 +110,11 @@
     # The stale LD_LIBRARY_PATH for PipeWire JACK compat has been removed.
   };
 
-  # Ensure TLS cert directory exists (certs are mutable — placed by admin
-  # or a self-signed cert generation script, not managed by Nix).
+  # Ensure mutable state directories exist.
+  # Certs: placed by admin or cert generation script, not managed by Nix.
+  # Auth DB: SQLite database for passkey credentials + sessions (US-110).
   systemd.tmpfiles.rules = [
     "d /var/lib/pi4audio/certs 0700 ela ela - -"
+    "d /var/lib/pi4audio 0700 ela ela - -"
   ];
 }
