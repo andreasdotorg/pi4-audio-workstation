@@ -1,6 +1,6 @@
 //! Gain integrity check — periodic Mult <= 1.0 verification (T-044-5).
 //!
-//! Polls gain node parameters via `pw-dump` every 30s and verifies all
+//! Polls gain builtin parameters via `pw-dump` every 30s and verifies all
 //! Mult values are <= 1.0. If any Mult > 1.0 (which would indicate
 //! amplification rather than attenuation), triggers the watchdog's safety
 //! mute mechanism.
@@ -21,24 +21,24 @@
 //!   amplification. Production values are 0.001 (mains) and 0.000631
 //!   (subs) — well below 1.0.
 
-use crate::watchdog::GAIN_NODE_NAMES;
+use crate::watchdog::GAIN_PARAM_NAMES;
 
 /// Result of a single gain integrity check cycle.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GainCheckResult {
-    /// All gain nodes present with Mult <= 1.0.
+    /// All gain params present with Mult <= 1.0.
     AllOk {
-        /// (node_name, mult_value) pairs for all checked nodes.
+        /// (gain_name, mult_value) pairs for all checked params.
         values: Vec<(String, f64)>,
     },
-    /// One or more gain nodes have Mult > 1.0.
+    /// One or more gain params have Mult > 1.0.
     Violation {
-        /// (node_name, mult_value) pairs for violating nodes.
+        /// (gain_name, mult_value) pairs for violating params.
         violating: Vec<(String, f64)>,
-        /// (node_name, mult_value) pairs for all checked nodes.
+        /// (gain_name, mult_value) pairs for all checked params.
         all_values: Vec<(String, f64)>,
     },
-    /// One or more gain nodes are missing from the graph.
+    /// One or more gain params are missing from the graph.
     /// The watchdog (T-044-4) handles missing nodes — this module
     /// does not duplicate that responsibility.
     MissingNodes {
@@ -80,15 +80,15 @@ impl GainIntegrityCheck {
 
     /// Evaluate gain values and return the check result.
     ///
-    /// `gains` is a list of (node_name, mult_value) pairs from pw-dump.
-    /// Only gain nodes listed in `GAIN_NODE_NAMES` are checked.
+    /// `gains` is a list of (gain_name, mult_value) pairs from pw-dump.
+    /// Only gain names listed in `GAIN_PARAM_NAMES` are checked.
     ///
     /// Returns the check result and updates internal state.
     pub fn check(&mut self, gains: &[(String, f64)]) -> GainCheckResult {
         self.total_checks += 1;
 
-        // Check which expected gain nodes are present.
-        let missing: Vec<String> = GAIN_NODE_NAMES
+        // Check which expected gain params are present.
+        let missing: Vec<String> = GAIN_PARAM_NAMES
             .iter()
             .filter(|name| !gains.iter().any(|(n, _)| n == *name))
             .map(|name| name.to_string())
@@ -104,7 +104,7 @@ impl GainIntegrityCheck {
         let violating: Vec<(String, f64)> = gains
             .iter()
             .filter(|(name, mult)| {
-                GAIN_NODE_NAMES.contains(&name.as_str()) && *mult > 1.0
+                GAIN_PARAM_NAMES.contains(&name.as_str()) && *mult > 1.0
             })
             .cloned()
             .collect();
@@ -119,7 +119,7 @@ impl GainIntegrityCheck {
             self.consecutive_ok = 0;
             self.consecutive_violations += 1;
             log::error!(
-                "GAIN INTEGRITY: Mult > 1.0 detected on {} node(s): {:?}",
+                "GAIN INTEGRITY: Mult > 1.0 detected on {} param(s): {:?}",
                 violating.len(),
                 violating,
             );
@@ -186,25 +186,40 @@ pub struct GainIntegrityStatus {
     pub total_checks: u32,
 }
 
-/// Parse gain node Mult values from `pw-dump` JSON output.
+/// Parse gain builtin Mult values from `pw-dump` JSON output.
 ///
-/// Searches for nodes matching `GAIN_NODE_NAMES` and extracts the
-/// Mult parameter from their Props. Returns (node_name, mult_value)
-/// pairs for all found gain nodes.
+/// Finds the `pi4audio-convolver` node and extracts prefixed gain
+/// param values (e.g., `gain_left_hp:Mult`) from its `Props[].params`
+/// flat array. Returns `(gain_name, mult_value)` pairs where
+/// `gain_name` matches `GAIN_PARAM_NAMES` (without the `:Mult` suffix).
 ///
-/// `pw-dump` outputs a JSON array of PipeWire objects. Each node has:
+/// The gain builtins are internal to the filter-chain module — they
+/// appear as prefixed params on the convolver node, NOT as separate
+/// PW nodes.
+///
+/// `pw-dump` outputs a JSON array of PipeWire objects. The convolver
+/// node's Props params array contains alternating key-value entries:
 /// ```json
 /// {
 ///   "type": "PipeWire:Interface:Node",
 ///   "info": {
-///     "props": { "node.name": "gain_left_hp", ... },
+///     "props": { "node.name": "pi4audio-convolver", ... },
 ///     "params": {
-///       "Props": [ { "params": ["Mult", <value>] } ]
+///       "Props": [
+///         { "params": [
+///             "gain_left_hp:Mult", 0.001,
+///             "gain_right_hp:Mult", 0.001,
+///             "gain_sub1_lp:Mult", 0.000631,
+///             "gain_sub2_lp:Mult", 0.000631
+///         ] }
+///       ]
 ///     }
 ///   }
 /// }
 /// ```
 pub fn parse_pw_dump_gains(json_str: &str) -> Result<Vec<(String, f64)>, String> {
+    use crate::watchdog::CONVOLVER_NODE_NAME;
+
     let objects: serde_json::Value =
         serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {}", e))?;
 
@@ -212,78 +227,78 @@ pub fn parse_pw_dump_gains(json_str: &str) -> Result<Vec<(String, f64)>, String>
         .as_array()
         .ok_or_else(|| "pw-dump output is not a JSON array".to_string())?;
 
-    let mut gains = Vec::new();
+    // Find the convolver node.
+    let convolver_info = array
+        .iter()
+        .filter(|obj| {
+            obj.get("type").and_then(|t| t.as_str()) == Some("PipeWire:Interface:Node")
+        })
+        .find_map(|obj| {
+            let info = obj.get("info")?;
+            let node_name = info
+                .get("props")
+                .and_then(|p| p.get("node.name"))
+                .and_then(|n| n.as_str())?;
+            if node_name == CONVOLVER_NODE_NAME {
+                Some(info)
+            } else {
+                None
+            }
+        });
 
-    for obj in array {
-        // Filter to Node objects.
-        let obj_type = obj.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if obj_type != "PipeWire:Interface:Node" {
-            continue;
-        }
+    let info = match convolver_info {
+        Some(i) => i,
+        None => return Ok(Vec::new()), // Convolver not in dump — watchdog handles this.
+    };
 
-        let info = match obj.get("info") {
-            Some(i) => i,
-            None => continue,
-        };
-
-        // Get node.name from props.
-        let node_name = info
-            .get("props")
-            .and_then(|p| p.get("node.name"))
-            .and_then(|n| n.as_str())
-            .unwrap_or("");
-
-        // Only process gain nodes.
-        if !GAIN_NODE_NAMES.contains(&node_name) {
-            continue;
-        }
-
-        // Extract Mult from params.Props.
-        // Props is an array of param objects. Each may contain "params"
-        // which is an array of [key, value] pairs.
-        let mult = extract_mult_from_params(info);
-
-        if let Some(m) = mult {
-            gains.push((node_name.to_string(), m));
-        }
-    }
-
-    Ok(gains)
+    Ok(extract_gain_params_from_convolver(info))
 }
 
-/// Extract the Mult value from a node's info.params.Props array.
+/// Extract prefixed gain Mult values from the convolver node's Props params.
 ///
-/// The structure varies by PipeWire version. Common patterns:
-/// - `params.Props[].params` = array of alternating String, Float
-/// - `params.Props[].params` = array of ["Mult", <value>]
-fn extract_mult_from_params(info: &serde_json::Value) -> Option<f64> {
-    let params = info.get("params")?;
-    let props = params.get("Props")?;
-    let props_array = props.as_array()?;
+/// Scans `info.params.Props[].params` for entries matching
+/// `"<gain_name>:Mult"` where `<gain_name>` is in `GAIN_PARAM_NAMES`.
+/// The params array is a flat alternating list: [key, value, key, value, ...].
+fn extract_gain_params_from_convolver(info: &serde_json::Value) -> Vec<(String, f64)> {
+    let mut gains = Vec::new();
+
+    let props_array = match info
+        .get("params")
+        .and_then(|p| p.get("Props"))
+        .and_then(|p| p.as_array())
+    {
+        Some(a) => a,
+        None => return gains,
+    };
 
     for prop_obj in props_array {
-        // Look for "params" key in each Props entry.
-        let prop_params = match prop_obj.get("params") {
-            Some(p) => p,
+        let prop_params = match prop_obj.get("params").and_then(|p| p.as_array()) {
+            Some(a) => a,
             None => continue,
         };
 
-        // params can be an array: ["Mult", <value>]
-        if let Some(arr) = prop_params.as_array() {
-            let mut iter = arr.iter();
-            while let Some(key) = iter.next() {
-                if key.as_str() == Some("Mult") {
-                    if let Some(val) = iter.next() {
-                        if let Some(f) = val.as_f64() {
-                            return Some(f);
+        // Flat alternating array: ["gain_left_hp:Mult", 0.001, "gain_right_hp:Mult", 0.001, ...]
+        let mut iter = prop_params.iter();
+        while let Some(key) = iter.next() {
+            if let Some(key_str) = key.as_str() {
+                // Check if this is a "<gain_name>:Mult" entry.
+                if let Some(gain_name) = key_str.strip_suffix(":Mult") {
+                    if GAIN_PARAM_NAMES.contains(&gain_name) {
+                        if let Some(val) = iter.next() {
+                            if let Some(f) = val.as_f64() {
+                                gains.push((gain_name.to_string(), f));
+                            }
                         }
+                        continue;
                     }
                 }
             }
+            // Skip the value for non-matching keys.
+            let _ = iter.next();
         }
     }
 
-    None
+    gains
 }
 
 // ===========================================================================
@@ -453,17 +468,17 @@ mod tests {
     }
 
     #[test]
-    fn ignores_non_gain_nodes() {
+    fn ignores_non_gain_params() {
         let mut check = GainIntegrityCheck::new();
         let gains = vec![
             ("gain_left_hp".to_string(), 0.001),
             ("gain_right_hp".to_string(), 0.001),
             ("gain_sub1_lp".to_string(), 0.000631),
             ("gain_sub2_lp".to_string(), 0.000631),
-            ("some_other_node".to_string(), 5.0), // not a gain node
+            ("some_other_param".to_string(), 5.0), // not a gain param
         ];
         let result = check.check(&gains);
-        // The non-gain node with Mult 5.0 should be ignored.
+        // The non-gain param with Mult 5.0 should be ignored.
         assert!(matches!(result, GainCheckResult::AllOk { .. }));
     }
 
@@ -496,7 +511,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // pw-dump parsing
+    // pw-dump parsing — convolver node with prefixed gain params
     // -----------------------------------------------------------------------
 
     #[test]
@@ -507,56 +522,28 @@ mod tests {
     }
 
     #[test]
-    fn parse_pw_dump_gains_with_gain_nodes() {
+    fn parse_pw_dump_gains_convolver_with_gain_params() {
         let json = r#"[
             {
                 "type": "PipeWire:Interface:Node",
                 "info": {
-                    "props": { "node.name": "gain_left_hp" },
-                    "params": {
-                        "Props": [
-                            { "params": ["Mult", 0.001] }
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "PipeWire:Interface:Node",
-                "info": {
-                    "props": { "node.name": "gain_right_hp" },
-                    "params": {
-                        "Props": [
-                            { "params": ["Mult", 0.001] }
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "PipeWire:Interface:Node",
-                "info": {
-                    "props": { "node.name": "gain_sub1_lp" },
-                    "params": {
-                        "Props": [
-                            { "params": ["Mult", 0.000631] }
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "PipeWire:Interface:Node",
-                "info": {
-                    "props": { "node.name": "gain_sub2_lp" },
-                    "params": {
-                        "Props": [
-                            { "params": ["Mult", 0.000631] }
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "PipeWire:Interface:Node",
-                "info": {
                     "props": { "node.name": "pi4audio-convolver" },
+                    "params": {
+                        "Props": [
+                            { "params": [
+                                "gain_left_hp:Mult", 0.001,
+                                "gain_right_hp:Mult", 0.001,
+                                "gain_sub1_lp:Mult", 0.000631,
+                                "gain_sub2_lp:Mult", 0.000631
+                            ] }
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": { "node.name": "pi4audio-convolver-out" },
                     "params": {}
                 }
             }
@@ -573,6 +560,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_pw_dump_gains_no_convolver_returns_empty() {
+        let json = r#"[
+            {
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": { "node.name": "some-other-node" },
+                    "params": {}
+                }
+            }
+        ]"#;
+
+        let gains = parse_pw_dump_gains(json).unwrap();
+        assert!(gains.is_empty());
+    }
+
+    #[test]
     fn parse_pw_dump_gains_ignores_non_node_objects() {
         let json = r#"[
             {
@@ -582,10 +585,12 @@ mod tests {
             {
                 "type": "PipeWire:Interface:Node",
                 "info": {
-                    "props": { "node.name": "gain_left_hp" },
+                    "props": { "node.name": "pi4audio-convolver" },
                     "params": {
                         "Props": [
-                            { "params": ["Mult", 0.001] }
+                            { "params": [
+                                "gain_left_hp:Mult", 0.001
+                            ] }
                         ]
                     }
                 }
@@ -594,6 +599,7 @@ mod tests {
 
         let gains = parse_pw_dump_gains(json).unwrap();
         assert_eq!(gains.len(), 1);
+        assert_eq!(gains[0].0, "gain_left_hp");
     }
 
     #[test]
@@ -603,12 +609,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_pw_dump_gains_node_without_mult() {
+    fn parse_pw_dump_gains_convolver_without_gain_params() {
         let json = r#"[
             {
                 "type": "PipeWire:Interface:Node",
                 "info": {
-                    "props": { "node.name": "gain_left_hp" },
+                    "props": { "node.name": "pi4audio-convolver" },
                     "params": {
                         "Props": [
                             { "volume": 0.5 }
@@ -619,7 +625,33 @@ mod tests {
         ]"#;
 
         let gains = parse_pw_dump_gains(json).unwrap();
-        // Node found but no Mult param — not included.
+        // Convolver found but no gain params — empty.
         assert!(gains.is_empty());
+    }
+
+    #[test]
+    fn parse_pw_dump_gains_ignores_non_gain_prefixed_params() {
+        let json = r#"[
+            {
+                "type": "PipeWire:Interface:Node",
+                "info": {
+                    "props": { "node.name": "pi4audio-convolver" },
+                    "params": {
+                        "Props": [
+                            { "params": [
+                                "gain_left_hp:Mult", 0.001,
+                                "convolver_left:blocksize", 8192,
+                                "gain_right_hp:Mult", 0.001
+                            ] }
+                        ]
+                    }
+                }
+            }
+        ]"#;
+
+        let gains = parse_pw_dump_gains(json).unwrap();
+        assert_eq!(gains.len(), 2);
+        assert_eq!(gains[0].0, "gain_left_hp");
+        assert_eq!(gains[1].0, "gain_right_hp");
     }
 }

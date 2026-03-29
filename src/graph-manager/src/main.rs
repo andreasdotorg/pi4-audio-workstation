@@ -191,7 +191,7 @@ fn run_pipewire(
 
     // Gain integrity check — periodic Mult <= 1.0 verification (T-044-5).
     let gain_integrity_state = Rc::new(RefCell::new(GainIntegrityCheck::new()));
-    info!("Gain integrity check initialized (checking {} gain nodes)", watchdog::GAIN_NODE_NAMES.len());
+    info!("Gain integrity check initialized (checking {} gain params)", watchdog::GAIN_PARAM_NAMES.len());
 
     // Graph info cache — quantum, sample rate, xruns (Phase 2a).
     // Updated by a 1s timer via pw-metadata subprocess. RPC returns cached values.
@@ -488,19 +488,21 @@ fn dispatch_rpc_command(
                     info!("Watchdog unlatch: restoring {} gain values", gains.len());
 
                     // Restore pre-mute gain values via native PW API.
+                    // Gain builtins are params on the convolver node.
                     let g = graph.borrow();
                     let mut restored = 0usize;
-                    for (name, mult) in &gains {
-                        if let Some(node) = g.node_by_name(name) {
-                            if reg_handle.set_node_mult(node.id, *mult as f32) {
-                                info!("Watchdog unlatch: restored {} (node {}) to Mult={}", name, node.id, mult);
+                    if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                        for (name, mult) in &gains {
+                            let prefixed = format!("{}:Mult", name);
+                            if reg_handle.set_node_param_mult(convolver.id, &prefixed, *mult as f32) {
+                                info!("Watchdog unlatch: restored {} to Mult={}", prefixed, mult);
                                 restored += 1;
                             } else {
-                                log::warn!("Watchdog unlatch: failed to restore {} (node {})", name, node.id);
+                                log::warn!("Watchdog unlatch: failed to restore {}", prefixed);
                             }
-                        } else {
-                            log::warn!("Watchdog unlatch: node '{}' not in graph, skipping restore", name);
                         }
+                    } else {
+                        log::warn!("Watchdog unlatch: convolver node not in graph, skipping restore");
                     }
                     drop(g);
 
@@ -540,7 +542,7 @@ fn dispatch_rpc_command(
 #[cfg(feature = "pipewire-backend")]
 fn run_gain_integrity_check(
     gain_integrity_state: &std::rc::Rc<std::cell::RefCell<gain_integrity::GainIntegrityCheck>>,
-    watchdog_state: &std::rc::Rc<std::cell::RefCell<watchdog::Watchdog>>,
+    _watchdog_state: &std::rc::Rc<std::cell::RefCell<watchdog::Watchdog>>,
     reg_handle: &registry::RegistryHandle,
     event_tx: &std::sync::mpsc::Sender<rpc::GraphEvent>,
     graph: &std::rc::Rc<std::cell::RefCell<graph::GraphState>>,
@@ -608,13 +610,17 @@ fn run_gain_integrity_check(
             });
 
             // Trigger watchdog mute via the same mechanism as T-044-4.
-            // We force a mute by calling set_node_mult(0.0) on all gain nodes.
+            // Set Mult=0.0 on all gain builtins inside the convolver node
+            // using prefixed param names (e.g., "gain_left_hp:Mult").
             let g = graph.borrow();
-            for name in watchdog::GAIN_NODE_NAMES {
-                if let Some(node) = g.node_by_name(name) {
-                    log::error!("GAIN INTEGRITY: Muting {} (node {}) via set_node_mult", name, node.id);
-                    reg_handle.set_node_mult(node.id, 0.0);
+            if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                for name in watchdog::GAIN_PARAM_NAMES {
+                    let prefixed = format!("{}:Mult", name);
+                    log::error!("GAIN INTEGRITY: Muting {} (convolver node {}) via set_node_param_mult", prefixed, convolver.id);
+                    reg_handle.set_node_param_mult(convolver.id, &prefixed, 0.0);
                 }
+            } else {
+                log::error!("GAIN INTEGRITY: Convolver node not found — cannot mute gain params");
             }
         }
         gain_integrity::GainCheckResult::AllOk { .. } => {

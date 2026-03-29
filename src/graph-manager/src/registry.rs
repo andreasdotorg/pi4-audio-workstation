@@ -41,6 +41,7 @@ use crate::link_audit;
 use crate::reconcile::{self, LinkAction};
 use crate::routing::{Mode, RoutingTable};
 use crate::rpc::GraphEvent;
+use crate::watchdog;
 use crate::watchdog::{Watchdog, WatchdogAction};
 
 // Compile-time canary: Registry must be layout-compatible with NonNull<pw_registry>.
@@ -96,27 +97,18 @@ impl RegistryHandle {
         }
     }
 
-    /// Set the Mult parameter to the given value on a PipeWire node, using
-    /// the native PipeWire API (no subprocess).
+    /// Set a named Mult parameter on a PW node via the native PW API.
     ///
-    /// This is the safety-critical mute path (T-044-4). It binds a temporary
-    /// node proxy via the registry, builds the SPA Props pod containing the
-    /// Mult parameter, calls `pw_node_set_param`, and destroys the proxy.
+    /// Sends a prefixed param name (e.g., `"gain_left_hp:Mult"`) to
+    /// target individual gain builtins inside the filter-chain convolver
+    /// node, where each builtin's Mult param is addressed by its prefixed
+    /// name in the Props `params` array.
     ///
-    /// ## Timing
-    ///
-    /// Each call takes <1ms (in-process function call, no fork/exec). This
-    /// meets the <21ms budget for the complete 4-node mute operation.
-    ///
-    /// ## Safety
-    ///
-    /// Must be called on the PW main loop thread. The registry pointer must
-    /// be valid. Best-effort: returns false on failure but never panics.
-    pub fn set_node_mult(&self, node_id: u32, mult_value: f32) -> bool {
+    /// Safety-critical: must be called on the PW main loop thread.
+    /// The registry pointer must be valid. Best-effort: returns false
+    /// on failure but never panics.
+    pub fn set_node_param_mult(&self, node_id: u32, param_name: &str, mult_value: f32) -> bool {
         unsafe {
-            // 1. Bind a temporary node proxy via the registry.
-            //    pw_registry_bind(registry, id, type, version, user_data_size)
-            //    Returns *mut c_void (the proxy), or null on failure.
             let type_cstr = std::ffi::CStr::from_bytes_with_nul_unchecked(
                 pipewire_sys::PW_TYPE_INTERFACE_Node,
             );
@@ -127,8 +119,8 @@ impl RegistryHandle {
                     bind,
                     node_id,
                     type_cstr.as_ptr(),
-                    pipewire_sys::PW_VERSION_NODE,  // version 3
-                    0usize  // no user data
+                    pipewire_sys::PW_VERSION_NODE,
+                    0usize
                 );
 
             if proxy_ptr.is_null() {
@@ -139,8 +131,6 @@ impl RegistryHandle {
                 return false;
             }
 
-            // 2. Build the SPA Props pod: Object(Props) { params => Struct { String("Mult"), Float(value) } }
-            //    This matches what pw-cli sends for: pw-cli s <id> Props '{ params = [ "Mult" <value> ] }'
             let mut pod_data: Vec<u8> = Vec::with_capacity(128);
             let mut builder = libspa::pod::builder::Builder::new(&mut pod_data);
 
@@ -151,7 +141,7 @@ impl RegistryHandle {
                     spa_sys::SPA_PARAM_Props,
                 ) {
                     spa_sys::SPA_PROP_params => Struct {
-                        String("Mult"),
+                        String(param_name),
                         Float(mult_value),
                     },
                 }
@@ -159,35 +149,26 @@ impl RegistryHandle {
 
             if build_result.is_err() {
                 log::error!(
-                    "WATCHDOG: SPA pod build failed for node {} — {:?}",
-                    node_id, build_result,
+                    "WATCHDOG: SPA pod build failed for node {} param {} — {:?}",
+                    node_id, param_name, build_result,
                 );
-                // Destroy the proxy before returning.
                 pipewire_sys::pw_proxy_destroy(proxy_ptr.cast());
                 return false;
             }
 
-            // Drop the builder to release the borrow on pod_data.
             drop(builder);
 
-            // 3. Get the pod pointer from the built data.
             let pod_ptr = pod_data.as_ptr() as *const spa_sys::spa_pod;
 
-            // 4. Call pw_node_set_param(proxy, SPA_PARAM_Props, 0, pod).
-            //    The proxy pointer is a pw_node proxy obtained via pw_registry_bind.
             libspa::spa_interface_call_method!(
                 proxy_ptr,
                 pipewire_sys::pw_node_methods,
                 set_param,
                 spa_sys::SPA_PARAM_Props,
-                0u32,  // flags
+                0u32,
                 pod_ptr
             );
 
-            // 5. Destroy the temporary proxy. The set_param message has been
-            //    queued in PipeWire's protocol buffer and will be sent on the
-            //    next main loop iteration. Destroying the proxy after queuing
-            //    is safe — PW flushes pending messages before cleanup.
             pipewire_sys::pw_proxy_destroy(proxy_ptr.cast());
 
             true
@@ -432,9 +413,9 @@ fn run_reconcile(
 /// ## Mute mechanism
 ///
 /// **Primary (SetGainMute):** Uses `pw_node_set_param()` via the native
-/// PipeWire API (`RegistryHandle::set_node_mult`). Binds a temporary node
-/// proxy, builds a SPA Props pod with Mult=0.0, calls set_param, and
-/// destroys the proxy. No subprocess — <1ms per node, <5ms for all 4.
+/// PipeWire API (`RegistryHandle::set_node_param_mult`). Binds a temporary
+/// node proxy, builds a SPA Props pod with prefixed Mult=0.0, calls
+/// set_param, and destroys the proxy. No subprocess — <1ms per param.
 ///
 /// **Fallback (DestroyUsbLinks):** Uses `registry.destroy_global()` to
 /// destroy all links to USBStreamer input ports. This is the existing
@@ -452,44 +433,46 @@ fn run_watchdog_check(
             // No action needed.
         }
 
-        WatchdogAction::SetGainMute { gain_nodes } => {
-            // Primary mute path: set Mult=0.0 on all available gain nodes
-            // via native PW API (pw_registry_bind + pw_node_set_param).
-            // No subprocess — <1ms per node, well within the <21ms budget.
+        WatchdogAction::SetGainMute { convolver_node_id } => {
+            // Primary mute path: set Mult=0.0 on all gain builtins inside
+            // the convolver node via prefixed param names (e.g.,
+            // "gain_left_hp:Mult"). No subprocess — <1ms per param.
             let missing = watchdog.borrow().missing_at_latch().to_vec();
             log::error!(
-                "WATCHDOG MUTE: Setting Mult=0.0 on {} gain nodes via native PW API (missing: {:?})",
-                gain_nodes.len(),
+                "WATCHDOG MUTE: Setting Mult=0.0 on {} gain params via convolver node {} (missing: {:?})",
+                watchdog::GAIN_PARAM_NAMES.len(),
+                convolver_node_id,
                 missing,
             );
 
             // Store pre-mute gains (default production values from
             // 30-filter-chain-convolver.conf, since reading the actual
             // Mult value would require an async enum_params round-trip).
-            let pre_mute: Vec<(String, f64)> = gain_nodes
+            let pre_mute: Vec<(String, f64)> = watchdog::GAIN_PARAM_NAMES
                 .iter()
-                .map(|(_, name)| {
-                    let default_mult = match name.as_str() {
+                .map(|name| {
+                    let default_mult = match *name {
                         "gain_left_hp" | "gain_right_hp" => 0.001,
                         "gain_sub1_lp" | "gain_sub2_lp" => 0.000631,
                         _ => 0.001,
                     };
-                    (name.clone(), default_mult)
+                    (name.to_string(), default_mult)
                 })
                 .collect();
             watchdog.borrow_mut().store_pre_mute_gains(pre_mute);
 
             // Execute mute via native PW API — no pw-cli subprocess.
-            // Safety-critical: best-effort per node. If one fails, we
-            // continue to mute the remaining nodes.
-            for (node_id, name) in &gain_nodes {
-                log::error!("WATCHDOG: Muting {} (node {}) via set_node_mult", name, node_id);
-                if registry.set_node_mult(*node_id, 0.0) {
-                    log::error!("WATCHDOG: Muted {} (node {})", name, node_id);
+            // Safety-critical: best-effort per param. If one fails, we
+            // continue to mute the remaining gain builtins.
+            for name in watchdog::GAIN_PARAM_NAMES {
+                let prefixed = format!("{}:Mult", name);
+                log::error!("WATCHDOG: Muting {} (convolver node {}) via set_node_param_mult", prefixed, convolver_node_id);
+                if registry.set_node_param_mult(convolver_node_id, &prefixed, 0.0) {
+                    log::error!("WATCHDOG: Muted {}", prefixed);
                 } else {
                     log::error!(
-                        "WATCHDOG: Native set_param failed for {} (node {})",
-                        name, node_id,
+                        "WATCHDOG: Native set_param failed for {} (convolver node {})",
+                        prefixed, convolver_node_id,
                     );
                 }
             }

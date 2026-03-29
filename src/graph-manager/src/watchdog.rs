@@ -1,9 +1,9 @@
 //! Filter-chain watchdog — safety mute via native PipeWire API (T-044-4).
 //!
 //! Monitors critical audio nodes in the PipeWire graph and latches a safety
-//! MUTE when any disappear. The mute sets Mult=0.0 on all 4 gain nodes
-//! (linear builtins in the filter-chain). If gain nodes themselves are gone,
-//! the fallback destroys ALL links to the USBStreamer input ports.
+//! MUTE when any disappear. The mute sets Mult=0.0 on the 4 gain builtins
+//! inside the filter-chain convolver node. If the convolver node itself is
+//! gone, the fallback destroys ALL links to the USBStreamer input ports.
 //!
 //! ## Safety model
 //!
@@ -13,24 +13,27 @@
 //! - Unlatch requires an RPC command (`watchdog_unlatch`)
 //! - The watchdog never increases gain — it only sets Mult to 0.0
 //!
-//! ## Monitored nodes (6 total)
+//! ## Monitored nodes (2)
 //!
 //! | Node name                | Role                        |
 //! |--------------------------|-----------------------------|
 //! | `pi4audio-convolver`     | Filter-chain capture side   |
 //! | `pi4audio-convolver-out` | Filter-chain playback side  |
-//! | `gain_left_hp`           | Left main gain node         |
-//! | `gain_right_hp`          | Right main gain node        |
-//! | `gain_sub1_lp`           | Sub 1 gain node             |
-//! | `gain_sub2_lp`           | Sub 2 gain node             |
+//!
+//! The 4 gain builtins (`gain_left_hp`, `gain_right_hp`, `gain_sub1_lp`,
+//! `gain_sub2_lp`) are internal to the filter-chain module — they appear
+//! as parameters on the `pi4audio-convolver` node, NOT as separate PW
+//! graph nodes. They are addressed by prefixed param name (e.g.,
+//! `gain_left_hp:Mult`) when setting Mult values.
 //!
 //! ## Mute mechanism
 //!
-//! **Primary:** Set Mult parameter to 0.0 on all 4 gain nodes using
-//! `pw_node_set_param()` via `pipewire-rs` (target: <1ms per node, <5ms total).
+//! **Primary:** Set Mult parameter to 0.0 on the convolver node for all 4
+//! gain builtins using `pw_node_set_param()` via `pipewire-rs` with prefixed
+//! param names (e.g., `gain_left_hp:Mult`). Target: <1ms per param, <5ms total.
 //!
-//! **Fallback:** If gain nodes themselves disappear (can't set Mult on a
-//! nonexistent node), destroy ALL links to USBStreamer input ports using
+//! **Fallback:** If the convolver node itself is gone (can't set params on
+//! a nonexistent node), destroy ALL links to USBStreamer input ports using
 //! `pw_registry::destroy_global()`.
 //!
 //! ## Thread model
@@ -51,20 +54,25 @@
 use crate::graph::GraphState;
 use crate::routing::NodeMatch;
 
-/// Names of the 6 monitored nodes.
+/// Names of the 2 monitored PW graph nodes.
 ///
 /// If ANY of these disappear from the PW graph, the watchdog triggers.
+/// The gain builtins are internal to the filter-chain module and are NOT
+/// separate PW nodes — they are accessed as params on the convolver node.
 pub const MONITORED_NODES: &[&str] = &[
     "pi4audio-convolver",
     "pi4audio-convolver-out",
-    "gain_left_hp",
-    "gain_right_hp",
-    "gain_sub1_lp",
-    "gain_sub2_lp",
 ];
 
-/// Names of the 4 gain nodes whose Mult parameter is set to 0.0 on mute.
-pub const GAIN_NODE_NAMES: &[&str] = &[
+/// Convolver capture-side node name — used to locate the node for gain
+/// param muting (the gain builtins live inside this node).
+pub const CONVOLVER_NODE_NAME: &str = "pi4audio-convolver";
+
+/// Prefixed param names for the 4 gain builtins inside the filter-chain.
+/// These are used with `pw_node_set_param()` on the convolver node to
+/// set Mult=0.0 on each gain stage. Also used by the gain integrity
+/// check to verify Mult <= 1.0.
+pub const GAIN_PARAM_NAMES: &[&str] = &[
     "gain_left_hp",
     "gain_right_hp",
     "gain_sub1_lp",
@@ -81,12 +89,13 @@ pub enum WatchdogAction {
     AllPresent,
     /// Already latched — no new action (already muted).
     AlreadyLatched,
-    /// Gain nodes available — set Mult=0.0 on each via native PW API.
+    /// Convolver node available — set Mult=0.0 on gain builtins via
+    /// `pw_node_set_param()` on the convolver node with prefixed param names.
     SetGainMute {
-        /// (node_id, node_name) pairs for gain nodes to mute.
-        gain_nodes: Vec<(u32, String)>,
+        /// PW node ID of the convolver (target for set_param calls).
+        convolver_node_id: u32,
     },
-    /// Gain nodes NOT available — destroy USBStreamer links as fallback.
+    /// Convolver node gone — destroy USBStreamer links as fallback.
     DestroyUsbLinks {
         /// PW link IDs to destroy.
         link_ids: Vec<u32>,
@@ -101,7 +110,7 @@ pub enum WatchdogAction {
 ///
 /// ## Startup grace period
 ///
-/// The watchdog starts **unarmed**. It arms automatically once all 6
+/// The watchdog starts **unarmed**. It arms automatically once both
 /// monitored nodes have been seen in a single `check()` call. Until
 /// armed, `check()` returns `AllPresent` even if nodes are missing.
 /// This prevents false latches during PipeWire startup when nodes
@@ -159,10 +168,11 @@ impl Watchdog {
     /// ## Logic
     ///
     /// 1. If already latched → `AlreadyLatched` (no-op).
-    /// 2. Check all 6 monitored nodes. If all present → `AllPresent`.
+    /// 2. Check both monitored nodes. If all present → `AllPresent`.
     /// 3. If any missing → latch the mute and determine mechanism:
-    ///    a. If gain nodes are present → `SetGainMute` (primary path).
-    ///    b. If gain nodes are gone → `DestroyUsbLinks` (fallback path).
+    ///    a. If convolver node present → `SetGainMute` (primary: set
+    ///       Mult=0.0 on gain builtins via convolver node params).
+    ///    b. If convolver node gone → `DestroyUsbLinks` (fallback).
     pub fn check(&mut self, graph: &GraphState) -> WatchdogAction {
         if self.latched {
             return WatchdogAction::AlreadyLatched;
@@ -199,26 +209,20 @@ impl Watchdog {
             missing,
         );
 
-        // Determine mute mechanism: primary (gain nodes) or fallback (link destroy).
-        let gain_nodes: Vec<(u32, String)> = GAIN_NODE_NAMES
-            .iter()
-            .filter_map(|name| {
-                graph
-                    .node_by_name(name)
-                    .map(|node| (node.id, name.to_string()))
-            })
-            .collect();
-
-        if !gain_nodes.is_empty() {
-            // Primary path: at least some gain nodes available.
-            WatchdogAction::SetGainMute { gain_nodes }
+        // Determine mute mechanism based on convolver node availability.
+        // The gain builtins are params on the convolver node, so we can
+        // only set Mult=0.0 if the convolver node is still in the graph.
+        if let Some(convolver) = graph.node_by_name(CONVOLVER_NODE_NAME) {
+            // Primary path: convolver present — mute via gain params.
+            WatchdogAction::SetGainMute {
+                convolver_node_id: convolver.id,
+            }
         } else {
-            // Fallback: no gain nodes — destroy all links to USBStreamer.
+            // Fallback: convolver gone — destroy all links to USBStreamer.
             let usb_matcher = NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string());
             let link_ids: Vec<u32> = graph
                 .links()
                 .filter(|link| {
-                    // Find links whose input node is the USBStreamer.
                     if let Some(node) = graph.node(link.input_node) {
                         usb_matcher.matches(&node.name)
                     } else {
@@ -229,7 +233,7 @@ impl Watchdog {
                 .collect();
 
             log::error!(
-                "WATCHDOG: Gain nodes gone — fallback: destroying {} USBStreamer links",
+                "WATCHDOG: Convolver gone — fallback: destroying {} USBStreamer links",
                 link_ids.len(),
             );
             WatchdogAction::DestroyUsbLinks { link_ids }
@@ -298,7 +302,7 @@ mod tests {
         }
     }
 
-    /// Create a watchdog that has been armed (all nodes seen once).
+    /// Create a watchdog that has been armed (both monitored nodes seen).
     fn armed_watchdog() -> Watchdog {
         let mut wd = Watchdog::new();
         let g = graph_all_present();
@@ -307,31 +311,25 @@ mod tests {
         wd
     }
 
-    /// Build a graph with all 6 monitored nodes present.
+    /// Build a graph with both monitored nodes present (convolver + convolver-out).
     fn graph_all_present() -> GraphState {
         let mut g = GraphState::new();
         g.add_node(make_node(100, "pi4audio-convolver", "Audio/Sink"));
         g.add_node(make_node(200, "pi4audio-convolver-out", "Stream/Output/Audio"));
-        g.add_node(make_node(301, "gain_left_hp", "Audio/Sink"));
-        g.add_node(make_node(302, "gain_right_hp", "Audio/Sink"));
-        g.add_node(make_node(303, "gain_sub1_lp", "Audio/Sink"));
-        g.add_node(make_node(304, "gain_sub2_lp", "Audio/Sink"));
         g
     }
 
-    /// Build a graph with USBStreamer and some links to it.
+    /// Build a graph with USBStreamer and links to it.
     fn graph_with_usb_links() -> GraphState {
         use crate::graph::{TrackedLink, TrackedPort};
 
         let mut g = graph_all_present();
 
-        // Add USBStreamer node.
         g.add_node(make_node(
             400,
             "alsa_output.usb-MiniDSP_USBStreamer-00.pro-output-0",
             "Audio/Sink",
         ));
-        // Add USBStreamer ports.
         for ch in 0..4u32 {
             g.add_port(TrackedPort {
                 id: 40000 + ch,
@@ -341,8 +339,6 @@ mod tests {
                 properties: HashMap::new(),
             });
         }
-
-        // Add convolver-out ports.
         for ch in 0..4u32 {
             g.add_port(TrackedPort {
                 id: 20000 + ch,
@@ -352,8 +348,6 @@ mod tests {
                 properties: HashMap::new(),
             });
         }
-
-        // Add links: convolver-out → USBStreamer.
         for ch in 0..4u32 {
             g.add_link(TrackedLink {
                 id: 1000 + ch,
@@ -393,84 +387,60 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Convolver disappears — primary mute path
+    // Convolver disappears — convolver-out still present → fallback
+    // (convolver gone means gain params unreachable → link destruction)
     // -----------------------------------------------------------------------
 
     #[test]
-    fn convolver_disappears_triggers_gain_mute() {
+    fn convolver_disappears_triggers_link_destroy() {
+        // Convolver (capture side) is gone — gain params live on this node,
+        // so we can't set Mult=0.0 → fallback to link destruction.
         let mut wd = armed_watchdog();
-        let mut g = graph_all_present();
+        let mut g = graph_with_usb_links();
         g.remove_node(100); // Remove pi4audio-convolver
 
         let action = wd.check(&g);
         assert!(wd.is_latched());
 
         match action {
-            WatchdogAction::SetGainMute { gain_nodes } => {
-                assert_eq!(gain_nodes.len(), 4);
-                let names: Vec<&str> = gain_nodes.iter().map(|(_, n)| n.as_str()).collect();
-                assert!(names.contains(&"gain_left_hp"));
-                assert!(names.contains(&"gain_right_hp"));
-                assert!(names.contains(&"gain_sub1_lp"));
-                assert!(names.contains(&"gain_sub2_lp"));
+            WatchdogAction::DestroyUsbLinks { link_ids } => {
+                assert_eq!(link_ids.len(), 4);
             }
-            other => panic!("expected SetGainMute, got {:?}", other),
+            other => panic!("expected DestroyUsbLinks, got {:?}", other),
         }
     }
 
     #[test]
     fn convolver_out_disappears_triggers_gain_mute() {
+        // Convolver-out is gone but convolver (capture side with gain params)
+        // is still present → primary mute path via convolver node.
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
         g.remove_node(200); // Remove pi4audio-convolver-out
 
         let action = wd.check(&g);
         assert!(wd.is_latched());
-        assert!(matches!(action, WatchdogAction::SetGainMute { .. }));
         assert!(wd.missing_at_latch().contains(&"pi4audio-convolver-out".to_string()));
-    }
-
-    // -----------------------------------------------------------------------
-    // Gain node disappears — triggers mute (it's a monitored node)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn single_gain_node_disappears_triggers_mute() {
-        let mut wd = armed_watchdog();
-        let mut g = graph_all_present();
-        g.remove_node(301); // Remove gain_left_hp
-
-        let action = wd.check(&g);
-        assert!(wd.is_latched());
 
         match action {
-            WatchdogAction::SetGainMute { gain_nodes } => {
-                // 3 remaining gain nodes can still be muted.
-                assert_eq!(gain_nodes.len(), 3);
-                let names: Vec<&str> = gain_nodes.iter().map(|(_, n)| n.as_str()).collect();
-                assert!(!names.contains(&"gain_left_hp")); // this one is gone
-                assert!(names.contains(&"gain_right_hp"));
+            WatchdogAction::SetGainMute { convolver_node_id } => {
+                assert_eq!(convolver_node_id, 100);
             }
             other => panic!("expected SetGainMute, got {:?}", other),
         }
     }
 
     // -----------------------------------------------------------------------
-    // All gain nodes disappear — fallback to link destruction
+    // Both nodes disappear — fallback to link destruction
     // -----------------------------------------------------------------------
 
     #[test]
-    fn all_gain_nodes_gone_triggers_usb_link_destroy() {
+    fn both_nodes_gone_triggers_usb_link_destroy() {
         let mut wd = armed_watchdog();
         let mut g = graph_with_usb_links();
 
-        // Remove all gain nodes AND the convolver (triggering the watchdog).
         g.remove_node(100); // convolver
         g.remove_node(200); // convolver-out
-        g.remove_node(301); // gain_left_hp
-        g.remove_node(302); // gain_right_hp
-        g.remove_node(303); // gain_sub1_lp
-        g.remove_node(304); // gain_sub2_lp
 
         let action = wd.check(&g);
         assert!(wd.is_latched());
@@ -490,8 +460,6 @@ mod tests {
     fn fallback_with_no_usb_links_returns_empty() {
         let mut wd = armed_watchdog();
         let g = GraphState::new();
-        // No nodes at all — all monitored nodes missing, no gain nodes,
-        // no USBStreamer links.
 
         let action = wd.check(&g);
         assert!(wd.is_latched());
@@ -512,15 +480,13 @@ mod tests {
     fn latched_watchdog_returns_already_latched() {
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
-        g.remove_node(100); // Trigger latch.
+        g.remove_node(200); // Trigger latch (convolver-out gone).
 
         let _ = wd.check(&g);
         assert!(wd.is_latched());
 
-        // Second check with same state → AlreadyLatched.
         assert_eq!(wd.check(&g), WatchdogAction::AlreadyLatched);
 
-        // Even if nodes come back → still latched.
         let g2 = graph_all_present();
         assert_eq!(wd.check(&g2), WatchdogAction::AlreadyLatched);
     }
@@ -529,11 +495,10 @@ mod tests {
     fn latch_persists_after_nodes_return() {
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
-        g.remove_node(100); // Trigger latch.
+        g.remove_node(200);
         let _ = wd.check(&g);
         assert!(wd.is_latched());
 
-        // Nodes come back — still latched (requires explicit unlatch).
         let g2 = graph_all_present();
         assert_eq!(wd.check(&g2), WatchdogAction::AlreadyLatched);
         assert!(wd.is_latched());
@@ -547,10 +512,9 @@ mod tests {
     fn unlatch_clears_latch_and_returns_gains() {
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
-        g.remove_node(100);
+        g.remove_node(200);
         let _ = wd.check(&g);
 
-        // Store pre-mute gains.
         wd.store_pre_mute_gains(vec![
             ("gain_left_hp".to_string(), 0.001),
             ("gain_right_hp".to_string(), 0.001),
@@ -577,16 +541,13 @@ mod tests {
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
 
-        // First trigger.
-        g.remove_node(100);
+        g.remove_node(200);
         let _ = wd.check(&g);
         assert!(wd.is_latched());
 
-        // Unlatch.
         wd.unlatch();
         assert!(!wd.is_latched());
 
-        // Nodes still missing — triggers again (still armed).
         let action = wd.check(&g);
         assert!(wd.is_latched());
         assert!(matches!(action, WatchdogAction::SetGainMute { .. }));
@@ -630,8 +591,8 @@ mod tests {
     fn missing_at_latch_tracks_all_missing_nodes() {
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
-        g.remove_node(100); // convolver
-        g.remove_node(200); // convolver-out
+        g.remove_node(100);
+        g.remove_node(200);
 
         let _ = wd.check(&g);
         let missing = wd.missing_at_latch();
@@ -648,7 +609,7 @@ mod tests {
     fn pre_mute_gains_stored_and_cleared_on_unlatch() {
         let mut wd = armed_watchdog();
         let mut g = graph_all_present();
-        g.remove_node(100);
+        g.remove_node(200);
         let _ = wd.check(&g);
 
         wd.store_pre_mute_gains(vec![
@@ -661,32 +622,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Multiple monitored nodes missing simultaneously
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn multiple_nodes_missing_still_single_latch() {
-        let mut wd = armed_watchdog();
-        let mut g = graph_all_present();
-        g.remove_node(100); // convolver
-        g.remove_node(301); // gain_left_hp
-
-        let action = wd.check(&g);
-        assert!(wd.is_latched());
-
-        // Should still produce a mute action (3 gain nodes remain).
-        match action {
-            WatchdogAction::SetGainMute { gain_nodes } => {
-                assert_eq!(gain_nodes.len(), 3);
-            }
-            other => panic!("expected SetGainMute, got {:?}", other),
-        }
-
-        // Second check → already latched.
-        assert_eq!(wd.check(&g), WatchdogAction::AlreadyLatched);
-    }
-
-    // -----------------------------------------------------------------------
     // Startup grace period (arming)
     // -----------------------------------------------------------------------
 
@@ -695,10 +630,9 @@ mod tests {
         let mut wd = Watchdog::new();
         assert!(!wd.is_armed());
 
-        // Graph with only some nodes — unarmed watchdog should not latch.
         let mut g = GraphState::new();
         g.add_node(make_node(100, "pi4audio-convolver", "Audio/Sink"));
-        // Only 1 of 6 nodes present.
+        // Only 1 of 2 monitored nodes present.
 
         assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
         assert!(!wd.is_latched());
@@ -706,18 +640,17 @@ mod tests {
     }
 
     #[test]
-    fn watchdog_arms_when_all_nodes_first_seen() {
+    fn watchdog_arms_when_both_nodes_first_seen() {
         let mut wd = Watchdog::new();
         assert!(!wd.is_armed());
 
-        // Partial graph — not armed yet.
+        // Only one node — not armed.
         let mut g = GraphState::new();
         g.add_node(make_node(100, "pi4audio-convolver", "Audio/Sink"));
-        g.add_node(make_node(200, "pi4audio-convolver-out", "Stream/Output/Audio"));
         assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
         assert!(!wd.is_armed());
 
-        // Complete graph — arms.
+        // Both nodes present — arms.
         let g2 = graph_all_present();
         assert_eq!(wd.check(&g2), WatchdogAction::AllPresent);
         assert!(wd.is_armed());
@@ -726,14 +659,12 @@ mod tests {
     #[test]
     fn armed_watchdog_latches_immediately_on_node_loss() {
         let mut wd = Watchdog::new();
-        // Arm it.
         let g = graph_all_present();
         assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
         assert!(wd.is_armed());
 
-        // Remove a node — should latch immediately.
         let mut g2 = graph_all_present();
-        g2.remove_node(100);
+        g2.remove_node(200);
         let action = wd.check(&g2);
         assert!(wd.is_latched());
         assert!(matches!(action, WatchdogAction::SetGainMute { .. }));
@@ -743,7 +674,6 @@ mod tests {
     fn empty_graph_does_not_latch_when_unarmed() {
         let mut wd = Watchdog::new();
         let g = GraphState::new();
-        // Empty graph, all nodes missing — but unarmed.
         assert_eq!(wd.check(&g), WatchdogAction::AllPresent);
         assert!(!wd.is_latched());
         assert!(!wd.is_armed());
