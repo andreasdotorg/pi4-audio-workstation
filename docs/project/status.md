@@ -18,7 +18,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 
 | Story | Phase | Summary | Blocker |
 |-------|-------|---------|---------|
-| US-072 | IMPLEMENT 4/20 | NixOS reproducible build | Builder disk space (19G after GC) |
+| US-072 | IMPLEMENT 16/20 | NixOS reproducible build | Remaining 4 tasks need Pi hardware (T-072-05, T-072-13, T-072-18, T-072-19) |
 | US-075 | COMPLETE | Local PW integration test env | Done (AC 1-7, `dd019ea`+`25ed785`+`0eaf87c`) |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | QE + advisory reviews |
@@ -41,6 +41,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
+| US-110 | draft | Web UI passkey authentication | Converted from F-037 |
 
 
 ### Owner-Blocking Items
@@ -68,9 +69,9 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | Room correction pipeline | done (TK-071) | 13 DSP modules. Bose profiles measured |
 | SETUP-MANUAL.md | draft | ~2200 lines. Gate 3 prose rewrite pending |
 | Core software | installed | PipeWire 1.4.9, Mixxx 2.5.0, Reaper 7.64, wayvnc |
-| Platform security | partial | Firewall active, SSH hardened. F-037 (web UI no auth) open |
+| Platform security | partial | Firewall active, SSH hardened. Web UI auth: US-110 (draft, passkey design) |
 | GitHub Actions CI | merged | Two parallel jobs, Nix store caching. Branch protection pending |
-| NixOS build (US-072) | in progress | RT kernel compiles, convolver module designed, 16 tasks remaining |
+| NixOS build (US-072) | in progress | RT kernel compiles, convolver module designed, 4 tasks remaining (need Pi) |
 
 ## Completed Stories
 
@@ -103,9 +104,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 
 | ID | Severity | Summary |
 |----|----------|---------|
-| F-037 | High | Web UI no authentication — signal-gen controllable by network |
 | F-209 | P1 / High | US-044 watchdog/gain integrity assume builtins are separate PW nodes (fix in progress) |
-| F-212 | Medium | 55 JS 404 errors for missing static resources across all web UI tabs |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
 | F-039 | Medium | DSP load gauge 0% — needs pw-top BUSY parsing |
@@ -115,7 +114,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | Metric | Value |
 |--------|-------|
 | Git commits | ~185 |
-| Total stories filed | 113 |
+| Total stories filed | 114 |
 | Stories done | 13 |
 | Stories in TEST | 12 |
 | Stories in IMPLEMENT/REVIEW | ~12 |
