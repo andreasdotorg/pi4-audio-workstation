@@ -604,6 +604,27 @@
               exec ${pkgs.bash}/bin/bash ${./scripts/test-integration.sh} "$@"
             ''}";
           };
+
+          # US-077 DoD #2: Capture headless browser screenshots of dashboard
+          # with steady-state 1 kHz sine. Starts full local-demo stack, plays
+          # sine, uses Playwright to screenshot meters/spectrum, then tears down.
+          capture-screenshot = {
+            type = "app";
+            program = "${pkgs.writeShellScript "capture-screenshot" ''
+              export LOCAL_DEMO_GM_BIN="${graph-manager}/bin/pi4audio-graph-manager"
+              export LOCAL_DEMO_SG_BIN="${signal-gen}/bin/pi4audio-signal-gen"
+              export LOCAL_DEMO_LB_BIN="${level-bridge}/bin/level-bridge"
+              export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
+              export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
+              export LOCAL_DEMO_E2E_PYTHON="${e2ePython}/bin/python"
+              export LOCAL_DEMO_PW_TEST_ENV="${./scripts/local-pw-test-env.sh}"
+              export LOCAL_DEMO_REPO_DIR="${toString ./.}"
+              export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
+              export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+              export PATH="${e2ePython}/bin:${testPython}/bin:$PATH"
+              exec ${pkgs.bash}/bin/bash ${./scripts/screenshot-local-demo.sh} "$@"
+            ''}";
+          };
         };
       }
     ))
