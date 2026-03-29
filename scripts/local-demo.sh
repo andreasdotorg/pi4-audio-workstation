@@ -30,7 +30,15 @@ PW_TEST_ENV="${LOCAL_DEMO_PW_TEST_ENV:-$SCRIPT_DIR/local-pw-test-env.sh}"
 PIDS=()
 PW_STARTED=false
 
+CLEANUP_DONE=false
+
 cleanup() {
+    # Guard against double execution (INT + EXIT both trigger this trap).
+    if $CLEANUP_DONE; then
+        return
+    fi
+    CLEANUP_DONE=true
+
     echo ""
     echo "[local-demo] Shutting down..."
 
@@ -47,13 +55,17 @@ cleanup() {
     # Brief grace period for processes to exit cleanly.
     sleep 0.5
 
-    # Second pass: SIGKILL any survivors.
+    # Second pass: SIGKILL any survivors, then reap all children.
     for (( i=${#PIDS[@]}-1 ; i>=0 ; i-- )) ; do
         local pid="${PIDS[$i]}"
         if kill -0 "$pid" 2>/dev/null; then
             echo "[local-demo] Force-killing PID $pid..."
             kill -9 "$pid" 2>/dev/null || true
         fi
+    done
+
+    # Reap all children to prevent zombies (F-203).
+    for pid in "${PIDS[@]}"; do
         wait "$pid" 2>/dev/null || true
     done
 
@@ -263,8 +275,8 @@ echo "[local-demo] PipeWire ready."
 
 # ---- 4. Start GraphManager ----
 echo ""
-echo "[local-demo] Starting GraphManager (port 4002, measurement mode)..."
-"$GM_BIN" --listen tcp:127.0.0.1:4002 --mode measurement --log-level info &
+echo "[local-demo] Starting GraphManager (port 4002, monitoring mode)..."
+"$GM_BIN" --listen tcp:127.0.0.1:4002 --mode monitoring --log-level info &
 PIDS+=($!)
 sleep 1
 
@@ -407,7 +419,7 @@ fi
 sleep 2  # allow GM reconciliation to complete
 LINK_COUNT=$(pw-link -l 2>/dev/null | grep -c '^\s*|' || echo 0)
 echo ""
-echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, expected ~56 for measurement mode incl. F-159 room-sim chain)."
+echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, monitoring mode)."
 
 # F-159: Convolver → room-sim → UMIK-1 loopback chain is managed by GM
 # (optional desired links in measurement mode). GM reconciler creates them
@@ -425,6 +437,8 @@ export PI4AUDIO_LEVELS_HW_OUT_PORT=9101
 export PI4AUDIO_LEVELS_HW_IN_PORT=9102
 export PI4AUDIO_SKIP_GM_RECOVERY=1
 export PI4AUDIO_SIGGEN=1
+# F-201: pcm-bridge runs with --channels 4, web-ui must match.
+export PI4AUDIO_PCM_CHANNELS=4
 # Simulate production measurement attenuation (-20 dB) so the gain cal
 # algorithm starts at -40 dBFS digitally (matching the production ramp).
 # Without this, the algorithm starts at -60 dBFS which produces all-zero
@@ -481,7 +495,7 @@ echo "============================================================"
 echo "  Local demo stack is running!"
 echo ""
 echo "  Web UI:          http://localhost:8080"
-echo "  GraphManager:    tcp://127.0.0.1:4002 (RPC, measurement mode)"
+echo "  GraphManager:    tcp://127.0.0.1:4002 (RPC, monitoring mode)"
 echo "  signal-gen:      tcp://127.0.0.1:4001 (RPC, managed mode)"
 echo "  level-bridge-sw: tcp://127.0.0.1:9100 (levels, app output tap)"
 echo "  level-bridge-hw-out: tcp://127.0.0.1:9101 (levels, USBStreamer out)"
