@@ -7,3 +7,4 @@
 | security-findings.md | Security defects: F-036 VNC 8-char password limit (DES/RFB), F-037 (HIGH) web UI no authentication on port 8080 |
 | coding-principles.md | Core architectural principle: temporal/spatial memory safety — all safety-relevant invariant checks (bounds, channel count, etc.) must be runtime assert, never debug_assert. F-116 precedent. |
 | pipewire-rt-promotion.md | PipeWire RT promotion model: JACK clients need LimitRTPRIO/LimitMEMLOCK (not CPUSchedulingPolicy=fifo). PW promotes callback threads; client process stays SCHED_OTHER. F-033/F-020 distinction. |
+| orchestrator-discipline.md | Orchestrator Rule 2 violations: must not do technical analysis of failures or prescribe HOW (implementation steps, specific function calls). Relay WHAT, worker figures out HOW. |
