@@ -101,7 +101,8 @@ in
     systemd.user.services = lib.mapAttrs' (name: inst:
       lib.nameValuePair "level-bridge-${name}" (lib.mkIf inst.enable {
         description = "Level Bridge metering: ${name} (D-049)";
-        after = [ "pipewire.service" ];
+        after = [ "pipewire.service" ]
+          ++ lib.optionals inst.managed [ "pi4audio-graph-manager.service" ];
         wants = [ "pipewire.service" ]
           ++ lib.optionals inst.managed [ "pi4audio-graph-manager.service" ];
         wantedBy = [ "default.target" ];
