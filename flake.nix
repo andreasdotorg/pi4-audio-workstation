@@ -451,9 +451,13 @@
               cd ${toString ./.}/scripts/drivers
               ${testPython}/bin/python -m pytest tests/ -v --tb=short
               echo ""
+              echo "=== audio-common tests ==="
+              cd ${toString ./.}/src
+              HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-ws" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --locked -p audio-common 2>&1
+              echo ""
               echo "=== graph-manager tests ==="
               cd ${toString ./.}/src/graph-manager
-              HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-gm" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --no-default-features --release 2>&1
+              HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-gm" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --locked --no-default-features --release 2>&1
               echo ""
               echo "All test suites passed."
               echo "(pcm-bridge and signal-gen: run nix run .#test-pcm-bridge / .#test-signal-gen on Linux)"
@@ -505,9 +509,13 @@
               cd ${toString ./.}/scripts/drivers
               ${testPython}/bin/python -m pytest tests/ -v --tb=short
               echo ""
+              echo "=== audio-common tests ==="
+              cd ${toString ./.}/src
+              HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-ws" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --locked -p audio-common 2>&1
+              echo ""
               echo "=== graph-manager tests ==="
               cd ${toString ./.}/src/graph-manager
-              HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-gm" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --no-default-features --release 2>&1
+              HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-gm" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --locked --no-default-features --release 2>&1
               echo ""
               echo "========== test-e2e (browser tests) =========="
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
