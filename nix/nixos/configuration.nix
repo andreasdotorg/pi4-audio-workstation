@@ -6,7 +6,7 @@
 #
 # pi4audio-packages is passed via specialArgs from flake.nix — it contains
 # the Nix-built packages for our custom Rust services (graph-manager,
-# pcm-bridge, signal-gen).
+# level-bridge, pcm-bridge, signal-gen).
 { config, lib, pkgs, pi4audio-packages, ... }:
 
 {
@@ -26,6 +26,7 @@
     ./applications.nix
     # Phase 3: Custom service modules
     ./services/graph-manager.nix
+    ./services/level-bridge.nix
     ./services/pcm-bridge.nix
     ./services/signal-gen.nix
     ./services/web-ui.nix
