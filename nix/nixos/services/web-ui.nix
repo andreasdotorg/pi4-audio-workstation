@@ -20,6 +20,18 @@ let
     ps.pyyaml
     ps.httpx
   ]);
+
+  # Web UI source bundle: web-ui + room-correction + measurement as siblings.
+  # The web-ui code resolves room-correction via ../../room-correction relative
+  # to app/__file__, and measurement via PI4AUDIO_MEAS_DIR or relative path.
+  # This derivation reproduces that layout in the Nix store.
+  webUiSrc = pkgs.runCommand "pi4audio-web-ui-src" { } ''
+    mkdir -p $out/web-ui $out/room-correction $out/measurement
+    cp -r ${../../../src/web-ui/app} $out/web-ui/app
+    cp -r ${../../../src/web-ui/static} $out/web-ui/static
+    cp -r ${../../../src/room-correction}/* $out/room-correction/
+    cp -r ${../../../src/measurement}/* $out/measurement/
+  '';
 in
 {
   options.services.pi4audio.web-ui = {
@@ -51,6 +63,7 @@ in
 
     webUiPath = lib.mkOption {
       type = lib.types.path;
+      default = "${webUiSrc}/web-ui";
       description = "Path to the web-ui source directory (containing app/).";
     };
 
@@ -72,6 +85,8 @@ in
         PI_AUDIO_MOCK = "0";
         PI4AUDIO_SIGGEN = "1";
         JACK_NO_START_SERVER = "1";
+        PI4AUDIO_RC_DIR = "${webUiSrc}/room-correction";
+        PI4AUDIO_MEAS_DIR = "${webUiSrc}/measurement";
       } // cfg.environment;
 
       serviceConfig = {
@@ -90,8 +105,9 @@ in
         Restart = "on-failure";
         RestartSec = 2;
 
-        # Web UI must not compete with RT audio
-        Nice = 10;
+        # F-064: Nice=0 (not 10) — single-worker uvicorn needs full CPU
+        # access to avoid event loop starvation under WebSocket load.
+        Nice = 0;
       };
     };
   };
