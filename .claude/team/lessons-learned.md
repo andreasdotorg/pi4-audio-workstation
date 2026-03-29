@@ -1331,3 +1331,52 @@ The PM closed the defect based on this evidence without questioning:
 **Recurrence of:** L-003 (worker verification is not owner verification),
 L-016 (mock compatibility shims mask real API mismatches), L-017 (don't
 deploy without DoD).
+
+## L-066: Rule 13 QE approval skipped on code commits — incomplete approval matrix check
+
+**Date:** 2026-03-29
+**Context:** Commits `0c38e59` (local-demo fixes), `1764089` (docs), `0340ef3`
+(level-bridge.nix NixOS module) were committed and pushed to origin/main
+with only domain specialist approvals (Architect, Audio Engineer, Security).
+QE test adequacy review was not obtained before commit. Owner caught the gap.
+
+**What happened:**
+- Three commits containing code changes were pushed without QE Rule 13
+  sign-off.
+- The orchestrator authorized commit+push without verifying all required
+  approvers per the Rule 13 matrix.
+- The CM accepted the incomplete approval set and committed without
+  independently checking the matrix.
+- Neither the orchestrator nor the CM flagged the missing QE sign-off.
+- QE had to perform retroactive review after the owner raised the issue.
+
+**Root cause:** Two-point failure:
+1. **Orchestrator:** Did not verify the full Rule 13 approval matrix before
+   authorizing commits. Treated domain specialist approvals as sufficient.
+2. **CM:** Accepted the commit request without independently verifying that
+   all required approvals were present. The CM is the last gate before code
+   reaches origin — it must enforce the matrix, not trust the orchestrator's
+   judgment.
+
+**Impact:** Retroactive QE review required. In this case QE approved
+retroactively (no actual test gaps found), but the process violation means
+untested code could have shipped. The Rule 13 gate exists precisely to
+prevent this.
+
+**Corrective actions:**
+1. **CM will refuse to commit any code change without QE approval.** The CM
+   acknowledged this rule. The CM independently checks the approval matrix
+   for every commit — it does not rely on the orchestrator's approval list.
+2. **Orchestrator must verify the full approval matrix** before authorizing
+   any commit. For code changes, this always includes QE + Architect at
+   minimum. Domain specialists as applicable.
+3. **Rule 13 matrix (quick reference):**
+   - ALL code changes: QE (test adequacy) + Architect (code quality)
+   - Security-sensitive: + Security Specialist
+   - Operational/audio: + Audio Engineer
+   - Docs/tracking only: PM only (no QE/Architect needed)
+
+**Recurrence of:** None directly, but reinforces L-017 (don't deploy without
+DoD) and L-042 (Rule 13 approval process). This is the first instance of
+the approval *gate* being bypassed (previous lessons were about verification
+*quality*, not gate enforcement).
