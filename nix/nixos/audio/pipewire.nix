@@ -7,6 +7,16 @@
 { config, lib, pkgs, ... }:
 
 let
+  # T-072-06: Build Dirac (unity-passthrough) FIR coefficient WAVs at Nix build
+  # time.  tmpfiles 'C' rules below copy them to /etc/pi4audio/coeffs/ only if
+  # no venue-specific coefficients are already present.
+  diracCoeffs = pkgs.runCommand "pi4audio-dirac-coeffs" {
+    nativeBuildInputs = [ pkgs.python3 ];
+  } ''
+    mkdir -p $out
+    python3 ${../../../scripts/generate-dirac-coeffs.py} $out
+  '';
+
   # Build a derivation containing all PipeWire config fragments.
   # NixOS merges configPackages into /etc/pipewire/pipewire.conf.d/.
   pipewireConfigs = pkgs.runCommand "pi4audio-pipewire-configs" { } ''
@@ -55,8 +65,15 @@ in
     { domain = "ela"; type = "-"; item = "memlock"; value = "unlimited"; }
   ];
 
-  # FIR coefficient directory — convolver config references these paths.
+  # FIR coefficient directory and default Dirac impulse WAVs.
+  # 'd' creates the directory; 'C' copies Dirac defaults only when no file
+  # exists yet — venue-specific coefficients placed by the measurement
+  # pipeline are never overwritten.
   systemd.tmpfiles.rules = [
     "d /etc/pi4audio/coeffs 0755 root root - -"
+    "C /etc/pi4audio/coeffs/combined_left_hp.wav  0644 root root - ${diracCoeffs}/combined_left_hp.wav"
+    "C /etc/pi4audio/coeffs/combined_right_hp.wav 0644 root root - ${diracCoeffs}/combined_right_hp.wav"
+    "C /etc/pi4audio/coeffs/combined_sub1_lp.wav  0644 root root - ${diracCoeffs}/combined_sub1_lp.wav"
+    "C /etc/pi4audio/coeffs/combined_sub2_lp.wav  0644 root root - ${diracCoeffs}/combined_sub2_lp.wav"
   ];
 }
