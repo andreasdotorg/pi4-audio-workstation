@@ -273,6 +273,34 @@ class TestBoseHomeChn50pProfile:
         assert "context.modules" in conf_orig
 
 
+class TestWorkshop3WayGainStaging:
+    """F-195 regression: 3-way gain_staging uses role-specific values, not fallback.
+
+    Uses validate=False because the workshop profile's identity headroom
+    fields trigger D-029 validation (not relevant to gain staging).
+    """
+
+    def test_3way_has_mid_and_hf_gain_nodes(self):
+        conf = _generate("workshop-c3d-elf-3way", validate=False)
+        assert "gain_mid_left" in conf
+        assert "gain_mid_right" in conf
+        assert "gain_hf_left" in conf
+        assert "gain_hf_right" in conf
+
+    def test_3way_mid_gain_uses_midrange_power_limit(self):
+        """Midrange Mult must be -20 dB = 0.1, NOT fallback -60 dB = 0.001."""
+        conf = _generate("workshop-c3d-elf-3way", validate=False)
+        # midrange.power_limit_db = -20.0 -> Mult = 0.1
+        assert '"Mult" = 0.1' in conf
+        assert '"Mult" = 0.001' not in conf  # no channel should use fallback
+
+    def test_3way_hf_gain_uses_tweeter_power_limit(self):
+        """Tweeter Mult must be -24 dB ~ 0.0631, NOT fallback -60 dB = 0.001."""
+        conf = _generate("workshop-c3d-elf-3way", validate=False)
+        # tweeter.power_limit_db = -24.0 -> Mult = 0.0630957
+        assert "0.0630957" in conf
+
+
 class TestDelayNodes:
     """Test delay node generation."""
 

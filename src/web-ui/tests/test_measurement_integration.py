@@ -648,9 +648,16 @@ class TestGMEnterMeasurementMode:
             _run(
                 session._enter_measurement_mode())
 
-        # set_mode("measurement") should be called first, then get_mode for verification.
-        assert call_log[0] == ("set_mode", "measurement")
-        assert ("get_mode",) in call_log
+        # F-160: get_mode() is called first to save pre-measurement mode,
+        # then enter_measurement_mode (which calls set_mode), then get_mode
+        # for verification.
+        assert call_log[0] == ("get_mode",)
+        assert ("set_mode", "measurement") in call_log
+        # Verification get_mode must come after the set_mode.
+        set_idx = call_log.index(("set_mode", "measurement"))
+        verify_indices = [i for i, c in enumerate(call_log)
+                          if c == ("get_mode",) and i > set_idx]
+        assert len(verify_indices) >= 1
 
     def test_enter_measurement_mode_wrong_mode_raises(self):
         """If GM reports wrong mode after set_mode, RuntimeError is raised."""
@@ -671,33 +678,30 @@ class TestGMEnterMeasurementMode:
 
     def test_enter_measurement_mode_failure_restores_production(self):
         """If enter_measurement_mode fails after set_mode, session tries to
-        restore production mode before re-raising."""
+        restore the saved pre-measurement mode before re-raising (F-160)."""
         from graph_manager_client import MockGraphManagerClient
 
-        restore_called = []
+        set_mode_calls = []
 
         def stubborn_set_mode(self, mode):
-            # Accept the call but stay in "monitoring" mode.
-            pass
-
-        original_restore = MockGraphManagerClient.restore_production_mode
-
-        def tracking_restore(self):
-            restore_called.append(True)
-            original_restore(self)
+            # Track all set_mode calls but don't actually change internal state,
+            # so get_mode still returns "monitoring" and enter_measurement_mode
+            # raises RuntimeError.
+            set_mode_calls.append(mode)
 
         session = _make_session()
         gm = _make_mock_gm()
         session._gm_client = gm
 
-        with patch.object(MockGraphManagerClient, "set_mode", stubborn_set_mode), \
-             patch.object(MockGraphManagerClient, "restore_production_mode",
-                          tracking_restore):
+        with patch.object(MockGraphManagerClient, "set_mode", stubborn_set_mode):
             with pytest.raises(RuntimeError):
                 _run(
                     session._enter_measurement_mode())
 
-        assert len(restore_called) == 1
+        # F-160: On failure, the error handler calls set_mode(saved_mode) to
+        # restore the pre-measurement mode. The saved mode is "monitoring"
+        # (queried via get_mode before enter_measurement_mode).
+        assert "monitoring" in set_mode_calls
 
 
 class TestGMVerifyMeasurementMode:
