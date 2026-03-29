@@ -760,6 +760,10 @@ _ID_HORN_NO_CUTOFF = {
     "name": "Horn No Cutoff", "type": "horn", "impedance_ohm": 8,
     "sensitivity_db_spl": 103, "max_boost_db": 0, "mandatory_hpf_hz": 40,
 }
+_ID_MID = {
+    "name": "Test Mid", "type": "sealed", "impedance_ohm": 8,
+    "sensitivity_db_spl": 92, "max_boost_db": 8, "mandatory_hpf_hz": 200,
+}
 
 
 @pytest.fixture
@@ -782,6 +786,8 @@ def deep_val_dir(tmp_path, monkeypatch):
         yaml.dump(_ID_HORN_SUB, default_flow_style=False, sort_keys=False))
     (identities / "horn-no-cutoff.yml").write_text(
         yaml.dump(_ID_HORN_NO_CUTOFF, default_flow_style=False, sort_keys=False))
+    (identities / "test-mid.yml").write_text(
+        yaml.dump(_ID_MID, default_flow_style=False, sort_keys=False))
 
     import app.speaker_routes as mod
     monkeypatch.setattr(mod, "_speakers_dir", lambda: tmp_path)
@@ -1018,6 +1024,26 @@ class TestDeepValidateD029GainStaging:
         """Profile without gain_staging should not error."""
         result = _deep_validate_profile(_make_profile())
         assert isinstance(result["valid"], bool)
+
+    def test_3way_midrange_uses_role_specific_headroom(self, deep_val_dir):
+        """F-208 regression: midrange must use gain_staging.midrange, not satellite fallback."""
+        speakers = {
+            "sat_left": {"identity": "test-sat", "role": "satellite", "channel": 0, "filter_type": "highpass"},
+            "mid_left": {"identity": "test-mid", "role": "midrange", "channel": 1, "filter_type": "bandpass"},
+            "sub1": {"identity": "test-sub", "role": "subwoofer", "channel": 2, "filter_type": "lowpass"},
+        }
+        gain_staging = {
+            "satellite": {"headroom_db": -20.0},  # sufficient if used as fallback
+            "midrange": {"headroom_db": -5.0},     # insufficient: |5| < 8 + 0.5
+            "subwoofer": {"headroom_db": -11.0},
+        }
+        result = _deep_validate_profile(_make_profile(
+            speakers=speakers, gain_staging=gain_staging,
+        ))
+        warnings = [w for w in result["warnings"] if w["check"] == "d029_gain_staging"]
+        # Must warn about mid_left (midrange headroom 5 < 8 + 0.5)
+        assert len(warnings) >= 1
+        assert any("mid_left" in w["message"] for w in warnings)
 
 
 class TestDeepValidateChannelBudgetD054:

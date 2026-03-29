@@ -232,13 +232,13 @@ class TestMockDataGenerator:
 class TestFastAPIApp:
 
     def test_app_title(self):
-        assert app.title == "Pi Audio Workstation"
+        assert app.title == "mugge"
 
     def test_index_page(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
-        assert "Pi Audio Workstation" in resp.text
+        assert "mugge" in resp.text
 
     def test_static_css(self, client):
         resp = client.get("/static/style.css")

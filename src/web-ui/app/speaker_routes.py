@@ -630,7 +630,7 @@ def _deep_validate_profile(profile: dict) -> dict:
                 continue
             role = spk.get("role", "")
             if role in ("satellite", "midrange", "tweeter", "fullrange"):
-                gs_group = gain_staging.get("satellite", {})
+                gs_group = gain_staging.get(role, gain_staging.get("satellite", {}))
             elif role == "subwoofer":
                 gs_group = gain_staging.get("subwoofer", {})
             else:
