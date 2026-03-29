@@ -102,8 +102,8 @@ def main():
 
         # Wait for level data to appear in meters. The dashboard canvases
         # render at ~30Hz once data flows. Give it a few seconds to stabilize.
-        print("[screenshot] Waiting 5s for meter data to stabilize...")
-        time.sleep(5)
+        print("[screenshot] Waiting 8s for meter + spectrum data to stabilize...")
+        time.sleep(8)
 
         # Screenshot 1: Full dashboard view with meters.
         path_dashboard = out_dir / "dashboard-meters.png"

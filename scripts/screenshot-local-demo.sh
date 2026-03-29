@@ -147,7 +147,11 @@ sleep 0.5
 PIDS+=($!)
 sleep 0.5
 
-"$PCM_BIN" --managed --mode monitor \
+# For screenshot captures, run pcm-bridge in non-managed capture mode
+# targeting the convolver output (Audio/Source). In local-demo measurement
+# mode, there is no app (Mixxx/Reaper) to tap, so we capture directly from
+# the convolver output to give the spectrum ch0+ch1 data.
+"$PCM_BIN" --mode capture --target pi4audio-convolver-out \
     --listen tcp:127.0.0.1:9090 --channels 4 --rate 48000 2>/tmp/pcm-screenshot.log &
 PIDS+=($!)
 sleep 1
