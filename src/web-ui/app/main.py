@@ -42,6 +42,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from .audio_mute import AudioMuteManager
@@ -309,6 +310,26 @@ except ImportError:
 async def index():
     """Serve the SPA shell."""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve logo.svg as favicon (F-212: browsers always request this)."""
+    svg = STATIC_DIR / "logo.svg"
+    if svg.exists():
+        return FileResponse(svg, media_type="image/svg+xml")
+    return Response(status_code=204)
+
+
+@app.get("/static/{path:path}.map")
+async def source_map_stub(path: str):
+    """Return 204 for .map source-map requests (F-212).
+
+    Chromium DevTools (and Playwright MCP) request .map files for every
+    loaded JS/CSS resource. These files don't exist — returning 204
+    silences the 404 noise in both browser console and server logs.
+    """
+    return Response(status_code=204)
 
 
 # -- REST endpoints --
