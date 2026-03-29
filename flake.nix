@@ -240,6 +240,7 @@
           packages = [
             e2ePython
             pkgs.playwright-driver
+            pkgs.playwright-mcp        # US-109: MCP server for agent-driven browser testing
             camilladsp-test  # Real CamillaDSP for integration tests (TK-189)
             # Rust toolchain — same version as buildRustPackage uses.
             pkgs.cargo
