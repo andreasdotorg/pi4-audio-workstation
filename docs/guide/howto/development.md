@@ -21,6 +21,7 @@ nix run .#test-unit             # Web UI unit tests (excludes e2e)
 nix run .#test-room-correction  # Room correction DSP tests
 nix run .#test-graph-manager    # GraphManager Rust tests (pure logic)
 nix run .#test-e2e              # Playwright e2e tests
+nix run .#test-integration      # PipeWire integration test (Linux only, US-075)
 nix run .#test-all              # All suites sequentially
 nix run .#local-demo            # Local dev stack (PipeWire + GM + web UI, Linux only)
 ```
@@ -116,13 +117,32 @@ tables). Runs via `cargo test` inside the Nix environment.
 nix run .#test-graph-manager
 ```
 
-### 2.6 Running Everything
+### 2.6 PipeWire Integration Test (US-075)
+
+End-to-end test that starts a headless PipeWire instance with the full
+production-replica audio pipeline (GraphManager, signal-gen, level-bridge,
+pcm-bridge, filter-chain convolver) and verifies audio flow, link topology,
+and graph metadata. Linux only — requires PipeWire.
+
+```sh
+nix run .#test-integration
+```
+
+The test verifies:
+- Convolver node present in PW graph
+- GM creates correct link topology (measurement mode, 29 desired links)
+- signal-gen produces 1 kHz sine at -20 dBFS
+- level-bridge reports non-zero levels on expected channels
+- GM `get_graph_info` and `get_links` RPC respond correctly
+- Full cycle completes in < 30 seconds
+
+### 2.7 Running Everything
 
 ```sh
 nix run .#test-all # All suites sequentially against working tree
 ```
 
-### 2.7 Three-Gate Testing Process
+### 2.8 Three-Gate Testing Process
 
 The project uses a three-gate testing process (owner-approved, 2026-03-22):
 
@@ -134,6 +154,29 @@ The project uses a three-gate testing process (owner-approved, 2026-03-22):
 
 **`nix run .#test-*` is the sole QA gate.** `nix flake check` is build
 validation only. `nix develop` is for interactive exploration, not QA.
+
+### 2.9 Rust Test Tiers (US-075 AC 7)
+
+Rust tests use three tiers:
+
+| Tier | Purpose | How | When |
+|------|---------|-----|------|
+| **Tier 1** | Dev loop (fast) | `nix run .#test-graph-manager` etc. Shell script `cargo test` wrappers. Non-hermetic, uses host state. | During development |
+| **Tier 2** | QA gate (hermetic) | `nix flake check` runs `buildRustPackage` per crate. Hermetic, sandboxed, deterministic. | Pre-merge |
+| **Tier 3** | PW integration | `nix run .#test-integration`. Real PipeWire instance with full audio pipeline. | Pre-merge on Linux |
+
+**Tier 1 targets** (fast iteration, not reproducible):
+- `nix run .#test-graph-manager` — pure logic, no PipeWire
+- `nix run .#test-audio-common` — shared audio crate
+- `nix run .#test-level-bridge` — Linux only
+- `nix run .#test-pcm-bridge` — Linux only
+- `nix run .#test-signal-gen` — Linux only
+
+**Tier 2** runs automatically via `nix flake check` (the `checks` attribute).
+Each Rust crate has exactly one QA target using `buildRustPackage`.
+
+**Tier 3** (`nix run .#test-integration`) starts a headless PipeWire instance,
+verifies audio flow through the convolver, and checks GM link topology.
 
 
 ## 3. Running the Web UI Locally

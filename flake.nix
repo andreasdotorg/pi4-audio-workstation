@@ -332,36 +332,14 @@
             python -m pytest tests/ -v --tb=short
             touch $out
           '';
-          # Graph-manager pure-logic tests (no PipeWire needed — runs on all platforms).
-          test-graph-manager = pkgs.runCommand "test-graph-manager" {
-            nativeBuildInputs = [ pkgs.cargo pkgs.rustc ];
-          } ''
-            cp -r ${./src/graph-manager} graph-manager
-            chmod -R u+w graph-manager
-            cd graph-manager
-            HOME=$TMPDIR cargo test --no-default-features --release 2>&1
-            touch $out
-          '';
         } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          # Rust PipeWire tools — cargo test runs during buildRustPackage.
+          # Rust QA gate (Tier 2): hermetic buildRustPackage tests.
+          # US-075 AC 7: consolidated from fragile runCommand + buildRustPackage
+          # variants into a single hermetic build per crate.
+          test-graph-manager = graph-manager;
           test-level-bridge = level-bridge;
           test-pcm-bridge = pcm-bridge;
           test-signal-gen = signal-gen;
-
-          # Full graph-manager build + test (Linux with PipeWire).
-          test-graph-manager-full = pkgs.rustPlatform.buildRustPackage {
-            pname = "pi4audio-graph-manager";
-            version = "0.1.0";
-            src = ./src/graph-manager;
-            cargoLock.lockFile = ./src/graph-manager/Cargo.lock;
-            nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
-            buildInputs = [ pkgs.pipewire ];
-            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-            BINDGEN_EXTRA_CLANG_ARGS = builtins.toString [
-              "-isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include"
-              "-isystem ${pkgs.glibc.dev}/include"
-            ];
-          };
         };
 
         # -----------------------------------------------------------------
@@ -482,6 +460,8 @@
             ''}";
           };
 
+          # Tier 1 — Dev loop (fast, non-hermetic cargo test wrappers).
+          # NOT QA gates — use for quick iteration during development.
           test-audio-common = {
             type = "app";
             program = "${pkgs.writeShellScript "test-audio-common" ''
@@ -500,7 +480,7 @@
               export CARGO_TARGET_DIR="''${HOME}/.cargo-target/pi4audio-gm"
               export PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH"
               cd ${toString ./.}/src/graph-manager
-              exec cargo test --no-default-features "$@"
+              exec cargo test --locked --no-default-features "$@"
             ''}";
           };
 
@@ -596,6 +576,24 @@
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
               export PATH="${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/local-demo.sh} "$@"
+            ''}";
+          };
+
+          # US-075 AC 4/5: PipeWire integration test — end-to-end verification.
+          # Starts headless PW + GM + signal-gen + level-bridge + pcm-bridge,
+          # verifies audio flow, link topology, and graph metadata, then tears down.
+          test-integration = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-integration" ''
+              export LOCAL_DEMO_GM_BIN="${graph-manager}/bin/pi4audio-graph-manager"
+              export LOCAL_DEMO_SG_BIN="${signal-gen}/bin/pi4audio-signal-gen"
+              export LOCAL_DEMO_LB_BIN="${level-bridge}/bin/level-bridge"
+              export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
+              export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
+              export LOCAL_DEMO_PW_TEST_ENV="${./scripts/local-pw-test-env.sh}"
+              export LOCAL_DEMO_REPO_DIR="${toString ./.}"
+              export PATH="${testPython}/bin:$PATH"
+              exec ${pkgs.bash}/bin/bash ${./scripts/test-integration.sh} "$@"
             ''}";
           };
         };
