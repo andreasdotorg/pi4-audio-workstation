@@ -10,9 +10,13 @@
       inputs.nixpkgs.follows = "nixpkgs";       # prevent GLIBC version mismatch
       inputs.flake-utils.follows = "flake-utils"; # deduplicate
     };
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, nixos-hardware, nixgl }:
+  outputs = { self, nixpkgs, flake-utils, nixos-hardware, nixgl, disko }:
     (flake-utils.lib.eachSystem [
       "x86_64-darwin"   # macOS Intel dev
       "aarch64-darwin"  # macOS Apple Silicon dev
@@ -630,7 +634,7 @@
       }
     ))
     // {
-      nixosConfigurations.mugge =
+      nixosConfigurations =
         let
           system = "aarch64-linux";
           pkgs = import nixpkgs {
@@ -661,10 +665,9 @@
               || pkgs.lib.hasPrefix (toString ./src/pcm-bridge) (toString path)
               || pkgs.lib.hasPrefix (toString ./src/signal-gen) (toString path);
           };
-        in
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = {
+
+          # Shared specialArgs for both NixOS configurations.
+          sharedSpecialArgs = {
             pi4audio-packages = {
               graph-manager = pkgs.rustPlatform.buildRustPackage (rustPwArgs // {
                 pname = "pi4audio-graph-manager";
@@ -695,10 +698,41 @@
               });
             };
           };
-          modules = [
+
+          # Shared modules for both configurations.
+          sharedModules = [
             nixos-hardware.nixosModules.raspberry-pi-4
             ./nix/nixos/configuration.nix
           ];
+        in
+        {
+          # SD card image configuration (T-072-17).
+          # Usage: nix build .#images.sd-card
+          mugge = nixpkgs.lib.nixosSystem {
+            inherit system;
+            specialArgs = sharedSpecialArgs;
+            modules = sharedModules ++ [
+              ./nix/nixos/sd-image.nix
+            ];
+          };
+
+          # nixos-anywhere deployment configuration (T-072-18).
+          # Usage: nixos-anywhere --flake .#mugge-deploy root@192.168.178.35
+          # Also supports incremental upgrades (T-072-19):
+          #   nixos-rebuild switch --flake .#mugge-deploy --target-host root@192.168.178.35
+          mugge-deploy = nixpkgs.lib.nixosSystem {
+            inherit system;
+            specialArgs = sharedSpecialArgs;
+            modules = sharedModules ++ [
+              disko.nixosModules.disko
+              ./nix/nixos/disko.nix
+            ];
+          };
         };
+
+      # T-072-17: SD card image output.
+      # Usage: nix build .#images.sd-card
+      # Produces a compressed .img.zst flashable onto an SD card for Pi 4B.
+      images.sd-card = self.nixosConfigurations.mugge.config.system.build.sdImage;
     };
 }

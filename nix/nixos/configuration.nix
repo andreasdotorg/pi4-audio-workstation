@@ -1,6 +1,10 @@
 # configuration.nix — top-level NixOS configuration for the Pi 4 Audio Workstation
 #
-# Imports all Phase 1+ modules and sets system-wide defaults.
+# Imports all modules EXCEPT the deployment method (sd-image.nix or disko.nix).
+# The deployment method is added at the flake level:
+#   - nixosConfigurations.mugge: adds sd-image.nix for image builds
+#   - nixosConfigurations.mugge-deploy: adds disko.nix for nixos-anywhere
+#
 # The nixos-hardware.nixosModules.raspberry-pi-4 import is handled
 # at the flake level, not here.
 #
@@ -12,9 +16,9 @@
 {
   imports = [
     ./hardware.nix
+    ./firmware.nix
     ./users.nix
     ./network.nix
-    ./sd-image.nix
     # Phase 2: PipeWire + audio stack
     ./audio/pipewire.nix
     ./audio/wireplumber.nix
@@ -30,6 +34,8 @@
     ./services/pcm-bridge.nix
     ./services/signal-gen.nix
     ./services/web-ui.nix
+    # Production defaults: enables all services with correct parameters
+    ./production.nix
   ];
 
   # System basics
