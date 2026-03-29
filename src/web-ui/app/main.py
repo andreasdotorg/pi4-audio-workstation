@@ -500,14 +500,6 @@ async def ws_pcm_source(ws: WebSocket, source: str, scenario: str = "A"):
     Source names map to pcm-bridge TCP addresses via PI4AUDIO_PCM_SOURCES.
     Wire format: 4-byte LE uint32 header + interleaved float32 PCM.
     """
-    if MOCK_MODE:
-        await ws.accept()
-        from .mock.mock_pcm import mock_pcm_stream
-        log.info("PCM client connected (mock, source=%s, scenario=%s)",
-                 source, scenario)
-        await mock_pcm_stream(ws, scenario)
-        return
-
     addr = PCM_SOURCES.get(source)
     if addr is None:
         await ws.close(code=4004,
@@ -525,16 +517,8 @@ async def ws_pcm(ws: WebSocket, scenario: str = "A"):
     """Binary PCM stream (backward compat, delegates to monitor source).
 
     Legacy endpoint preserved for existing spectrum.js clients.
-    In mock mode, serves synthetic data directly.
-    In production, delegates to the ``monitor`` pcm-bridge instance.
+    Delegates to the ``monitor`` pcm-bridge instance.
     """
-    if MOCK_MODE:
-        await ws.accept()
-        from .mock.mock_pcm import mock_pcm_stream
-        log.info("PCM client connected (mock, scenario=%s)", scenario)
-        await mock_pcm_stream(ws, scenario)
-        return
-
     # Delegate to the monitor source via pcm-bridge TCP relay (D-040).
     # F-030: Legacy JACK fallback removed — it caused xruns under DJ load.
     addr = PCM_SOURCES.get("monitor")

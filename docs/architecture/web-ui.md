@@ -787,9 +787,9 @@ float32 samples. For the `monitor` instance (4 channels, quantum 256):
 At 48 kHz / 256 frames per chunk = 187.5 chunks/sec = ~768 KB/s per client.
 
 **Platform guard:** On non-Linux platforms, the pcm-bridge is not available.
-Mock mode provides synthetic PCM data via `mock_pcm.py`. In production, the
-`/ws/pcm` endpoint delegates to the `monitor` pcm-bridge instance; if
-unavailable, returns close code 1008.
+The `/ws/pcm` endpoint delegates to the `monitor` pcm-bridge instance; if
+unavailable, returns close code 1008. There is no mock PCM path — local
+development uses `nix run .#local-demo` which starts a real pcm-bridge.
 
 **Legacy JACK collector fallback:** The `/ws/pcm` endpoint falls back to the
 legacy JACK-based PcmStreamCollector if no pcm-bridge `monitor` source is

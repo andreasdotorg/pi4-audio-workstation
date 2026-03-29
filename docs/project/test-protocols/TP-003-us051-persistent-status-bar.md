@@ -31,7 +31,7 @@ The test has two phases: Phase A (local, no Pi) and Phase B (Pi hardware).
 
 | Component | Required state | How achieved |
 |-----------|---------------|--------------|
-| Web UI server | Running in mock mode | `nix run .#serve` or `PI_AUDIO_MOCK=1 uvicorn` |
+| Web UI server | Running in mock mode | `nix run .#local-demo` or `PI_AUDIO_MOCK=1 uvicorn` |
 | Browser | Chromium (Playwright) or manual | Playwright for automated, manual for visual |
 | Git commit | `0035320` or later | Includes SB-1 through SB-7a + e2e fix |
 
@@ -237,7 +237,7 @@ Check docs/architecture/persistent-status-bar.md exists      -> expect yes (AC-1
 **Step 2: Start mock server**
 
 ```bash
-nix run .#serve
+nix run .#local-demo
 # or: cd src/web-ui && PI_AUDIO_MOCK=1 uvicorn app.server:app --host 0.0.0.0 --port 8080
 ```
 
@@ -372,7 +372,7 @@ With audio flowing, rapidly switch between all 5 tabs. Verify:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Nix blocked on macOS (SQLite cache issue) | HIGH (currently happening) | Cannot run `nix run .#serve` or `nix run .#test-e2e` | Fall back to manual `uvicorn` with system Python (needs numpy) or defer to Pi |
+| Nix blocked on macOS (SQLite cache issue) | HIGH (currently happening) | Cannot run `nix run .#local-demo` or `nix run .#test-e2e` | Fall back to manual `uvicorn` with system Python (needs numpy) or defer to Pi |
 | numpy not on system Python | HIGH (confirmed) | Cannot start mock server locally | Use `nix develop` shell, or defer Phase A steps 2-13 to Pi |
 | Phase B blocked on Pi deployment | MEDIUM | Cannot validate real-data behavior | Phase A code review provides partial confidence; Phase B deferred until deployment |
 | Mock data does not exercise all meter groups | LOW | Some mini meter groups may show 0 in mock mode | Phase B validates with real data |

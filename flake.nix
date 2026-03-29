@@ -539,14 +539,6 @@
             ''}";
           };
 
-          serve = {
-            type = "app";
-            program = "${pkgs.writeShellScript "serve" ''
-              export PI_AUDIO_MOCK=1
-              cd ${toString ./.}/src/web-ui
-              exec ${testPython}/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
-            ''}";
-          };
         } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           # PipeWire Rust tools — require libpipewire (Linux only).
           test-level-bridge = {

@@ -32,7 +32,7 @@ The test has three phases: Phase A (local scaffold validation, no Pi), Phase B
 
 | Component | Required state | How achieved |
 |-----------|---------------|--------------|
-| Web UI server | Running in mock mode | `nix run .#serve` or `PI_AUDIO_MOCK=1 uvicorn` |
+| Web UI server | Running in mock mode | `nix run .#local-demo` or `PI_AUDIO_MOCK=1 uvicorn` |
 | Browser | Chromium (Playwright) or manual | Playwright for automated, manual for visual |
 | Git commit | `f3fcfa2` (TT-1) or later | Includes HTML/CSS scaffold |
 | US-051 status bar | Committed | Required for persistent frame |
@@ -41,7 +41,7 @@ The test has three phases: Phase A (local scaffold validation, no Pi), Phase B
 
 | Component | Required state | How achieved |
 |-----------|---------------|--------------|
-| Web UI server | Running in mock mode | `nix run .#serve` |
+| Web UI server | Running in mock mode | `nix run .#local-demo` |
 | Signal gen mock | `/ws/siggen` responds to commands | Mock endpoint in FastAPI (when implemented) |
 | Browser | Chromium or manual | |
 | Git commit | Post-TT-2+ implementation commits | Includes JS logic |
@@ -351,7 +351,7 @@ Check docs/architecture/test-tool-page.md exists               -> expect yes (D2
 **Step 2: Start mock server**
 
 ```bash
-nix run .#serve
+nix run .#local-demo
 # or: cd src/web-ui && PI_AUDIO_MOCK=1 uvicorn app.server:app --host 0.0.0.0 --port 8080
 ```
 
@@ -498,7 +498,7 @@ Play pink noise. Compare Pi SPL with REW reading.
 |------|-----------|--------|------------|
 | US-052 not ready for Phase C | HIGH (SG tasks in progress, Pi integration blocked on TK-151) | Cannot test AC-5 through AC-6, AC-12, AC-13 runtime behavior | Phase B mock validates command flow; Phase C deferred |
 | US-051 not deployed to Pi | MEDIUM (SB-7 Phase B blocked) | Cannot test AC-1.4 (status bar frame on Pi) | Phase A validates locally |
-| Nix blocked on macOS (SQLite cache) | HIGH (currently happening) | Cannot run `nix run .#serve` locally | Use `nix develop` shell or defer to Pi |
+| Nix blocked on macOS (SQLite cache) | HIGH (currently happening) | Cannot run `nix run .#local-demo` locally | Use `nix develop` shell or defer to Pi |
 | UMIK-1 PCM channel not in PcmStreamCollector | HIGH (not yet implemented) | Cannot test spectrum with UMIK-1 source | Test with Main L+R source; UMIK-1 source deferred |
 | `/ws/siggen` endpoint not yet implemented | HIGH (new endpoint) | Cannot test any RPC communication | Phase B blocked until endpoint exists; Phase A tests structure only |
 

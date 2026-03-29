@@ -22,7 +22,7 @@ nix run .#test-room-correction  # Room correction DSP tests
 nix run .#test-graph-manager    # GraphManager Rust tests (pure logic)
 nix run .#test-e2e              # Playwright e2e tests
 nix run .#test-all              # All suites sequentially
-nix run .#serve                 # Dev server (mock mode, 0.0.0.0:8080)
+nix run .#local-demo            # Local dev stack (PipeWire + GM + web UI, Linux only)
 ```
 
 ### 1.2 Interactive Development
@@ -143,12 +143,12 @@ default), it uses mock collectors and mock backends so you can develop and
 test without audio hardware or PipeWire.
 
 ```sh
-nix run .#serve
+nix run .#local-demo
 ```
 
-This starts uvicorn with `--reload` on `0.0.0.0:8080` in mock mode. The UI
-will be available at `http://localhost:8080`. The `--reload` flag watches for
-file changes and restarts the server automatically.
+This starts the full local development stack on Linux: a headless PipeWire
+instance, GraphManager, signal-gen, pcm-bridge, level-bridge, and the web UI
+on `0.0.0.0:8080`. The UI will be available at `http://localhost:8080`.
 
 For interactive development (e.g., custom host/port, debugging), use the
 development shell:
