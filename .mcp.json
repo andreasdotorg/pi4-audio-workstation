@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "nix",
+      "args": ["run", "nixpkgs#playwright-mcp", "--", "--headless", "--viewport-size", "1280x720"]
+    }
+  }
+}
