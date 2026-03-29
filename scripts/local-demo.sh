@@ -93,7 +93,7 @@ DEMO_PROCESS_PATTERNS=(
 )
 
 # Ports that must be free before we can start.
-REQUIRED_PORTS=(4001 4002 9090 9100 9101 9102 8080)
+REQUIRED_PORTS=(4001 4002 9090 9100 8080)
 
 preflight_cleanup() {
     echo "[local-demo] Pre-flight cleanup: checking for stale processes..."
@@ -275,8 +275,8 @@ echo "[local-demo] PipeWire ready."
 
 # ---- 4. Start GraphManager ----
 echo ""
-echo "[local-demo] Starting GraphManager (port 4002, monitoring mode)..."
-"$GM_BIN" --listen tcp:127.0.0.1:4002 --mode monitoring --log-level info &
+echo "[local-demo] Starting GraphManager (port 4002, measurement mode)..."
+"$GM_BIN" --listen tcp:127.0.0.1:4002 --mode measurement --log-level info &
 PIDS+=($!)
 sleep 1
 
@@ -335,45 +335,14 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] level-bridge-sw running (PID ${PIDS[-1]})"
 
-# 6b. level-bridge-hw-out: taps USBStreamer sink monitor ports (DAC output, 8ch).
+# 6b/6c: level-bridge-hw-out and hw-in are NOT started in local-demo.
+# They target the real USBStreamer sink/source which doesn't exist locally.
+# Without links, their PW process callbacks produce only silence (-120 dBFS),
+# and their independent timing creates extra clock sources that cause meter
+# flicker. The web UI gracefully handles missing hw-out/hw-in collectors
+# (falls back to -120 dBFS with inactive group labels).
 echo ""
-echo "[local-demo] Starting level-bridge-hw-out (levels on port 9101, managed mode)..."
-"$LB_BIN" \
-    --managed \
-    --node-name pi4audio-level-bridge-hw-out \
-    --mode monitor \
-    --target alsa_output.usb-MiniDSP_USBStreamer \
-    --levels-listen tcp:0.0.0.0:9101 \
-    --channels 8 \
-    --rate 48000 &
-PIDS+=($!)
-sleep 1
-
-if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
-    echo "[local-demo] ERROR: level-bridge-hw-out failed to start" >&2
-    exit 1
-fi
-echo "[local-demo] level-bridge-hw-out running (PID ${PIDS[-1]})"
-
-# 6c. level-bridge-hw-in: captures ADA8200 input (ADC, 8ch).
-echo ""
-echo "[local-demo] Starting level-bridge-hw-in (levels on port 9102, managed mode)..."
-"$LB_BIN" \
-    --managed \
-    --node-name pi4audio-level-bridge-hw-in \
-    --mode capture \
-    --target alsa_input.usb-MiniDSP_USBStreamer \
-    --levels-listen tcp:0.0.0.0:9102 \
-    --channels 8 \
-    --rate 48000 &
-PIDS+=($!)
-sleep 1
-
-if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
-    echo "[local-demo] ERROR: level-bridge-hw-in failed to start" >&2
-    exit 1
-fi
-echo "[local-demo] level-bridge-hw-in running (PID ${PIDS[-1]})"
+echo "[local-demo] Skipping level-bridge-hw-out/hw-in (no real USBStreamer)"
 
 # ---- 7. Start pcm-bridge (managed mode, PCM-only) ----
 # Managed mode: no stream.capture.sink, no --target. GM creates links
@@ -396,20 +365,35 @@ if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
 fi
 echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]})"
 
-# ---- 8. Start signal-gen playing a sine wave ----
+# ---- 8. Start signal-gen playing music ----
+# Use mp3 file playback to simulate DJ mode (Mixxx replacement).
+# signal-gen decodes mp3 via symphonia, resamples to 48kHz mono, loops.
+MP3_FILE="$HOME/Claudia singt Cole Porter - I love Paris.mp3"
 echo ""
-echo "[local-demo] Sending signal-gen play command (440 Hz sine, -20 dBFS)..."
-sleep 0.5
-# signal-gen RPC: newline-delimited JSON on TCP port 4001.
-# Use bash /dev/tcp to avoid nc dependency (nc may not be in Nix PATH).
-if exec 3<>/dev/tcp/127.0.0.1/4001 2>/dev/null; then
-    echo '{"cmd":"play","signal":"sine","freq":440.0,"level_dbfs":-20.0,"channels":[1]}' >&3
-    timeout 2 head -n1 <&3 2>/dev/null && echo "[local-demo] signal-gen playing." || true
-    exec 3>&- 2>/dev/null
+if [ -f "$MP3_FILE" ]; then
+    echo "[local-demo] Sending signal-gen play command (mp3: $(basename "$MP3_FILE"))..."
+    sleep 0.5
+    # signal-gen RPC: newline-delimited JSON on TCP port 4001.
+    # Use bash /dev/tcp to avoid nc dependency (nc may not be in Nix PATH).
+    # Escape the path for JSON (backslash-escape any special chars).
+    MP3_JSON_PATH=$(printf '%s' "$MP3_FILE" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    if exec 3<>/dev/tcp/127.0.0.1/4001 2>/dev/null; then
+        echo "{\"cmd\":\"play\",\"signal\":\"file\",\"path\":\"$MP3_JSON_PATH\",\"level_dbfs\":-20.0,\"channels\":[1]}" >&3
+        timeout 2 head -n1 <&3 2>/dev/null && echo "[local-demo] signal-gen playing mp3." || true
+        exec 3>&- 2>/dev/null
+    else
+        echo "[local-demo] WARNING: Could not connect to signal-gen RPC (port 4001)" >&2
+    fi
 else
-    echo "[local-demo] WARNING: Could not connect to signal-gen RPC (port 4001)" >&2
-    echo "  Start playback manually:"
-    echo "  echo '{\"cmd\":\"play\",\"signal\":\"sine\",\"freq\":440,\"level_dbfs\":-20,\"channels\":[1]}' > /dev/tcp/127.0.0.1/4001"
+    echo "[local-demo] mp3 file not found, falling back to 440 Hz sine..."
+    sleep 0.5
+    if exec 3<>/dev/tcp/127.0.0.1/4001 2>/dev/null; then
+        echo '{"cmd":"play","signal":"sine","freq":440.0,"level_dbfs":-20.0,"channels":[1]}' >&3
+        timeout 2 head -n1 <&3 2>/dev/null && echo "[local-demo] signal-gen playing sine." || true
+        exec 3>&- 2>/dev/null
+    else
+        echo "[local-demo] WARNING: Could not connect to signal-gen RPC (port 4001)" >&2
+    fi
 fi
 
 # ---- 9. Wait for GM link creation ----
@@ -419,11 +403,22 @@ fi
 sleep 2  # allow GM reconciliation to complete
 LINK_COUNT=$(pw-link -l 2>/dev/null | grep -c '^\s*|' || echo 0)
 echo ""
-echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, monitoring mode)."
+echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, measurement mode)."
 
 # F-159: Convolver → room-sim → UMIK-1 loopback chain is managed by GM
 # (optional desired links in measurement mode). GM reconciler creates them
 # automatically when it detects the room-sim and loopback nodes.
+
+# ---- 9b. Manual pcm-bridge spectrum link ----
+# GM measurement mode links signal-gen → convolver but NOT signal-gen → pcm-bridge
+# for spectrum display (pcm-bridge ch1-2 are for app taps, ch3 for UMIK-1).
+# Create a manual link from signal-gen → pcm-bridge ch1 so the dashboard
+# spectrum analyzer has audio to display.
+echo ""
+echo "[local-demo] Creating signal-gen → pcm-bridge link for spectrum..."
+pw-link pi4audio-signal-gen:output_AUX0 pi4audio-pcm-bridge:input_1 2>/dev/null && \
+    echo "[local-demo] Spectrum link created." || \
+    echo "[local-demo] WARNING: Could not create spectrum link (pcm-bridge may not have ports yet)"
 
 # ---- 10. Start web-ui ----
 echo ""
@@ -433,9 +428,15 @@ export PI4AUDIO_GM_HOST=127.0.0.1
 export PI4AUDIO_GM_PORT=4002
 export PI4AUDIO_LEVELS_HOST=127.0.0.1
 export PI4AUDIO_LEVELS_SW_PORT=9100
-export PI4AUDIO_LEVELS_HW_OUT_PORT=9101
-export PI4AUDIO_LEVELS_HW_IN_PORT=9102
+# hw-out and hw-in level-bridge instances not started (no real USBStreamer).
+# Set port 0 so the web UI skips creating these collectors entirely.
+export PI4AUDIO_LEVELS_HW_OUT_PORT=0
+export PI4AUDIO_LEVELS_HW_IN_PORT=0
 export PI4AUDIO_SKIP_GM_RECOVERY=1
+# Filter reload: restart the local-demo PW (not the host's systemd PW).
+# NOTE: Restarting PW kills all connected PW clients (GM, signal-gen, etc.).
+# The web UI will show disconnected state. Re-run local-demo.sh to recover.
+export PI4AUDIO_PW_RELOAD_CMD="$PW_TEST_ENV stop && $PW_TEST_ENV start"
 export PI4AUDIO_SIGGEN=1
 # F-201: pcm-bridge runs with --channels 4, web-ui must match.
 export PI4AUDIO_PCM_CHANNELS=4
@@ -495,11 +496,10 @@ echo "============================================================"
 echo "  Local demo stack is running!"
 echo ""
 echo "  Web UI:          http://localhost:8080"
-echo "  GraphManager:    tcp://127.0.0.1:4002 (RPC, monitoring mode)"
+echo "  GraphManager:    tcp://127.0.0.1:4002 (RPC, measurement mode)"
 echo "  signal-gen:      tcp://127.0.0.1:4001 (RPC, managed mode)"
 echo "  level-bridge-sw: tcp://127.0.0.1:9100 (levels, app output tap)"
-echo "  level-bridge-hw-out: tcp://127.0.0.1:9101 (levels, USBStreamer out)"
-echo "  level-bridge-hw-in:  tcp://127.0.0.1:9102 (levels, USBStreamer in)"
+echo "  (level-bridge-hw-out/hw-in skipped — no real USBStreamer)"
 echo "  pcm-bridge:      tcp://127.0.0.1:9090 (PCM, managed mode)"
 echo ""
 echo "  PW nodes:     alsa_output.usb-MiniDSP_USBStreamer (null sink)"
@@ -511,9 +511,8 @@ echo "                pi4audio-convolver (filter-chain, dirac passthrough)"
 echo "                pi4audio-convolver-out (filter-chain output)"
 echo "                pi4audio-room-sim (room-sim convolver, F-159)"
 echo "                pi4audio-room-sim-out (room-sim output)"
-echo "  NOTE: Spectrum shows 'No live audio' in monitoring mode —"
-echo "        this is expected (no app source). F-204 will add a"
-echo "        Mixxx substitute for DJ mode with live spectrum."
+echo "  Audio: signal-gen plays mp3 through convolver (measurement mode)"
+echo "         Dashboard spectrum fed via signal-gen → pcm-bridge link"
 echo ""
 echo "  Press Ctrl+C to stop all services."
 echo "============================================================"

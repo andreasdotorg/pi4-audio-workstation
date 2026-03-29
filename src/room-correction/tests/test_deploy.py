@@ -383,3 +383,30 @@ class TestReloadPipewire:
             with mock.patch("subprocess.run", side_effect=sp.TimeoutExpired("cmd", 15)):
                 result = reload_pipewire()
         assert result is False
+
+    def test_custom_reload_cmd_success(self):
+        with mock.patch.dict(os.environ, {"PI4AUDIO_PW_RELOAD_CMD": "echo ok"}):
+            with mock.patch("subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=0)
+                result = reload_pipewire()
+        assert result is True
+        mock_run.assert_called_once()
+        assert mock_run.call_args[1]["shell"] is True
+
+    def test_custom_reload_cmd_failure(self):
+        with mock.patch.dict(os.environ, {"PI4AUDIO_PW_RELOAD_CMD": "false"}):
+            with mock.patch("subprocess.run") as mock_run:
+                mock_run.return_value = mock.Mock(returncode=1, stderr="failed")
+                result = reload_pipewire()
+        assert result is False
+
+    def test_custom_reload_cmd_takes_priority_over_systemctl(self):
+        with mock.patch.dict(os.environ, {"PI4AUDIO_PW_RELOAD_CMD": "my-reload"}):
+            with mock.patch("shutil.which", return_value="/usr/bin/systemctl"):
+                with mock.patch("subprocess.run") as mock_run:
+                    mock_run.return_value = mock.Mock(returncode=0)
+                    result = reload_pipewire()
+        assert result is True
+        # Should have called the custom command, not systemctl
+        cmd_arg = mock_run.call_args[0][0]
+        assert cmd_arg == "my-reload"

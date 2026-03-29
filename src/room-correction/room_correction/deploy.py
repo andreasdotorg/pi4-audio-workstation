@@ -272,14 +272,17 @@ def cleanup_old_coefficients(
 
 def reload_pipewire():
     """
-    Reload the PipeWire filter-chain by restarting the PipeWire user service.
+    Reload the PipeWire filter-chain by restarting PipeWire.
 
     WARNING: Restarting PipeWire resets the USBStreamer, producing transients
     through the amplifier chain that can damage speakers. The caller MUST
     ensure amplifiers are off or muted before calling this function.
 
-    On macOS (development), systemctl is not available. In that case, prints
-    instructions for manual reload and returns False.
+    Reload strategy (checked in order):
+    1. PI4AUDIO_PW_RELOAD_CMD env var — custom shell command (used by
+       local-demo where PipeWire is not managed by systemd).
+    2. systemctl --user restart pipewire.service — production (Pi).
+    3. If neither is available, prints instructions and returns False.
 
     Returns
     -------
@@ -288,7 +291,34 @@ def reload_pipewire():
     """
     import subprocess
 
-    # Check if systemctl is available (Linux with systemd)
+    # Strategy 1: custom reload command (local-demo, CI, etc.)
+    # shell=True is safe — env var is set at deployment time
+    # (local-demo.sh / systemd unit), never from user/browser input.
+    reload_cmd = os.environ.get("PI4AUDIO_PW_RELOAD_CMD")
+    if reload_cmd:
+        try:
+            print(f"\n  Using custom PW reload command: {reload_cmd}")
+            result = subprocess.run(
+                reload_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                print("  PipeWire reloaded successfully (custom command).")
+                return True
+            else:
+                print(f"  WARNING: Custom PW reload failed: {result.stderr.strip()}")
+                return False
+        except subprocess.TimeoutExpired:
+            print("  WARNING: Custom PW reload timed out after 30s.")
+            return False
+        except Exception as e:
+            print(f"  WARNING: Custom PW reload failed: {e}")
+            return False
+
+    # Strategy 2: systemctl (production Pi with systemd)
     if shutil.which("systemctl") is None:
         print(
             "\n  systemctl not available (expected on macOS dev)."

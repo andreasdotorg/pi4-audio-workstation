@@ -166,12 +166,23 @@ async def lifespan(app: FastAPI):
         levels_hw_out_port = int(os.environ.get("PI4AUDIO_LEVELS_HW_OUT_PORT", "9101"))
         levels_hw_in_port = int(os.environ.get("PI4AUDIO_LEVELS_HW_IN_PORT", "9102"))
         app.state.levels_sw = LevelsCollector(host=levels_host, port=levels_sw_port)
-        app.state.levels_hw_out = LevelsCollector(host=levels_host, port=levels_hw_out_port)
-        app.state.levels_hw_in = LevelsCollector(host=levels_host, port=levels_hw_in_port)
+        # Port 0 = disabled (local-demo: no real USBStreamer).
+        if levels_hw_out_port > 0:
+            app.state.levels_hw_out = LevelsCollector(host=levels_host, port=levels_hw_out_port)
+        else:
+            app.state.levels_hw_out = None
+            log.info("level-bridge-hw-out disabled (port=0)")
+        if levels_hw_in_port > 0:
+            app.state.levels_hw_in = LevelsCollector(host=levels_host, port=levels_hw_in_port)
+        else:
+            app.state.levels_hw_in = None
+            log.info("level-bridge-hw-in disabled (port=0)")
         app.state.levels = app.state.levels_sw  # backward compat alias
         await app.state.levels_sw.start()
-        await app.state.levels_hw_out.start()
-        await app.state.levels_hw_in.start()
+        if app.state.levels_hw_out is not None:
+            await app.state.levels_hw_out.start()
+        if app.state.levels_hw_in is not None:
+            await app.state.levels_hw_in.start()
         app.state.cdsp = FilterChainCollector()
         await app.state.cdsp.start()
         app.state.system_collector = SystemCollector()
