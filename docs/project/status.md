@@ -41,7 +41,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
-| US-110 | draft | Web UI passkey authentication | Converted from F-037 |
+| US-110 | ready | Web UI passkey authentication | Unblocked by D-060 (local CA) |
 
 
 ### Owner-Blocking Items
@@ -143,3 +143,4 @@ through D-058). Most significant recent decisions:
 - **D-043** (2026-03-20): WirePlumber retained for device management, linking disabled
 - **D-045** (2026-03-24): Project rename to mugge
 - **D-058** (2026-03-28): GM supervises services — target arch (static units interim)
+- **D-060** (2026-03-29): Local CA for TLS — replaces D-032 self-signed (unblocks US-110 passkeys)
