@@ -107,7 +107,6 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | F-212 | Medium | 55 JS 404 errors for missing static resources across all web UI tabs |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
-| F-085 | High | Graph tab rendering (10 sub-items, pan+zoom needed) |
 | F-039 | Medium | DSP load gauge 0% — needs pw-top BUSY parsing |
 
 ## Key Metrics
