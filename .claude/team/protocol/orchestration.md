@@ -220,14 +220,9 @@ don't exist. (L-040)
 After compaction:
 
 1. Re-read this file, project config, and project state files
-2. **Read `~/.claude/teams/{team-name}/config.json`** to discover who is on
-   the team. The `members` array is the **authoritative roster** of active
-   agents. Terminated agents are removed from this array. Do NOT use the
-   `inboxes/` directory to determine who is alive — inbox files persist after
-   termination and are misleading. Re-read `config.json` each time you need
-   the current roster; a cached read goes stale as agents terminate. (L-067)
-3. Do NOT ping, verify, TeamDelete, or TeamCreate. Simply resume communication
-   as needed with the members listed in `config.json`.
+2. **Read `~/.claude/teams/{team-name}/inboxes/`** to discover the team
+   roster. Each agent has an inbox file named `{agent-name}.json`. Resume
+   communication as needed — do NOT TeamDelete or TeamCreate.
 4. Check task list for in-progress work
 5. Resume from where compaction interrupted
 
@@ -480,11 +475,9 @@ MUST be included in the session summary / continuation prompt so they survive:
 4. **After compaction, your first action** is to read the orchestration protocol
    and project config, then read `~/.claude/teams/{team-name}/config.json` to
    discover the active team roster — not to start executing commands.
-5. **Core team persists across compactions.** Read `config.json` `members`
-   array for the authoritative list of active agents. Do NOT use inbox files
-   (they persist after termination). Do NOT ping, TeamDelete, TeamCreate, or
-   respawn. Only respawn if the system reports an agent doesn't exist when you
-   message them. (L-040, L-067)
+5. **Core team persists across compactions.** List
+   `~/.claude/teams/{team-name}/inboxes/` for the agent roster. Do NOT
+   ping all agents preemptively, TeamDelete, or TeamCreate.
    **ABSOLUTE RULE: The orchestrator MUST NEVER send `shutdown_request` to
    ANY core team member without explicit owner instruction.** Not after
    compaction. Not after "internal errors." Not ever. The owner — and ONLY
