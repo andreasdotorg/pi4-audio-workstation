@@ -248,21 +248,21 @@ log "signal-gen running (PID ${PIDS[-1]})"
 # 6a. level-bridge-sw (app output tap, 8ch)
 "$LB_BIN" --managed --node-name pi4audio-level-bridge-sw \
     --mode capture --target unused-managed-mode \
-    --levels-listen tcp:0.0.0.0:$LEVEL_SW_PORT --channels 8 --rate 48000 2>/tmp/lb-sw-test.log &
+    --levels-listen tcp:127.0.0.1:$LEVEL_SW_PORT --channels 8 --rate 48000 2>/tmp/lb-sw-test.log &
 PIDS+=($!)
 sleep 0.5
 
 # 6b. level-bridge-hw-out (USBStreamer monitor, 8ch)
 "$LB_BIN" --managed --node-name pi4audio-level-bridge-hw-out \
     --mode monitor --target alsa_output.usb-MiniDSP_USBStreamer \
-    --levels-listen tcp:0.0.0.0:$LEVEL_HW_OUT_PORT --channels 8 --rate 48000 2>/tmp/lb-hwout-test.log &
+    --levels-listen tcp:127.0.0.1:$LEVEL_HW_OUT_PORT --channels 8 --rate 48000 2>/tmp/lb-hwout-test.log &
 PIDS+=($!)
 sleep 0.5
 
 # 6c. level-bridge-hw-in (ADA8200 capture, 8ch)
 "$LB_BIN" --managed --node-name pi4audio-level-bridge-hw-in \
     --mode capture --target alsa_input.usb-MiniDSP_USBStreamer \
-    --levels-listen tcp:0.0.0.0:$LEVEL_HW_IN_PORT --channels 8 --rate 48000 2>/tmp/lb-hwin-test.log &
+    --levels-listen tcp:127.0.0.1:$LEVEL_HW_IN_PORT --channels 8 --rate 48000 2>/tmp/lb-hwin-test.log &
 PIDS+=($!)
 sleep 0.5
 
@@ -277,7 +277,7 @@ log "level-bridge instances running."
 # ---- 7. Start pcm-bridge (managed mode) ----
 
 "$PCM_BIN" --managed --mode monitor \
-    --listen tcp:0.0.0.0:$PCM_PORT --channels 4 --rate 48000 2>/tmp/pcm-test.log &
+    --listen tcp:127.0.0.1:$PCM_PORT --channels 4 --rate 48000 2>/tmp/pcm-test.log &
 PIDS+=($!)
 sleep 1
 if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then

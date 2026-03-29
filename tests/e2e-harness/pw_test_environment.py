@@ -362,7 +362,7 @@ def pw_test_environment(
                         cfg.level_bridge_bin, "--managed",
                         "--node-name", node_name,
                         "--mode", mode, "--target", target,
-                        "--levels-listen", f"tcp:0.0.0.0:{port}",
+                        "--levels-listen", f"tcp:127.0.0.1:{port}",
                         "--channels", "8", "--rate", str(cfg.sample_rate),
                     ],
                     startup_timeout=3.0,
@@ -374,7 +374,7 @@ def pw_test_environment(
                 name="pcm-bridge",
                 args=[
                     cfg.pcm_bridge_bin, "--managed", "--mode", "monitor",
-                    "--listen", f"tcp:0.0.0.0:{cfg.pcm_port}",
+                    "--listen", f"tcp:127.0.0.1:{cfg.pcm_port}",
                     "--channels", "4", "--rate", str(cfg.sample_rate),
                 ],
                 startup_timeout=5.0,
