@@ -339,7 +339,7 @@ Owner assessment: venue exposed that features were declared done without proper 
 - T-072-01: DONE (D-040 gap audit)
 - T-072-02: IN PROGRESS (worker-2 — kernel compiles correctly, builder ran out of disk space, build restarted after GC)
 - T-072-04: DONE (flake.nix nixosConfigurations)
-- T-072-06: IN PROGRESS (worker-1 — has architect guidance on filter-chain convolver module, holding for session wrap)
+- T-072-06: READY TO IMPLEMENT (worker-1 — research complete, architect approved Strategy B: dirac WAV derivation + tmpfiles `C` copy-if-missing in `pipewire.nix`, ~10 lines. No code written yet. Next team resumes implementation.)
 - T-072-09: DONE (level-bridge.nix, commit `0340ef3`)
 - T-072-05: PENDING (boot smoke test, blocked by T-072-02)
 - T-072-03: PENDING (V3D GL validation, needs kernel/boot)

@@ -6876,7 +6876,7 @@ task #69 (T-089-8: activate + D-043), F-197 (target gains bug)
 
 ---
 
-## F-201: Local-demo meters and spectrum broken — same symptoms as prior Pi bugs (IMPLEMENT)
+## F-201: Local-demo meters and spectrum broken — same symptoms as prior Pi bugs (VERIFIED)
 
 **Filed:** 2026-03-28
 **Severity:** High (core monitoring UI non-functional in local-demo mode)
