@@ -41,7 +41,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
-| US-109 | IMPLEMENT 3/4 | Playwright MCP integration | AC #4 deferred (needs session restart) |
+
 
 ### Owner-Blocking Items
 
@@ -88,6 +88,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-059 | GraphManager core + production filter-chain | 2026-03-21 |
 | US-062 | Boot-to-DJ mode | 2026-03-20 |
 | US-076 | Web UI visual polish | 2026-03-25 |
+| US-109 | Playwright MCP integration | 2026-03-29 |
 
 ## Deferred / Cancelled
 
@@ -115,7 +116,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 |--------|-------|
 | Git commits | ~185 |
 | Total stories filed | 113 |
-| Stories done | 12 |
+| Stories done | 13 |
 | Stories in TEST | 12 |
 | Stories in IMPLEMENT/REVIEW | ~12 |
 | Open defects (HIGH+) | ~10 |
