@@ -34,6 +34,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use crate::graph::{GraphState, TrackedLink, TrackedNode, TrackedPort};
 use crate::lifecycle::{ComponentRegistry, HealthTransition};
@@ -376,9 +377,29 @@ fn run_reconcile(
     link_proxies: &Rc<RefCell<HashMap<(u32, u32), pipewire::link::Link>>>,
     component_registry: &Rc<RefCell<ComponentRegistry>>,
     watchdog: &Rc<RefCell<Watchdog>>,
+    last_warned: &mut HashMap<String, Instant>,
 ) {
-    let actions = reconcile::reconcile(graph, table, mode);
-    apply_actions(&actions, core, registry, graph, event_tx, link_proxies);
+    let result = reconcile::reconcile(graph, table, mode);
+
+    // F-211: Log missing endpoints with 2-second backoff per endpoint.
+    // First occurrence per endpoint logs at warn!, subsequent within 2s
+    // are suppressed. This eliminates the 278-warning startup storm.
+    let now = Instant::now();
+    for endpoint in &result.missing_endpoints {
+        match last_warned.get(endpoint) {
+            Some(t) if now.duration_since(*t) < Duration::from_secs(2) => {
+                // Suppressed — already warned recently.
+            }
+            _ => {
+                log::warn!("Required link endpoint missing (will retry): {}", endpoint);
+                last_warned.insert(endpoint.clone(), now);
+            }
+        }
+    }
+    // Clean up resolved endpoints to prevent unbounded map growth.
+    last_warned.retain(|k, _| result.missing_endpoints.contains(k));
+
+    apply_actions(&result.actions, core, registry, graph, event_tx, link_proxies);
 
     // Update component health from the current graph state.
     let transitions = component_registry.borrow_mut().update(graph);
@@ -612,6 +633,14 @@ pub fn register_graph_listener(
     let reconciling_remove = reconciling;
     let dirty_remove = dirty;
 
+    // F-211: Backoff map for missing-endpoint warn deduplication.
+    // Tracks (endpoint_string → last_warned_instant). Shared between
+    // both closures on the single-threaded PW main loop.
+    let last_warned: Rc<RefCell<HashMap<String, Instant>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+    let last_warned_add = last_warned.clone();
+    let last_warned_remove = last_warned;
+
     // Core is Clone (Rc-based) — safe to clone into closures on the
     // same PW main loop thread. No WeakCore needed.
     let core_add = core.clone();
@@ -755,6 +784,7 @@ pub fn register_graph_listener(
                     &link_proxies_add,
                     &comp_reg_add,
                     &watchdog_add,
+                    &mut last_warned_add.borrow_mut(),
                 );
                 // F-079: If new mutations arrived during reconciliation,
                 // re-run to pick up newly arrived ports/nodes. Loop until
@@ -772,6 +802,7 @@ pub fn register_graph_listener(
                         &link_proxies_add,
                         &comp_reg_add,
                         &watchdog_add,
+                        &mut last_warned_add.borrow_mut(),
                     );
                 }
                 reconciling_add.set(false);
@@ -816,6 +847,7 @@ pub fn register_graph_listener(
                     &link_proxies_remove,
                     &comp_reg_remove,
                     &watchdog_remove,
+                    &mut last_warned_remove.borrow_mut(),
                 );
                 while dirty_remove.get() {
                     dirty_remove.set(false);
@@ -830,6 +862,7 @@ pub fn register_graph_listener(
                         &link_proxies_remove,
                         &comp_reg_remove,
                         &watchdog_remove,
+                        &mut last_warned_remove.borrow_mut(),
                     );
                 }
                 reconciling_remove.set(false);

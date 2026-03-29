@@ -409,11 +409,16 @@ fn dispatch_rpc_command(
 
             // 2. Run reconciliation.
             let g = graph.borrow();
-            let actions = reconcile::reconcile(&g, routing_table, mode);
+            let result = reconcile::reconcile(&g, routing_table, mode);
+
+            // Log any missing endpoints (mode transition — log all, no dedup).
+            for endpoint in &result.missing_endpoints {
+                log::warn!("Required link endpoint missing (will retry): {}", endpoint);
+            }
 
             // 3. Apply link actions.
             registry::apply_actions(
-                &actions,
+                &result.actions,
                 core_ref,
                 reg_handle,
                 &g,

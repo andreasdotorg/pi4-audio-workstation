@@ -32,6 +32,20 @@
 use crate::graph::GraphState;
 use crate::routing::{DesiredLink, Mode, NodeMatch, RoutingTable};
 
+/// Result of a reconciliation pass.
+///
+/// Contains the link actions to apply plus diagnostic information about
+/// endpoints that could not be resolved (for log deduplication by the caller).
+#[derive(Debug, Clone)]
+pub struct ReconcileResult {
+    /// Link actions (Create / Destroy) to apply to the PW graph.
+    pub actions: Vec<LinkAction>,
+    /// Display strings for required DesiredLinks whose endpoints are missing.
+    /// Used by the caller to implement warn-once-per-endpoint log suppression
+    /// (F-211).
+    pub missing_endpoints: Vec<String>,
+}
+
 /// An action to apply to the PW graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkAction {
@@ -120,8 +134,9 @@ fn is_known_node(graph: &GraphState, node_id: u32, table: &RoutingTable) -> bool
 /// # Returns
 /// A list of actions to apply. Create actions come first (bring up
 /// desired links), then Destroy actions (tear down unwanted links).
-pub fn reconcile(graph: &GraphState, table: &RoutingTable, mode: Mode) -> Vec<LinkAction> {
+pub fn reconcile(graph: &GraphState, table: &RoutingTable, mode: Mode) -> ReconcileResult {
     let mut actions = Vec::new();
+    let mut missing_endpoints = Vec::new();
     let desired = table.links_for(mode);
 
     // Phase 1: Identify links to CREATE.
@@ -146,7 +161,9 @@ pub fn reconcile(graph: &GraphState, table: &RoutingTable, mode: Mode) -> Vec<Li
                 if dl.optional {
                     log::debug!("Skipping optional link (endpoint missing): {}", dl);
                 } else {
-                    log::warn!("Required link endpoint missing (will retry): {}", dl);
+                    // F-211: Don't log here — return the missing endpoint string
+                    // so the caller can apply backoff/dedup before logging.
+                    missing_endpoints.push(dl.to_string());
                 }
             }
         }
@@ -189,7 +206,7 @@ pub fn reconcile(graph: &GraphState, table: &RoutingTable, mode: Mode) -> Vec<Li
         }
     }
 
-    actions
+    ReconcileResult { actions, missing_endpoints }
 }
 
 /// Resolve a DesiredLink to concrete PW port IDs.
@@ -282,7 +299,7 @@ mod tests {
         g.add_port(make_port(200, 20, "input_0", "in"));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -308,7 +325,7 @@ mod tests {
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         // Link exists, no actions needed.
         assert!(actions.is_empty());
@@ -322,7 +339,7 @@ mod tests {
         g.add_port(make_port(100, 10, "output_0", "out"));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", true);
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         // Optional link, endpoint missing — skip, no error.
         assert!(actions.is_empty());
@@ -337,10 +354,67 @@ mod tests {
         // input_0 port not yet created (ports arriving in separate events).
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         // Port missing — skip (will retry on next event).
         assert!(actions.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // F-211: missing_endpoints populated for unresolved required links
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn missing_endpoints_populated_for_required_link() {
+        let mut g = GraphState::new();
+        g.add_node(make_node(10, "src-node", "Stream/Output/Audio"));
+        // sink-node is missing entirely.
+        g.add_port(make_port(100, 10, "output_0", "out"));
+
+        let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
+        let result = reconcile(&g, &table, Mode::Monitoring);
+
+        assert!(result.actions.is_empty());
+        assert_eq!(result.missing_endpoints.len(), 1);
+        // The string should contain both node names (from DesiredLink Display).
+        assert!(result.missing_endpoints[0].contains("src-node"));
+        assert!(result.missing_endpoints[0].contains("sink-node"));
+    }
+
+    #[test]
+    fn missing_endpoints_empty_for_optional_link() {
+        let mut g = GraphState::new();
+        g.add_node(make_node(10, "src-node", "Stream/Output/Audio"));
+        g.add_port(make_port(100, 10, "output_0", "out"));
+
+        let table = one_link_table("src-node", "output_0", "sink-node", "input_0", true);
+        let result = reconcile(&g, &table, Mode::Monitoring);
+
+        assert!(result.actions.is_empty());
+        // Optional links should NOT appear in missing_endpoints.
+        assert!(result.missing_endpoints.is_empty());
+    }
+
+    #[test]
+    fn missing_endpoints_cleared_when_resolved() {
+        let mut g = GraphState::new();
+        g.add_node(make_node(10, "src-node", "Stream/Output/Audio"));
+        g.add_port(make_port(100, 10, "output_0", "out"));
+
+        let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
+
+        // First reconcile: endpoint missing.
+        let result = reconcile(&g, &table, Mode::Monitoring);
+        assert_eq!(result.missing_endpoints.len(), 1);
+
+        // Add the missing node and port.
+        g.add_node(make_node(20, "sink-node", "Audio/Sink"));
+        g.add_port(make_port(200, 20, "input_0", "in"));
+
+        // Second reconcile: endpoint resolved — missing_endpoints empty.
+        let result = reconcile(&g, &table, Mode::Monitoring);
+        assert!(result.missing_endpoints.is_empty());
+        assert_eq!(result.actions.len(), 1); // Create action
     }
 
     // -----------------------------------------------------------------------
@@ -377,7 +451,7 @@ mod tests {
             ),
         ]);
 
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -398,7 +472,7 @@ mod tests {
 
         // Empty routing table — no known nodes at all.
         let table = RoutingTable::from_entries(vec![(Mode::Monitoring, vec![])]);
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         // Link between unknown nodes — leave it alone.
         assert!(actions.is_empty());
@@ -438,7 +512,7 @@ mod tests {
             }],
         )]);
 
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -469,18 +543,18 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: should create.
-        let actions1 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert_eq!(actions1.len(), 1);
 
         // Simulate the link being created.
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         // Second reconcile: no actions (link exists).
-        let actions2 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert!(actions2.is_empty());
 
         // Third reconcile: still no actions.
-        let actions3 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions3, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert!(actions3.is_empty());
     }
 
@@ -505,7 +579,7 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: creates the link.
-        let actions1 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert_eq!(actions1.len(), 1);
 
         // Link NOT added to graph yet (simulates the window before
@@ -513,14 +587,14 @@ mod tests {
 
         // Second reconcile: still wants to create (link not in graph).
         // The apply_actions guard prevents the actual duplicate.
-        let actions2 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert_eq!(actions2.len(), 1);
 
         // Now the registry event arrives: link added to graph.
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         // Third reconcile: no actions (link exists).
-        let actions3 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions3, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert!(actions3.is_empty());
     }
 
@@ -539,13 +613,13 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: produce Create.
-        let actions1 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert_eq!(actions1.len(), 1);
 
         // New port appears (e.g., output_1 on same node), but link
         // NOT yet in graph. Reconcile fires again.
         g.add_port(make_port(101, 10, "output_1", "out"));
-        let actions2 = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         // Pure reconcile still says Create (it doesn't know about
         // pending creates). The apply_actions guard catches this.
@@ -600,7 +674,7 @@ mod tests {
             }],
         )]);
 
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
 
         // Must create the link using the OUTPUT node (id=11), not the
         // input node (id=10) which has no "out_0" port.
@@ -650,7 +724,7 @@ mod tests {
             }],
         )]);
 
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         assert_eq!(actions.len(), 1, "expected 1 Create action, got {:?}", actions);
         match &actions[0] {
@@ -707,7 +781,7 @@ mod tests {
             }],
         )]);
 
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
 
         // The link exists and is desired — no actions needed.
         assert!(
@@ -758,7 +832,7 @@ mod tests {
             ],
         )]);
 
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
 
         // Both links should be created (2 Create actions).
         let creates: Vec<_> = actions
@@ -809,7 +883,7 @@ mod tests {
         ]);
 
         // Start in Monitoring: create link A.
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], LinkAction::Create { output_port_id: 100, .. }));
 
@@ -817,7 +891,7 @@ mod tests {
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         // Switch to DJ: should destroy link A and create link B.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(actions.len(), 2);
 
         let creates: Vec<_> = actions.iter().filter(|a| matches!(a, LinkAction::Create { .. })).collect();
@@ -1003,7 +1077,7 @@ mod tests {
         let mut g = build_production_graph();
 
         // Step 1: Reconcile in DJ mode — should create all 12 DJ links.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(count_creates(&actions), 12, "DJ mode: expected 12 creates");
         assert_eq!(count_destroys(&actions), 0, "DJ mode: no destroys initially");
 
@@ -1011,7 +1085,7 @@ mod tests {
         let next_id = apply_creates(&mut g, &actions, 1000);
 
         // Verify idempotent: reconcile again, no actions.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert!(actions.is_empty(), "idempotent check failed: {:?}", actions);
 
         // Step 2: Unplug USBStreamer — remove node and its ports.
@@ -1039,7 +1113,7 @@ mod tests {
         // The 6 Mixxx→convolver links are still satisfied (both endpoints
         // still present). No creates (USBStreamer node missing), no destroys
         // (those links are already gone from the graph).
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
             count_creates(&actions), 0,
             "after unplug: no creates (USBStreamer missing), got {:?}", actions,
@@ -1063,7 +1137,7 @@ mod tests {
         }
 
         // Reconcile after re-plug: should recreate the 6 USBStreamer links.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
             count_creates(&actions), 6,
             "after re-plug: expected 6 creates for USBStreamer links, got {:?}", actions,
@@ -1072,7 +1146,7 @@ mod tests {
 
         // Apply creates and verify idempotent.
         apply_creates(&mut g, &actions, next_id);
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert!(actions.is_empty(), "final idempotent check: {:?}", actions);
     }
 
@@ -1089,7 +1163,7 @@ mod tests {
         let mut g = build_production_graph();
 
         // Step 1: Establish full DJ topology.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(count_creates(&actions), 12);
         let next_id = apply_creates(&mut g, &actions, 1000);
 
@@ -1117,7 +1191,7 @@ mod tests {
 
         // Reconcile: Mixxx gone, 8 links can't resolve. The 4
         // convolver→USBStreamer links are still present and desired.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
             count_creates(&actions), 0,
             "after crash: no creates (Mixxx gone), got {:?}", actions,
@@ -1140,7 +1214,7 @@ mod tests {
         g.add_port(make_port(41101, 411, "in_1", "in"));
 
         // Reconcile: should recreate the 8 Mixxx links.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
             count_creates(&actions), 8,
             "after restart: expected 8 creates for Mixxx links, got {:?}", actions,
@@ -1156,7 +1230,7 @@ mod tests {
 
         // Apply and verify idempotent.
         apply_creates(&mut g, &actions, next_id);
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert!(actions.is_empty(), "final idempotent: {:?}", actions);
     }
 
@@ -1170,13 +1244,13 @@ mod tests {
         let mut g = build_production_graph();
 
         // Establish Monitoring topology: 4 links (convolver→USB).
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert_eq!(count_creates(&actions), 4);
         let next_id = apply_creates(&mut g, &actions, 1000);
-        assert!(reconcile(&g, &table, Mode::Monitoring).is_empty());
+        assert!(reconcile(&g, &table, Mode::Monitoring).actions.is_empty());
 
         // Switch to DJ: creates Mixxx links, keeps convolver→USB links.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
 
         // DJ has 12 total links. 4 convolver→USB links are shared with
         // Monitoring and already exist. So: 8 new creates, 0 destroys.
@@ -1190,7 +1264,7 @@ mod tests {
         );
 
         apply_creates(&mut g, &actions, next_id);
-        assert!(reconcile(&g, &table, Mode::Dj).is_empty());
+        assert!(reconcile(&g, &table, Mode::Dj).actions.is_empty());
     }
 
     #[test]
@@ -1199,17 +1273,17 @@ mod tests {
         let mut g = build_production_graph();
 
         // Establish DJ topology: 12 links.
-        let actions = reconcile(&g, &table, Mode::Dj);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(count_creates(&actions), 12);
         let next_id = apply_creates(&mut g, &actions, 1000);
-        assert!(reconcile(&g, &table, Mode::Dj).is_empty());
+        assert!(reconcile(&g, &table, Mode::Dj).actions.is_empty());
 
         // Switch to Live.
         // Live has 22 links. Shared with DJ: convolver→USB (4 links).
         // DJ-only links to destroy: Mixxx→convolver (6) + Mixxx HP→USB (2) = 8.
         // Live-only links to create: Reaper→convolver (6) + Reaper HP→USB (2)
         //   + Reaper IEM→USB (2) + ADA8200→Reaper (8) = 18.
-        let actions = reconcile(&g, &table, Mode::Live);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Live);
 
         assert_eq!(
             count_creates(&actions), 18,
@@ -1222,7 +1296,7 @@ mod tests {
 
         apply_creates(&mut g, &actions, next_id);
         apply_destroys(&mut g, &actions);
-        assert!(reconcile(&g, &table, Mode::Live).is_empty());
+        assert!(reconcile(&g, &table, Mode::Live).actions.is_empty());
     }
 
     #[test]
@@ -1231,16 +1305,16 @@ mod tests {
         let mut g = build_production_graph();
 
         // Establish Live topology: 22 links.
-        let actions = reconcile(&g, &table, Mode::Live);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Live);
         assert_eq!(count_creates(&actions), 22);
         let next_id = apply_creates(&mut g, &actions, 1000);
-        assert!(reconcile(&g, &table, Mode::Live).is_empty());
+        assert!(reconcile(&g, &table, Mode::Live).actions.is_empty());
 
         // Switch to Monitoring.
         // Monitoring has 4 links (convolver→USB), all shared with Live.
         // Live-only links to destroy: Reaper→convolver (6) + Reaper HP→USB (2)
         //   + Reaper IEM→USB (2) + ADA8200→Reaper (8) = 18.
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         assert_eq!(
             count_creates(&actions), 0,
@@ -1252,7 +1326,7 @@ mod tests {
         );
 
         apply_destroys(&mut g, &actions);
-        assert!(reconcile(&g, &table, Mode::Monitoring).is_empty());
+        assert!(reconcile(&g, &table, Mode::Monitoring).actions.is_empty());
     }
 
     // -------------------------------------------------------------------
@@ -1268,7 +1342,7 @@ mod tests {
         let mut g = build_production_graph();
 
         // Establish Monitoring topology.
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
         let next_id = apply_creates(&mut g, &actions, 1000);
 
         // Add a foreign node and a stale link: some-app → convolver.
@@ -1284,7 +1358,7 @@ mod tests {
         // Reconcile: the foreign link has one known endpoint (convolver
         // is in the routing table). It is NOT in the desired set for
         // Monitoring. So it should be destroyed.
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
 
         assert_eq!(
             count_destroys(&actions), 1,
@@ -1309,7 +1383,7 @@ mod tests {
         let mut g = build_production_graph();
 
         // Establish Monitoring topology.
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
         apply_creates(&mut g, &actions, 1000);
 
         // Add two unknown nodes and a link between them.
@@ -1320,7 +1394,7 @@ mod tests {
         g.add_link(make_link(2000, 990, 99000, 991, 99100));
 
         // Reconcile: link is between unknown nodes — should be ignored.
-        let actions = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
         assert!(
             actions.is_empty(),
             "link between unknown nodes should be ignored, got {:?}", actions,
