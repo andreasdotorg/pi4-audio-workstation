@@ -261,7 +261,14 @@
             });
     }
 
+    // F-212: Cache calibration check to avoid repeated 404s on tab switches.
+    var umik1Cache = null; // {ok: bool, data: object|null}
+
     function checkUmik1() {
+        if (umik1Cache !== null) {
+            applyUmik1Result(umik1Cache.ok, umik1Cache.data);
+            return;
+        }
         setIndicator("#rc-pf-mic", "...", "c-warning");
         fetch("/api/v1/test-tool/calibration")
             .then(function (r) {
@@ -269,25 +276,33 @@
                 return r.json();
             })
             .then(function (data) {
-                if (data.frequencies && data.frequencies.length > 0) {
-                    setIndicator("#rc-pf-mic", "OK", "c-safe");
-                    setIndicatorTooltip("#rc-pf-mic",
-                        "Cal file: " + (data.cal_file || "loaded") +
-                        (data.sensitivity_db != null ? ", sensitivity: " + data.sensitivity_db + " dB" : ""));
-                    preflightResults.mic = true;
-                } else {
-                    setIndicator("#rc-pf-mic", "NO CAL", "c-danger");
-                    setIndicatorTooltip("#rc-pf-mic", "Calibration file found but contains no data");
-                    preflightResults.mic = false;
-                }
-                updatePreflightSummary();
+                var ok = !!(data.frequencies && data.frequencies.length > 0);
+                umik1Cache = { ok: ok, data: data };
+                applyUmik1Result(ok, data);
             })
             .catch(function () {
-                setIndicator("#rc-pf-mic", "FAIL", "c-danger");
-                setIndicatorTooltip("#rc-pf-mic", "UMIK-1 calibration file not found or unreadable");
-                preflightResults.mic = false;
-                updatePreflightSummary();
+                umik1Cache = { ok: false, data: null };
+                applyUmik1Result(false, null);
             });
+    }
+
+    function applyUmik1Result(ok, data) {
+        if (ok && data) {
+            setIndicator("#rc-pf-mic", "OK", "c-safe");
+            setIndicatorTooltip("#rc-pf-mic",
+                "Cal file: " + (data.cal_file || "loaded") +
+                (data.sensitivity_db != null ? ", sensitivity: " + data.sensitivity_db + " dB" : ""));
+            preflightResults.mic = true;
+        } else if (data) {
+            setIndicator("#rc-pf-mic", "NO CAL", "c-danger");
+            setIndicatorTooltip("#rc-pf-mic", "Calibration file found but contains no data");
+            preflightResults.mic = false;
+        } else {
+            setIndicator("#rc-pf-mic", "FAIL", "c-danger");
+            setIndicatorTooltip("#rc-pf-mic", "UMIK-1 calibration file not found or unreadable");
+            preflightResults.mic = false;
+        }
+        updatePreflightSummary();
     }
 
     function checkGmMode() {

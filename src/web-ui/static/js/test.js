@@ -57,17 +57,24 @@
 
     // -- WebSocket --
 
+    var wsFailCount = 0;        // F-212: consecutive connection failures
+    var wsGaveUp = false;       // F-212: true after repeated rejections (e.g. 403)
+
     function connectWs() {
+        if (wsGaveUp) return;
         if (ws && (ws.readyState === WebSocket.CONNECTING ||
                    ws.readyState === WebSocket.OPEN)) {
             return;
         }
         var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
         var url = proto + "//" + window.location.host + WS_PATH;
+        var opened = false;
         ws = new WebSocket(url);
 
         ws.onopen = function () {
+            opened = true;
             wsConnected = true;
+            wsFailCount = 0;
             reconnectDelay = 500;
             updateSiggenStatus("connected");
             // Request current status.
@@ -84,6 +91,14 @@
         ws.onclose = function () {
             wsConnected = false;
             updateSiggenStatus("disconnected");
+            if (!opened) {
+                wsFailCount++;
+                if (wsFailCount >= 3) {
+                    wsGaveUp = true;
+                    updateSiggenStatus("unavailable");
+                    return;
+                }
+            }
             scheduleReconnect();
         };
 
@@ -91,7 +106,7 @@
     }
 
     function scheduleReconnect() {
-        if (reconnectTimer) return;
+        if (reconnectTimer || wsGaveUp) return;
         reconnectTimer = setTimeout(function () {
             reconnectTimer = null;
             connectWs();
@@ -190,6 +205,10 @@
         if (status === "connected") {
             el.textContent = "connected";
             el.className = "c-safe";
+        } else if (status === "unavailable") {
+            el.textContent = "not enabled (PI4AUDIO_SIGGEN)";
+            el.className = "c-grey";
+            setPlaying(false);
         } else if (status === "disconnected") {
             el.textContent = "not available";
             el.className = "c-danger";
@@ -792,6 +811,7 @@
     var calDb = null;          // Array of calibration dB deviations
     var calBinLUT = null;      // Float32Array[fftSize/2+1] — per-bin correction
     var calEnabled = false;    // True when cal data loaded and LUT built
+    var calFetched = false;    // F-212: true after first fetch attempt (avoid repeated 404s)
 
     // US-096: A-weighting and calibration metadata from backend.
     var calAWeighting = null;  // Array of A-weighting dB at cal frequencies
@@ -806,6 +826,8 @@
      * without it (uncorrected) in the meantime.
      */
     function fetchCalibration() {
+        if (calFetched) return;
+        calFetched = true;
         var xhr = new XMLHttpRequest();
         xhr.open("GET", "/api/v1/test-tool/calibration", true);
         xhr.onreadystatechange = function () {
