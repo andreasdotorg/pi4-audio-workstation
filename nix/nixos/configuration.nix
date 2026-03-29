@@ -46,6 +46,14 @@
   # Enable flakes on the target system
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
+  # Closure trim — dedicated audio workstation needs none of these.
+  # Audit (2026-03-29): ~5000 derivations in full closure; disabling
+  # docs alone saves ~1673 derivations (~33%).
+  documentation.nixos.enable = false;  # NixOS manual + manpages
+  documentation.doc.enable = false;    # /share/doc tree
+  services.speechd.enable = false;     # speech-dispatcher (no screen reader)
+  boot.initrd.services.lvm.enable = false;  # LVM not used (simple partition)
+
   # Allow specific unfree packages (Reaper DAW)
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) [ "reaper" ];
