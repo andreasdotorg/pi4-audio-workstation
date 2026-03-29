@@ -460,6 +460,9 @@ Before session end, the orchestrator MUST:
 This is a mandatory checkpoint, not optional. Also triggered by context
 compaction (compaction is a process boundary for the orchestrator).
 
+For the full lessons-learned lifecycle (RECORD -> TRIAGE -> MITIGATE ->
+VERIFY -> ARCHIVE), see `protocol/lessons-lifecycle.md`.
+
 ### Rule 8: Compaction survival
 
 Context compaction is NOT a session end — the team continues. These instructions
@@ -660,6 +663,17 @@ These do NOT apply to the orchestrator, which only communicates and waits.**
   (an idle notification is NOT a status report)
 - Acknowledge received messages promptly
 - One message to other agents, then wait
+
+### Rule 16: Instruction Cancellation (L-019)
+
+When new instructions supersede or contradict previous instructions:
+
+1. **Explicitly cancel** the old instructions by name/reference
+2. Message every agent who received the old instructions
+3. Confirm cancellation was acknowledged before issuing new instructions
+
+Implicit supersession (sending new instructions without cancelling old ones) causes
+agents to attempt both, leading to conflicts and wasted work.
 
 ## Spawning Protocol
 

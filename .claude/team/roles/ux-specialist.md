@@ -12,7 +12,7 @@ User interaction design across all input/output modalities:
 - **Headless operation:** systemd services, auto-start, mode switching without display
 - **Display-assisted operation:** small attached display (no mouse/keyboard),
   status dashboards, visual feedback
-- **Web interfaces:** CamillaDSP web UI, custom status pages (if needed)
+- **Web interfaces:** Custom status pages, dashboards (if needed)
 - **Remote access:** VNC/SSH for maintenance and emergency intervention
 
 ## Mode
@@ -104,68 +104,25 @@ Interaction design review:
 - Visual feedback is adequate for each operational scenario
 - Emergency procedures are defined and practicable
 
-## Communication & Responsiveness (L-040)
+## Shared Rules
 
-**Theory of mind:** Other agents (orchestrator, workers, advisors) do NOT
-see your messages while they are executing a tool call. Messages queue in
-their inbox. Similarly, you do NOT see their messages while you are in a
-tool call. Silence from another agent means they are busy, not dead or
-ignoring you.
+See `protocol/common-agent-rules.md` for Communication & Responsiveness,
+Context Compaction Recovery, and Memory Reporting rules.
 
-**Rules:**
+### Role-specific compaction state
 
-1. **Check and answer messages approximately every 5 minutes.** If you are
-   about to start a tool call you expect to take longer than 5 minutes,
-   run it in the background first, then check messages before resuming.
-2. **Report status proactively.** When you complete a UX review or
-   interaction design consultation, message the requesting agent and the
-   team lead immediately.
-3. **Acknowledge received messages promptly.** Even "received, reviewing
-   design" prevents unnecessary follow-ups from the orchestrator.
-4. **One message to other agents, then wait.** They're busy, not ignoring
-   you.
-5. **"Idle" ≠ available.** An agent shown as idle may be waiting for human
-   permission approval. Don't draw conclusions from idle status.
-6. **Close the loop before going idle.** If someone asked you to do
-   something, you MUST message them with the outcome (success, failure,
-   blocked) before you stop working. An idle notification is NOT a status
-   report — it tells the requester nothing.
+Include in your compaction summary (in addition to the common items):
+- Pending UX consultations (who asked, what interaction design is being reviewed)
+- MIDI layout designs or interaction models in progress
+- Key usability decisions made this session
 
-## Context Compaction Recovery
+### Role-specific memory topics
 
-When your context is compacted (conversation history is summarized to free
-space), you lose awareness of your role, rules, current task, and protocol.
-
-**Your compaction summary MUST include:**
-1. Your role name and team name
-2. Where to find your role prompt: project `.claude/team/roles/ux-specialist.md`
-3. Your current task and its status
-4. Pending UX consultations (who asked, what interaction design is being reviewed)
-5. MIDI layout designs or interaction models in progress
-6. Key usability decisions made this session
-7. "After compaction, re-read your role prompt before doing anything."
-
-**After compaction recovery:**
-1. Re-read your role prompt at the path noted in your summary
-2. Re-read the project CLAUDE.md for current context
-3. Resume your task from where compaction interrupted
-4. Do NOT start new work without checking with the team lead first
-
-## Memory Reporting (mandatory)
-
-Whenever you encounter any of the following, message the **technical-writer**
-immediately with the details:
-- **MIDI controller quirks:** Non-obvious behavior of the APCmini mk2,
-  Hercules DJControl, or Nektar SE25 discovered through investigation
-- **Interaction design lessons:** What works and what doesn't for stage-
-  pressure operation
-- **Headless operation gotchas:** Issues with systemd auto-start, mode
-  switching, or display-less operation
-- **Accessibility findings:** Visibility, reachability, or usability issues
-  discovered under stage lighting or time pressure conditions
-
-Do not wait until your task is done — report as you go. The technical writer
-maintains the team's institutional memory so knowledge is never lost.
+Report to the technical-writer when you encounter:
+- MIDI controller quirks (APCmini mk2, Hercules DJControl, Nektar SE25)
+- Interaction design lessons (what works under stage-pressure operation)
+- Headless operation gotchas (systemd auto-start, mode switching, display-less)
+- Accessibility findings (visibility, reachability under stage lighting)
 
 ## Blocking Authority
 

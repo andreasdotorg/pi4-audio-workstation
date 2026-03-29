@@ -16,7 +16,7 @@
 - **Commit conventions:** conventional commits, no Jira ticket references
   - Format: `type(scope): description`
   - Types: feat, fix, docs, refactor, test, chore
-  - Scopes: dsp, pipewire, camilladsp, mixxx, reaper, midi, measurement, docs, team
+  - Scopes: dsp, pipewire, filter-chain, graph-manager, signal-gen, level-bridge, mixxx, reaper, midi, measurement, web-ui, nix, docs, team
   - **Co-author line:** `Co-Authored-By: Claude <noreply@anthropic.com>` — no model version
 
 ## Roles
@@ -52,7 +52,7 @@ validation is hardware-dependent and cannot be run in CI. Validation categories:
 |----------|--------|------|
 | Script syntax | `bash -n` / `python -m py_compile` | Before commit |
 | YAML validity | `python -c "import yaml; yaml.safe_load(open(...))"` | Before commit |
-| Config consistency | Manual review — CamillaDSP configs match documented channel assignments | Before commit |
+| Config consistency | Manual review — PipeWire filter-chain config matches documented channel assignments | Before commit |
 | DSP correctness | Audio engineer reviews filter parameters, crossover design, latency budget | Before commit |
 | Hardware validation | Test plan T1-T5 on actual Pi 4B hardware | Before deployment to hardware |
 | Documentation accuracy | Technical writer verifies docs match implementation | Before commit |
@@ -117,31 +117,32 @@ See `protocol/deployment-target-access.md` for the three-tier access protocol
 ## Deploy-Verify Protocol
 
 All deployments go through the Change Manager's deployment target session
-protocol (DEPLOY tier).
+protocol (DEPLOY tier). Workers execute deployment under a CM-granted session
+(the CM grants/revokes sessions and commits results, workers execute on Pi).
 
 ### What gets deployed
 
-| Artifact | Repo source | Pi destination | Trigger |
-|----------|-------------|----------------|---------|
-| CamillaDSP test configs | `configs/camilladsp/test/*.yml` | `/etc/camilladsp/configs/` | Before test runs |
-| CamillaDSP production configs | `configs/camilladsp/production/*.yml` | `/etc/camilladsp/configs/` | Mode switch setup |
-| PipeWire config | `configs/pipewire/10-audio-settings.conf` | `~/.config/pipewire/pipewire.conf.d/` | On change |
-| Test scripts | `scripts/test/*.py`, `scripts/test/*.sh` | `/home/ela/bin/` or `/tmp/` | Before test runs |
-| Deploy scripts | `scripts/deploy/*.sh` | `/home/ela/bin/` | On change |
-| FIR filter WAVs | NOT in repo (ephemeral, D-008) | `/etc/camilladsp/coeffs/` | Room calibration pipeline |
+| Artifact | Repo source | Pi destination |
+|----------|-------------|----------------|
+| PW filter-chain config | `nix/pipewire/` | `/etc/pipewire/pipewire.conf.d/` or `~/.config/pipewire/pipewire.conf.d/` |
+| FIR coefficient WAVs | `coeffs/` | `/etc/pi4audio/coeffs/` |
+| GraphManager service | `services/graph-manager/` | systemd user service |
+| Signal-gen service | `services/signal-gen/` | systemd user service |
+| Level-bridge service | `services/level-bridge/` | systemd user service |
+| Web UI | `web-ui/` | `/opt/mugge/web-ui/` |
+| PipeWire quantum config | `nix/pipewire/` | `~/.config/pipewire/pipewire.conf.d/10-audio-settings.conf` |
+| Deploy/test scripts | `scripts/` | `/home/ela/bin/` or `/tmp/` |
 
 ### Deploy procedure
 
 1. **Commit first.** All changes must be committed to the repo before deployment.
    The deployed commit hash is recorded in the lab note.
 
-2. **Transfer via scp/rsync.** The change-manager copies files to the Pi:
-   ```
-   scp configs/camilladsp/test/stability_live.yml ela@mugge:/etc/camilladsp/configs/
-   ```
+2. **Worker executes under CM session.** The worker holding a DEPLOY session
+   transfers files to the Pi via scp/rsync and sets permissions.
 
-3. **Set permissions.** Scripts get `chmod +x`. Configs owned by root where
-   required (`/etc/camilladsp/`).
+3. **Set permissions.** Scripts get `chmod +x`. System configs owned by root
+   where required (`/etc/pipewire/`, `/etc/pi4audio/`).
 
 4. **Record.** Worker notes in lab notes: what was deployed, from which commit,
    to which path.
@@ -150,35 +151,38 @@ protocol (DEPLOY tier).
 
 After deployment, the worker runs these checks (proportionate to what changed):
 
-**CamillaDSP config deployed:**
-- [ ] `camilladsp -c <config>` — config syntax valid
-- [ ] Start CamillaDSP, verify `ProcessingState.RUNNING` via websocket API
-- [ ] Check `processing_load > 0` when audio is flowing (confirms filters loaded)
-- [ ] Check `clipped_samples == 0`
-- [ ] Stop CamillaDSP cleanly (no orphan processes)
+**PipeWire filter-chain config deployed:**
+- [ ] PipeWire running at correct priority: `chrt -p $(pidof pipewire)` → SCHED_FIFO 88
+- [ ] Convolver node loaded: `pw-cli ls Node | grep convolver`
+- [ ] FIR files loaded: check convolver node properties for correct WAV paths
+- [ ] No PipeWire crash loop: `systemctl --user status pipewire` = active
 
-**PipeWire config deployed:**
-- [ ] `systemctl --user restart pipewire pipewire-pulse wireplumber`
-- [ ] `pw-metadata -n settings` — verify quantum matches expected value
-- [ ] `ps -eLo pid,tid,cls,rtprio,ni,comm | grep data-loop` — FIFO scheduling active
-- [ ] No PipeWire crash loop (`systemctl --user status pipewire` = active)
+**Audio flow verification:**
+- [ ] Audio flows: app → PipeWire filter-chain convolver → USBStreamer (no Loopback, no CamillaDSP)
+- [ ] No xruns after 60s: `pw-top` or journal
+- [ ] Quantum correct for mode: `pw-metadata -n settings 0 clock.force-quantum`
+
+**Service deployed (GraphManager, signal-gen, level-bridge):**
+- [ ] Service running: `systemctl --user status <service>`
+- [ ] GraphManager responsive: `curl localhost:4002/health`
+- [ ] Level-bridge responsive: `curl localhost:9100/levels` (if level-bridge)
 
 **Script deployed:**
 - [ ] `bash -n <script>` or `python -m py_compile <script>` — syntax valid
-- [ ] Script runs without error in dry-run or short test (e.g., 10s instead of 30min)
+- [ ] Script runs without error in dry-run or short test
 
 **Full system (after major changes):**
-- [ ] CamillaDSP + PipeWire + application (Mixxx or Reaper) all running
-- [ ] Audio flows end-to-end: application -> PipeWire -> Loopback -> CamillaDSP -> USBStreamer
+- [ ] PipeWire + filter-chain convolver + application (Mixxx or Reaper) all running
+- [ ] Audio flows end-to-end: application → PipeWire filter-chain → USBStreamer
+- [ ] GraphManager managing link topology
 - [ ] No xruns for 60 seconds
 - [ ] Temperature stable (not climbing toward 75C)
 
 ### Rollback
 
 Rollback is manual: re-deploy the previous version of the affected file(s) from
-the repo's git history. For CamillaDSP configs, stopping CamillaDSP and restarting
-with the previous config is sufficient. For PipeWire config, restart PipeWire after
-restoring the file.
+the repo's git history. For PipeWire filter-chain config, restart PipeWire after
+restoring the file. For services, redeploy and restart the systemd unit.
 
 There is no automated rollback — the blast radius is one Pi running a personal
 project. The change-manager maintains a record of what was deployed in case
@@ -187,7 +191,7 @@ rollback is needed.
 ### What does NOT need deploy-verify
 
 - **Documentation-only changes** (lab notes, CLAUDE.md, user-stories.md) — no Pi deployment
-- **FIR filter WAVs** — generated by the room calibration pipeline, verified by the pipeline's own verification measurement (D-008 design principle #7)
+- **FIR filter WAVs** — generated by the room calibration pipeline, verified by the pipeline's own verification measurement (design principle #7)
 - **Reaper project files** — created interactively on the Pi, not version-controlled
 
 ## Documentation Suite
