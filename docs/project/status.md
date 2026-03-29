@@ -41,6 +41,7 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
+| US-109 | IMPLEMENT 3/4 | Playwright MCP integration | AC #4 deferred (needs session restart) |
 
 ### Owner-Blocking Items
 
@@ -102,6 +103,8 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 | ID | Severity | Summary |
 |----|----------|---------|
 | F-037 | High | Web UI no authentication — signal-gen controllable by network |
+| F-209 | P1 / High | US-044 watchdog/gain integrity assume builtins are separate PW nodes (fix in progress) |
+| F-212 | Medium | 55 JS 404 errors for missing static resources across all web UI tabs |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
 | F-085 | High | Graph tab rendering (10 sub-items, pan+zoom needed) |
@@ -111,8 +114,8 @@ Test Pi available at `192.168.178.35`. Production Pi at venue (unreachable).
 
 | Metric | Value |
 |--------|-------|
-| Git commits | 175 (HEAD: `a0e0ebd`) |
-| Total stories filed | 112 |
+| Git commits | ~185 |
+| Total stories filed | 113 |
 | Stories done | 12 |
 | Stories in TEST | 12 |
 | Stories in IMPLEMENT/REVIEW | ~12 |
