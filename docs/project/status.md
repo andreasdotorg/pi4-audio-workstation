@@ -127,8 +127,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
 | Open defects (HIGH+) | 2 (F-187, F-037) |
-| Open defects (Medium) | ~17 |
-| Total defects filed | 219 |
+| Open defects (Medium) | ~18 |
+| Total defects filed | 220 |
 | Test suites | test-all (537), test-e2e (194) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
