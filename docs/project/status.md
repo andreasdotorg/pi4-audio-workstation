@@ -23,15 +23,15 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-072 | IMPLEMENT 16/20 | NixOS reproducible build | Remaining 4 tasks need Pi hardware (T-072-05, T-072-13, T-072-18, T-072-19) |
 | US-075 | COMPLETE | Local PW integration test env | Done (AC 1-7, `dd019ea`+`25ed785`+`0eaf87c`) |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
-| US-089 | TEST | Speaker config management web UI | Blocked by F-198 / F-217 (conftest filter gap) |
-| US-090 | REVIEW | FIR filter generation web UI | Gate 1 passed (session 4), advisory reviews pending |
+| US-089 | TEST | Speaker config management web UI | Blocked by F-198 (F-217 FIXED, commit bf15dfe) |
+| US-090 | REVIEW | FIR filter generation web UI | ALL ADVISORS APPROVED (Architect + AE + UX). Awaiting owner acceptance. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
-| US-092 | REVIEW | Per-driver thermal/mechanical protection | Gate 1 passed (session 4), advisory reviews pending |
-| US-093 | REVIEW | Amplifier sensitivity calibration | Gate 1 passed (session 4), advisory reviews pending |
-| US-094 | REVIEW | ISO 226 equal loudness compensation | Gate 1 passed (session 4), advisory reviews pending |
-| US-095 | REVIEW | Graph viz — truthful PW topology | Gate 1 passed (session 4), advisory reviews pending |
-| US-096 | REVIEW | UMIK-1 full calibration pipeline | Gate 1 passed (session 4), advisory reviews pending |
-| US-097 | REVIEW | Room compensation web UI workflow | Gate 1 passed (session 4), advisory reviews pending |
+| US-092 | REVIEW | Per-driver thermal/mechanical protection | ALL ADVISORS APPROVED (Architect + AE + Security). Awaiting owner acceptance. |
+| US-093 | REVIEW | Amplifier sensitivity calibration | ALL ADVISORS APPROVED (Architect + AE + Security). Awaiting owner acceptance. |
+| US-094 | REVIEW | ISO 226 equal loudness compensation | ALL ADVISORS APPROVED (Architect + AE). Awaiting owner acceptance. |
+| US-095 | REVIEW | Graph viz — truthful PW topology | ALL ADVISORS APPROVED (Architect + UX). Awaiting owner acceptance. |
+| US-096 | REVIEW | UMIK-1 full calibration pipeline | ALL ADVISORS APPROVED (Architect + AE). Awaiting owner acceptance. |
+| US-097 | REVIEW | Room compensation web UI workflow | ALL ADVISORS APPROVED (Architect + AE + UX). Awaiting owner acceptance. AE note: document per-channel sweep sequencing as mandatory. |
 | US-098 | TEST | Room correction pipeline verification | P0 done; P1/P2 deferral REJECTED — must verify locally (owner directive, session 5) |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
@@ -44,7 +44,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
-| US-111 | IMPLEMENT 1/13 | Local-demo PW graph topology redesign | Scope revised: AC #4/#6 dropped (WP required), T-111-04 dropped. 13 tasks remain. |
+| US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
 
 
 ### Owner-Blocking Items
@@ -119,7 +119,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~190 |
+| Git commits | ~197 |
 | Total stories filed | 115 |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
