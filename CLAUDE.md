@@ -6,7 +6,7 @@
 
 ### *** STOP — DO NOT DESTROY THE TEAM ***
 
-**This has happened SEVEN TIMES (L-001, L-007, L-008, L-021, L-023, L-031, L-037).**
+**This has happened EIGHT TIMES (L-001, L-007, L-008, L-021, L-023, L-031, L-037, S5-audit).**
 Context compaction does NOT reset sessions for team members. They are
 independent processes with their own context windows. They survive compaction.
 
@@ -16,6 +16,21 @@ The orchestrator MUST NEVER send `shutdown_request` to ANY core team member
 without **explicit owner instruction**. Not after compaction. Not after a
 session restart. Not after "internal errors." Not ever. The owner — and ONLY
 the owner — decides when the team dies.
+
+**EQUALLY ABSOLUTE: DO NOT SPAWN DUPLICATE AGENTS.**
+After compaction, the team is STILL ALIVE. Before spawning ANY agent,
+check ALL THREE sources — any agent appearing in ANY of them is alive:
+1. Team config: `~/.claude/teams/mugge/config.json` (members array)
+2. Inboxes: check for any agent inboxes that exist
+3. Agent summary: list all agents when asked for status
+An agent in ANY of these sources is assumed alive. Config alone is NOT
+sufficient — not all agents appear in config.
+If the agent exists → send a message via SendMessage. Do NOT spawn.
+If the agent does NOT exist in any source → only then spawn.
+Spawning a duplicate wastes resources, creates confusion, and is a
+compaction-recovery failure just like shutting down the team.
+**This was violated in session 5** when 4 advisory agents were re-spawned
+instead of messaging the existing persistent team members.
 
 **If you believe the team might be dead:**
 1. Send ONE ping to ONE agent (e.g., project-manager)
@@ -35,12 +50,21 @@ STOP.
 
 **Destroying a live team wastes hours of accumulated context and is the
 single most disruptive action you can take. The user has explicitly told
-you this. Seven times.**
+you this. Eight times.**
 
 ### After Compaction
 
-The team is STILL ALIVE. Re-read `.claude/team/protocol/orchestration.md`
-before doing anything. Team name: `mugge`, 10 core members.
+The team is STILL ALIVE. **Your FIRST action after compaction MUST be:**
+1. Check ALL THREE sources for living agents:
+   a. Read `~/.claude/teams/mugge/config.json` (members array)
+   b. Check agent inboxes for any that exist
+   c. List all agents via summary
+   Any agent in ANY source is alive — config alone is NOT sufficient.
+2. Use SendMessage to contact existing members — NEVER spawn replacements
+3. Re-read `.claude/team/protocol/orchestration.md`
+
+Team name: `mugge`, 10 core members. They are persistent. They survive
+compaction. They survive context loss. USE THEM. DO NOT REPLACE THEM.
 
 ### *** STOP — DO NOT ACCESS THE DEPLOYMENT TARGET ***
 

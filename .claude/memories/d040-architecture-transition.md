@@ -123,3 +123,20 @@ today; if measurement level cap is increased, add a digital HPF in signal-gen
 before the hard clip.
 **Source:** Audio Engineer safety review of D-040 measurement pipeline.
 **Tags:** d031, d040, signal-gen, subsonic, hpf, measurement, safety, pink-noise, driver-protection
+
+## Topic: C-011 — PW filter-chain convolver cannot hot-reload coefficients (2026-03-30)
+
+**Context:** Session 5 investigation of filter deploy panel behavior (F-221) revealed
+that PipeWire's filter-chain convolver has no runtime coefficient reload mechanism.
+Owner filed this as constraint C-011 and decision D-061 (GM manages PW lifecycle).
+**Learning:** `config.filename` in the PW filter-chain convolver builtin is a static
+load-time property — read once at node creation, never re-read. No PW API exists to
+update it (`pw-cli set-param` only works for Props like Mult/Add, not config properties).
+The ONLY way to swap FIR coefficients is destroy-and-recreate: `pw-cli destroy <node>`,
+PW re-reads `.conf.d/` and recreates with new filenames. All links are lost — GM must
+re-link (~1-2s audio gap). This is a D-040 tradeoff: CamillaDSP had glitch-free
+hot-reload via websocket API; PW filter-chain does not. US-112 (deferred) proposes an
+upstream PW patch to add runtime filename property. D-061 amends D-058 so GM manages
+PW/WP lifecycle for coordinated restart/reload sequences.
+**Source:** Owner session 5 investigation, C-011 constraint document, D-061 decision.
+**Tags:** c011, d040, d061, convolver, hot-reload, coefficients, filter-chain, pw-cli-destroy, architectural-constraint

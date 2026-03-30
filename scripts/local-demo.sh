@@ -442,6 +442,8 @@ export PI4AUDIO_LEVELS_SW_PORT=9100
 export PI4AUDIO_LEVELS_HW_OUT_PORT=0
 export PI4AUDIO_LEVELS_HW_IN_PORT=0
 export PI4AUDIO_SKIP_GM_RECOVERY=1
+# US-110: Disable passkey auth in local-demo (no SQLite DB, no HTTPS).
+export PI4AUDIO_AUTH_DISABLED=1
 # Filter reload uses pw-cli destroy (F-221) — no full PW restart needed.
 export PI4AUDIO_SIGGEN=1
 # F-201: pcm-bridge runs with --channels 4, web-ui must match.
