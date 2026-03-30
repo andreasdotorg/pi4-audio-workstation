@@ -237,16 +237,18 @@ install -m 644 "$REPO_DIR/configs/local-demo/umik1-loopback.conf" \
     "$PW_CONF_DIR/35-umik1-loopback.conf"
 echo "[local-demo] UMIK-1 loopback config installed (measurement E2E)"
 
-# F-159: Generate room simulator IR and install room-sim convolver config.
-# The room-sim convolver applies a synthetic room IR between the speaker
-# convolver output and the UMIK-1 loopback sink. This gives the measurement
-# pipeline a realistic room response without any special code paths.
-echo "[local-demo] Generating room simulator impulse response..."
-"$PYTHON" "$REPO_DIR/scripts/generate-room-sim-ir.py" "$COEFFS_DIR"
+# F-159/US-111: Generate per-channel room simulator IRs and install config.
+# The 4-channel room-sim filter-chain applies per-channel synthetic room IRs
+# between the speaker convolver outputs and the UMIK-1 loopback sink. Each
+# channel has a physically distinct IR (different speaker position → different
+# propagation delay, early reflections, LF room mode coupling). PW native
+# port mixing sums all 4 outputs at the loopback sink.
+echo "[local-demo] Generating per-channel room simulator impulse responses..."
+"$PYTHON" "$REPO_DIR/scripts/generate-room-sim-ir.py" --per-channel "$COEFFS_DIR"
 sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
     "$REPO_DIR/configs/local-demo/room-sim-convolver.conf" \
     > "$PW_CONF_DIR/36-room-sim-convolver.conf"
-echo "[local-demo] Room-sim convolver config installed (room_sim_ir.wav: $COEFFS_DIR)"
+echo "[local-demo] Room-sim config installed (4ch per-channel IRs: $COEFFS_DIR)"
 
 # ---- 3. Start PipeWire test environment ----
 echo ""
@@ -509,8 +511,8 @@ echo "                umik1-loopback-sink (loopback sink, mono)"
 echo "                ada8200-in (null source, 8ch ADC capture)"
 echo "                pi4audio-convolver (filter-chain, dirac passthrough)"
 echo "                pi4audio-convolver-out (filter-chain output)"
-echo "                pi4audio-room-sim (room-sim convolver, F-159)"
-echo "                pi4audio-room-sim-out (room-sim output)"
+echo "                pi4audio-room-sim (room-sim, 4ch per-channel IRs, US-111)"
+echo "                pi4audio-room-sim-out (room-sim output, 4ch)"
 echo "  Audio: signal-gen plays mp3 through convolver (measurement mode)"
 echo "         Dashboard spectrum fed via signal-gen → pcm-bridge link"
 echo ""
