@@ -150,8 +150,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 ## Key Decisions
 
-See `decisions/` directory and `decisions-index.md` for all 62 decisions (D-001
-through D-062). Most significant recent decisions:
+See `decisions/` directory and `decisions-index.md` for all 63 decisions (D-001
+through D-063). Most significant recent decisions:
 
 - **D-040** (2026-03-16): Abandon CamillaDSP — pure PipeWire filter-chain pipeline
 - **D-043** (2026-03-20): WirePlumber retained for device management, linking disabled
@@ -160,6 +160,7 @@ through D-062). Most significant recent decisions:
 - **D-060** (2026-03-29): Local CA for TLS — replaces D-032 self-signed (unblocks US-110 passkeys)
 - **D-061** (2026-03-30): GM manages PW/WP lifecycle — amends D-058 (PW/WP move from systemd to GM-managed)
 - **D-062** (2026-03-30): First-boot / active config — symlink-based coefficient management, FoH passthrough baseline, mute-default safety (amends D-010, D-051, D-053)
+- **D-063** (2026-03-30): 8ch filter-chain convolver + universal audio gate — owner directive: 8ch passthrough, mandatory gate, cosine ramp-up (amends D-062)
 
 ## Session 4 Summary (2026-03-30)
 

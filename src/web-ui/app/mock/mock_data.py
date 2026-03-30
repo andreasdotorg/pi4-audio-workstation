@@ -232,7 +232,7 @@ class MockDataGenerator:
     """Generate mock telemetry for a given scenario.
 
     Produces two data shapes:
-        monitoring() — level meters + CamillaDSP status (for /ws/monitoring)
+        monitoring() — level meters + filter-chain/GM status (for /ws/monitoring)
         system()     — full system health (for /ws/system)
     """
 
@@ -274,11 +274,11 @@ class MockDataGenerator:
         ), 1))
 
     def monitoring(self) -> dict:
-        """Level meters + CamillaDSP status (designed for ~10 Hz push).
+        """Level meters + filter-chain/GM status (designed for ~10 Hz push).
 
-        Combines level data and CamillaDSP state into one message so the
-        monitor view can render meters and show DSP health without needing
-        a second WebSocket.
+        Combines level data and DSP health into one message so the
+        monitor view can render meters and show filter-chain status without
+        needing a second WebSocket.
         """
         if self.freeze_time:
             random.seed(42)
@@ -331,7 +331,7 @@ class MockDataGenerator:
             playback_rms.append(round(pb_rms, 1))
             playback_peak.append(round(pb_peak, 1))
 
-        # -- CamillaDSP status (included at every tick for low-latency display) --
+        # -- Filter-chain/GM status (included at every tick for low-latency display) --
         processing_load = max(0, self._jitter(
             s["processing_load"] + 1.0 * math.sin(t * 0.3), 0.5
         ))

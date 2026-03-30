@@ -12,8 +12,9 @@ Uses ``pw-link`` to connect the E2E audio graph:
 D-040 adaptation: CamillaDSP replaced by PW filter-chain convolver.
 The convolver is 4-channel (AUX0-AUX3), matching the production topology.
 
-All node names use the ``pi4audio-e2e-`` prefix to avoid collisions
-with production PipeWire nodes.
+Convolver node names match production (``pi4audio-convolver``,
+``pi4audio-convolver-out``) per US-075 mock boundary. Room-sim nodes
+use test-specific names (no production equivalent).
 
 Requires Linux with PipeWire running.  On macOS the E2E harness
 fixture (EH-6) skips before reaching this module.
@@ -29,8 +30,8 @@ log = logging.getLogger(__name__)
 
 SIGGEN_PLAYBACK = "pi4audio-signal-gen"
 SIGGEN_CAPTURE = "pi4audio-signal-gen-capture"
-CONVOLVER_CAPTURE = "pi4audio-e2e-convolver"
-CONVOLVER_PLAYBACK = "pi4audio-e2e-convolver-out"
+CONVOLVER_CAPTURE = "pi4audio-convolver"
+CONVOLVER_PLAYBACK = "pi4audio-convolver-out"
 ROOM_SIM_CAPTURE = "pi4audio-e2e-room-sim-capture"
 ROOM_SIM_PLAYBACK = "pi4audio-e2e-room-sim-playback"
 

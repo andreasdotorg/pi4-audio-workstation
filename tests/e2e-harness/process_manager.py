@@ -271,7 +271,7 @@ class ProcessManager:
                     convolver_config,
                 ],
                 env=self._env,
-                health_check=_check_pw_node_exists("pi4audio-e2e-convolver"),
+                health_check=_check_pw_node_exists("pi4audio-convolver"),
                 startup_timeout=CONVOLVER_STARTUP_TIMEOUT,
             )
             self._processes.append(convolver)

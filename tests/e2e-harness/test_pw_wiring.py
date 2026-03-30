@@ -66,13 +66,13 @@ class TestExpectedLinks:
         siggen_conv = links[:4]
         for ch, (src, dst) in enumerate(siggen_conv):
             assert src == f"pi4audio-signal-gen:output_{ch}"
-            assert dst == f"pi4audio-e2e-convolver:input_{ch}"
+            assert dst == f"pi4audio-convolver:input_{ch}"
 
     def test_convolver_to_room_links(self):
         links = pw_wiring._expected_links()
         conv_room = links[4:8]
         for ch, (src, dst) in enumerate(conv_room):
-            assert src == f"pi4audio-e2e-convolver-out:output_{ch}"
+            assert src == f"pi4audio-convolver-out:output_{ch}"
             assert dst == f"pi4audio-e2e-room-sim-capture:input_{ch}"
 
     def test_room_to_siggen_capture_link(self):
@@ -123,7 +123,7 @@ class TestWireE2EGraph:
         assert cmd == [
             "/usr/bin/pw-link",
             "pi4audio-signal-gen:output_0",
-            "pi4audio-e2e-convolver:input_0",
+            "pi4audio-convolver:input_0",
         ]
 
         # Last call: room-sim playback output_0 -> siggen-capture input_0
@@ -146,12 +146,12 @@ class TestWireE2EGraph:
         for i in range(4):
             cmd = calls[i][0][0]
             assert "pi4audio-signal-gen:output" in cmd[1]
-            assert "pi4audio-e2e-convolver:input" in cmd[2]
+            assert "pi4audio-convolver:input" in cmd[2]
 
-        # Group 2: calls 4-7 contain "pi4audio-e2e-convolver-out:output"
+        # Group 2: calls 4-7 contain "pi4audio-convolver-out:output"
         for i in range(4, 8):
             cmd = calls[i][0][0]
-            assert "pi4audio-e2e-convolver-out:output" in cmd[1]
+            assert "pi4audio-convolver-out:output" in cmd[1]
             assert "pi4audio-e2e-room-sim-capture:input" in cmd[2]
 
         # Group 3: call 8 contains "pi4audio-e2e-room-sim-playback:output"

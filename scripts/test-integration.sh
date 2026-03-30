@@ -142,7 +142,7 @@ log "Starting full local-demo stack..."
 eval "$("$LOCAL_DEMO" env)"
 
 # ---- 2. Switch to measurement mode for full audio path verification ----
-# Monitoring mode has no app linked. Measurement mode links signal-gen
+# Standby mode has no app linked. Measurement mode links signal-gen
 # to the convolver, which allows audio to flow through the full pipeline
 # and appear on level-bridge taps.
 

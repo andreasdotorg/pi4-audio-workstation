@@ -84,7 +84,7 @@ def test_sys_cpu_bars_section(page):
     expect(el).to_be_attached()
 
 
-# -- CamillaDSP section --
+# -- Filter chain / GM section --
 
 def test_sys_cdsp_state(page):
     """Filter chain state element exists."""

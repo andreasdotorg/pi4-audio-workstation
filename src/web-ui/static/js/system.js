@@ -413,7 +413,7 @@
         // Processes
         setProc("sys-proc-mixxx", data.processes.mixxx_cpu);
         setProc("sys-proc-reaper", data.processes.reaper_cpu);
-        setProc("sys-proc-camilladsp", data.processes.graphmgr_cpu);
+        setProc("sys-proc-graphmgr", data.processes.graphmgr_cpu);
         setProc("sys-proc-pipewire", data.processes.pipewire_cpu);
         setProc("sys-proc-labwc", data.processes.labwc_cpu);
     }

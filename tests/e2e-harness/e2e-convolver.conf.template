@@ -2,7 +2,7 @@
 #
 # Replaces camilladsp-e2e.yml.  Mirrors the production convolver
 # (30-filter-chain-convolver.conf) with E2E-specific changes:
-#   - E2E-prefixed node names to avoid collisions with production
+#   - Production node names (US-075 mock boundary)
 #   - Dirac IR files (passthrough) so the room simulator is the ONLY
 #     acoustic mock in the test graph
 #   - Unity gain (Mult=1.0) -- no attenuation in test mode
@@ -14,10 +14,10 @@
 #   AUX3 = Subwoofer 2  (ch 3)
 #
 # Audio graph:
-#   signal-gen (4ch) -> [capture: pi4audio-e2e-convolver]
+#   signal-gen (4ch) -> [capture: pi4audio-convolver]
 #     -> 4x convolver (dirac passthrough)
 #     -> 4x linear gain (unity)
-#     -> [playback: pi4audio-e2e-convolver-out] -> room-sim (4ch)
+#     -> [playback: pi4audio-convolver-out] -> room-sim (4ch)
 #
 # IR files are substituted at runtime by the conftest fixture:
 #   @IR_DIR@/dirac_ch0.wav .. @IR_DIR@/dirac_ch3.wav
@@ -106,7 +106,7 @@ context.modules = [
         }
 
         capture.props = {
-            node.name                       = "pi4audio-e2e-convolver"
+            node.name                       = "pi4audio-convolver"
             node.description                = "E2E FIR Convolver (4ch)"
             media.class                     = Audio/Sink
             audio.channels                  = 4
@@ -117,7 +117,7 @@ context.modules = [
         }
 
         playback.props = {
-            node.name                       = "pi4audio-e2e-convolver-out"
+            node.name                       = "pi4audio-convolver-out"
             node.description                = "E2E FIR Convolver Output"
             node.passive                    = true
             audio.channels                  = 4

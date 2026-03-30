@@ -116,13 +116,13 @@ context.properties = {
 }
 
 context.objects = [
-    # USBStreamer capture replacement: 8ch null Audio/Duplex.
+    # USBStreamer capture replacement: 8ch null Audio/Source.
     # GM uses Prefix("alsa_input.usb-MiniDSP_USBStreamer") match.
     { factory = adapter
         args = {
             factory.name     = support.null-audio-sink
             node.name        = "alsa_input.usb-MiniDSP_USBStreamer"
-            media.class      = Audio/Duplex
+            media.class      = Audio/Source
             object.linger    = true
             node.driver      = true
             audio.channels   = 8
