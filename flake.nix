@@ -593,8 +593,9 @@
               export LOCAL_DEMO_LB_BIN="${level-bridge}/bin/level-bridge"
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
+              export LOCAL_DEMO_PW_JACK="${pkgs.pipewire.jack}/bin/pw-jack"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
-              export PATH="${testPython}/bin:$PATH"
+              export PATH="${pkgs.ffmpeg-headless}/bin:${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/local-demo.sh} "$@"
             ''}";
           };

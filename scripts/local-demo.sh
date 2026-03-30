@@ -6,7 +6,7 @@
 #
 # The PipeWire test environment mirrors the Pi's production topology with
 # a null audio sink matching the USBStreamer name, a real filter-chain
-# convolver with dirac passthrough coefficients, and GraphManager as the
+# convolver with production-identical config, and GraphManager as the
 # sole link manager (D-039). WirePlumber activates nodes and creates ports
 # but does not auto-link (managed streams have no AUTOCONNECT). signal-gen
 # and pcm-bridge run in managed mode.
@@ -41,10 +41,12 @@ PIDS=()
 CLEANUP_DONE=false
 BACKGROUND_MODE=false
 
-# ---- Disown helper ----
+# ---- Background mode helper ----
 # In background (start) mode, disown processes so they survive when the
-# launching bash exits. In foreground mode, keep them in the job table
-# so `wait` works for Ctrl+C cleanup.
+# launching shell exits. Additionally, cmd_start() traps SIGHUP to
+# prevent nix run's exit from killing backgrounded children.
+# In foreground mode, keep them in the job table so `wait` works for
+# Ctrl+C cleanup.
 maybe_disown() {
     if $BACKGROUND_MODE; then
         disown "$1"
@@ -263,6 +265,7 @@ DEMO_PROCESS_PATTERNS=(
     "pi4audio-signal-gen"
     "bin/level-bridge"
     "bin/pcm-bridge"
+    "mixxx-substitute"
     "uvicorn app.main:app.*8080"
 )
 
@@ -343,6 +346,7 @@ resolve_binaries() {
         LB_BIN="$LOCAL_DEMO_LB_BIN"
         PCM_BIN="$LOCAL_DEMO_PCM_BIN"
         PYTHON="${LOCAL_DEMO_PYTHON:-python}"
+        PW_JACK="${LOCAL_DEMO_PW_JACK:-pw-jack}"
         echo "[local-demo] Using pre-resolved binary paths from nix."
     else
         echo "[local-demo] Resolving Rust binaries via nix build..."
@@ -363,6 +367,7 @@ resolve_binaries() {
         LB_BIN=$(resolve_binary level-bridge level-bridge)
         PCM_BIN=$(resolve_binary pcm-bridge pcm-bridge)
         PYTHON="python"
+        PW_JACK="pw-jack"
     fi
 
     echo "  graph-manager: $GM_BIN"
@@ -371,21 +376,26 @@ resolve_binaries() {
     echo "  pcm-bridge:    $PCM_BIN"
 }
 
-# ---- Generate coefficients and install configs ----
+# ---- Install configs ----
 install_configs() {
-    COEFFS_DIR="/tmp/pw-test-coeffs"
+    # Convolver coefficients directory — same path the measurement pipeline
+    # writes to (PI4AUDIO_COEFFS_DIR). No dirac/passthrough mocks: if no
+    # coefficients exist, the convolver won't load (same as prod on a fresh
+    # deploy before the first measurement session).
+    COEFFS_DIR="/tmp/pi4audio-demo/coeffs"
+    ROOM_SIM_DIR="/tmp/pw-test-room-sim"
     PW_CONF_DIR="$XDG_CONFIG_DIR/pipewire/pipewire.conf.d"
-    mkdir -p "$PW_CONF_DIR"
-
-    echo ""
-    echo "[local-demo] Generating dirac impulse coefficients..."
-    "$PYTHON" "$REPO_DIR/scripts/generate-dirac-coeffs.py" "$COEFFS_DIR"
+    mkdir -p "$PW_CONF_DIR" "$COEFFS_DIR" "$ROOM_SIM_DIR"
 
     # Install convolver config with resolved coefficient paths.
     sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
         "$REPO_DIR/configs/local-demo/convolver.conf" \
         > "$PW_CONF_DIR/30-convolver.conf"
-    echo "[local-demo] Convolver config installed (coefficients: $COEFFS_DIR)"
+    if ls "$COEFFS_DIR"/combined_*.wav 1>/dev/null 2>&1; then
+        echo "[local-demo] Convolver config installed (coefficients found in $COEFFS_DIR)"
+    else
+        echo "[local-demo] Convolver config installed (NO coefficients in $COEFFS_DIR — convolver will not load until measurement pipeline runs)"
+    fi
 
     # Remove stale deploy-generated convolver config from previous measurement sessions.
     rm -f "$PW_CONF_DIR/30-filter-chain-convolver.conf"
@@ -402,9 +412,11 @@ install_configs() {
     # F-159/US-111/US-075: Generate per-channel room simulator IRs and install config.
     # The room-sim filter-chain applies per-channel synthetic room IRs, sums via
     # internal mixer builtin to mono, and outputs as UMIK-1 Audio/Source.
+    # Room-sim IRs are in a separate directory from convolver coefficients —
+    # they're a hardware mock (permitted), not a filter pipeline mock.
     echo "[local-demo] Generating per-channel room simulator impulse responses..."
-    "$PYTHON" "$REPO_DIR/scripts/generate-room-sim-ir.py" --per-channel "$COEFFS_DIR"
-    sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
+    "$PYTHON" "$REPO_DIR/scripts/generate-room-sim-ir.py" --per-channel "$ROOM_SIM_DIR"
+    sed "s|COEFFS_DIR|$ROOM_SIM_DIR|g" \
         "$REPO_DIR/configs/local-demo/room-sim-convolver.conf" \
         > "$PW_CONF_DIR/36-room-sim-convolver.conf"
     echo "[local-demo] Room-sim config installed (4ch per-channel IRs → mixer → UMIK-1)"
@@ -530,46 +542,36 @@ start_services() {
     fi
     echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]})"
 
-    # ---- Play music / sine ----
+    # ---- Mixxx substitute (US-075 Bug #3) ----
+    # JACK client named "Mixxx" with 8 output ports (out_0..out_7) matching
+    # GM's routing table. Plays stereo mp3/wav on ch 1-2, silence on ch 3-8.
+    # Must run under pw-jack for JACK-style port naming.
     MP3_FILE="$HOME/Claudia singt Cole Porter - I love Paris.mp3"
     echo ""
+    echo "[local-demo] Starting Mixxx substitute (pw-jack JACK client, 8ch)..."
+    MIXXX_ARGS=(--channels 8 --client-name Mixxx)
     if [ -f "$MP3_FILE" ]; then
-        echo "[local-demo] Sending signal-gen play command (mp3: $(basename "$MP3_FILE"))..."
-        sleep 0.5
-        MP3_JSON_PATH=$(printf '%s' "$MP3_FILE" | sed 's/\\/\\\\/g; s/"/\\"/g')
-        if exec 3<>/dev/tcp/127.0.0.1/4001 2>/dev/null; then
-            echo "{\"cmd\":\"play\",\"signal\":\"file\",\"path\":\"$MP3_JSON_PATH\",\"level_dbfs\":-20.0,\"channels\":[1]}" >&3
-            timeout 2 head -n1 <&3 2>/dev/null && echo "[local-demo] signal-gen playing mp3." || true
-            exec 3>&- 2>/dev/null
-        else
-            echo "[local-demo] WARNING: Could not connect to signal-gen RPC (port 4001)" >&2
-        fi
+        echo "[local-demo]   Audio source: $(basename "$MP3_FILE")"
+        MIXXX_ARGS+=(--file "$MP3_FILE")
     else
-        echo "[local-demo] mp3 file not found, falling back to 440 Hz sine..."
-        sleep 0.5
-        if exec 3<>/dev/tcp/127.0.0.1/4001 2>/dev/null; then
-            echo '{"cmd":"play","signal":"sine","freq":440.0,"level_dbfs":-20.0,"channels":[1]}' >&3
-            timeout 2 head -n1 <&3 2>/dev/null && echo "[local-demo] signal-gen playing sine." || true
-            exec 3>&- 2>/dev/null
-        else
-            echo "[local-demo] WARNING: Could not connect to signal-gen RPC (port 4001)" >&2
-        fi
+        echo "[local-demo]   No mp3 found, Mixxx substitute will output silence."
     fi
+    "$PW_JACK" "$PYTHON" "$REPO_DIR/scripts/mixxx-substitute.py" "${MIXXX_ARGS[@]}" &
+    PIDS+=($!)
+    maybe_disown $!
+    sleep 2
+
+    if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
+        echo "[local-demo] ERROR: Mixxx substitute failed to start" >&2
+        exit 1
+    fi
+    echo "[local-demo] Mixxx substitute running (PID ${PIDS[-1]})"
 
     # ---- Wait for GM link creation ----
     sleep 2
     LINK_COUNT=$(pw-link -l 2>/dev/null | grep -c '^\s*|' || echo 0)
     echo ""
     echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, monitoring mode)."
-
-    # ---- Manual pcm-bridge spectrum link ----
-    # TODO: Bug #9 — pcm-bridge app tap links should be in GM monitoring mode link set.
-    # Until GM Rust change is made, create manual link for spectrum display.
-    echo ""
-    echo "[local-demo] Creating signal-gen → pcm-bridge link for spectrum..."
-    pw-link pi4audio-signal-gen:output_AUX0 pi4audio-pcm-bridge:input_1 2>/dev/null && \
-        echo "[local-demo] Spectrum link created." || \
-        echo "[local-demo] WARNING: Could not create spectrum link (pcm-bridge may not have ports yet)"
 
     # ---- web-ui ----
     echo ""
@@ -594,7 +596,7 @@ start_services() {
     export PI4AUDIO_FILTER_OUTPUT_DIR="/tmp/pi4audio-demo/filters"
     export PI4AUDIO_SESSION_DIR="/tmp/pi4audio-demo/sessions"
     export PI4AUDIO_PW_CONF_DIR="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d"
-    export PI4AUDIO_COEFFS_DIR="$COEFFS_DIR"
+    export PI4AUDIO_COEFFS_DIR="/tmp/pi4audio-demo/coeffs"
     export PI4AUDIO_SPEAKERS_DIR="/tmp/pi4audio-demo/speakers"
     export PI4AUDIO_HARDWARE_DIR="/tmp/pi4audio-demo/hardware"
     mkdir -p "$PI4AUDIO_FILTER_OUTPUT_DIR" "$PI4AUDIO_SESSION_DIR"
@@ -646,10 +648,10 @@ print_summary() {
     echo "                alsa_input.usb-miniDSP_Umik-1 (room-sim mixer output, mono)"
     echo "                ada8200-in (loopback source, 8ch ADC capture)"
     echo "                ada8200-in-loopback-sink (loopback sink, 8ch)"
-    echo "                pi4audio-convolver (filter-chain, dirac passthrough)"
+    echo "                pi4audio-convolver (filter-chain, loads from $COEFFS_DIR)"
     echo "                pi4audio-convolver-out (filter-chain output)"
-    echo "  Audio: signal-gen plays mp3 through convolver (monitoring mode)"
-    echo "         Dashboard spectrum fed via signal-gen → pcm-bridge link"
+    echo "                Mixxx (JACK client substitute, 8ch, pw-jack)"
+    echo "  Audio: Mixxx substitute plays mp3 (switch to DJ mode for full routing)"
     echo ""
     echo "  PIDs: ${PIDS[*]}"
     echo "============================================================"
