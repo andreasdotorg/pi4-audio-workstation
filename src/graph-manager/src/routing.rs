@@ -249,8 +249,6 @@ const USBSTREAMER_IN_PREFIX: &str = "alsa_input.usb-MiniDSP_USBStreamer";
 /// Signal generator playback node.
 const SIGNAL_GEN: &str = "pi4audio-signal-gen";
 
-/// Signal generator capture node (UMIK-1 target).
-const SIGNAL_GEN_CAPTURE: &str = "pi4audio-signal-gen-capture";
 
 /// UMIK-1 capture node name prefix.
 const UMIK1_PREFIX: &str = "alsa_input.usb-miniDSP_Umik-1";
@@ -288,19 +286,6 @@ const REAPER_PREFIX: &str = "REAPER";
 /// Verified on Pi: exact name "ada8200-in" (C-005).
 const ADA8200_IN: &str = "ada8200-in";
 
-/// UMIK-1 loopback sink node (local-demo only, F-159).
-/// In local-demo, a PW loopback module echoes audio from its sink input to
-/// the UMIK-1 source so the measurement pipeline receives real audio instead
-/// of silence. On production Pi (real UMIK-1 mic), this node does not exist
-/// and the optional link is silently skipped.
-const UMIK1_LOOPBACK_SINK: &str = "umik1-loopback-sink";
-
-/// Room simulator filter-chain output (local-demo only, F-159/US-111).
-/// The room-sim capture side uses the USBStreamer name (T-111-06), so
-/// convolver→USBStreamer links route directly into it. Only the playback
-/// side (source) keeps a distinct name for hop-2 → UMIK-1 loopback.
-const ROOM_SIM_OUT: &str = "pi4audio-room-sim-out";
-
 // ---------------------------------------------------------------------------
 // Port naming — D-041 one-based channel mapping
 // ---------------------------------------------------------------------------
@@ -337,9 +322,6 @@ pub enum AppPortNaming {
     /// Signal generator output: `output_AUX0`, `output_AUX1`, ...
     /// Channel 1 -> "output_AUX0", channel 2 -> "output_AUX1", etc.
     SignalGenOutput,
-    /// Signal generator capture input: `input_MONO`.
-    /// Only channel 1 is valid.
-    SignalGenCaptureInput,
     /// UMIK-1 capture: `capture_FL`.
     /// The UMIK-1 is mono but ALSA/PipeWire presents it as stereo (FL/FR).
     /// We use only the left channel.
@@ -348,22 +330,10 @@ pub enum AppPortNaming {
     /// PipeWire creates one-based input ports for streams without position info.
     /// Channel 1 -> "input_1", channel 2 -> "input_2", etc.
     PcmBridgeInput,
-    /// Convolver monitor ports: `monitor_AUX0`, `monitor_AUX1`, ...
-    /// PW Audio/Sink nodes expose monitor_ ports that mirror their input.
-    /// Channel 1 -> "monitor_AUX0", channel 2 -> "monitor_AUX1", etc.
-    ConvolverMonitor,
-    /// USBStreamer monitor ports: `monitor_AUX0`, `monitor_AUX1`, ...
-    /// PW playback sink nodes expose monitor_ ports for the played signal.
-    /// Channel 1 -> "monitor_AUX0", channel 2 -> "monitor_AUX1", etc.
-    UsbStreamerMonitor,
     /// Level-bridge input: `input_1`, `input_2`, ...
     /// Same format as PcmBridgeInput (PW convention for no SPA positions).
     /// Channel 1 -> "input_1", channel 2 -> "input_2", etc.
     LevelBridgeInput,
-    /// UMIK-1 loopback sink playback port: `playback_FL` (F-159).
-    /// Local-demo only — loopback module's Audio/Sink capture side.
-    /// Only channel 1 is valid.
-    Umik1LoopbackPlayback,
 }
 
 impl AppPortNaming {
@@ -383,22 +353,12 @@ impl AppPortNaming {
             AppPortNaming::UsbStreamerPlayback => format!("playback_AUX{}", zero_based),
             AppPortNaming::Ada8200Capture => format!("capture_AUX{}", zero_based),
             AppPortNaming::SignalGenOutput => format!("output_AUX{}", zero_based),
-            AppPortNaming::SignalGenCaptureInput => {
-                assert_eq!(channel, 1, "signal-gen capture is mono, only channel 1");
-                "input_MONO".to_string()
-            }
             AppPortNaming::Umik1Capture => {
                 assert_eq!(channel, 1, "UMIK-1 is mono, only channel 1");
                 "capture_FL".to_string()
             }
             AppPortNaming::PcmBridgeInput => format!("input_{}", channel),
-            AppPortNaming::ConvolverMonitor => format!("monitor_AUX{}", zero_based),
-            AppPortNaming::UsbStreamerMonitor => format!("monitor_AUX{}", zero_based),
             AppPortNaming::LevelBridgeInput => format!("input_{}", channel),
-            AppPortNaming::Umik1LoopbackPlayback => {
-                assert_eq!(channel, 1, "UMIK-1 loopback sink is mono, only channel 1");
-                "playback_FL".to_string()
-            }
         }
     }
 }
@@ -678,21 +638,19 @@ impl RoutingTable {
         links
     }
 
-    /// Measurement mode: signal-gen → convolver, UMIK-1 → signal-gen capture.
+    /// Measurement mode: signal-gen → convolver → speakers.
     ///
     /// F-097: Signal-gen is mono (1 output channel, output_AUX0). Its single
     /// output fans out to all N convolver inputs — PW duplicates the signal.
     /// The RPC `channels` bitmask selects which convolver inputs are active
     /// (e.g., play through left main only for per-speaker measurement).
     ///
-    /// UMIK-1 captures the room response back to signal-gen for analysis.
-    /// pcm-bridge taps the UMIK-1 capture for room-response metering (US-088).
+    /// UMIK-1 capture is routed to pcm-bridge for SPL metering (US-088).
+    /// The measurement pipeline uses pw-record directly for capture (D-040).
     fn measurement_links(layout: &SpeakerLayout) -> Vec<DesiredLink> {
         let mut links = Vec::new();
         let sg = AppPortNaming::SignalGenOutput;
         let cv_in = AppPortNaming::ConvolverInput;
-        let umik = AppPortNaming::Umik1Capture;
-        let sg_cap = AppPortNaming::SignalGenCaptureInput;
 
         // F-097: Mono signal-gen output_AUX0 → all N convolver inputs.
         // PW fans out: each convolver input gets a copy of the same signal.
@@ -720,35 +678,16 @@ impl RoutingTable {
         // Always-on UMIK-1 capture for SPL metering (ch3, optional).
         links.push(Self::pcm_bridge_umik_link());
 
-        // UMIK-1 → signal-gen capture (mono measurement mic).
-        links.push(DesiredLink {
-            output_node: NodeMatch::Prefix(UMIK1_PREFIX.to_string()),
-            output_port: umik.port_name(1),
-            input_node: NodeMatch::Exact(SIGNAL_GEN_CAPTURE.to_string()),
-            input_port: sg_cap.port_name(1),
-            optional: true, // UMIK-1 may not be plugged in
-        });
+        // D-040/F-227: UMIK-1 → signal-gen-capture link removed.
+        // Signal-gen is play-only (D-040); pi4audio-signal-gen-capture node
+        // never exists. The measurement pipeline uses pw-record directly
+        // targeting the UMIK-1 Audio/Source node instead.
 
-        // F-159/US-111: Room-sim output → UMIK-1 loopback (local-demo only).
-        // The room-sim capture side uses the USBStreamer name (T-111-06), so
-        // convolver→USBStreamer links (above) route directly into it. The
-        // room-sim playback side outputs N convolved speaker channels, all
-        // linked to the single UMIK-1 loopback sink port — PW natively sums
-        // multiple inputs to produce a mono simulated mic signal. On production
-        // Pi (real mic, real room), these nodes don't exist and the optional
-        // links are silently skipped by the reconciler.
-        let rs_out = AppPortNaming::ConvolverOutput;
-        let lb = AppPortNaming::Umik1LoopbackPlayback;
-
-        for ch in 1..=layout.num_speaker_channels {
-            links.push(DesiredLink {
-                output_node: NodeMatch::Exact(ROOM_SIM_OUT.to_string()),
-                output_port: rs_out.port_name(ch),
-                input_node: NodeMatch::Exact(UMIK1_LOOPBACK_SINK.to_string()),
-                input_port: lb.port_name(1), // always ch1 — PW sums multiple inputs
-                optional: true, // only present in local-demo
-            });
-        }
+        // F-227: Room-sim → UMIK-1 loopback links removed.
+        // The UMIK-1 loopback module was eliminated when the room-sim
+        // filter-chain was redesigned to output directly as the UMIK-1
+        // Audio/Source (US-075 Bug #1). Both pi4audio-room-sim-out and
+        // umik1-loopback-sink nodes no longer exist.
 
         // D-043/US-084: level-bridge always active.
         links.extend(Self::level_bridge_hw_links());
@@ -832,28 +771,34 @@ impl RoutingTable {
     ///
     /// Two hardware level-bridge instances tap the physical I/O:
     ///
-    /// 1. **level-bridge-hw-out** (8ch): USBStreamer monitor_AUX0..7 → input_1..8.
-    ///    Taps the exact signal reaching the DAC (post-crossover, post-gain).
+    /// 1. **level-bridge-hw-out** (8ch): convolver output_AUX0..7 → input_1..8.
+    ///    F-225: Taps convolver output ports (guaranteed to exist on filter-chain
+    ///    Audio/Source nodes). Previously tapped USBStreamer monitor ports, which
+    ///    are not reliably exposed on filter-chain nodes. Links for ports beyond
+    ///    num_speaker_channels are optional and fail silently, aligning with
+    ///    future 8-channel direction.
     /// 2. **level-bridge-hw-in** (8ch): ADA8200 capture_AUX0..7 → input_1..8.
     ///    Taps hardware inputs (mics, line-in).
     ///
     /// level-bridge-sw is NOT included here — its links are mode-specific
     /// (F-124/F-125: must tap the active app's output ports, not the convolver
-    /// monitor which only shows 4 speaker channels).
+    /// output which only shows speaker channels).
     ///
     /// All links are optional because level-bridge instances may not be running.
     /// Total: 8 + 8 = 16 links.
     fn level_bridge_hw_links() -> Vec<DesiredLink> {
-        let usb_mon = AppPortNaming::UsbStreamerMonitor;
+        let cv_out = AppPortNaming::ConvolverOutput;
         let ada = AppPortNaming::Ada8200Capture;
         let lb_in = AppPortNaming::LevelBridgeInput;
         let mut links = Vec::with_capacity(16);
 
-        // level-bridge-hw-out: USBStreamer monitor → level-bridge-hw-out input (8ch).
+        // level-bridge-hw-out: convolver output → level-bridge-hw-out input (8ch).
+        // F-225: convolver output_AUX* ports always exist on Audio/Source nodes.
+        // Ports beyond num_speaker_channels fail silently (optional links).
         for ch in 1..=8 {
             links.push(DesiredLink {
-                output_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                output_port: usb_mon.port_name(ch),
+                output_node: NodeMatch::Exact(CONVOLVER_OUT.to_string()),
+                output_port: cv_out.port_name(ch),
                 input_node: NodeMatch::Exact(LEVEL_BRIDGE_HW_OUT.to_string()),
                 input_port: lb_in.port_name(ch),
                 optional: true,
@@ -995,8 +940,8 @@ mod tests {
         let link = DesiredLink {
             output_node: NodeMatch::Exact("umik-1".to_string()),
             output_port: "capture_FL".to_string(),
-            input_node: NodeMatch::Exact("signal-gen-capture".to_string()),
-            input_port: "input_MONO".to_string(),
+            input_node: NodeMatch::Exact("pcm-bridge".to_string()),
+            input_port: "input_3".to_string(),
             optional: true,
         };
         assert!(link.to_string().contains("(optional)"));
@@ -1029,7 +974,7 @@ mod tests {
     fn standby_has_21_links() {
         // convolver-out → USBStreamer ch 0-3 (4)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 21.
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8) = 21.
         // F-124: No level-bridge-sw in standby (no app to tap).
         // F-131: No pcm-bridge app tap in standby (no app to tap).
         let table = RoutingTable::production();
@@ -1042,7 +987,7 @@ mod tests {
         // + convolver → USBStreamer (4) + F-131: Mixxx → pcm-bridge stereo (2)
         // + Mixxx → USBStreamer HP (2)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
         // + F-124: Mixxx → level-bridge-sw (8: consistent 8-ch metering) = 39.
         let table = RoutingTable::production();
         assert_eq!(table.links_for(Mode::Dj).len(), 39);
@@ -1055,22 +1000,22 @@ mod tests {
         // + REAPER → USBStreamer HP (2) + REAPER → USBStreamer IEM (2)
         // + ADA8200 → REAPER capture (8)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
         // + F-124: REAPER → level-bridge-sw (8) = 49.
         let table = RoutingTable::production();
         assert_eq!(table.links_for(Mode::Live).len(), 49);
     }
 
     #[test]
-    fn measurement_has_32_links() {
+    fn measurement_has_27_links() {
         // F-097: signal-gen mono fan-out → convolver (4) + convolver → USBStreamer (4)
         // + F-131: signal-gen → pcm-bridge ch1 (1)
-        // + UMIK-1 → pcm-bridge ch3 (1) + UMIK-1 → signal-gen-capture (1)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
-        // + F-124: signal-gen → level-bridge-sw (1)
-        // + US-111: room-sim→UMIK-1 loopback (4) = 32.
+        // + UMIK-1 → pcm-bridge ch3 (1)
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
+        // + F-124: signal-gen → level-bridge-sw (1) = 27.
+        // F-227: signal-gen-capture (1) and room-sim→UMIK-1 loopback (4) removed.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Measurement).len(), 32);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 27);
     }
 
     #[test]
@@ -1092,14 +1037,15 @@ mod tests {
 
     #[test]
     fn measurement_umik1_links_are_optional() {
-        // US-088: UMIK-1 has 2 links: → signal-gen-capture + → pcm-bridge.
+        // US-088: UMIK-1 has 1 link: → pcm-bridge ch3.
+        // F-227: signal-gen-capture link removed (node never exists, D-040).
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let umik_links: Vec<_> = meas_links
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("Umik")))
             .collect();
-        assert_eq!(umik_links.len(), 2);
+        assert_eq!(umik_links.len(), 1);
         assert!(umik_links.iter().all(|l| l.optional));
     }
 
@@ -1294,8 +1240,10 @@ mod tests {
     }
 
     #[test]
-    fn level_bridge_hw_out_taps_usbstreamer_monitor() {
-        // level-bridge-hw-out taps USBStreamer's monitor ports (8ch).
+    fn level_bridge_hw_out_taps_convolver_output() {
+        // F-225: level-bridge-hw-out taps convolver output ports (8ch, optional).
+        // Convolver output_AUX* ports are guaranteed to exist on Audio/Source nodes.
+        // Ports beyond num_speaker_channels fail silently (optional links).
         let table = RoutingTable::production();
         let links = table.links_for(Mode::Standby);
         let hw_out_links: Vec<_> = links
@@ -1306,9 +1254,9 @@ mod tests {
             .collect();
         assert_eq!(hw_out_links.len(), 8);
         for (i, link) in hw_out_links.iter().enumerate() {
-            assert_eq!(link.output_port, format!("monitor_AUX{}", i));
+            assert_eq!(link.output_port, format!("output_AUX{}", i));
             assert_eq!(link.input_port, format!("input_{}", i + 1));
-            assert!(matches!(&link.output_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output.usb-MiniDSP_USBStreamer")));
+            assert!(matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver-out"));
         }
     }
 
@@ -1448,28 +1396,16 @@ mod tests {
     }
 
     #[test]
-    fn signal_gen_capture_uses_input_mono_port() {
-        // Signal-gen capture uses MONO position → input_MONO.
-        let table = RoutingTable::production();
-        let meas_links = table.links_for(Mode::Measurement);
-        let capture_links: Vec<_> = meas_links
-            .iter()
-            .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-signal-gen-capture"))
-            .collect();
-        assert_eq!(capture_links.len(), 1);
-        assert_eq!(capture_links[0].input_port, "input_MONO");
-    }
-
-    #[test]
     fn umik1_uses_capture_mono_port() {
-        // US-088: 2 UMIK-1 links (→ signal-gen-capture + → pcm-bridge), both use capture_FL.
+        // US-088: UMIK-1 → pcm-bridge ch3 uses capture_FL.
+        // F-227: signal-gen-capture link removed (node never exists, D-040).
         let table = RoutingTable::production();
         let meas_links = table.links_for(Mode::Measurement);
         let umik_links: Vec<_> = meas_links
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p.contains("Umik")))
             .collect();
-        assert_eq!(umik_links.len(), 2);
+        assert_eq!(umik_links.len(), 1);
         assert!(umik_links.iter().all(|l| l.output_port == "capture_FL"));
     }
 
@@ -1656,11 +1592,6 @@ mod tests {
     }
 
     #[test]
-    fn port_naming_signal_gen_capture_input() {
-        assert_eq!(AppPortNaming::SignalGenCaptureInput.port_name(1), "input_MONO");
-    }
-
-    #[test]
     fn port_naming_umik1_capture() {
         assert_eq!(AppPortNaming::Umik1Capture.port_name(1), "capture_FL");
     }
@@ -1670,20 +1601,6 @@ mod tests {
         // pcm-bridge input: input_ prefix, one-based (PW convention for no SPA positions).
         assert_eq!(AppPortNaming::PcmBridgeInput.port_name(1), "input_1");
         assert_eq!(AppPortNaming::PcmBridgeInput.port_name(4), "input_4");
-    }
-
-    #[test]
-    fn port_naming_convolver_monitor() {
-        // Convolver monitor: monitor_AUX prefix, zero-based.
-        assert_eq!(AppPortNaming::ConvolverMonitor.port_name(1), "monitor_AUX0");
-        assert_eq!(AppPortNaming::ConvolverMonitor.port_name(4), "monitor_AUX3");
-    }
-
-    #[test]
-    fn port_naming_usbstreamer_monitor() {
-        // USBStreamer monitor: monitor_AUX prefix, zero-based.
-        assert_eq!(AppPortNaming::UsbStreamerMonitor.port_name(1), "monitor_AUX0");
-        assert_eq!(AppPortNaming::UsbStreamerMonitor.port_name(8), "monitor_AUX7");
     }
 
     #[test]
@@ -1698,12 +1615,6 @@ mod tests {
     fn port_naming_rejects_channel_zero() {
         // D-041: channel 0 is never valid.
         AppPortNaming::MixxxOutput.port_name(0);
-    }
-
-    #[test]
-    #[should_panic(expected = "signal-gen capture is mono")]
-    fn port_naming_signal_gen_capture_rejects_multichannel() {
-        AppPortNaming::SignalGenCaptureInput.port_name(2);
     }
 
     #[test]
@@ -1894,7 +1805,7 @@ mod tests {
     fn three_way_standby_has_23_links() {
         // convolver-out → USBStreamer ch 0-5 (6)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 23.
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8) = 23.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
         assert_eq!(table.links_for(Mode::Standby).len(), 23);
     }
@@ -1907,7 +1818,7 @@ mod tests {
         // + pcm-bridge stereo (2)
         // + HP (2, ch 7-8 on USBStreamer)
         // + UMIK-1 → pcm-bridge ch3 (1)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
         // + level-bridge-sw (8) = 43.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
         assert_eq!(table.links_for(Mode::Dj).len(), 43);
@@ -1923,22 +1834,22 @@ mod tests {
         // + IEM (2, ch 9-10 on USBStreamer, optional)
         // + ADA8200 capture (8)
         // + UMIK-1 → pcm-bridge ch3 (1)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
         // + level-bridge-sw (8) = 53.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
         assert_eq!(table.links_for(Mode::Live).len(), 53);
     }
 
     #[test]
-    fn three_way_measurement_has_38_links() {
+    fn three_way_measurement_has_31_links() {
         // signal-gen mono fan-out → convolver (6) + convolver → USBStreamer (6)
         // + F-131: signal-gen → pcm-bridge ch1 (1)
-        // + UMIK-1 → pcm-bridge ch3 (1) + UMIK-1 → signal-gen-capture (1)
-        // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
-        // + level-bridge-sw (1)
-        // + US-111: room-sim→UMIK-1 loopback (6) = 38.
+        // + UMIK-1 → pcm-bridge ch3 (1)
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
+        // + level-bridge-sw (1) = 31.
+        // F-227: signal-gen-capture (1) and room-sim→UMIK-1 loopback (6) removed.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
-        assert_eq!(table.links_for(Mode::Measurement).len(), 38);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 31);
     }
 
     #[test]

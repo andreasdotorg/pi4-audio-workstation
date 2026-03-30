@@ -379,23 +379,50 @@ resolve_binaries() {
 # ---- Install configs ----
 install_configs() {
     # Convolver coefficients directory — same path the measurement pipeline
-    # writes to (PI4AUDIO_COEFFS_DIR). No dirac/passthrough mocks: if no
-    # coefficients exist, the convolver won't load (same as prod on a fresh
-    # deploy before the first measurement session).
+    # writes to (PI4AUDIO_COEFFS_DIR).
     COEFFS_DIR="/tmp/pi4audio-demo/coeffs"
     ROOM_SIM_DIR="/tmp/pw-test-room-sim"
     PW_CONF_DIR="$XDG_CONFIG_DIR/pipewire/pipewire.conf.d"
     mkdir -p "$PW_CONF_DIR" "$COEFFS_DIR" "$ROOM_SIM_DIR"
 
+    # F-226: Generate Dirac passthrough coefficients if none exist.
+    # Without coefficient WAVs the convolver filter-chain won't load, which
+    # breaks the entire signal path (signal-gen → convolver → room-sim → UMIK-1).
+    # A single-sample Dirac impulse (1.0) acts as a transparent passthrough —
+    # the measurement pipeline overwrites these with real corrections.
+    if ! ls "$COEFFS_DIR"/combined_*.wav 1>/dev/null 2>&1; then
+        echo "[local-demo] Generating Dirac passthrough coefficients (F-226)..."
+        "$PYTHON" -c "
+import struct, os, sys
+def write_dirac(path):
+    sr = 48000
+    with open(path, 'wb') as f:
+        f.write(b'RIFF')
+        f.write(struct.pack('<I', 36 + 4))  # file size - 8
+        f.write(b'WAVE')
+        f.write(b'fmt ')
+        f.write(struct.pack('<I', 16))       # chunk size
+        f.write(struct.pack('<H', 3))        # IEEE float
+        f.write(struct.pack('<H', 1))        # mono
+        f.write(struct.pack('<I', sr))       # sample rate
+        f.write(struct.pack('<I', sr * 4))   # byte rate
+        f.write(struct.pack('<H', 4))        # block align
+        f.write(struct.pack('<H', 32))       # bits per sample
+        f.write(b'data')
+        f.write(struct.pack('<I', 4))        # data size (1 sample)
+        f.write(struct.pack('<f', 1.0))      # Dirac impulse
+d = sys.argv[1]
+for name in ['combined_left_hp', 'combined_right_hp', 'combined_sub1_lp', 'combined_sub2_lp']:
+    write_dirac(os.path.join(d, name + '.wav'))
+" "$COEFFS_DIR"
+        echo "[local-demo] Dirac passthrough coefficients generated in $COEFFS_DIR"
+    fi
+
     # Install convolver config with resolved coefficient paths.
     sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
         "$REPO_DIR/configs/local-demo/convolver.conf" \
         > "$PW_CONF_DIR/30-convolver.conf"
-    if ls "$COEFFS_DIR"/combined_*.wav 1>/dev/null 2>&1; then
-        echo "[local-demo] Convolver config installed (coefficients found in $COEFFS_DIR)"
-    else
-        echo "[local-demo] Convolver config installed (NO coefficients in $COEFFS_DIR — convolver will not load until measurement pipeline runs)"
-    fi
+    echo "[local-demo] Convolver config installed (coefficients in $COEFFS_DIR)"
 
     # Remove stale deploy-generated convolver config from previous measurement sessions.
     rm -f "$PW_CONF_DIR/30-filter-chain-convolver.conf"
