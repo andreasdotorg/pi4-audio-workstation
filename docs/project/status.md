@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-03-29 (end of session 3). Individual story/defect/decision
+Last updated: 2026-03-30 (end of session 4). Individual story/defect/decision
 details now in `stories/`, `defects/`, `decisions/` directories with corresponding
 index files.
 
@@ -23,16 +23,16 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-072 | IMPLEMENT 16/20 | NixOS reproducible build | Remaining 4 tasks need Pi hardware (T-072-05, T-072-13, T-072-18, T-072-19) |
 | US-075 | COMPLETE | Local PW integration test env | Done (AC 1-7, `dd019ea`+`25ed785`+`0eaf87c`) |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
-| US-089 | TEST | Speaker config management web UI | QE + advisory reviews |
-| US-090 | TEST | FIR filter generation web UI | QE + advisory reviews |
-| US-091 | TEST | Multi-way crossover support | QE + advisory reviews |
-| US-092 | TEST | Per-driver thermal/mechanical protection | QE + advisory reviews |
-| US-093 | TEST | Amplifier sensitivity calibration | QE + advisory reviews |
-| US-094 | TEST | ISO 226 equal loudness compensation | QE + advisory reviews |
-| US-095 | TEST | Graph viz — truthful PW topology | QE + advisory reviews |
-| US-096 | TEST | UMIK-1 full calibration pipeline | QE + advisory reviews |
-| US-097 | TEST | Room compensation web UI workflow | QE + advisory reviews |
-| US-098 | TEST | Room correction pipeline verification | P0 done, P1/P2 deferred |
+| US-089 | TEST | Speaker config management web UI | Blocked by F-198 / F-217 (conftest filter gap) |
+| US-090 | REVIEW | FIR filter generation web UI | Gate 1 passed (session 4), advisory reviews pending |
+| US-091 | REVIEW | Multi-way crossover support | Gate 1 passed (session 4), advisory reviews pending |
+| US-092 | REVIEW | Per-driver thermal/mechanical protection | Gate 1 passed (session 4), advisory reviews pending |
+| US-093 | REVIEW | Amplifier sensitivity calibration | Gate 1 passed (session 4), advisory reviews pending |
+| US-094 | REVIEW | ISO 226 equal loudness compensation | Gate 1 passed (session 4), advisory reviews pending |
+| US-095 | REVIEW | Graph viz — truthful PW topology | Gate 1 passed (session 4), advisory reviews pending |
+| US-096 | REVIEW | UMIK-1 full calibration pipeline | Gate 1 passed (session 4), advisory reviews pending |
+| US-097 | REVIEW | Room compensation web UI workflow | Gate 1 passed (session 4), advisory reviews pending |
+| US-098 | REVIEW (contingent) | Room correction pipeline verification | P0 done, P1/P2 deferral needs owner sign-off |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
 | US-044 | IMPLEMENT/TEST | Safety protection suite | AC #3-5 implemented (54 tests), AC #1-2/6-8 need Pi. Local-demo verification in progress. |
@@ -44,7 +44,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
 | US-083 | draft | Integration smoke tests | Depends US-075 |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
-| US-111 | IMPLEMENT 0/14 | Local-demo PW graph topology redesign | T-111-01 spike is critical gate (WP-free filter-chain validation) |
+| US-111 | IMPLEMENT 1/13 | Local-demo PW graph topology redesign | Scope revised: AC #4/#6 dropped (WP required), T-111-04 dropped. 13 tasks remain. |
 
 
 ### Owner-Blocking Items
@@ -108,7 +108,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | ID | Severity | Summary |
 |----|----------|---------|
 | F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts (diagnosing) |
-| F-209 | P1 / High | US-044 watchdog/gain integrity assume builtins are separate PW nodes (fix in progress) |
+| F-209 | ~~P1 / High~~ | ~~US-044 watchdog/gain integrity assume builtins are separate PW nodes~~ VERIFIED (session 4, 248 tests pass) |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
 | F-061 | ~~High~~ | ~~pw-dump subprocess hangs under WebSocket load~~ VERIFIED (session 4) |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
@@ -122,12 +122,13 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Git commits | ~190 |
 | Total stories filed | 115 |
 | Stories done | 13 |
-| Stories in TEST | 12 |
-| Stories in IMPLEMENT/REVIEW | ~14 |
+| Stories in TEST | 4 (US-089, US-077, US-070, US-044) |
+| Stories in REVIEW | 10 (US-088, US-090-097, US-098 contingent) |
+| Stories in IMPLEMENT | ~6 |
 | Stories ready | 0 |
-| Open defects (HIGH+) | 3 (F-187, F-209, F-037) |
+| Open defects (HIGH+) | 2 (F-187, F-037) |
 | Open defects (Medium) | ~15 |
-| Total defects filed | 216 |
+| Total defects filed | 217 |
 | Test suites | test-all (537), test-e2e (194) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
@@ -154,36 +155,49 @@ through D-060). Most significant recent decisions:
 - **D-058** (2026-03-28): GM supervises services — target arch (static units interim)
 - **D-060** (2026-03-29): Local CA for TLS — replaces D-032 self-signed (unblocks US-110 passkeys)
 
-## Session 3 Summary (2026-03-29)
+## Session 4 Summary (2026-03-30)
 
 ### Commits
 
 | SHA | Description |
 |-----|-------------|
-| 6714dc0 | feat(nixos): US-072 web-ui service module (session 2 carryover) |
-| 2c2311c | docs(project): resolve F-181/F-195/F-196, file F-213/F-214/F-215, verify F-160/F-197 |
-| b9a39ea | docs(project): D-060 local CA for TLS, US-110 unblocked to ready |
-| c34d3ea | feat(nixos): closure trim — disable docs, speechd, LVM (~15-20% build reduction) |
-| 10de928 | docs(project): F-216 zombie process defect, US-111 local-demo redesign story |
+| 56a83a6 | docs(project): US-111/US-110 → IMPLEMENT, status updates |
+| 54bad97 | docs(project): F-209 verified — gain_integrity fix confirmed, 248 tests pass |
+| 2cfb477 | docs(project): F-061 verified — all PW subprocess calls use asyncio.to_thread |
+| 7c0bd96 | (worker commit — US-072 / US-111 code) |
+| 6a4ee23 | (worker commit — US-072 / US-111 code) |
+| pending | docs(project): advance 8 stories to REVIEW, file F-217, US-111 scope revision |
 
 ### Accomplishments
 
-1. **D-060 filed** — local CA for TLS (amends D-032), unblocks US-110 passkey auth
-2. **US-110 moved to ready** — passkey auth story unblocked by D-060
-3. **US-111 filed** — local-demo PW graph topology redesign (architect design complete, AE signed off with 6 requirements). Key innovation: room-sim filter-chain replaces USBStreamer + UMIK-1 with identical node names; `support.node.driver` via `spa-node-factory` for WP-free clock
-4. **F-216 filed** — zombie/orphan process accumulation from local-demo/test runs
-5. **F-213/F-214/F-215 filed** — QE exploratory testing findings from session 2
-6. **F-181/F-195/F-196 resolved** — committed with Gate 1 + review approvals
-7. **F-160/F-197 verified** — mode restore bug and 3-way target gains confirmed fixed
-8. **NixOS closure audit completed** — 5850 build derivations normal, 99 runtime packages. Trim implemented: docs, speechd, LVM disabled (~15-20% build reduction)
-9. **Test Pi SSH access** — key added to 192.168.178.35, key-based auth working for root
-10. **`nix/nixos/services/web-ui.nix` committed** — session 2 carryover cleared
+1. **F-061 VERIFIED** — all PW subprocess calls migrated to `asyncio.to_thread(subprocess.run)`. Zero `create_subprocess_exec` instances remain. 827 tests pass.
+2. **F-209 VERIFIED** — gain integrity + watchdog fixed. Both modules now use realistic convolver param model (not top-level nodes). 248 tests pass.
+3. **HIGH+ defects reduced 4 → 2** — F-061 and F-209 verified. Remaining: F-187 (Critical, blocked/venue), F-037 (High, converted to US-110).
+4. **8 stories advanced to REVIEW** — US-090 through US-097 passed QE Gate 1. US-098 contingent on owner P1/P2 deferral sign-off.
+5. **US-111 scope revised** — T-111-01 spike confirmed WP required on PW 1.6.x. AC #4 (spa-node-factory clock) and AC #6 (WP elimination) DROPPED. 14 tasks → 13. Room-sim filter-chain and loopback components proceed.
+6. **US-111 moved to IMPLEMENT** — architect decomposed 13 tasks (post scope revision), implementation started.
+7. **US-110 moved to IMPLEMENT** — architect decomposed 17 tasks for passkey auth.
+8. **F-217 filed (Medium)** — conftest filter gap (`/ws/pcm` 403 in mock mode). Blocks US-089 clean Gate 1.
+9. **US-072 Pi-free sub-work identified** — ~5.5h: smoke test script, service dependency review, disko config, nixos-anywhere research, upgrade runbook.
+10. **nixos-upgrade.md written** — T-072-19a complete. HOWTO for nixos-anywhere + nixos-rebuild deployment.
+
+### Owner Notifications
+
+1. **WP removal architecturally impossible on PW 1.6.x** — T-111-01 spike confirmed filter-chain ports require WirePlumber for activation. `spa-node-factory` clock driver enters error state. This is a permanent constraint, not a workaround gap. US-111 proceeds with WP retained (policy disabled).
+2. **US-098 needs P1/P2 deferral sign-off** — P0 verification done, P1/P2 deferred. Owner confirmation needed to complete REVIEW phase.
+3. **8 stories ready for advisory review** — US-090 through US-097 passed Gate 1, pending advisory sign-offs and owner acceptance.
 
 ### Pending for Next Session
 
-1. **US-111 implementation** — local-demo redesign. Design complete, needs empirical `support.node.driver` + filter-chain validation then coding
-2. **US-072 Pi deployment** — test Pi accessible, SSH key working, `nixos-anywhere` ready
-3. **US-110 implementation** — passkey auth, blocked on D-060 local CA implementation
-4. **F-187 (Critical)** — noise on 4 channels after PW restarts, still open
-5. **F-209 (P1/High)** — safety modules non-functional, fix in progress
-6. **Builder hygiene** — 1,291 zombie processes need reboot to clear (F-216)
+1. **US-111 implementation** — room-sim filter-chain, loopback ada8200-in, process cleanup. 12 tasks remain.
+2. **US-110 implementation** — passkey auth. 17 tasks. D-060 local CA prerequisite.
+3. **US-072 Pi deployment** — test Pi at 192.168.178.35, nixos-anywhere ready.
+4. **Advisory reviews** — 8 stories (US-090-097) need architect, AE, security, UX sign-offs.
+5. **F-187 (Critical)** — noise on 4 channels after PW restarts. Requires physical Pi at venue.
+6. **F-217 fix** — conftest filter gap. Quick fix, unblocks US-089 Gate 1.
+7. **US-098 owner sign-off** — P1/P2 deferral confirmation.
+
+## Session 3 Summary (2026-03-29)
+
+(See git history for session 3 details. Key: D-060 filed, US-110/US-111 created,
+NixOS closure trim, F-181/F-195/F-196 resolved, test Pi SSH access established.)
