@@ -27,7 +27,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${LOCAL_DEMO_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
-PW_TEST_ENV="${LOCAL_DEMO_PW_TEST_ENV:-$SCRIPT_DIR/local-pw-test-env.sh}"
+LOCAL_DEMO="$SCRIPT_DIR/local-demo.sh"
 
 # Test configuration
 GM_PORT=4002
@@ -37,9 +37,6 @@ LEVEL_HW_OUT_PORT=9101
 LEVEL_HW_IN_PORT=9102
 PCM_PORT=9090
 
-# Track child PIDs for cleanup
-PIDS=()
-PW_STARTED=false
 CLEANUP_DONE=false
 START_TIME=$(date +%s)
 
@@ -47,6 +44,8 @@ START_TIME=$(date +%s)
 CHECKS_PASSED=0
 CHECKS_FAILED=0
 CHECKS_TOTAL=0
+
+PYTHON="${LOCAL_DEMO_PYTHON:-python}"
 
 # ---- Utility functions ----
 
@@ -66,8 +65,6 @@ check_fail() {
 }
 
 # Send a JSON RPC command to a TCP port and read the response line.
-# Usage: rpc_call <host> <port> <json_command>
-# Returns the response JSON on stdout.
 rpc_call() {
     local host="$1" port="$2" cmd="$3"
     local response=""
@@ -80,7 +77,6 @@ rpc_call() {
 }
 
 # Read one JSON line from a level-bridge TCP port.
-# Usage: read_levels <port>
 read_levels() {
     local port="$1"
     local line=""
@@ -91,9 +87,7 @@ read_levels() {
     echo "$line"
 }
 
-# Read N JSON lines from a level-bridge TCP port (one per line, newline-delimited).
-# Usage: read_levels_multi <port> <count>
-# Prints each line on a separate stdout line.
+# Read N JSON lines from a level-bridge TCP port.
 read_levels_multi() {
     local port="$1" count="$2"
     if exec 4<>/dev/tcp/127.0.0.1/"$port" 2>/dev/null; then
@@ -102,8 +96,7 @@ read_levels_multi() {
     fi
 }
 
-# Extract a JSON field value using Python (reliable JSON parsing).
-# Usage: json_field <json_string> <field_name>
+# Extract a JSON field value using Python.
 json_field() {
     local json="$1" field="$2"
     "$PYTHON" -c "
@@ -131,180 +124,24 @@ cleanup() {
     CLEANUP_DONE=true
 
     log "Tearing down..."
-
-    # Kill child processes in reverse order
-    for (( i=${#PIDS[@]}-1 ; i>=0 ; i-- )); do
-        local pid="${PIDS[$i]}"
-        if kill -0 "$pid" 2>/dev/null; then
-            pkill -P "$pid" 2>/dev/null || true
-            kill "$pid" 2>/dev/null || true
-        fi
-    done
-    sleep 0.3
-    for (( i=${#PIDS[@]}-1 ; i>=0 ; i-- )); do
-        local pid="${PIDS[$i]}"
-        if kill -0 "$pid" 2>/dev/null; then
-            kill -9 "$pid" 2>/dev/null || true
-        fi
-    done
-    for pid in "${PIDS[@]}"; do
-        wait "$pid" 2>/dev/null || true
-    done
-
-    if $PW_STARTED; then
-        "$PW_TEST_ENV" stop 2>/dev/null || true
-    fi
-
+    "$LOCAL_DEMO" stop 2>/dev/null || true
     log "Cleanup complete."
 }
 
 trap cleanup EXIT INT TERM
 
-# ---- Pre-flight ----
+# ---- 1. Start the full local-demo stack ----
 
-# Kill stale processes from previous runs. Exclude our own PID and parent
-# to avoid self-kill (pgrep -f matches env vars in our command line).
-MY_PID=$$
-MY_PPID=$PPID
-
-for pattern in "pi4audio-graph-manager" "pi4audio-signal-gen" "[b]in/level-bridge" "[b]in/pcm-bridge"; do
-    stale_pids=$(pgrep -f "$pattern" 2>/dev/null || true)
-    for p in $stale_pids; do
-        if [ "$p" != "$MY_PID" ] && [ "$p" != "$MY_PPID" ]; then
-            log "Killing stale process: $pattern (PID $p)"
-            kill "$p" 2>/dev/null || true
-        fi
-    done
-done
-"$PW_TEST_ENV" stop 2>/dev/null || true
-sleep 0.5
-
-# ---- 1. Resolve binaries ----
-
-if [ -n "${LOCAL_DEMO_GM_BIN:-}" ]; then
-    GM_BIN="$LOCAL_DEMO_GM_BIN"
-    SG_BIN="$LOCAL_DEMO_SG_BIN"
-    LB_BIN="$LOCAL_DEMO_LB_BIN"
-    PCM_BIN="$LOCAL_DEMO_PCM_BIN"
-    PYTHON="${LOCAL_DEMO_PYTHON:-python}"
-else
-    log "ERROR: This script expects LOCAL_DEMO_* env vars (run via nix run .#test-integration)" >&2
+log "Starting full local-demo stack..."
+"$LOCAL_DEMO" start || {
+    log_err "local-demo start failed"
     exit 2
-fi
+}
 
-# ---- 2. Generate dirac coefficients + convolver config ----
+# Source PW env so pw-cli commands work
+eval "$("$LOCAL_DEMO" env)"
 
-COEFFS_DIR="/tmp/pw-test-coeffs"
-"$PYTHON" "$REPO_DIR/scripts/generate-dirac-coeffs.py" "$COEFFS_DIR" > /dev/null
-
-PW_CONF_DIR="/tmp/pw-test-xdg-config/pipewire/pipewire.conf.d"
-mkdir -p "$PW_CONF_DIR"
-sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
-    "$REPO_DIR/configs/local-demo/convolver.conf" \
-    > "$PW_CONF_DIR/30-convolver.conf"
-rm -f "$PW_CONF_DIR/30-filter-chain-convolver.conf"
-
-# Install UMIK-1 loopback config (needed for measurement mode link topology)
-install -m 644 "$REPO_DIR/configs/local-demo/umik1-loopback.conf" \
-    "$PW_CONF_DIR/35-umik1-loopback.conf"
-
-# Generate room simulator IR and config
-"$PYTHON" "$REPO_DIR/scripts/generate-room-sim-ir.py" "$COEFFS_DIR" > /dev/null
-sed "s|COEFFS_DIR|$COEFFS_DIR|g" \
-    "$REPO_DIR/configs/local-demo/room-sim-convolver.conf" \
-    > "$PW_CONF_DIR/36-room-sim-convolver.conf"
-
-log "Coefficients and configs generated."
-
-# ---- 3. Start PipeWire ----
-
-log "Starting PipeWire test environment..."
-"$PW_TEST_ENV" start > /dev/null 2>&1
-PW_STARTED=true
-eval "$("$PW_TEST_ENV" env)"
-
-for i in $(seq 1 20); do
-    if [ -e "$XDG_RUNTIME_DIR/pipewire-0" ]; then break; fi
-    sleep 0.25
-done
-if [ ! -e "$XDG_RUNTIME_DIR/pipewire-0" ]; then
-    log_err "PipeWire socket not found"
-    exit 2
-fi
-log "PipeWire ready."
-
-# ---- 4. Start GraphManager ----
-
-"$GM_BIN" --listen tcp:127.0.0.1:$GM_PORT --mode monitoring --log-level warn 2>/tmp/gm-test-stderr.log &
-PIDS+=($!)
-sleep 1
-if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
-    log_err "GraphManager failed to start"
-    exit 2
-fi
-log "GraphManager running (PID ${PIDS[-1]})"
-
-# ---- 5. Start signal-gen (managed mode, mono) ----
-
-"$SG_BIN" --managed --channels 1 --rate 48000 \
-    --listen tcp:127.0.0.1:$SIGGEN_PORT --max-level-dbfs -20 2>/tmp/sg-test-stderr.log &
-PIDS+=($!)
-sleep 1
-if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
-    log_err "signal-gen failed to start"
-    exit 2
-fi
-log "signal-gen running (PID ${PIDS[-1]})"
-
-# ---- 6. Start level-bridge instances (managed mode) ----
-
-# 6a. level-bridge-sw (app output tap, 8ch)
-"$LB_BIN" --managed --node-name pi4audio-level-bridge-sw \
-    --mode capture --target unused-managed-mode \
-    --levels-listen tcp:127.0.0.1:$LEVEL_SW_PORT --channels 8 --rate 48000 2>/tmp/lb-sw-test.log &
-PIDS+=($!)
-sleep 0.5
-
-# 6b. level-bridge-hw-out (USBStreamer monitor, 8ch)
-"$LB_BIN" --managed --node-name pi4audio-level-bridge-hw-out \
-    --mode monitor --target alsa_output.usb-MiniDSP_USBStreamer \
-    --levels-listen tcp:127.0.0.1:$LEVEL_HW_OUT_PORT --channels 8 --rate 48000 2>/tmp/lb-hwout-test.log &
-PIDS+=($!)
-sleep 0.5
-
-# 6c. level-bridge-hw-in (ADA8200 capture, 8ch)
-"$LB_BIN" --managed --node-name pi4audio-level-bridge-hw-in \
-    --mode capture --target alsa_input.usb-MiniDSP_USBStreamer \
-    --levels-listen tcp:127.0.0.1:$LEVEL_HW_IN_PORT --channels 8 --rate 48000 2>/tmp/lb-hwin-test.log &
-PIDS+=($!)
-sleep 0.5
-
-for pid in "${PIDS[@]:2:3}"; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-        log_err "A level-bridge instance failed to start"
-        exit 2
-    fi
-done
-log "level-bridge instances running."
-
-# ---- 7. Start pcm-bridge (managed mode) ----
-
-"$PCM_BIN" --managed --mode monitor \
-    --listen tcp:127.0.0.1:$PCM_PORT --channels 4 --rate 48000 2>/tmp/pcm-test.log &
-PIDS+=($!)
-sleep 1
-if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
-    log_err "pcm-bridge failed to start"
-    exit 2
-fi
-log "pcm-bridge running."
-
-# ---- 8. Wait for GM reconciliation (monitoring mode) ----
-
-log "Waiting for GraphManager initial link reconciliation..."
-sleep 3
-
-# ---- 8b. Switch to measurement mode for full audio path verification ----
+# ---- 2. Switch to measurement mode for full audio path verification ----
 # Monitoring mode has no app linked. Measurement mode links signal-gen
 # to the convolver, which allows audio to flow through the full pipeline
 # and appear on level-bridge taps.
@@ -314,7 +151,7 @@ MODE_RESP=$(rpc_call 127.0.0.1 $GM_PORT '{"cmd":"set_mode","mode":"measurement"}
 log "set_mode response: $MODE_RESP"
 sleep 2  # allow reconciler to create measurement links
 
-# ---- 9. Send signal-gen play command ----
+# ---- 3. Send signal-gen play command (override the default mp3/sine) ----
 
 log "Commanding signal-gen to play 1 kHz sine at -20 dBFS..."
 PLAY_CMD='{"cmd":"play","signal":"sine","freq":1000.0,"level_dbfs":-20.0,"channels":[1]}'
@@ -381,7 +218,7 @@ else
         check_fail "get_links: ok=$LINKS_OK. Response: $LINKS_RESP"
     fi
 
-    # Verify we have at least some links established (monitoring mode expects 21 desired)
+    # Verify we have at least some links established
     if [ -n "$LINKS_DESIRED" ] && [ "$LINKS_DESIRED" -gt 0 ] 2>/dev/null; then
         check_pass "get_links: desired link count > 0 ($LINKS_DESIRED)"
     else
@@ -406,20 +243,13 @@ else
     if [ -z "$PEAK_ARRAY" ]; then
         check_fail "level-bridge-sw: no peak data in response"
     else
-        # Check if any peak value is above silence threshold (-100 dBFS)
-        # The peak array looks like [-20.0,-120.0,-120.0,...]. Check if at
-        # least one value is above -100.
         HAS_SIGNAL=false
-        # Strip brackets and split on commas
         PEAKS="${PEAK_ARRAY#[}"
         PEAKS="${PEAKS%]}"
         IFS=',' read -ra PEAK_VALUES <<< "$PEAKS"
         for val in "${PEAK_VALUES[@]}"; do
-            # Remove whitespace
             val="${val// /}"
-            # Compare as integer (truncate decimal) - bash can't do float comparison
             int_val="${val%%.*}"
-            # Handle negative: -20 > -100 means signal present
             if [ -n "$int_val" ] && [ "$int_val" != "-120" ] && [ "$int_val" -gt -100 ] 2>/dev/null; then
                 HAS_SIGNAL=true
                 break
@@ -492,15 +322,8 @@ else
 fi
 
 # ---- Check 8: US-077 timestamp monotonicity (level-bridge pos/nsec) ----
-#
-# DoD #3: Verify that the level-bridge levels JSON includes graph-clock
-# fields "pos" (u64 sample counter) and "nsec" (u64 wall-clock nanoseconds)
-# and that both increase monotonically across consecutive snapshots.
 
 log "Check 8: level-bridge timestamp monotonicity (US-077 DoD #3)"
-# Read 8 lines; skip the first (may be partial from mid-stream connection)
-# and filter out pos=0 lines (normal: double-buffer reset between PW callbacks).
-# Verify at least 3 non-zero snapshots have monotonically increasing pos/nsec.
 TS_LINES=$(read_levels_multi $LEVEL_SW_PORT 8)
 if [ -z "$TS_LINES" ]; then
     check_fail "timestamp check: no data from level-bridge-sw"
@@ -509,13 +332,8 @@ else
 import json, sys
 
 raw = [l.strip() for l in sys.stdin if l.strip()]
-# Skip the first line (may be partial from mid-stream connection).
 raw = raw[1:]
 
-# Parse all lines and filter out pos=0 snapshots. The level tracker
-# returns pos=0 when no new PW process callback data has arrived since
-# the last take_snapshot() (double-buffer reset). This is normal at
-# 30 Hz snapshot rate vs ~47 Hz PW callback rate.
 parsed = []
 for line in raw:
     try:
@@ -529,7 +347,6 @@ if len(parsed) < 3:
     print('error:got only %d non-zero snapshots, need at least 3' % len(parsed))
     sys.exit(0)
 
-# Check monotonicity across the non-zero snapshots.
 prev_pos = -1
 prev_nsec = -1
 for i, d in enumerate(parsed):
@@ -573,9 +390,6 @@ print('ok:%d snapshots, pos %d..%d, nsec %d..%d' % (
 fi
 
 # ---- Check 9: pcm-bridge binary v2 header includes timestamps (US-077 DoD #3) ----
-#
-# pcm-bridge serves binary frames: [version:1][pad:3][frame_count:4][graph_pos:8 LE][graph_nsec:8 LE][PCM...]
-# Read the first frame's 24-byte header and verify graph_pos/graph_nsec are non-zero.
 
 log "Check 9: pcm-bridge v2 header includes non-zero graph_pos/graph_nsec"
 PCM_TS_RESULT=$("$PYTHON" -c "
@@ -594,8 +408,6 @@ except Exception as e:
     print('error:connection failed: %s' % e)
     sys.exit(0)
 
-# Read frames until we get one with frame_count > 0 (skip heartbeats).
-# Try up to 10 reads over ~3 seconds.
 found = False
 for attempt in range(10):
     try:
@@ -622,10 +434,8 @@ for attempt in range(10):
     graph_nsec = struct.unpack_from('<Q', buf, 16)[0]
 
     if frame_count == 0:
-        # Heartbeat frame (24 bytes total, no PCM payload). Skip it.
         continue
 
-    # Data frame — consume the PCM payload before checking result.
     payload = b''
     remaining = frame_count * CHANNELS * 4
     while len(payload) < remaining:

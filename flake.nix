@@ -593,7 +593,6 @@
               export LOCAL_DEMO_LB_BIN="${level-bridge}/bin/level-bridge"
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
-              export LOCAL_DEMO_PW_TEST_ENV="${./scripts/local-pw-test-env.sh}"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
               export PATH="${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/local-demo.sh} "$@"
@@ -611,7 +610,6 @@
               export LOCAL_DEMO_LB_BIN="${level-bridge}/bin/level-bridge"
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
-              export LOCAL_DEMO_PW_TEST_ENV="${./scripts/local-pw-test-env.sh}"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
               export PATH="${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/test-integration.sh} "$@"
@@ -630,7 +628,6 @@
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
               export LOCAL_DEMO_E2E_PYTHON="${e2ePython}/bin/python"
-              export LOCAL_DEMO_PW_TEST_ENV="${./scripts/local-pw-test-env.sh}"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1

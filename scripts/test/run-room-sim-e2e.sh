@@ -15,7 +15,7 @@
 # Requires: Python with scipy, numpy, soundfile, pytest (provided by Nix)
 # Does NOT require PipeWire (pure Python simulation tests).
 # PipeWire headless tests (T-067-5) will use this script with additional
-# PW setup via local-pw-test-env.sh.
+# PW setup via local-demo.sh start.
 
 set -euo pipefail
 
