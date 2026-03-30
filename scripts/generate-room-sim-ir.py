@@ -71,9 +71,9 @@ ROOM_MODES = [
 # Multipliers per mode: [28.7 Hz, 42.5 Hz, 57.2 Hz]
 SUB_MODE_BOOST = [2.5, 2.0, 1.5]
 
-# Per-channel IR length: 1024 taps (~21ms at 48 kHz).
-# Captures direct sound + first/second order reflections.
-PER_CHANNEL_IR_TAPS = 1024
+# Per-channel IR length: 16384 taps (~341ms at 48 kHz).
+# Matches production FIR filters (D-040: 2.9 Hz resolution at 48 kHz).
+PER_CHANNEL_IR_TAPS = 16384
 
 
 def distance(p1, p2):
