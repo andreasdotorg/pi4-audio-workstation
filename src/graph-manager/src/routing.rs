@@ -295,13 +295,10 @@ const ADA8200_IN: &str = "ada8200-in";
 /// and the optional link is silently skipped.
 const UMIK1_LOOPBACK_SINK: &str = "umik1-loopback-sink";
 
-/// Room simulator filter-chain input (local-demo only, F-159/US-111).
-/// 4-channel filter-chain with per-channel room IR convolvers and gain
-/// normalization. All outputs sum at the UMIK-1 loopback sink via PW native
-/// port mixing.
-const ROOM_SIM_IN: &str = "pi4audio-room-sim";
-
 /// Room simulator filter-chain output (local-demo only, F-159/US-111).
+/// The room-sim capture side uses the USBStreamer name (T-111-06), so
+/// convolver→USBStreamer links route directly into it. Only the playback
+/// side (source) keeps a distinct name for hop-2 → UMIK-1 loopback.
 const ROOM_SIM_OUT: &str = "pi4audio-room-sim-out";
 
 // ---------------------------------------------------------------------------
@@ -724,30 +721,17 @@ impl RoutingTable {
             optional: true, // UMIK-1 may not be plugged in
         });
 
-        // F-159/US-111: Convolver → room-sim → UMIK-1 loopback (local-demo only).
-        // 4-channel room-sim: each convolver output channel feeds a per-channel
-        // room IR convolver with gain normalization. All N room-sim outputs link
-        // to the single UMIK-1 loopback sink port — PW natively sums multiple
-        // inputs connected to the same port. On production Pi (real mic, real
-        // room), these nodes don't exist and the optional links are silently
-        // skipped by the reconciler.
-        let cv_out = AppPortNaming::ConvolverOutput;
-        let rs_in = AppPortNaming::ConvolverInput;
+        // F-159/US-111: Room-sim output → UMIK-1 loopback (local-demo only).
+        // The room-sim capture side uses the USBStreamer name (T-111-06), so
+        // convolver→USBStreamer links (above) route directly into it. The
+        // room-sim playback side outputs N convolved speaker channels, all
+        // linked to the single UMIK-1 loopback sink port — PW natively sums
+        // multiple inputs to produce a mono simulated mic signal. On production
+        // Pi (real mic, real room), these nodes don't exist and the optional
+        // links are silently skipped by the reconciler.
         let rs_out = AppPortNaming::ConvolverOutput;
         let lb = AppPortNaming::Umik1LoopbackPlayback;
 
-        // Hop 1: convolver-out ch1..N → room-sim input ch1..N (1:1 mapping)
-        for ch in 1..=layout.num_speaker_channels {
-            links.push(DesiredLink {
-                output_node: NodeMatch::Exact(CONVOLVER_OUT.to_string()),
-                output_port: cv_out.port_name(ch),
-                input_node: NodeMatch::Exact(ROOM_SIM_IN.to_string()),
-                input_port: rs_in.port_name(ch),
-                optional: true, // only present in local-demo
-            });
-        }
-
-        // Hop 2: room-sim output ch1..N → UMIK-1 loopback sink (all → same port, PW sums)
         for ch in 1..=layout.num_speaker_channels {
             links.push(DesiredLink {
                 output_node: NodeMatch::Exact(ROOM_SIM_OUT.to_string()),
@@ -1070,14 +1054,14 @@ mod tests {
     }
 
     #[test]
-    fn measurement_has_35_links() {
+    fn measurement_has_31_links() {
         // F-097: signal-gen mono fan-out → convolver (4) + convolver → USBStreamer (4)
         // + US-088: UMIK-1 → pcm-bridge (1) + UMIK-1 → signal-gen-capture (1)
         // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
         // + F-124: signal-gen → level-bridge-sw (1)
-        // + US-111: convolver→room-sim (4) + room-sim→UMIK-1 loopback (4) = 35.
+        // + US-111: room-sim→UMIK-1 loopback (4) = 31.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Measurement).len(), 35);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 31);
     }
 
     #[test]
@@ -1926,14 +1910,14 @@ mod tests {
     }
 
     #[test]
-    fn three_way_measurement_has_43_links() {
+    fn three_way_measurement_has_37_links() {
         // signal-gen mono fan-out → convolver (6) + convolver → USBStreamer (6)
         // + UMIK-1 → pcm-bridge (1) + UMIK-1 → signal-gen-capture (1)
         // + level-bridge-hw-out (8) + level-bridge-hw-in (8)
         // + level-bridge-sw (1)
-        // + US-111: room-sim hops (6+6=12) = 43.
+        // + US-111: room-sim→UMIK-1 loopback (6) = 37.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
-        assert_eq!(table.links_for(Mode::Measurement).len(), 43);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 37);
     }
 
     #[test]
