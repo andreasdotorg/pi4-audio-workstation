@@ -164,7 +164,7 @@
                     if (resp.body.conf_updated) {
                         detail += " PW config updated.";
                     }
-                    detail += " Reload PipeWire to activate.";
+                    detail += " Reload filters to activate.";
                     setVersionStatus(detail, "c-safe");
                     showRollbackVerification(resp.body.verification);
                     loadVersions();

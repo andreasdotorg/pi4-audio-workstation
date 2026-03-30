@@ -8,10 +8,11 @@ SAFETY: This module refuses to deploy filters that have not passed
 verification (run_all_checks). The deploy function requires explicit
 confirmation that verification passed.
 
-NOTE: On the Pi, restarting PipeWire will cause the USBStreamer to lose
-its audio stream, producing transients through the amp chain. The deploy
-function prints a warning. The caller (runner.py) should confirm with the
-user before proceeding.
+NOTE: ``reload_convolver()`` is the preferred reload mechanism — it
+destroys only the convolver node, PipeWire auto-recreates it, and all
+other clients stay connected (no USBStreamer reset, no transient risk).
+``reload_pipewire()`` is retained for emergencies but should not be used
+for normal filter switching (see F-221).
 
 TK-166: Supports versioned (timestamped) filenames for deployment
 traceability. Each deployment uses unique paths so that deployed versions
@@ -354,3 +355,52 @@ def reload_pipewire():
     except Exception as e:
         print(f"  WARNING: PipeWire restart failed: {e}")
         return False
+
+
+def reload_convolver(node_name: str = "pi4audio-convolver",
+                     timeout_s: float = 5.0) -> bool:
+    """Reload convolver by destroying the node — PipeWire auto-recreates it.
+
+    This is the NON-DISRUPTIVE reload mechanism: only the convolver node is
+    affected.  All other PW clients (GM, signal-gen, pcm-bridge, Mixxx, etc.)
+    stay connected.  No USBStreamer reset, no transient risk.
+
+    PipeWire's filter-chain module re-reads its ``.conf.d/`` drop-ins when
+    the node is destroyed, recreating it with updated coefficients.
+    GraphManager re-links the new node (~1-2 s audio gap).
+
+    Returns
+    -------
+    bool
+        True if the node was destroyed and reappeared within *timeout_s*.
+    """
+    import subprocess
+    import time
+
+    try:
+        subprocess.run(
+            ["pw-cli", "destroy", node_name],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        print(f"  WARNING: pw-cli destroy failed: {exc}")
+        return False
+
+    # Wait for PipeWire to recreate the node from .conf.d/.
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        time.sleep(0.5)
+        try:
+            result = subprocess.run(
+                ["pw-cli", "list-objects", "Node"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if node_name in result.stdout:
+                print(f"  Convolver node '{node_name}' recreated.")
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    print(f"  WARNING: Convolver node '{node_name}' did not reappear "
+          f"within {timeout_s:.0f}s.")
+    return False

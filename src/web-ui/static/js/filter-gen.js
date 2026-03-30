@@ -8,8 +8,8 @@
  * Supports mode selection: crossover-only or crossover+correction,
  * SPL preset buttons (ISO 226), and N-way topology channel display.
  *
- * Deploy panel (T-090-5): deploy filters to Pi, reload PipeWire with
- * explicit safety confirmation (USBStreamer transient risk).
+ * Deploy panel (T-090-5): deploy filters to Pi, reload convolver with
+ * confirmation (brief audio gap during re-link).
  */
 
 "use strict";
@@ -504,7 +504,7 @@
         var btn = $("fir-reload-btn");
         if (btn) btn.disabled = true;
         setReloadSpinner(true);
-        setReloadStatus("Restarting PipeWire...", "c-warning");
+        setReloadStatus("Reloading convolver...", "c-warning");
 
         fetch(API_RELOAD, {
             method: "POST",
@@ -518,7 +518,7 @@
                 setReloadSpinner(false);
 
                 if (resp.status === 200 && resp.body.reloaded) {
-                    setReloadStatus("PipeWire reloaded successfully. New filters active.", "c-safe");
+                    setReloadStatus("Convolver reloaded. New filters active.", "c-safe");
                     deployedButNotReloaded = false;
                     // Remove pending badge
                     var resultEl = $("fir-deploy-result");

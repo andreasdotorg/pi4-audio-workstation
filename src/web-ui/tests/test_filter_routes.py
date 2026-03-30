@@ -444,7 +444,7 @@ class TestDeployEndpoint:
                 {"file": "combined_left_hp.wav", "d009_pass": True, "d009_peak_db": -1.2},
             ],
             "reload_required": True,
-            "reload_warning": "PipeWire must be restarted...",
+            "reload_warning": "Convolver must be reloaded...",
         }
         resp = client.post(
             "/api/v1/filters/deploy",
@@ -528,7 +528,7 @@ class TestDeployEndpoint:
                 {"file": "combined_left_hp.wav", "d009_pass": True, "d009_peak_db": -1.5},
             ],
             "reload_required": True,
-            "reload_warning": "PipeWire must be restarted...",
+            "reload_warning": "Convolver must be reloaded...",
         }
         resp = client.post(
             "/api/v1/filters/deploy",
@@ -607,7 +607,7 @@ class TestReloadPWEndpoint:
         assert resp.status_code == 400
         data = resp.json()
         assert data["error"] == "confirmation_required"
-        assert "USBStreamer" in data["detail"]
+        assert "audio gap" in data["detail"]
 
     def test_reload_confirmed_false(self, client):
         """Explicit confirmed=false should also be rejected."""
@@ -618,7 +618,7 @@ class TestReloadPWEndpoint:
         assert resp.status_code == 400
         assert resp.json()["error"] == "confirmation_required"
 
-    @patch("room_correction.deploy.reload_pipewire", return_value=True)
+    @patch("room_correction.deploy.reload_convolver", return_value=True)
     def test_reload_confirmed_success(self, mock_reload, client):
         resp = client.post(
             "/api/v1/filters/reload-pw",
@@ -628,9 +628,9 @@ class TestReloadPWEndpoint:
         assert resp.json()["reloaded"] is True
         mock_reload.assert_called_once()
 
-    @patch("room_correction.deploy.reload_pipewire", return_value=False)
+    @patch("room_correction.deploy.reload_convolver", return_value=False)
     def test_reload_confirmed_unavailable(self, mock_reload, client):
-        """When systemctl is missing or restart fails, return 503."""
+        """When pw-cli is missing or node doesn't reappear, return 503."""
         resp = client.post(
             "/api/v1/filters/reload-pw",
             json={"confirmed": True},
@@ -639,7 +639,7 @@ class TestReloadPWEndpoint:
         data = resp.json()
         assert data["error"] == "reload_unavailable"
 
-    @patch("room_correction.deploy.reload_pipewire", side_effect=RuntimeError("systemd crashed"))
+    @patch("room_correction.deploy.reload_convolver", side_effect=RuntimeError("systemd crashed"))
     def test_reload_exception(self, mock_reload, client):
         resp = client.post(
             "/api/v1/filters/reload-pw",
@@ -779,7 +779,7 @@ class TestRollbackEndpoint:
                  "d009_pass": True, "d009_peak_db": -1.2},
             ],
             "reload_required": True,
-            "reload_warning": "PipeWire must be restarted...",
+            "reload_warning": "Convolver must be reloaded...",
         }
         resp = client.post(
             "/api/v1/filters/rollback",

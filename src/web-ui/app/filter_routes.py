@@ -2,7 +2,7 @@
 
 POST /api/v1/filters/generate — Generate crossover FIR filters + PW config
 POST /api/v1/filters/deploy — Deploy filters with D-009 safety interlock
-POST /api/v1/filters/reload-pw — Reload PipeWire (requires confirmation)
+POST /api/v1/filters/reload-pw — Reload convolver node (requires confirmation)
 GET  /api/v1/filters/versions — List deployed filter versions per channel
 GET  /api/v1/filters/active — Return currently active filter files
 POST /api/v1/filters/rollback — Revert to a previous filter version
@@ -136,7 +136,7 @@ class FilterDeployRequest(BaseModel):
 
 
 class ReloadPWRequest(BaseModel):
-    """Request body for POST /api/v1/filters/reload-pw."""
+    """Request body for POST /api/v1/filters/reload-pw (convolver reload)."""
     confirmed: bool = False
 
 
@@ -523,10 +523,9 @@ def _run_deploy(req: FilterDeployRequest) -> dict:
         "verification": verifications,
         "reload_required": True,
         "reload_warning": (
-            "PipeWire must be restarted to load new filters. "
-            "WARNING: Restarting PipeWire resets the USBStreamer, producing "
-            "transients through the amplifier chain. Ensure amplifiers are "
-            "OFF or MUTED before calling POST /api/v1/filters/reload-pw."
+            "Convolver must be reloaded to apply new filters. "
+            "Brief audio gap (~1-2 s) while GraphManager re-links. "
+            "Call POST /api/v1/filters/reload-pw with confirmed=true."
         ),
     }
 
@@ -539,9 +538,8 @@ async def deploy_filters_endpoint(req: FilterDeployRequest):
     (gain <= -0.5 dB at every frequency). Deployment is refused if any
     filter fails.
 
-    Does NOT auto-reload PipeWire (USBStreamer transient safety).
-    Use POST /api/v1/filters/reload-pw separately after confirming amps
-    are off/muted.
+    Does NOT auto-reload the convolver. Use POST /api/v1/filters/reload-pw
+    separately to apply filters (brief audio gap).
     """
     # S-001 residual: restrict output_dir to within DEFAULT_OUTPUT_DIR
     if not os.path.abspath(req.output_dir).startswith(
@@ -577,11 +575,15 @@ async def deploy_filters_endpoint(req: FilterDeployRequest):
 
 @router.post("/reload-pw")
 async def reload_pw_endpoint(req: ReloadPWRequest):
-    """Reload PipeWire filter-chain by restarting the PipeWire user service.
+    """Reload PipeWire convolver node to pick up new filter coefficients.
 
-    Requires ``confirmed: true`` in the request body as an explicit safety
-    acknowledgment. Restarting PipeWire resets the USBStreamer, producing
-    transients through the amplifier chain that can damage speakers.
+    Uses ``pw-cli destroy`` to remove the convolver node — PipeWire
+    auto-recreates it from ``.conf.d/`` drop-ins with updated WAV files.
+    This is NON-DISRUPTIVE: only the convolver is affected, all other
+    PW clients stay connected, no USBStreamer reset, no transient risk.
+
+    Requires ``confirmed: true`` as acknowledgment of brief audio gap
+    (~1-2 s while GraphManager re-links).
     """
     if not req.confirmed:
         return JSONResponse(
@@ -589,35 +591,35 @@ async def reload_pw_endpoint(req: ReloadPWRequest):
             content={
                 "error": "confirmation_required",
                 "detail": (
-                    "Restarting PipeWire resets the USBStreamer, producing "
-                    "transients through the amplifier chain. Set "
-                    "'confirmed: true' to acknowledge this risk."
+                    "Reloading the convolver causes a brief audio gap "
+                    "(~1-2 seconds) while GraphManager re-links. Set "
+                    "'confirmed: true' to acknowledge."
                 ),
             },
         )
 
-    from room_correction.deploy import reload_pipewire
+    from room_correction.deploy import reload_convolver
 
-    log.warning("PipeWire reload requested via API (confirmed=true)")
+    log.warning("Convolver reload requested via API (confirmed=true)")
     try:
-        success = await asyncio.to_thread(reload_pipewire)
+        success = await asyncio.to_thread(reload_convolver)
     except Exception as e:
-        log.exception("PipeWire reload failed")
+        log.exception("Convolver reload failed")
         return JSONResponse(
             status_code=500,
             content={"error": "reload_failed", "detail": str(e)},
         )
 
     if success:
-        log.info("PipeWire reloaded successfully via API")
+        log.info("Convolver reloaded successfully via API")
         return {"reloaded": True}
     else:
         return JSONResponse(
             status_code=503,
             content={
                 "error": "reload_unavailable",
-                "detail": "systemctl not available or restart failed. "
-                          "Manual reload may be required.",
+                "detail": "pw-cli not available or convolver node did not "
+                          "reappear. Manual reload may be required.",
             },
         )
 
@@ -944,10 +946,9 @@ def _run_rollback(req: RollbackRequest) -> dict:
         "verification": verifications,
         "reload_required": True,
         "reload_warning": (
-            "PipeWire must be restarted to load rolled-back filters. "
-            "WARNING: Restarting PipeWire resets the USBStreamer. Ensure "
-            "amplifiers are OFF or MUTED before calling "
-            "POST /api/v1/filters/reload-pw."
+            "Convolver must be reloaded to apply rolled-back filters. "
+            "Brief audio gap (~1-2 s) while GraphManager re-links. "
+            "Call POST /api/v1/filters/reload-pw with confirmed=true."
         ),
     }
 
@@ -960,7 +961,7 @@ async def rollback_filters(req: RollbackRequest):
     compliance on each (safety interlock), and updates the PipeWire config
     to reference them.
 
-    Does NOT auto-reload PipeWire (USBStreamer transient safety).
+    Does NOT auto-reload the convolver (brief audio gap).
     """
     try:
         result = await asyncio.to_thread(_run_rollback, req)

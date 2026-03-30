@@ -19,6 +19,7 @@ from room_correction.deploy import (
     list_versioned_files,
     _get_active_filenames,
     cleanup_old_coefficients,
+    reload_convolver,
     reload_pipewire,
 )
 from room_correction.export import CHANNEL_FILENAMES, versioned_filename
@@ -410,3 +411,57 @@ class TestReloadPipewire:
         # Should have called the custom command, not systemctl
         cmd_arg = mock_run.call_args[0][0]
         assert cmd_arg == "my-reload"
+
+
+class TestReloadConvolver:
+    """Tests for reload_convolver() — non-disruptive convolver node reload."""
+
+    def test_success(self):
+        """pw-cli destroy + node reappears → True."""
+        with mock.patch("subprocess.run") as mock_run:
+            # First call: pw-cli destroy (succeeds)
+            # Second call: pw-cli list-objects (node found)
+            mock_run.side_effect = [
+                mock.Mock(returncode=0),
+                mock.Mock(returncode=0, stdout="pi4audio-convolver"),
+            ]
+            result = reload_convolver(timeout_s=1.0)
+        assert result is True
+        assert mock_run.call_count == 2
+
+    def test_node_not_found_after_timeout(self):
+        """pw-cli destroy succeeds but node doesn't reappear → False."""
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.Mock(returncode=0),  # destroy
+                mock.Mock(returncode=0, stdout="some-other-node"),  # list 1
+                mock.Mock(returncode=0, stdout="some-other-node"),  # list 2
+            ]
+            result = reload_convolver(timeout_s=0.6)
+        assert result is False
+
+    def test_destroy_file_not_found(self):
+        """pw-cli not available → False."""
+        with mock.patch("subprocess.run", side_effect=FileNotFoundError("pw-cli")):
+            result = reload_convolver()
+        assert result is False
+
+    def test_destroy_timeout(self):
+        """pw-cli destroy times out → False."""
+        import subprocess as sp
+        with mock.patch("subprocess.run", side_effect=sp.TimeoutExpired("cmd", 5)):
+            result = reload_convolver()
+        assert result is False
+
+    def test_custom_node_name(self):
+        """Custom node name is passed to pw-cli."""
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                mock.Mock(returncode=0),
+                mock.Mock(returncode=0, stdout="my-custom-convolver"),
+            ]
+            result = reload_convolver(node_name="my-custom-convolver", timeout_s=1.0)
+        assert result is True
+        # Verify destroy used the custom name
+        destroy_cmd = mock_run.call_args_list[0][0][0]
+        assert destroy_cmd == ["pw-cli", "destroy", "my-custom-convolver"]

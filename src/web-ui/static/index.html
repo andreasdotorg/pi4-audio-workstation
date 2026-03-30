@@ -492,16 +492,16 @@
                 <div class="fir-deploy-result hidden" id="fir-deploy-result"></div>
                 <div class="fir-reload-section hidden" id="fir-reload-section">
                     <div class="fir-reload-warning">
-                        Restarting PipeWire will interrupt audio output. Ensure amplifiers are OFF or system is MUTED.
+                        Reloading the convolver causes a brief audio gap (~1-2 s) while GraphManager re-links.
                     </div>
                     <label class="fir-reload-confirm-label">
                         <input type="checkbox" id="fir-reload-confirm-cb">
-                        <span>I confirm amps are off / system is muted</span>
+                        <span>I acknowledge the brief audio interruption</span>
                     </label>
                     <div class="fir-deploy-actions">
                         <button class="cfg-apply-btn fir-reload-btn" id="fir-reload-btn" type="button" disabled
-                                title="Restart PipeWire to load new filters — WARNING: interrupts audio">
-                            RELOAD PIPEWIRE
+                                title="Reload convolver to apply new filters — brief audio gap">
+                            RELOAD FILTERS
                         </button>
                         <span class="fir-spinner hidden" id="fir-reload-spinner"></span>
                     </div>

@@ -1281,35 +1281,11 @@ class MeasurementSession:
                           timeout_s: float = 5.0) -> None:
         """Destroy and wait for PipeWire to recreate the convolver node.
 
-        PipeWire's filter-chain module re-reads its .conf.d/ drop-ins when
-        the node is destroyed, recreating it with updated coefficients.
+        Delegates to the shared ``reload_convolver()`` in
+        ``room_correction.deploy`` (F-221).
         """
-        import subprocess
-
-        log.info("Reloading convolver: destroying node '%s'", node_name)
-        try:
-            subprocess.run(
-                ["pw-cli", "destroy", node_name],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-            log.warning("pw-cli destroy failed (non-fatal): %s", exc)
-            return
-
-        # Wait for PipeWire to recreate the node from .conf.d/.
-        import time
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            time.sleep(0.5)
-            result = subprocess.run(
-                ["pw-cli", "list-objects", "Node"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if node_name in result.stdout:
-                log.info("Convolver node '%s' recreated", node_name)
-                return
-        log.warning("Convolver node '%s' did not reappear within %.0fs",
-                    node_name, timeout_s)
+        from room_correction.deploy import reload_convolver
+        reload_convolver(node_name=node_name, timeout_s=timeout_s)
 
     # -- VERIFY --------------------------------------------------------------
 

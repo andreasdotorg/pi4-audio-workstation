@@ -442,10 +442,7 @@ export PI4AUDIO_LEVELS_SW_PORT=9100
 export PI4AUDIO_LEVELS_HW_OUT_PORT=0
 export PI4AUDIO_LEVELS_HW_IN_PORT=0
 export PI4AUDIO_SKIP_GM_RECOVERY=1
-# Filter reload: restart the local-demo PW (not the host's systemd PW).
-# NOTE: Restarting PW kills all connected PW clients (GM, signal-gen, etc.).
-# The web UI will show disconnected state. Re-run local-demo.sh to recover.
-export PI4AUDIO_PW_RELOAD_CMD="$PW_TEST_ENV stop && $PW_TEST_ENV start"
+# Filter reload uses pw-cli destroy (F-221) — no full PW restart needed.
 export PI4AUDIO_SIGGEN=1
 # F-201: pcm-bridge runs with --channels 4, web-ui must match.
 export PI4AUDIO_PCM_CHANNELS=4

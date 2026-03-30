@@ -723,82 +723,37 @@ class TestVerificationFrequencyResponse:
 class TestReloadConvolver:
     """Tests for MeasurementSession._reload_convolver().
 
-    The static method calls `pw-cli destroy <node>`, then polls
-    `pw-cli list-objects Node` until the node reappears or timeout.
+    After F-221, this static method delegates to
+    ``room_correction.deploy.reload_convolver()``.  Detailed behaviour
+    (timeout, FileNotFoundError, etc.) is covered by
+    ``test_deploy.py::TestReloadConvolver``.  Here we verify the
+    delegation contract: correct arguments forwarded and return value
+    propagated.
     """
 
-    @patch("subprocess.run")
-    def test_happy_path_node_reappears(self, mock_run):
-        """Node reappears on first poll after destroy."""
-        # First call: pw-cli destroy (success)
-        destroy_result = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        # Second call: pw-cli list-objects → node present
-        list_result = type("R", (), {
-            "returncode": 0,
-            "stdout": "id 42, type PipeWire:Interface:Node/3\n"
-                      "  node.name = \"pi4audio-convolver\"\n",
-            "stderr": "",
-        })()
-        mock_run.side_effect = [destroy_result, list_result]
+    @patch("room_correction.deploy.reload_convolver")
+    def test_delegates_with_defaults(self, mock_rc):
+        """Default call forwards default node_name and timeout_s."""
+        mock_rc.return_value = True
+        MeasurementSession._reload_convolver()
+        mock_rc.assert_called_once_with(
+            node_name="pi4audio-convolver", timeout_s=5.0,
+        )
 
-        with patch("time.sleep"):
-            MeasurementSession._reload_convolver(timeout_s=5.0)
+    @patch("room_correction.deploy.reload_convolver")
+    def test_delegates_custom_args(self, mock_rc):
+        """Custom node_name and timeout_s are forwarded."""
+        mock_rc.return_value = True
+        MeasurementSession._reload_convolver(
+            node_name="my-conv", timeout_s=2.0,
+        )
+        mock_rc.assert_called_once_with(
+            node_name="my-conv", timeout_s=2.0,
+        )
 
-        assert mock_run.call_count == 2
-        # First call is destroy
-        assert mock_run.call_args_list[0][0][0] == ["pw-cli", "destroy", "pi4audio-convolver"]
-        # Second call is list-objects poll
-        assert mock_run.call_args_list[1][0][0] == ["pw-cli", "list-objects", "Node"]
-
-    @patch("subprocess.run")
-    def test_timeout_node_never_reappears(self, mock_run, caplog):
-        """Node doesn't reappear within timeout → warning logged."""
-        destroy_result = type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        # All poll calls: node absent
-        absent_result = type("R", (), {
-            "returncode": 0,
-            "stdout": "id 10, type PipeWire:Interface:Node/3\n"
-                      "  node.name = \"other-node\"\n",
-            "stderr": "",
-        })()
-        mock_run.side_effect = [destroy_result] + [absent_result] * 20
-
-        # Use a fake monotonic clock that advances 1s per call so the
-        # 5s timeout expires after a few iterations.
-        call_count = [0]
-        def fake_monotonic():
-            val = call_count[0] * 1.0
-            call_count[0] += 1
-            return val
-
-        import logging
-        with patch("time.sleep"), patch("time.monotonic", side_effect=fake_monotonic), \
-             caplog.at_level(logging.WARNING):
-            MeasurementSession._reload_convolver(timeout_s=5.0)
-
-        assert "did not reappear" in caplog.text
-
-    @patch("subprocess.run")
-    def test_destroy_timeout_returns_early(self, mock_run, caplog):
-        """pw-cli destroy times out → logs warning, returns without polling."""
-        import subprocess as sp
-        mock_run.side_effect = sp.TimeoutExpired(cmd="pw-cli", timeout=5)
-
-        import logging
-        with caplog.at_level(logging.WARNING):
-            MeasurementSession._reload_convolver()
-
-        assert mock_run.call_count == 1
-        assert "pw-cli destroy failed" in caplog.text
-
-    @patch("subprocess.run")
-    def test_destroy_file_not_found_returns_early(self, mock_run, caplog):
-        """pw-cli not installed → FileNotFoundError, logs warning, no poll."""
-        mock_run.side_effect = FileNotFoundError("pw-cli not found")
-
-        import logging
-        with caplog.at_level(logging.WARNING):
-            MeasurementSession._reload_convolver()
-
-        assert mock_run.call_count == 1
-        assert "pw-cli destroy failed" in caplog.text
+    @patch("room_correction.deploy.reload_convolver")
+    def test_failure_does_not_raise(self, mock_rc):
+        """When reload_convolver returns False, _reload_convolver doesn't raise."""
+        mock_rc.return_value = False
+        # Should not raise
+        MeasurementSession._reload_convolver()
