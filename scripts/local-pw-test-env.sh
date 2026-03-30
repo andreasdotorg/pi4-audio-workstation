@@ -153,28 +153,12 @@ context.objects = [
     # The source node keeps the production name for GM routing:
     #   Prefix("alsa_input.usb-miniDSP_UMIK-1") -> capture_MONO port.
 
-    # ADA8200 ADC capture replacement: 8ch null Audio/Duplex.
-    # Production: WirePlumber renames the ADA8200's ADAT input to "ada8200-in".
+    # ADA8200 ADC capture: replaced by loopback module (US-111 T-111-05).
+    # The loopback config is injected by local-demo.sh as a separate
+    # drop-in file (ada8200-in-loopback.conf). It is self-activating
+    # (no WP needed) and uses Audio/Source matching production.
     # GM uses Exact("ada8200-in") match for level-bridge-hw-in links (8 links)
     # and live mode Reaper capture links.
-    # Ports: capture_AUX0..AUX7 (ch 1 vocal mic, ch 2 spare, etc.).
-    { factory = adapter
-        args = {
-            factory.name     = support.null-audio-sink
-            node.name        = "ada8200-in"
-            media.class      = Audio/Duplex
-            object.linger    = true
-            node.driver      = true
-            audio.channels   = 8
-            audio.rate       = 48000
-            audio.position   = [ AUX0 AUX1 AUX2 AUX3 AUX4 AUX5 AUX6 AUX7 ]
-            node.autoconnect = false
-            node.always-process = true
-            node.latency     = 1024/48000
-            session.suspend-timeout-seconds = 0
-            node.pause-on-idle = false
-        }
-    }
 ]
 
 # NOTE: The filter-chain convolver config is injected by local-demo.sh

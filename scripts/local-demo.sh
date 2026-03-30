@@ -237,6 +237,13 @@ install -m 644 "$REPO_DIR/configs/local-demo/umik1-loopback.conf" \
     "$PW_CONF_DIR/35-umik1-loopback.conf"
 echo "[local-demo] UMIK-1 loopback config installed (measurement E2E)"
 
+# US-111 T-111-05: Install ADA8200 ADC capture loopback config.
+# Replaces the null-audio-sink adapter in pw-test-env.sh with a self-activating
+# loopback module. Uses Audio/Source matching production (not Audio/Duplex).
+install -m 644 "$REPO_DIR/configs/local-demo/ada8200-in-loopback.conf" \
+    "$PW_CONF_DIR/37-ada8200-in-loopback.conf"
+echo "[local-demo] ADA8200 loopback config installed (8ch ADC capture)"
+
 # F-159/US-111: Generate per-channel room simulator IRs and install config.
 # The 4-channel room-sim filter-chain applies per-channel synthetic room IRs
 # between the speaker convolver outputs and the UMIK-1 loopback sink. Each
@@ -508,7 +515,8 @@ echo "  PW nodes:     alsa_output.usb-MiniDSP_USBStreamer (null sink)"
 echo "                alsa_input.usb-MiniDSP_USBStreamer (null source)"
 echo "                alsa_input.usb-miniDSP_Umik-1 (loopback source, mono)"
 echo "                umik1-loopback-sink (loopback sink, mono)"
-echo "                ada8200-in (null source, 8ch ADC capture)"
+echo "                ada8200-in (loopback source, 8ch ADC capture)"
+echo "                ada8200-in-loopback-sink (loopback sink, 8ch)"
 echo "                pi4audio-convolver (filter-chain, dirac passthrough)"
 echo "                pi4audio-convolver-out (filter-chain output)"
 echo "                pi4audio-room-sim (room-sim, 4ch per-channel IRs, US-111)"
