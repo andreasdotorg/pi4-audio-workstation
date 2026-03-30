@@ -11,7 +11,7 @@ T-072-19a (US-072: NixOS Build)
 ## 1. Prerequisites
 
 - Nix with flakes enabled on the build host
-- SSH access to the target Pi (key-based, passwordless sudo)
+- SSH access to the target Pi as user `ela` (key-based, passwordless sudo)
 - The Pi must be network-reachable from the build host
 - For nixos-anywhere: the Pi must be running some Linux with SSH access
   (DietPi, Raspberry Pi OS, or an existing NixOS install)
@@ -46,8 +46,8 @@ What nixos-anywhere does:
 After installation, run the smoke test to verify:
 
 ```sh
-scp scripts/nixos-smoke-test.sh root@192.168.178.35:/tmp/
-ssh root@192.168.178.35 bash /tmp/nixos-smoke-test.sh
+scp scripts/nixos-smoke-test.sh ela@192.168.178.35:/tmp/
+ssh ela@192.168.178.35 sudo bash /tmp/nixos-smoke-test.sh
 ```
 
 
@@ -61,8 +61,14 @@ switches to it, and runs activation scripts. No repartitioning, no data loss.
 # From the project root on the build host:
 nixos-rebuild switch \
     --flake .#mugge-deploy \
-    --target-host root@192.168.178.35
+    --target-host ela@192.168.178.35 \
+    --use-remote-sudo
 ```
+
+The `--use-remote-sudo` flag runs activation commands via `sudo` on the
+target. This works because user `ela` has passwordless sudo configured
+in the NixOS config (`security.sudo.wheelNeedsPassword = false`). Root
+SSH login is disabled for security (`PermitRootLogin = "no"`).
 
 What nixos-rebuild does:
 1. Evaluates the NixOS configuration on the build host
@@ -90,9 +96,13 @@ immediately. Services are restarted as needed by NixOS's activation logic.
 | Scenario | Method | Command |
 |----------|--------|---------|
 | First install (non-NixOS Pi) | nixos-anywhere | `nix run github:nix-community/nixos-anywhere -- --flake .#mugge-deploy root@<ip>` |
-| Incremental config/code change | nixos-rebuild | `nixos-rebuild switch --flake .#mugge-deploy --target-host root@<ip>` |
+| Incremental config/code change | nixos-rebuild | `nixos-rebuild switch --flake .#mugge-deploy --target-host ela@<ip> --use-remote-sudo` |
 | Wipe and reinstall | nixos-anywhere | Same as first install |
-| Kernel/firmware update | nixos-rebuild + reboot | `nixos-rebuild switch ...` then `ssh root@<ip> reboot` |
+| Kernel/firmware update | nixos-rebuild + reboot | `nixos-rebuild switch ...` then `ssh ela@<ip> sudo reboot` |
+
+**Note:** `nixos-anywhere` requires root SSH on the **source** OS (before
+NixOS is installed). After NixOS installation, root SSH is disabled —
+all subsequent operations use `ela` with `--use-remote-sudo`.
 
 **Always use `mugge-deploy`** (not `mugge`). The `mugge` configuration is
 for building SD card images; `mugge-deploy` includes the disko partitioning
@@ -151,7 +161,7 @@ nix flake update
 nix flake update nixpkgs
 
 # Then deploy
-nixos-rebuild switch --flake .#mugge-deploy --target-host root@<ip>
+nixos-rebuild switch --flake .#mugge-deploy --target-host ela@<ip> --use-remote-sudo
 ```
 
 After updating inputs, run the full test suite before deploying:

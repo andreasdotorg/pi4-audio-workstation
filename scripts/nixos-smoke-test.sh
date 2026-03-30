@@ -6,8 +6,8 @@
 # after nixos-anywhere initial install or nixos-rebuild switch.
 #
 # Usage:
-#   ssh root@<pi-ip> bash /path/to/nixos-smoke-test.sh
-#   # or copy to Pi and run as the 'ela' user (most checks need ela's user services)
+#   scp nixos-smoke-test.sh ela@<pi-ip>:/tmp/
+#   ssh ela@<pi-ip> sudo bash /tmp/nixos-smoke-test.sh
 #
 # Exit codes:
 #   0 — all checks passed
@@ -26,6 +26,27 @@ fail() { printf "  FAIL  %s\n" "$1"; ((FAIL++)); }
 warn() { printf "  WARN  %s\n" "$1"; ((WARN++)); }
 
 section() { printf "\n=== %s ===\n" "$1"; }
+
+# ── USB audio hardware detection ─────────────────────────────────────
+# Check if USBStreamer is connected. Services that depend on it will
+# report WARN instead of FAIL when it's absent (test Pi may not have
+# audio hardware connected).
+HAS_USBSTREAMER=false
+if lsusb 2>/dev/null | grep -qi "MiniDSP\|USBStreamer"; then
+    HAS_USBSTREAMER=true
+    printf "USBStreamer detected — full hardware checks enabled\n"
+else
+    printf "USBStreamer NOT detected — hardware-dependent checks will WARN instead of FAIL\n"
+fi
+
+# Fail or warn depending on whether USB audio hardware is expected.
+hw_check() {
+    if [ "$HAS_USBSTREAMER" = true ]; then
+        fail "$1"
+    else
+        warn "$1 (USBStreamer not connected)"
+    fi
+}
 
 # ── 1. Kernel ──────────────────────────────────────────────────────────
 section "Kernel"
@@ -75,7 +96,7 @@ section "Audio pipeline"
 if sudo -u ela XDG_RUNTIME_DIR="/run/user/$(id -u ela)" pw-cli ls Node 2>/dev/null | grep -qi "convolver"; then
     pass "Convolver node present in PipeWire graph"
 else
-    fail "Convolver node NOT found in PipeWire graph"
+    hw_check "Convolver node NOT found in PipeWire graph"
 fi
 
 # ── 6. FIR coefficient files ──────────────────────────────────────────
@@ -125,12 +146,29 @@ INSTANCE_SERVICES=(
     "level-bridge-hw-in.service"
 )
 
+# Services that depend on USB audio hardware (USBStreamer).
+# These may fail on a test Pi without audio interfaces connected.
+HW_SERVICES=(
+    "pcm-bridge-capture-usb.service"
+    "level-bridge-hw-out.service"
+    "level-bridge-hw-in.service"
+)
+
 for svc in "${SERVICES[@]}" "${INSTANCE_SERVICES[@]}"; do
     STATE=$(run_userctl is-active "$svc" || true)
     if [ "$STATE" = "active" ]; then
         pass "Service active: $svc"
     else
-        fail "Service not active ($STATE): $svc"
+        # Check if this is a hardware-dependent service
+        IS_HW=false
+        for hw_svc in "${HW_SERVICES[@]}"; do
+            if [ "$svc" = "$hw_svc" ]; then IS_HW=true; break; fi
+        done
+        if [ "$IS_HW" = true ]; then
+            hw_check "Service not active ($STATE): $svc"
+        else
+            fail "Service not active ($STATE): $svc"
+        fi
     fi
 done
 
@@ -151,11 +189,17 @@ else
 fi
 
 # ── 10. Level metering ports ─────────────────────────────────────────
+# Port 9100 = sw (software, no hardware needed)
+# Ports 9101/9102 = hw-out/hw-in (USBStreamer dependent)
 for port in 9100 9101 9102; do
     if timeout 3 bash -c "echo '' > /dev/tcp/127.0.0.1/$port" 2>/dev/null; then
         pass "Level-bridge TCP responsive on port $port"
     else
-        fail "Level-bridge TCP not responding on port $port"
+        if [ "$port" -ne 9100 ]; then
+            hw_check "Level-bridge TCP not responding on port $port"
+        else
+            fail "Level-bridge TCP not responding on port $port"
+        fi
     fi
 done
 
