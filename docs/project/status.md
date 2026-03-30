@@ -120,15 +120,15 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Metric | Value |
 |--------|-------|
 | Git commits | ~197 |
-| Total stories filed | 115 |
+| Total stories filed | 116 |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 8 (US-088, US-090, US-092-097) |
 | Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
 | Open defects (HIGH+) | 2 (F-187, F-037) |
-| Open defects (Medium) | ~18 |
-| Total defects filed | 220 |
+| Open defects (Medium) | ~19 |
+| Total defects filed | 221 |
 | Test suites | test-all (537), test-e2e (194) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
@@ -146,14 +146,15 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 ## Key Decisions
 
-See `decisions/` directory and `decisions-index.md` for all 60 decisions (D-001
-through D-060). Most significant recent decisions:
+See `decisions/` directory and `decisions-index.md` for all 61 decisions (D-001
+through D-061). Most significant recent decisions:
 
 - **D-040** (2026-03-16): Abandon CamillaDSP — pure PipeWire filter-chain pipeline
 - **D-043** (2026-03-20): WirePlumber retained for device management, linking disabled
 - **D-045** (2026-03-24): Project rename to mugge
 - **D-058** (2026-03-28): GM supervises services — target arch (static units interim)
 - **D-060** (2026-03-29): Local CA for TLS — replaces D-032 self-signed (unblocks US-110 passkeys)
+- **D-061** (2026-03-30): GM manages PW/WP lifecycle — amends D-058 (PW/WP move from systemd to GM-managed)
 
 ## Session 4 Summary (2026-03-30)
 
