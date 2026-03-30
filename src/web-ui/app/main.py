@@ -70,9 +70,14 @@ MOCK_MODE = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
 # 2 = stereo main mix (Mixxx L/R, default), 4 = legacy 2-way, 6 = 3-way.
 PCM_CHANNELS = int(os.environ.get("PI4AUDIO_PCM_CHANNELS", "2"))
 
-# US-110: Passkey auth.  Disabled via PI4AUDIO_AUTH_DISABLED=1
-# (set in local-demo.sh and test conftest).
-AUTH_ENABLED = os.environ.get("PI4AUDIO_AUTH_DISABLED", "") != "1"
+# US-110: Passkey auth.  Enabled via PI4AUDIO_AUTH_ENABLED=1.
+# Disabled by default (F-223): login page not yet implemented, so enabling
+# auth locks out all remote users with a redirect to a non-existent page.
+# local-demo.sh and test conftest also explicitly disable via legacy env var.
+AUTH_ENABLED = (
+    os.environ.get("PI4AUDIO_AUTH_ENABLED", "") == "1"
+    and os.environ.get("PI4AUDIO_AUTH_DISABLED", "") != "1"
+)
 
 
 # -- Systemd watchdog (D-036 / WP-G) ---------------------------------------
@@ -298,7 +303,7 @@ if AUTH_ENABLED:
     app.add_middleware(AuthMiddleware)
     log.info("Auth middleware enabled (US-110)")
 else:
-    log.info("Auth middleware disabled (PI4AUDIO_AUTH_DISABLED=1 or default)")
+    log.info("Auth middleware disabled (default; set PI4AUDIO_AUTH_ENABLED=1 to enable)")
 
 
 # -- Include routers --------------------------------------------------------
