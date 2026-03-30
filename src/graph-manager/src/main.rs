@@ -71,7 +71,7 @@ struct Args {
     listen: String,
 
     /// Initial operating mode.
-    #[arg(long, default_value = "monitoring")]
+    #[arg(long, default_value = "standby")]
     mode: String,
 
     /// Log level (RUST_LOG format).
@@ -976,7 +976,7 @@ mod tests {
 
     #[test]
     fn parse_mode_valid() {
-        assert_eq!("monitoring".parse::<Mode>().unwrap(), Mode::Monitoring);
+        assert_eq!("standby".parse::<Mode>().unwrap(), Mode::Standby);
         assert_eq!("dj".parse::<Mode>().unwrap(), Mode::Dj);
         assert_eq!("live".parse::<Mode>().unwrap(), Mode::Live);
         assert_eq!("measurement".parse::<Mode>().unwrap(), Mode::Measurement);

@@ -1406,7 +1406,7 @@ independence from having links.
    unambiguous link targeting.
 
 3. **GM's routing tables include level-bridge links in ALL modes.** 24 links
-   (8 per instance) are added to every mode (Monitoring, DJ, Live,
+   (8 per instance) are added to every mode (Standby, DJ, Live,
    Measurement). All are `optional: true` so that missing level-bridge
    instances (e.g., during startup) don't block reconciliation. The
    reconciler creates links as soon as the level-bridge node appears in the
@@ -1444,7 +1444,7 @@ owners with no single source of truth:
 | Concern | Owner before D-050 | Problem |
 |---------|--------------------|---------|
 | PW link topology | GM (Rust) | The only thing GM managed well |
-| Mode state | **Both** GM (`set_mode` RPC) AND web-UI (`ModeManager` Python class) | Two state machines that must agree. Web-UI has `DaemonMode.MONITORING/MEASUREMENT`. GM has `Mode::Monitoring/Dj/Live/Measurement`. Web-UI calls GM's `set_mode` then updates its own state. If either crashes or restarts, they disagree. |
+| Mode state | **Both** GM (`set_mode` RPC) AND web-UI (`ModeManager` Python class) | Two state machines that must agree. Web-UI has `DaemonMode.STANDBY/MEASUREMENT`. GM has `Mode::Standby/Dj/Live/Measurement`. Web-UI calls GM's `set_mode` then updates its own state. If either crashes or restarts, they disagree. |
 | PW quantum | **Nobody coherently** | DJ needs quantum 1024, Live needs 256. This was a manual `pw-metadata` command. Not part of any mode transition. |
 | Dynamic process lifecycle | **Nobody** (designed for GM in Q5 but unimplemented) | pcm-bridge on-demand taps, audio-recorder for measurement — no owner existed |
 | Measurement orchestration | Web-UI Python (`MeasurementSession`) | Web-UI creates sessions, calls signal-gen, calls GM `set_mode`, manages state machine |
@@ -1512,7 +1512,7 @@ configure the audio graph*.
    are in GM's routing tables.
 
 2. **PipeWire quantum.** Each mode has a required quantum (DJ: 1024, Live:
-   256, Monitoring: 256, Measurement: 256). `set_mode` sets the quantum via
+   256, Standby: 256, Measurement: 256). `set_mode` sets the quantum via
    `pw-metadata -n settings 0 clock.force-quantum <N>` as part of the
    transition. GM already calls `pw-metadata` for quantum reads; adding
    writes is trivial.
@@ -1555,7 +1555,7 @@ configure the audio graph*.
   transition: quantum + process spawning + link reconciliation + readiness
   verification. The web-UI sends `set_mode("dj")` and waits for readiness.
 - **GM owns PW quantum.** Each mode has a required quantum (DJ: 1024, Live:
-  256, Monitoring: 256, Measurement: 256). No more manual `pw-metadata`.
+  256, Standby: 256, Measurement: 256). No more manual `pw-metadata`.
 - **GM owns signal-chain application lifecycle.** Signal-gen, Mixxx,
   Reaper, pcm-bridge taps, audio-recorder — all spawned as part of mode
   transitions. Signal-gen moves from systemd always-on to GM-managed

@@ -45,6 +45,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-083 | draft | Integration smoke tests | Depends US-075 |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
+| US-113 | deferred/parked | First-boot active config + FoH passthrough | D-062 filed. Owner: 8ch passthrough + universal audio gate. Parked for US-075. |
 
 
 ### Owner-Blocking Items
@@ -123,7 +124,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Metric | Value |
 |--------|-------|
 | Git commits | ~197 |
-| Total stories filed | 116 |
+| Total stories filed | 117 |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 8 (US-088, US-090, US-092-097 — 7 REJECTED pending F-223 fix) |
@@ -131,7 +132,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Stories ready | 0 |
 | Open defects (HIGH+) | 4 (F-187, F-037, F-222, F-223) |
 | Open defects (Medium) | ~19 |
-| Total defects filed | 223 |
+| Total defects filed | 224 |
 | Test suites | test-all (537), test-e2e (194) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
@@ -149,8 +150,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 ## Key Decisions
 
-See `decisions/` directory and `decisions-index.md` for all 61 decisions (D-001
-through D-061). Most significant recent decisions:
+See `decisions/` directory and `decisions-index.md` for all 62 decisions (D-001
+through D-062). Most significant recent decisions:
 
 - **D-040** (2026-03-16): Abandon CamillaDSP — pure PipeWire filter-chain pipeline
 - **D-043** (2026-03-20): WirePlumber retained for device management, linking disabled
@@ -158,6 +159,7 @@ through D-061). Most significant recent decisions:
 - **D-058** (2026-03-28): GM supervises services — target arch (static units interim)
 - **D-060** (2026-03-29): Local CA for TLS — replaces D-032 self-signed (unblocks US-110 passkeys)
 - **D-061** (2026-03-30): GM manages PW/WP lifecycle — amends D-058 (PW/WP move from systemd to GM-managed)
+- **D-062** (2026-03-30): First-boot / active config — symlink-based coefficient management, FoH passthrough baseline, mute-default safety (amends D-010, D-051, D-053)
 
 ## Session 4 Summary (2026-03-30)
 

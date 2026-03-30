@@ -260,7 +260,7 @@ def page(browser, mock_server, request):
     except Exception:
         pass  # Server may not have the endpoint yet; non-fatal
 
-    # Verify the server is actually in idle/monitoring state after reset.
+    # Verify the server is actually in idle/standby state after reset.
     # Zombie lifecycle tasks (F-049) may still be running and can flip the
     # mode back to measurement if we proceed too quickly.
     for _attempt in range(10):
@@ -268,7 +268,7 @@ def page(browser, mock_server, request):
             resp = urllib.request.urlopen(
                 f"{mock_server}/api/v1/measurement/status", timeout=5)
             status = json.loads(resp.read())
-            if status.get("state") == "idle" and status.get("mode") == "monitoring":
+            if status.get("state") == "idle" and status.get("mode") == "standby":
                 break
         except Exception:
             pass

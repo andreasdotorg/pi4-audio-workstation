@@ -29,7 +29,7 @@ graph state against the desired link topology for the active operating mode.
 | Concern | Description |
 |---------|-------------|
 | **Link topology** | Sole creator/destroyer of links between managed nodes. No WP auto-linking, no self-linking, no manual `pw-link` between managed nodes. |
-| **Operating mode** | Single source of truth for the workstation's current mode (Monitoring, DJ, Live, Measurement). |
+| **Operating mode** | Single source of truth for the workstation's current mode (Standby, DJ, Live, Measurement). |
 | **PW quantum** | Each mode has a required quantum (DJ: 1024, others: 256). Set via `pw-metadata` during mode transitions. |
 | **Signal-chain app lifecycle** | Spawns/monitors Mixxx, Reaper, signal-gen, pcm-bridge, audio-recorder as part of mode transitions. |
 | **Component health** | Observes node appearance/disappearance, derives Connected/Disconnected health, pushes transitions via RPC. |
@@ -55,7 +55,7 @@ Four modes, known at compile time (`routing.rs:Mode` enum):
 
 | Mode | Application | Purpose | Total links |
 |------|------------|---------|-------------|
-| **Monitoring** | None | Default. Convolver processes silence. Speakers connected. | 20 |
+| **Standby** | None | Default. Convolver processes silence. Speakers connected. | 20 |
 | **DJ** | Mixxx | Psytrance DJ sets. Master + headphones. | 38 |
 | **Live** | Reaper | Vocal performance. Master + headphones + singer IEM + ADA8200 capture. | 48 |
 | **Measurement** | signal-gen | Room correction. Mono sweep to speakers, UMIK-1 capture. | 27 |
@@ -145,7 +145,7 @@ level-bridge-hw-in (8 links):
   ada8200-in:capture_AUX0..7 --> pi4audio-level-bridge-hw-in:input_1..8
 ```
 
-### 5.2 Monitoring mode (20 links)
+### 5.2 Standby mode (20 links)
 
 Default mode. No application linked. Convolver processes whatever is in its
 input buffers (silence if nothing feeds it).
@@ -256,7 +256,7 @@ For each existing link in the PW graph:
    emit `LinkAction::Destroy`.
 
 This phase is what enforces mode exclusivity: switching from DJ to
-Monitoring destroys all Mixxx-related links. It also handles JACK client
+Standby destroys all Mixxx-related links. It also handles JACK client
 bypass links -- when Mixxx calls `jack_connect()` to physical ports,
 creating undesired direct routes, Phase 2 detects and destroys them because
 those port pairs are not in the desired set (D-043 point 3).
@@ -345,7 +345,7 @@ tap the active application's output ports:
 
 | Mode | level-bridge-sw links | Taps |
 |------|-----------------------|------|
-| Monitoring | 0 | No app running |
+| Standby | 0 | No app running |
 | DJ | 8 | Mixxx out_0..out_7 |
 | Live | 8 | Reaper out1..out8 |
 | Measurement | 1 | signal-gen output_AUX0 (mono) |
@@ -377,7 +377,7 @@ It is an on-demand diagnostic tool, not always-on infrastructure.
 
 | Mode | pcm-bridge links | Source | Channels |
 |------|------------------|--------|----------|
-| Monitoring | 0 | -- | -- |
+| Standby | 0 | -- | -- |
 | DJ | 2 | Mixxx master L/R | Stereo |
 | Live | 2 | Reaper master L/R | Stereo |
 | Measurement | 1 | signal-gen output | Mono |

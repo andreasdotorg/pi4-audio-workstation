@@ -104,12 +104,12 @@ providing clear visual separation from `--danger` (red).
 |---|---|---|
 | DJ | Amber | `--accent` (`#f0a030`) |
 | Live | Lilac | `--primary` (`#b39ddb`) |
-| Monitoring | Silver | `--group-main` (`#a0aab8`) |
+| Standby | Silver | `--group-main` (`#a0aab8`) |
 | Measurement | Golden yellow | `--warning` (`#e2c039`) |
 
 Rationale: DJ and Live are the two performance modes. Amber (warm/energetic)
 maps naturally to DJ/psytrance. Lilac (cool/elegant) maps to Live vocal
-performance. Monitoring and Measurement are non-performance modes and use
+performance. Standby and Measurement are non-performance modes and use
 subdued/informational colors.
 
 ### Managed-Node Highlight
@@ -414,7 +414,7 @@ then swaps in JetBrains Mono once loaded. No flash of invisible text.
    - `.sb-mode-badge` default stays `--primary`
    - Add `.sb-mode-badge--dj { background: var(--accent); }`
    - Add `.sb-mode-badge--live { background: var(--primary); }`
-   - Add `.sb-mode-badge--monitoring { background: var(--group-main); }`
+   - Add `.sb-mode-badge--standby { background: var(--group-main); }`
    - Add `.sb-mode-badge--measurement { background: var(--warning); }`
 
 3. **`src/web-ui/static/style.css`** -- Update managed-node highlight

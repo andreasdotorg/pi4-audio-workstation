@@ -92,7 +92,7 @@ gain_staging:
 # D-054 mode constraints: 6 speaker channels + 2 monitoring = no IEM.
 mode_constraints:
   - dj
-  - monitoring
+  - standby
 
 target_curve: flat
 filter_taps: 16384

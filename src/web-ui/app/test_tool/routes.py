@@ -431,7 +431,7 @@ async def ensure_measurement_mode():
 async def restore_mode(request: Request):
     """Restore GraphManager to a specified mode (F-160).
 
-    Expects JSON body: {"mode": "dj"} (or "monitoring", "live", etc.).
+    Expects JSON body: {"mode": "dj"} (or "standby", "live", etc.).
     Called by the test tab when navigating away to restore the previous mode.
 
     Returns {"mode": "<restored>", "switched": true/false}.
@@ -442,12 +442,12 @@ async def restore_mode(request: Request):
         return JSONResponse(status_code=400,
                             content={"error": "invalid_json"})
 
-    target = data.get("mode", "monitoring")
-    if target not in ("monitoring", "dj", "live"):
+    target = data.get("mode", "standby")
+    if target not in ("standby", "dj", "live"):
         return JSONResponse(
             status_code=400,
             content={"error": "invalid_mode",
-                     "detail": f"Mode must be monitoring, dj, or live (got: {target})"},
+                     "detail": f"Mode must be standby, dj, or live (got: {target})"},
         )
 
     try:

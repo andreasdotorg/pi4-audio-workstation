@@ -339,10 +339,10 @@
             modeEl.classList.remove("c-grey");
             // Apply mode-specific badge color class
             modeEl.classList.remove("sb-mode-badge--dj", "sb-mode-badge--live",
-                "sb-mode-badge--monitoring", "sb-mode-badge--measurement");
+                "sb-mode-badge--standby", "sb-mode-badge--measurement");
             if (modeLower === "dj") modeEl.classList.add("sb-mode-badge--dj");
             else if (modeLower === "live") modeEl.classList.add("sb-mode-badge--live");
-            else if (modeLower === "monitoring") modeEl.classList.add("sb-mode-badge--monitoring");
+            else if (modeLower === "standby") modeEl.classList.add("sb-mode-badge--standby");
             else if (modeLower === "measurement") modeEl.classList.add("sb-mode-badge--measurement");
             // F-161: Disable badge click when in measurement mode
             modeEl.title = modeLower === "measurement"

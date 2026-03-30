@@ -442,12 +442,12 @@ class TestFilterChainStateDrivation:
         assert snap2["state"] == "Degraded"
         assert snap2["gm_links_missing"] == 2
 
-    def test_idle_in_monitoring_mode(self, fc_collector):
-        """In monitoring mode (no active routing), state is Idle."""
+    def test_idle_in_standby_mode(self, fc_collector):
+        """In standby mode (no active routing), state is Idle."""
         fc_collector._connected = True
         fc_collector._links = {
             "ok": True,
-            "mode": "monitoring",
+            "mode": "standby",
             "desired": 0,
             "actual": 0,
             "missing": 0,
@@ -456,7 +456,7 @@ class TestFilterChainStateDrivation:
         fc_collector._state = None
         snap = fc_collector.dsp_health_snapshot()
         assert snap["state"] == "Idle"
-        assert snap["gm_mode"] == "monitoring"
+        assert snap["gm_mode"] == "standby"
 
     def test_buffer_level_percentage(self, fc_collector):
         """buffer_level should be percentage of actual/desired links."""
@@ -474,11 +474,11 @@ class TestFilterChainStateDrivation:
         assert snap["buffer_level"] == 75  # 9/12 = 75%
 
     def test_buffer_level_zero_when_no_desired(self, fc_collector):
-        """buffer_level=0 when desired=0 (monitoring mode)."""
+        """buffer_level=0 when desired=0 (standby mode)."""
         fc_collector._connected = True
         fc_collector._links = {
             "ok": True,
-            "mode": "monitoring",
+            "mode": "standby",
             "desired": 0,
             "actual": 0,
             "missing": 0,
@@ -637,15 +637,15 @@ _GM_LINKS_DEGRADED = {
     "links": [],
 }
 
-_GM_LINKS_MONITORING = {
+_GM_LINKS_STANDBY = {
     "type": "response", "cmd": "get_links", "ok": True,
-    "mode": "monitoring", "desired": 0, "actual": 0, "missing": 0,
+    "mode": "standby", "desired": 0, "actual": 0, "missing": 0,
     "links": [],
 }
 
-_GM_STATE_MONITORING = {
+_GM_STATE_STANDBY = {
     "type": "response", "cmd": "get_state", "ok": True,
-    "mode": "monitoring", "nodes": [], "devices": {},
+    "mode": "standby", "nodes": [], "devices": {},
 }
 
 
@@ -764,12 +764,12 @@ class TestFilterChainRPCIntegration:
 
         _run_async(_test())
 
-    def test_snapshot_idle_in_monitoring_mode(self):
-        """State is Idle when GM reports monitoring mode."""
+    def test_snapshot_idle_in_standby_mode(self):
+        """State is Idle when GM reports standby mode."""
         async def _test():
             server, port, _ = await _make_gm_server({
-                "get_links": _GM_LINKS_MONITORING,
-                "get_state": _GM_STATE_MONITORING,
+                "get_links": _GM_LINKS_STANDBY,
+                "get_state": _GM_STATE_STANDBY,
             })
             async with server:
                 fc = FilterChainCollector(host="127.0.0.1", port=port)
@@ -779,7 +779,7 @@ class TestFilterChainRPCIntegration:
                 await fc.stop()
 
             assert snap["state"] == "Idle"
-            assert snap["gm_mode"] == "monitoring"
+            assert snap["gm_mode"] == "standby"
 
         _run_async(_test())
 
@@ -843,9 +843,9 @@ class TestFilterChainRPCIntegration:
             # dropped the connection and the collector detected it).
             fc._disconnect()
 
-            # Phase 2: Switch responses to monitoring mode.
-            responses["get_links"] = _GM_LINKS_MONITORING
-            responses["get_state"] = _GM_STATE_MONITORING
+            # Phase 2: Switch responses to standby mode.
+            responses["get_links"] = _GM_LINKS_STANDBY
+            responses["get_state"] = _GM_STATE_STANDBY
 
             # Reset backoff so reconnection is fast.
             fc._backoff = 0.1
@@ -854,7 +854,7 @@ class TestFilterChainRPCIntegration:
             for _ in range(30):
                 await asyncio.sleep(0.2)
                 if (fc._connected and fc._links is not None
-                        and fc._links.get("mode") == "monitoring"):
+                        and fc._links.get("mode") == "standby"):
                     break
 
             snap2 = fc.dsp_health_snapshot()
@@ -869,7 +869,7 @@ class TestFilterChainRPCIntegration:
             await server.wait_closed()
 
             # After reconnection, should reflect the new server's data.
-            assert snap2["gm_mode"] == "monitoring"
+            assert snap2["gm_mode"] == "standby"
             assert snap2["state"] == "Idle"
 
         _run_async(_test())

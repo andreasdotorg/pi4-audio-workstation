@@ -16,7 +16,7 @@ Usage::
 
     gm.set_mode("measurement")   # Switch to measurement routing
     state = gm.get_state()       # {"mode": "measurement", "nodes": [...], ...}
-    gm.set_mode("monitoring")    # Restore production routing
+    gm.set_mode("standby")       # Restore production routing
 
     gm.close()
 """
@@ -184,7 +184,7 @@ class GraphManagerClient:
         Parameters
         ----------
         mode : str
-            One of "monitoring", "dj", "live", "measurement".
+            One of "standby", "dj", "live", "measurement".
         """
         self._send_cmd({"cmd": "set_mode", "mode": mode})
         logger.info("GraphManager mode set to: %s", mode)
@@ -248,11 +248,11 @@ class GraphManagerClient:
         self.set_mode("measurement")
 
     def restore_production_mode(self) -> None:
-        """Switch back to monitoring (idle production) mode.
+        """Switch back to standby (idle production) mode.
 
         Restores the production link topology. Safe to call multiple times.
         """
-        self.set_mode("monitoring")
+        self.set_mode("standby")
 
     def verify_measurement_mode(self) -> None:
         """Verify that the GraphManager is in measurement mode.
@@ -279,7 +279,7 @@ class MockGraphManagerClient:
 
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
                  timeout: float = DEFAULT_TIMEOUT):
-        self._mode = "monitoring"
+        self._mode = "standby"
         self._connected = False
 
     def connect(self) -> None:
@@ -325,7 +325,7 @@ class MockGraphManagerClient:
         self.set_mode("measurement")
 
     def restore_production_mode(self) -> None:
-        self.set_mode("monitoring")
+        self.set_mode("standby")
 
     def verify_measurement_mode(self) -> None:
         if self._mode != "measurement":

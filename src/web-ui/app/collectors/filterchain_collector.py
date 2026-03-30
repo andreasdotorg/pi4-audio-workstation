@@ -161,7 +161,7 @@ class FilterChainCollector:
         """Assemble the ``camilladsp`` section from GM link data.
 
         Maps GraphManager concepts to the frontend's expected fields:
-        - state: "Running" if links healthy, "Idle" if mode=monitoring
+        - state: "Running" if links healthy, "Idle" if mode=standby
         - processing_load: not available from GM (0.0)
         - xruns: not available from GM (0)
         - buffer_level: mapped from link health (desired vs actual)
@@ -193,7 +193,7 @@ class FilterChainCollector:
                 "gm_convolver": "unknown",
             }
 
-        mode = links.get("mode", "monitoring")
+        mode = links.get("mode", "standby")
         desired = links.get("desired", 0)
         actual = links.get("actual", 0)
         missing = links.get("missing", 0)
@@ -202,7 +202,7 @@ class FilterChainCollector:
         # F-136: Debounce degraded state — suppress transients from quantum
         # changes by requiring missing links to persist >_DEGRADED_GRACE_S.
         now = time.monotonic()
-        if mode == "monitoring":
+        if mode == "standby":
             state = "Idle"
             self._degraded_since = None
         elif missing > 0:

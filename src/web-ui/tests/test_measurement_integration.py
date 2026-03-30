@@ -111,7 +111,7 @@ class TestHappyPathFullCycle:
         resp = client.get("/api/v1/measurement/status")
         assert resp.status_code == 200
         assert resp.json()["state"] == "idle"
-        assert resp.json()["mode"] == "monitoring"
+        assert resp.json()["mode"] == "standby"
 
         # Start measurement.
         resp = client.post("/api/v1/measurement/start", json=DEFAULT_START_BODY)
@@ -122,10 +122,10 @@ class TestHappyPathFullCycle:
         final = _wait_for_session_done(client, timeout_s=120.0)
         assert final["state"] in ("complete", "idle")
 
-        # Mode must be monitoring after completion.
+        # Mode must be standby after completion.
         time.sleep(0.3)
         status = client.get("/api/v1/measurement/status").json()
-        assert status["mode"] == "monitoring"
+        assert status["mode"] == "standby"
 
     def test_happy_path_status_shows_progress(self, client):
         """Status endpoint returns meaningful data after session start."""
@@ -144,13 +144,13 @@ class TestHappyPathFullCycle:
         terminal = seen_states & set(TERMINAL_STATES)
         assert terminal, f"Never reached terminal state. Seen: {seen_states}"
 
-    def test_happy_path_mode_returns_to_monitoring(self, client):
-        """After completion, mode returns to MONITORING."""
+    def test_happy_path_mode_returns_to_standby(self, client):
+        """After completion, mode returns to STANDBY."""
         client.post("/api/v1/measurement/start", json=DEFAULT_START_BODY)
         _wait_for_session_done(client, timeout_s=120.0)
         time.sleep(0.5)
         status = client.get("/api/v1/measurement/status").json()
-        assert status["mode"] == "monitoring"
+        assert status["mode"] == "standby"
 
 
 # ===========================================================================
@@ -160,8 +160,8 @@ class TestHappyPathFullCycle:
 class TestAbortMidSweep:
     """POST /start -> begin -> POST /abort -> verify restoration."""
 
-    def test_abort_mid_sweep_restores_monitoring(self, client):
-        """Aborting a session restores MONITORING mode."""
+    def test_abort_mid_sweep_restores_standby(self, client):
+        """Aborting a session restores STANDBY mode."""
         async def slow_gain_cal(self):
             self._transition(MeasurementState.GAIN_CAL)
             await self._broadcast_state()
@@ -185,7 +185,7 @@ class TestAbortMidSweep:
 
             time.sleep(0.5)
             status = client.get("/api/v1/measurement/status").json()
-            assert status["mode"] == "monitoring"
+            assert status["mode"] == "standby"
 
 
 # ===========================================================================
@@ -575,7 +575,7 @@ class TestFutureEndpoints:
 #   - enter_measurement_mode()  (calls set_mode("measurement"))
 #   - get_mode()                (returns current mode string)
 #   - verify_measurement_mode() (raises if mode != "measurement")
-#   - restore_production_mode() (calls set_mode("monitoring"))
+#   - restore_production_mode() (calls set_mode("standby"))
 #   - get_state()               (returns {"mode": str, ...})
 #   - connect() / close()
 # ===========================================================================
@@ -591,7 +591,7 @@ def _make_session(**overrides) -> MeasurementSession:
         config=config, ws_broadcast=broadcast)
 
 
-def _make_mock_gm(initial_mode: str = "monitoring"):
+def _make_mock_gm(initial_mode: str = "standby"):
     """Create a mock GM client that tracks mode changes."""
     from graph_manager_client import MockGraphManagerClient
     client = MockGraphManagerClient()
@@ -664,7 +664,7 @@ class TestGMEnterMeasurementMode:
         from graph_manager_client import MockGraphManagerClient
 
         def stubborn_set_mode(self, mode):
-            # Accept the call but stay in "monitoring" mode.
+            # Accept the call but stay in "standby" mode.
             pass
 
         session = _make_session()
@@ -685,7 +685,7 @@ class TestGMEnterMeasurementMode:
 
         def stubborn_set_mode(self, mode):
             # Track all set_mode calls but don't actually change internal state,
-            # so get_mode still returns "monitoring" and enter_measurement_mode
+            # so get_mode still returns "standby" and enter_measurement_mode
             # raises RuntimeError.
             set_mode_calls.append(mode)
 
@@ -699,9 +699,9 @@ class TestGMEnterMeasurementMode:
                     session._enter_measurement_mode())
 
         # F-160: On failure, the error handler calls set_mode(saved_mode) to
-        # restore the pre-measurement mode. The saved mode is "monitoring"
+        # restore the pre-measurement mode. The saved mode is "standby"
         # (queried via get_mode before enter_measurement_mode).
-        assert "monitoring" in set_mode_calls
+        assert "standby" in set_mode_calls
 
 
 class TestGMVerifyMeasurementMode:
@@ -722,7 +722,7 @@ class TestGMVerifyMeasurementMode:
         """Verification raises RuntimeError when GM is NOT in measurement mode."""
         session = _make_session()
         session._is_mock = False
-        gm = _make_mock_gm(initial_mode="monitoring")
+        gm = _make_mock_gm(initial_mode="standby")
         session._gm_client = gm
 
         with pytest.raises(RuntimeError, match="not in measurement mode"):
@@ -733,7 +733,7 @@ class TestGMVerifyMeasurementMode:
         """In mock mode, verification is skipped entirely."""
         session = _make_session()
         session._is_mock = True
-        gm = _make_mock_gm(initial_mode="monitoring")  # wrong mode
+        gm = _make_mock_gm(initial_mode="standby")  # wrong mode
         session._gm_client = gm
 
         # Should NOT raise even though mode is wrong.
@@ -755,14 +755,14 @@ class TestGMRestoreOnCleanup:
     """Session._cleanup() always restores production mode."""
 
     def test_cleanup_restores_production_mode(self):
-        """After cleanup, GM should be back in monitoring mode."""
+        """After cleanup, GM should be back in standby mode."""
         session = _make_session()
         gm = _make_mock_gm(initial_mode="measurement")
         session._gm_client = gm
 
         _run(session._cleanup())
 
-        assert gm.get_mode() == "monitoring"
+        assert gm.get_mode() == "standby"
 
     def test_cleanup_disconnects_gm(self):
         """After cleanup, gm_client should be None."""
@@ -806,7 +806,7 @@ class TestGMRestoreOnAbort:
     """Abort path triggers cleanup which restores production mode."""
 
     def test_abort_restores_production_mode(self):
-        """When a session is aborted, cleanup restores GM to monitoring."""
+        """When a session is aborted, cleanup restores GM to standby."""
         session = _make_session()
         gm = _make_mock_gm(initial_mode="measurement")
         session._gm_client = gm
@@ -815,7 +815,7 @@ class TestGMRestoreOnAbort:
             session._handle_abort("test abort"))
         _run(session._cleanup())
 
-        assert gm.get_mode() == "monitoring"
+        assert gm.get_mode() == "standby"
         assert session._gm_client is None
 
     def test_abort_sets_state_to_aborted(self):
@@ -852,8 +852,8 @@ class TestGMConnectGM:
         session._gm_client.set_mode("measurement")
         assert session._gm_client.get_mode() == "measurement"
 
-        session._gm_client.set_mode("monitoring")
-        assert session._gm_client.get_mode() == "monitoring"
+        session._gm_client.set_mode("standby")
+        assert session._gm_client.get_mode() == "standby"
 
     def test_disconnect_gm_clears_client(self):
         """After _disconnect_gm, gm_client is None."""
@@ -911,7 +911,7 @@ class TestGMFullSessionLifecycle:
     """Full session lifecycle verifying GM mode transitions end-to-end.
 
     Uses the REST API (client fixture) to run a complete measurement and
-    verify GM mode was switched to measurement and restored to monitoring.
+    verify GM mode was switched to measurement and restored to standby.
     """
 
     def test_gm_mode_transitions_during_happy_path(self, client):
@@ -932,12 +932,12 @@ class TestGMFullSessionLifecycle:
             assert resp.status_code == 200
             _wait_for_session_done(client, timeout_s=120.0)
 
-        # Session should have: measurement (enter) -> monitoring (restore).
+        # Session should have: measurement (enter) -> standby (restore).
         assert "measurement" in mode_log
-        assert mode_log[-1] == "monitoring"
+        assert mode_log[-1] == "standby"
 
     def test_gm_mode_transitions_during_abort(self, client):
-        """Aborted session should restore GM to monitoring mode."""
+        """Aborted session should restore GM to standby mode."""
         from graph_manager_client import MockGraphManagerClient
 
         mode_log = []
@@ -970,5 +970,5 @@ class TestGMFullSessionLifecycle:
             # TestClient teardown cancels the background task.
             time.sleep(0.5)
 
-        # Last mode set should be "monitoring" (restore).
-        assert mode_log[-1] == "monitoring"
+        # Last mode set should be "standby" (restore).
+        assert mode_log[-1] == "standby"

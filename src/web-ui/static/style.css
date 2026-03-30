@@ -361,7 +361,7 @@ html, body {
 
 .sb-mode-badge--dj { background: var(--primary-dim); }
 .sb-mode-badge--live { background: var(--primary); }
-.sb-mode-badge--monitoring { background: var(--group-main); color: #111; }
+.sb-mode-badge--standby { background: var(--group-main); color: #111; }
 .sb-mode-badge--measurement { background: var(--warning); color: #111; }
 
 /* F-161: Clickable mode badge */

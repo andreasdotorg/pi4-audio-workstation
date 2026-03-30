@@ -2268,7 +2268,7 @@ def main():
                     restore_production_gains(original_gains)
 
                 # Switch GraphManager back to previous mode
-                restore_mode = previous_mode or "monitoring"
+                restore_mode = previous_mode or "standby"
                 gm_client.set_mode(restore_mode)
                 print(f"  GraphManager restored to mode: {restore_mode}")
             except Exception as e:

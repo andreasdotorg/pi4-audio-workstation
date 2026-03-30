@@ -275,7 +275,7 @@ mod tests {
         optional: bool,
     ) -> RoutingTable {
         RoutingTable::from_entries(vec![(
-            Mode::Monitoring,
+            Mode::Standby,
             vec![DesiredLink {
                 output_node: NodeMatch::Exact(out_node.to_string()),
                 output_port: out_port.to_string(),
@@ -299,7 +299,7 @@ mod tests {
         g.add_port(make_port(200, 20, "input_0", "in"));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -325,7 +325,7 @@ mod tests {
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         // Link exists, no actions needed.
         assert!(actions.is_empty());
@@ -339,7 +339,7 @@ mod tests {
         g.add_port(make_port(100, 10, "output_0", "out"));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", true);
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         // Optional link, endpoint missing — skip, no error.
         assert!(actions.is_empty());
@@ -354,7 +354,7 @@ mod tests {
         // input_0 port not yet created (ports arriving in separate events).
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         // Port missing — skip (will retry on next event).
         assert!(actions.is_empty());
@@ -372,7 +372,7 @@ mod tests {
         g.add_port(make_port(100, 10, "output_0", "out"));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
-        let result = reconcile(&g, &table, Mode::Monitoring);
+        let result = reconcile(&g, &table, Mode::Standby);
 
         assert!(result.actions.is_empty());
         assert_eq!(result.missing_endpoints.len(), 1);
@@ -388,7 +388,7 @@ mod tests {
         g.add_port(make_port(100, 10, "output_0", "out"));
 
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", true);
-        let result = reconcile(&g, &table, Mode::Monitoring);
+        let result = reconcile(&g, &table, Mode::Standby);
 
         assert!(result.actions.is_empty());
         // Optional links should NOT appear in missing_endpoints.
@@ -404,7 +404,7 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: endpoint missing.
-        let result = reconcile(&g, &table, Mode::Monitoring);
+        let result = reconcile(&g, &table, Mode::Standby);
         assert_eq!(result.missing_endpoints.len(), 1);
 
         // Add the missing node and port.
@@ -412,7 +412,7 @@ mod tests {
         g.add_port(make_port(200, 20, "input_0", "in"));
 
         // Second reconcile: endpoint resolved — missing_endpoints empty.
-        let result = reconcile(&g, &table, Mode::Monitoring);
+        let result = reconcile(&g, &table, Mode::Standby);
         assert!(result.missing_endpoints.is_empty());
         assert_eq!(result.actions.len(), 1); // Create action
     }
@@ -433,12 +433,12 @@ mod tests {
 
         // Empty desired set for this mode — the link should be destroyed.
         let table = RoutingTable::from_entries(vec![(
-            Mode::Monitoring,
+            Mode::Standby,
             vec![],
         )]);
         // But we need the nodes to be "known" — add a link to some mode.
         let table = RoutingTable::from_entries(vec![
-            (Mode::Monitoring, vec![]),
+            (Mode::Standby, vec![]),
             (
                 Mode::Dj,
                 vec![DesiredLink {
@@ -451,7 +451,7 @@ mod tests {
             ),
         ]);
 
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -471,8 +471,8 @@ mod tests {
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         // Empty routing table — no known nodes at all.
-        let table = RoutingTable::from_entries(vec![(Mode::Monitoring, vec![])]);
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let table = RoutingTable::from_entries(vec![(Mode::Standby, vec![])]);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         // Link between unknown nodes — leave it alone.
         assert!(actions.is_empty());
@@ -500,7 +500,7 @@ mod tests {
         ));
 
         let table = RoutingTable::from_entries(vec![(
-            Mode::Monitoring,
+            Mode::Standby,
             vec![DesiredLink {
                 output_node: NodeMatch::Exact("pi4audio-convolver-out".to_string()),
                 output_port: "output_0".to_string(),
@@ -512,7 +512,7 @@ mod tests {
             }],
         )]);
 
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
@@ -543,18 +543,18 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: should create.
-        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Standby);
         assert_eq!(actions1.len(), 1);
 
         // Simulate the link being created.
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         // Second reconcile: no actions (link exists).
-        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Standby);
         assert!(actions2.is_empty());
 
         // Third reconcile: still no actions.
-        let ReconcileResult { actions: actions3, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions3, .. } = reconcile(&g, &table, Mode::Standby);
         assert!(actions3.is_empty());
     }
 
@@ -579,7 +579,7 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: creates the link.
-        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Standby);
         assert_eq!(actions1.len(), 1);
 
         // Link NOT added to graph yet (simulates the window before
@@ -587,14 +587,14 @@ mod tests {
 
         // Second reconcile: still wants to create (link not in graph).
         // The apply_actions guard prevents the actual duplicate.
-        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Standby);
         assert_eq!(actions2.len(), 1);
 
         // Now the registry event arrives: link added to graph.
         g.add_link(make_link(500, 10, 100, 20, 200));
 
         // Third reconcile: no actions (link exists).
-        let ReconcileResult { actions: actions3, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions3, .. } = reconcile(&g, &table, Mode::Standby);
         assert!(actions3.is_empty());
     }
 
@@ -613,13 +613,13 @@ mod tests {
         let table = one_link_table("src-node", "output_0", "sink-node", "input_0", false);
 
         // First reconcile: produce Create.
-        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions1, .. } = reconcile(&g, &table, Mode::Standby);
         assert_eq!(actions1.len(), 1);
 
         // New port appears (e.g., output_1 on same node), but link
         // NOT yet in graph. Reconcile fires again.
         g.add_port(make_port(101, 10, "output_1", "out"));
-        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions: actions2, .. } = reconcile(&g, &table, Mode::Standby);
 
         // Pure reconcile still says Create (it doesn't know about
         // pending creates). The apply_actions guard catches this.
@@ -714,7 +714,7 @@ mod tests {
         g.add_port(make_port(210, 21, "monitor_AUX0", "out"));
 
         let table = RoutingTable::from_entries(vec![(
-            Mode::Monitoring,
+            Mode::Standby,
             vec![DesiredLink {
                 output_node: NodeMatch::Exact("pi4audio-convolver-out".to_string()),
                 output_port: "output_AUX0".to_string(),
@@ -724,7 +724,7 @@ mod tests {
             }],
         )]);
 
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(actions.len(), 1, "expected 1 Create action, got {:?}", actions);
         match &actions[0] {
@@ -861,7 +861,7 @@ mod tests {
         // Mode A uses src-a → sink-a, Mode B uses src-b → sink-b.
         let table = RoutingTable::from_entries(vec![
             (
-                Mode::Monitoring,
+                Mode::Standby,
                 vec![DesiredLink {
                     output_node: NodeMatch::Exact("src-a".to_string()),
                     output_port: "output_0".to_string(),
@@ -882,8 +882,8 @@ mod tests {
             ),
         ]);
 
-        // Start in Monitoring: create link A.
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        // Start in Standby: create link A.
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
         assert_eq!(actions.len(), 1);
         assert!(matches!(&actions[0], LinkAction::Create { output_port_id: 100, .. }));
 
@@ -1239,21 +1239,21 @@ mod tests {
     // -------------------------------------------------------------------
 
     #[test]
-    fn s3a_monitoring_to_dj_transition() {
+    fn s3a_standby_to_dj_transition() {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Establish Monitoring topology: 4 links (convolver→USB).
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        // Establish Standby topology: 4 links (convolver→USB).
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
         assert_eq!(count_creates(&actions), 4);
         let next_id = apply_creates(&mut g, &actions, 1000);
-        assert!(reconcile(&g, &table, Mode::Monitoring).actions.is_empty());
+        assert!(reconcile(&g, &table, Mode::Standby).actions.is_empty());
 
         // Switch to DJ: creates Mixxx links, keeps convolver→USB links.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
 
         // DJ has 12 total links. 4 convolver→USB links are shared with
-        // Monitoring and already exist. So: 8 new creates, 0 destroys.
+        // Standby and already exist. So: 8 new creates, 0 destroys.
         assert_eq!(
             count_creates(&actions), 8,
             "Mon→DJ: expected 8 new creates (Mixxx links), got {:?}", actions,
@@ -1300,7 +1300,7 @@ mod tests {
     }
 
     #[test]
-    fn s3c_live_to_monitoring_transition() {
+    fn s3c_live_to_standby_transition() {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
@@ -1310,11 +1310,11 @@ mod tests {
         let next_id = apply_creates(&mut g, &actions, 1000);
         assert!(reconcile(&g, &table, Mode::Live).actions.is_empty());
 
-        // Switch to Monitoring.
-        // Monitoring has 4 links (convolver→USB), all shared with Live.
+        // Switch to Standby.
+        // Standby has 4 links (convolver→USB), all shared with Live.
         // Live-only links to destroy: Reaper→convolver (6) + Reaper HP→USB (2)
         //   + Reaper IEM→USB (2) + ADA8200→Reaper (8) = 18.
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(
             count_creates(&actions), 0,
@@ -1326,7 +1326,7 @@ mod tests {
         );
 
         apply_destroys(&mut g, &actions);
-        assert!(reconcile(&g, &table, Mode::Monitoring).actions.is_empty());
+        assert!(reconcile(&g, &table, Mode::Standby).actions.is_empty());
     }
 
     // -------------------------------------------------------------------
@@ -1341,8 +1341,8 @@ mod tests {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Establish Monitoring topology.
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        // Establish Standby topology.
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
         let next_id = apply_creates(&mut g, &actions, 1000);
 
         // Add a foreign node and a stale link: some-app → convolver.
@@ -1357,8 +1357,8 @@ mod tests {
 
         // Reconcile: the foreign link has one known endpoint (convolver
         // is in the routing table). It is NOT in the desired set for
-        // Monitoring. So it should be destroyed.
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        // Standby. So it should be destroyed.
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(
             count_destroys(&actions), 1,
@@ -1382,8 +1382,8 @@ mod tests {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Establish Monitoring topology.
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        // Establish Standby topology.
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
         apply_creates(&mut g, &actions, 1000);
 
         // Add two unknown nodes and a link between them.
@@ -1394,7 +1394,7 @@ mod tests {
         g.add_link(make_link(2000, 990, 99000, 991, 99100));
 
         // Reconcile: link is between unknown nodes — should be ignored.
-        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Monitoring);
+        let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
         assert!(
             actions.is_empty(),
             "link between unknown nodes should be ignored, got {:?}", actions,

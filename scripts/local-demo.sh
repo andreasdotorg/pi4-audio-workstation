@@ -425,10 +425,10 @@ install_configs() {
 # ---- Start all services ----
 start_services() {
     # ---- GraphManager ----
-    # US-075 Bug #2b: monitoring mode (not measurement).
+    # US-075 Bug #2b: standby mode (not measurement).
     echo ""
-    echo "[local-demo] Starting GraphManager (port 4002, monitoring mode)..."
-    "$GM_BIN" --listen tcp:127.0.0.1:4002 --mode monitoring --log-level info &
+    echo "[local-demo] Starting GraphManager (port 4002, standby mode)..."
+    "$GM_BIN" --listen tcp:127.0.0.1:4002 --mode standby --log-level info &
     PIDS+=($!)
     maybe_disown $!
     sleep 1
@@ -571,7 +571,7 @@ start_services() {
     sleep 2
     LINK_COUNT=$(pw-link -l 2>/dev/null | grep -c '^\s*|' || echo 0)
     echo ""
-    echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, monitoring mode)."
+    echo "[local-demo] $LINK_COUNT link endpoints active (GM reconciler, standby mode)."
 
     # ---- web-ui ----
     echo ""
@@ -636,7 +636,7 @@ print_summary() {
     echo "  Local demo stack is running!"
     echo ""
     echo "  Web UI:              http://localhost:8080"
-    echo "  GraphManager:        tcp://127.0.0.1:4002 (RPC, monitoring mode)"
+    echo "  GraphManager:        tcp://127.0.0.1:4002 (RPC, standby mode)"
     echo "  signal-gen:          tcp://127.0.0.1:4001 (RPC, managed mode)"
     echo "  level-bridge-sw:     tcp://127.0.0.1:9100 (levels, app output tap)"
     echo "  level-bridge-hw-out: tcp://127.0.0.1:9101 (levels, USBStreamer monitor)"

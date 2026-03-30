@@ -160,7 +160,7 @@ page. This is the correct implementation of the TK-160 requirement.
 
 | System mode | ABORT visible | ABORT action |
 |-------------|---------------|--------------|
-| MONITORING (idle) | Hidden (not rendered) | n/a |
+| STANDBY (idle) | Hidden (not rendered) | n/a |
 | MEASUREMENT (any active step) | Visible | Aborts measurement, mutes output, restores CamillaDSP config |
 | TEST TOOL (signal playing) | Visible | Stops signal generator, mutes output |
 | TEST TOOL (idle) | Hidden | n/a |

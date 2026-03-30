@@ -1,9 +1,9 @@
-"""Daemon mode manager — tracks MONITORING vs MEASUREMENT mode (D-036, D-040).
+"""Daemon mode manager — tracks STANDBY vs MEASUREMENT mode (D-036, D-040).
 
 The FastAPI backend IS the measurement controller.  This module provides
 the core mode-switching mechanism between two mutually exclusive modes:
 
-    MONITORING  — normal dashboard, all collectors active.
+    STANDBY     — normal dashboard, all collectors active.
     MEASUREMENT — measurement wizard active, session owns audio I/O.
 
 The mode manager tracks mode, holds a session reference, and performs
@@ -32,7 +32,7 @@ _MEAS_DIR = os.environ.get("PI4AUDIO_MEAS_DIR", os.path.normpath(os.path.join(
 
 class DaemonMode(enum.Enum):
     """Mutually exclusive daemon operating modes."""
-    MONITORING = "monitoring"
+    STANDBY = "standby"
     MEASUREMENT = "measurement"
 
 
@@ -56,7 +56,7 @@ class ModeManager:
         gm_host: str = "127.0.0.1",
         gm_port: int = 4002,
     ) -> None:
-        self._mode = DaemonMode.MONITORING
+        self._mode = DaemonMode.STANDBY
         self._measurement_session: Any | None = None
         self._last_completed_session: Any | None = None
         self._ws_broadcast = ws_broadcast
@@ -79,7 +79,7 @@ class ModeManager:
 
     @property
     def measurement_session(self) -> Any | None:
-        """Active measurement session, or ``None`` in MONITORING mode."""
+        """Active measurement session, or ``None`` in STANDBY mode."""
         return self._measurement_session
 
     @property
@@ -115,10 +115,10 @@ class ModeManager:
                         pass
             except Exception as exc:
                 log.warning("F-160: Failed to query GM mode before measurement: "
-                            "%s — will restore to monitoring", exc)
-                self._pre_measurement_gm_mode = "monitoring"
+                            "%s — will restore to standby", exc)
+                self._pre_measurement_gm_mode = "standby"
         else:
-            self._pre_measurement_gm_mode = "monitoring"
+            self._pre_measurement_gm_mode = "standby"
         self._mode = DaemonMode.MEASUREMENT
         self._measurement_session = session
         self._last_completed_session = None
@@ -129,8 +129,8 @@ class ModeManager:
             "mode": DaemonMode.MEASUREMENT.value,
         })
 
-    async def enter_monitoring_mode(self, restore_gm: bool = True) -> None:
-        """Switch back to MONITORING mode.
+    async def enter_standby_mode(self, restore_gm: bool = True) -> None:
+        """Switch back to STANDBY mode.
 
         If *restore_gm* is True (default), tells GraphManager to restore
         the mode that was active before measurement started (F-160).
@@ -142,12 +142,12 @@ class ModeManager:
         if self._measurement_session is not None:
             self._last_completed_session = self._measurement_session
         self._measurement_session = None
-        self._mode = DaemonMode.MONITORING
+        self._mode = DaemonMode.STANDBY
         self._pre_measurement_gm_mode = None
-        log.info("Mode transition: MEASUREMENT -> MONITORING")
+        log.info("Mode transition: MEASUREMENT -> STANDBY")
         await self._ws_broadcast({
             "type": "mode_change",
-            "mode": DaemonMode.MONITORING.value,
+            "mode": DaemonMode.STANDBY.value,
         })
 
     # -- Startup recovery ----------------------------------------------------
@@ -225,23 +225,23 @@ class ModeManager:
                 pass
             return
 
-        # Orphaned measurement routing -- restore monitoring.
+        # Orphaned measurement routing -- restore standby.
         log.warning(
             "Startup recovery: GraphManager in orphaned measurement "
-            "mode.  Restoring monitoring mode.",
+            "mode.  Restoring standby mode.",
         )
         try:
             await asyncio.to_thread(client.restore_production_mode)
             self.recovery_warning = (
                 "GraphManager was in orphaned measurement routing mode "
-                "on startup.  Monitoring mode has been restored.  "
+                "on startup.  Standby mode has been restored.  "
                 "Any in-progress measurement results are lost."
             )
             log.warning("Startup recovery complete.  %s",
                         self.recovery_warning)
         except Exception as exc:
             log.error(
-                "Startup recovery failed restoring monitoring mode: "
+                "Startup recovery failed restoring standby mode: "
                 "%s.  Manual intervention may be required.", exc,
             )
             self.recovery_warning = (
@@ -256,7 +256,7 @@ class ModeManager:
 
     async def _restore_pre_measurement_mode(self) -> None:
         """Tell GraphManager to restore the mode active before measurement (F-160)."""
-        target = self._pre_measurement_gm_mode or "monitoring"
+        target = self._pre_measurement_gm_mode or "standby"
         try:
             client = await asyncio.to_thread(self._create_gm_client)
             try:

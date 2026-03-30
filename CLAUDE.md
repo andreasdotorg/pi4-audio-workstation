@@ -54,14 +54,37 @@ you this. Eight times.**
 
 ### After Compaction
 
-The team is STILL ALIVE. **Your FIRST action after compaction MUST be:**
-1. Check ALL THREE sources for living agents:
+***** STOP. ORIENT. DO NOT ACT. *****
+
+**L-041 (session 6): After compaction, the orchestrator resumed from a summary
+and IMMEDIATELY started editing files and running git commands — doing worker
+work. Then ran `git checkout` (destructive) to "undo" the unauthorized edits,
+destroying hours of uncommitted worker output. Two violations stacked.**
+
+**The pattern:** Compaction gives you a summary. The summary describes technical
+work. You see something that needs fixing. You "just do it" because it seems
+small and the context is right there. THIS IS ALWAYS WRONG.
+
+**HARD RULE — your FIRST actions after compaction are ALWAYS, IN ORDER:**
+1. **STOP.** Do not touch any file. Do not run any command. Do not edit code.
+2. **Re-read this section and the "DO NOT JUST DO IT YOURSELF" section.**
+3. **Orient:** Check ALL THREE sources for living agents:
    a. Read `~/.claude/teams/mugge/config.json` (members array)
    b. Check agent inboxes for any that exist
    c. List all agents via summary
    Any agent in ANY source is alive — config alone is NOT sufficient.
-2. Use SendMessage to contact existing members — NEVER spawn replacements
-3. Re-read `.claude/team/protocol/orchestration.md`
+4. Use SendMessage to contact existing members — NEVER spawn replacements
+5. Re-read `.claude/team/protocol/orchestration.md`
+6. **Only THEN** respond to the user — by communicating, not by doing.
+
+**You are the orchestrator. You COMMUNICATE. You DELEGATE. You do NOT:**
+- Edit files (not even "small fixes")
+- Run git commands (not even `git status` — that's CM work)
+- Run shell commands to "check" things
+- "Undo" your own mistakes with destructive commands (making it worse)
+
+**If you made an unauthorized change:** STOP. Tell the owner what happened.
+Let the owner or a worker fix it. Do NOT compound the error with more commands.
 
 Team name: `mugge`, 10 core members. They are persistent. They survive
 compaction. They survive context loss. USE THEM. DO NOT REPLACE THEM.
@@ -112,13 +135,18 @@ team member (usually the CM) and decides to "just run the command myself" or
 **Trigger pattern:** "The CM isn't responding... I'll just run git add/commit
 myself." Or: "The team seems slow, let me read the files / run the commands /
 check the status directly." Or: "I can do this faster than waiting."
+Or (L-041): "I just came back from compaction, the summary says X needs fixing,
+let me just quickly edit this one file..." — NO. Delegate it.
 
 **HARD RULE: If you EVER feel the urge to do something yourself that is
 another team member's job — STOP IMMEDIATELY. PAUSE. WAIT FOR THE OWNER.**
 
 **Specifically, the orchestrator MUST NOT run:**
-- `git` commands of ANY kind (add, commit, reset, status, diff, log, push) —
-  this is the CM's exclusive domain
+- `git` commands of ANY kind (add, commit, reset, status, diff, log, push,
+  checkout) — this is the CM's exclusive domain. `git checkout` is DESTRUCTIVE
+  and has destroyed uncommitted work (L-041).
+- File edits of ANY kind — not even "small" fixes, not even to "undo" a
+  mistake you just made. Editing files is worker work. ALWAYS.
 - File reads to "verify" what a worker or CM is doing — trust the protocol
 - Shell commands to "check" on progress — ask the team member instead
 

@@ -32,7 +32,7 @@ all resolved:
    the polling timer.  Resolved by WS reconnect logic improvements (F-154).
 
 The conftest ``page`` fixture resets the session via ``/api/v1/measurement/reset``
-and polls ``/status`` until idle/monitoring before each test.  Verified stable:
+and polls ``/status`` until idle/standby before each test.  Verified stable:
 45 consecutive sequential runs, 0 failures (2026-03-27).
 """
 

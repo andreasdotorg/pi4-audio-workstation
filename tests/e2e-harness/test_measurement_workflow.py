@@ -173,10 +173,10 @@ class TestFullMeasurementCycle:
                 f"State order violation: {seen_meaningful[i]} appeared "
                 f"before {seen_meaningful[i + 1]}. Full seen: {seen}")
 
-        # Mode must be monitoring after completion.
+        # Mode must be standby after completion.
         time.sleep(0.3)
         status = daemon_client.get("/api/v1/measurement/status").json()
-        assert status["mode"] == "monitoring"
+        assert status["mode"] == "standby"
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +223,8 @@ class TestAbortDuringSweep:
             assert final["state"] in ("aborted", "idle"), (
                 f"Expected aborted/idle after abort, got {final['state']}")
 
-            # Mode restored to monitoring.
+            # Mode restored to standby.
             time.sleep(0.3)
             status = daemon_client.get(
                 "/api/v1/measurement/status").json()
-            assert status["mode"] == "monitoring"
+            assert status["mode"] == "standby"

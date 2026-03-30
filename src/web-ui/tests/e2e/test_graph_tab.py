@@ -263,8 +263,8 @@ class TestResponsiveGraph:
 class TestGraphScreenshots:
     """Capture screenshots for visual inspection."""
 
-    def test_monitoring_template_screenshot(self, page):
+    def test_standby_template_screenshot(self, page):
         """Screenshot of the graph in default mode."""
         _switch_tab(page, "graph")
         _wait_for_graph_render(page)
-        _screenshot(page, "graph-monitoring-1920x1080.png")
+        _screenshot(page, "graph-standby-1920x1080.png")

@@ -786,7 +786,7 @@ configurability provides no benefit (architect guidance, GM-2).
 
 | Mode | Application | Links | Quantum |
 |------|------------|-------|---------|
-| Monitoring | None | Convolver -> USBStreamer (4 links) | q1024 |
+| Standby | None | Convolver -> USBStreamer (4 links) | q1024 |
 | DJ | Mixxx (pw-jack) | Mixxx -> convolver + headphone bypass (12 links) | q1024 |
 | Live | Reaper (pw-jack) | Reaper -> convolver + HP + IEM + capture (up to 22 links) | q1024 (D-042) |
 | Measurement | signal-gen | signal-gen -> convolver + UMIK-1 capture (5-6 links) | q1024 |

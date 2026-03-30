@@ -75,13 +75,13 @@ The daemon operates in two mutually exclusive modes:
 
 | Mode | Purpose | Active Subsystems |
 |------|---------|-------------------|
-| MONITORING | Normal dashboard operation | All collectors running, GraphManager in monitoring mode |
+| STANDBY | Normal dashboard operation | All collectors running, GraphManager in standby mode |
 | MEASUREMENT | Measurement wizard | Collectors paused (except pcm-bridge), GraphManager in measurement mode, signal-gen active |
 
 ### Mode Transitions
 
 ```
-MONITORING ──── enter_measurement() ───> MEASUREMENT
+STANDBY ──── enter_measurement() ───> MEASUREMENT
      ^                                        |
      |                                        |
      └───── exit_measurement() ──────────────-┘
@@ -94,7 +94,7 @@ MONITORING ──── enter_measurement() ───> MEASUREMENT
 4. Transition UI to measurement wizard
 
 **`exit_measurement()`:**
-1. GraphManager: `restore_production_mode()` (set_mode("monitoring"))
+1. GraphManager: `restore_production_mode()` (set_mode("standby"))
 2. Release mode lock
 3. Resume all collectors
 4. Transition UI back to dashboard
@@ -127,7 +127,7 @@ newline-delimited messages.
 - **Key commands:**
   - `set_mode("measurement")`: switches to measurement routing (signal-gen
     to convolver, UMIK-1 capture active, all non-measurement links torn down)
-  - `set_mode("monitoring")`: restores production routing
+  - `set_mode("standby")`: restores production routing
   - `get_state()`: returns `{mode, nodes[], links[], devices{}}`
   - `get_mode()`: returns current mode string
 - **Safety:** `verify_measurement_mode()` confirms GM is in measurement
@@ -245,7 +245,7 @@ correct step. No measurement data is lost on browser disconnect.
 Abort is valid from any state except IDLE. The abort path:
 
 1. Cancel current operation (see Section 6)
-2. GraphManager: `restore_production_mode()` (set_mode("monitoring"))
+2. GraphManager: `restore_production_mode()` (set_mode("standby"))
 3. Transition to IDLE
 4. Broadcast abort confirmation to all connected browsers
 
@@ -298,7 +298,7 @@ On daemon startup, the daemon checks whether GraphManager is in measurement
 mode (orphaned from a prior crash or abort failure). If detected:
 
 1. Log a warning with the orphaned mode
-2. GraphManager: `restore_production_mode()` (set_mode("monitoring"))
+2. GraphManager: `restore_production_mode()` (set_mode("standby"))
 3. Report the recovery in the dashboard status
 
 This handles the edge case where the daemon crashes mid-measurement
@@ -392,7 +392,7 @@ Because the monitor tap is passive, pcm-bridge:
 
 ### Integration with Mode Manager
 
-In MONITORING mode, pcm-bridge feeds the dashboard's level meters and
+In STANDBY mode, pcm-bridge feeds the dashboard's level meters and
 SPL display. In MEASUREMENT mode, pcm-bridge continues running and can
 provide real-time level feedback for the measurement wizard (gain
 calibration display, sweep progress visualization) without interfering

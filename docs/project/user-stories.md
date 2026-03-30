@@ -3201,7 +3201,7 @@ routing), BM-2 (filter-chain benchmark), PW-native investigation.
 - [ ] CamillaDSP process and systemd service removed from production configuration
 - [ ] ALSA Loopback bridge eliminated from the audio path
 - [ ] GraphManager is the sole PipeWire session manager for the audio workstation -- no other session manager creates or destroys application links
-- [ ] Declarative routing table defines the complete link topology for each operating mode (monitoring, measurement, DJ, live)
+- [ ] Declarative routing table defines the complete link topology for each operating mode (standby, measurement, DJ, live)
 - [ ] GraphManager creates and destroys PipeWire links programmatically for all application nodes
 - [ ] Push-based graph awareness: GraphManager detects node appearance and disappearance within 100ms, without polling
 - [ ] Component lifecycle management: GraphManager spawns, monitors, and restarts audio components (signal-gen, pcm-bridge)
@@ -7551,13 +7551,13 @@ Task #150 committed a fix (`494c90d`) adding these properties and triggering rec
 - [ ] All expected ports visible in `pw-cli list-ports` immediately after boot
 
 **AC2: Reconciler creates all production links automatically**
-- [ ] After PipeWire + GM startup: all links for the default mode (Monitoring) are created without manual intervention
-- [ ] Link count matches the expected topology (16 links for 2-way Monitoring mode)
+- [ ] After PipeWire + GM startup: all links for the default mode (Standby) are created without manual intervention
+- [ ] Link count matches the expected topology (16 links for 2-way Standby mode)
 - [ ] Graph tab shows correct link count (not 0/0)
 - [ ] `pw-link -l` output matches GM's routing table
 
 **AC3: Mode switching creates/destroys correct links**
-- [ ] Switching from Monitoring to DJ mode: GM destroys Monitoring links, creates DJ links (adds Mixxx routing)
+- [ ] Switching from Standby to DJ mode: GM destroys Standby links, creates DJ links (adds Mixxx routing)
 - [ ] Switching from DJ to Measurement mode: correct topology swap
 - [ ] No stale links remain after mode transition
 - [ ] Mode switch completes within 2 seconds
@@ -7681,7 +7681,7 @@ Option A: Static PipeWire adapter configs. We already have static adapters for U
 1. `wireplumber.service` is masked/stopped on the Pi; PipeWire runs without a session manager
 2. All ALSA adapter nodes (USBStreamer playback, USBStreamer capture / ada8200-in, UMIK-1) have activated ports via static PW configs
 3. GM starts, creates all links for current mode, reconciler converges within 5 seconds
-4. All 4 operating modes (Monitoring, DJ, Live, Measurement) work without WP
+4. All 4 operating modes (Standby, DJ, Live, Measurement) work without WP
 5. UMIK-1 measurement flow works end-to-end (pre-flight, sweep, capture, deconvolution)
 6. 30-minute stability soak without xruns in DJ mode
 7. USB disconnect/reconnect of UMIK-1 handled gracefully (node reappears with ports)

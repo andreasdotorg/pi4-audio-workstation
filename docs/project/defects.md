@@ -5635,10 +5635,10 @@ Tests: 906 passed, zero new failures.
 ### Description
 
 When the Test or Measure tabs switch the GraphManager to measurement mode, the
-`finally` block that restores the previous mode always restores to **Monitoring**
+`finally` block that restores the previous mode always restores to **Standby**
 instead of the mode that was active before entering measurement. The owner was
 in DJ mode (Mixxx running), opened the Test tab, and when done was left in
-Monitoring mode — not DJ mode. Mixxx was still running but audio routing was
+Standby mode — not DJ mode. Mixxx was still running but audio routing was
 wrong.
 
 ### Impact
@@ -5651,7 +5651,7 @@ wrong.
 
 The `finally` block in the measurement/test tab code must save the current GM
 mode before switching to measurement, and restore that saved mode (not hardcoded
-Monitoring) when done.
+Standby) when done.
 
 ---
 
@@ -5666,7 +5666,7 @@ Monitoring) when done.
 ### Description
 
 The web UI has no mode switcher control. Once the GraphManager is stuck in the
-wrong mode (e.g., Monitoring instead of DJ — see F-160), the only way to switch
+wrong mode (e.g., Standby instead of DJ — see F-160), the only way to switch
 back is via CLI using `nc` to the GM RPC port (4002). There is no UI element to
 view or change the current GM mode.
 
@@ -5681,7 +5681,7 @@ view or change the current GM mode.
 
 Add a mode selector control to the web UI (likely in the Config or Dashboard
 tab) that shows the current GM mode and allows switching between DJ, Live, and
-Monitoring modes. Should include confirmation dialog for safety (mode switch
+Standby modes. Should include confirmation dialog for safety (mode switch
 involves audio mute → topology change → unmute).
 
 **Related:** US-097 (Measurement Backend), US-067 (E2E Simulator)

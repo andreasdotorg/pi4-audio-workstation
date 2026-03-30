@@ -593,7 +593,7 @@ _VALID_MEH_PROFILE = {
         "tweet_right": {"identity": "meh-tweet", "role": "tweeter", "channel": 5,
                         "enclosure_type": "horn", "delay_ms": 0.0},
     },
-    "mode_constraints": ["dj", "monitoring"],
+    "mode_constraints": ["dj", "standby"],
 }
 
 
@@ -1331,15 +1331,15 @@ class TestDeepValidateModeConstraintEnforcement:
         checks = [w["check"] for w in result["warnings"]]
         assert "mode_auto_derived" not in checks
 
-    def test_measurement_and_monitoring_modes_always_ok(self, deep_val_dir):
-        """Declaring 'measurement' or 'monitoring' modes never triggers channel budget error."""
+    def test_measurement_and_standby_modes_always_ok(self, deep_val_dir):
+        """Declaring 'measurement' or 'standby' modes never triggers channel budget error."""
         speakers = {
             f"spk{i}": {"identity": "test-sat", "role": "satellite", "channel": i}
             for i in range(8)
         }
         profile = _make_profile(
             speakers=speakers, topology="4way",
-            mode_constraints=["measurement", "monitoring"],
+            mode_constraints=["measurement", "standby"],
         )
         result = _deep_validate_profile(profile)
         checks = [e["check"] for e in result["errors"]]

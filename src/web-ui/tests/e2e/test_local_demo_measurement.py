@@ -251,7 +251,7 @@ class TestLocalDemoHealth:
     def test_gm_connected(self, local_demo_url):
         """Measurement status reports a GM mode (GM must be connected)."""
         data = _api_get(local_demo_url, "/api/v1/measurement/status")
-        # When GM is connected, mode is "monitoring", "measurement", etc.
+        # When GM is connected, mode is "standby", "measurement", etc.
         # When GM is not connected, mode is null.
         assert data.get("mode") is not None, (
             f"GM not connected (mode is null): {data}")

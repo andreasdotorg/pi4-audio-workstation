@@ -69,7 +69,7 @@ gain_staging:
 # = HP only, no IEM. Live vocal mode blocked.
 mode_constraints:
   - dj
-  - monitoring
+  - standby
 
 target_curve: flat
 filter_taps: 16384

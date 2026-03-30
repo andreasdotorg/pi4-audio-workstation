@@ -8,7 +8,7 @@
 //!
 //! ## Modes
 //!
-//! - **Monitoring:** Default mode. Filter-chain active for speakers,
+//! - **Standby:** Default mode. Filter-chain active for speakers,
 //!   no application linked, no measurement.
 //! - **Dj:** Mixxx linked to filter-chain + headphones via USBStreamer.
 //! - **Live:** Reaper linked to filter-chain + headphones + singer IEM
@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     /// Default: filter-chain active for speakers, no app, no measurement.
-    Monitoring,
+    Standby,
     /// Mixxx linked to filter-chain + headphones.
     Dj,
     /// Reaper linked to filter-chain + headphones + singer IEM.
@@ -52,7 +52,7 @@ pub enum Mode {
 impl fmt::Display for Mode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Mode::Monitoring => write!(f, "monitoring"),
+            Mode::Standby => write!(f, "standby"),
             Mode::Dj => write!(f, "dj"),
             Mode::Live => write!(f, "live"),
             Mode::Measurement => write!(f, "measurement"),
@@ -65,12 +65,12 @@ impl FromStr for Mode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "monitoring" => Ok(Mode::Monitoring),
+            "standby" => Ok(Mode::Standby),
             "dj" => Ok(Mode::Dj),
             "live" => Ok(Mode::Live),
             "measurement" => Ok(Mode::Measurement),
             _ => Err(format!(
-                "unknown mode '{}', expected: monitoring, dj, live, measurement",
+                "unknown mode '{}', expected: standby, dj, live, measurement",
                 s
             )),
         }
@@ -80,7 +80,7 @@ impl FromStr for Mode {
 impl Mode {
     /// All known modes, for iteration.
     pub const ALL: [Mode; 4] = [
-        Mode::Monitoring,
+        Mode::Standby,
         Mode::Dj,
         Mode::Live,
         Mode::Measurement,
@@ -423,7 +423,7 @@ impl RoutingTable {
     pub fn production_for(layout: SpeakerLayout) -> Self {
         let mut table = HashMap::new();
 
-        table.insert(Mode::Monitoring, Self::monitoring_links(&layout));
+        table.insert(Mode::Standby, Self::standby_links(&layout));
         table.insert(Mode::Dj, Self::dj_links(&layout));
         table.insert(Mode::Live, Self::live_links(&layout));
         table.insert(Mode::Measurement, Self::measurement_links(&layout));
@@ -451,7 +451,7 @@ impl RoutingTable {
     // Mode link definitions (private)
     // -------------------------------------------------------------------
 
-    /// Monitoring mode: convolver output → USBStreamer (speaker channels).
+    /// Standby mode: convolver output → USBStreamer (speaker channels).
     ///
     /// No application is linked. The convolver processes whatever is in
     /// its input buffers (silence if nothing is linked to it).
@@ -459,12 +459,12 @@ impl RoutingTable {
     /// Links: convolver-out ch 0..N → USBStreamer playback ch 0..N.
     /// F-131: No pcm-bridge links — no app to tap (spectrum would show
     /// post-gain signal at -100 dBFS, which is below display floor).
-    fn monitoring_links(layout: &SpeakerLayout) -> Vec<DesiredLink> {
+    fn standby_links(layout: &SpeakerLayout) -> Vec<DesiredLink> {
         // TODO: AE-F6 USBStreamer volume lock — when USBStreamer is first
         // detected, set volume to unity to prevent post-DSP clipping.
         let mut links = Self::convolver_to_usbstreamer_links(layout);
-        // F-124: No level-bridge-sw in monitoring — no app to tap.
-        // F-131: No pcm-bridge app tap in monitoring — no app to tap.
+        // F-124: No level-bridge-sw in standby — no app to tap.
+        // F-131: No pcm-bridge app tap in standby — no app to tap.
         // Always-on UMIK-1 capture for SPL metering (ch3, optional).
         links.push(Self::pcm_bridge_umik_link());
         links.extend(Self::level_bridge_hw_links());
@@ -905,7 +905,7 @@ mod tests {
 
     #[test]
     fn mode_display() {
-        assert_eq!(Mode::Monitoring.to_string(), "monitoring");
+        assert_eq!(Mode::Standby.to_string(), "standby");
         assert_eq!(Mode::Dj.to_string(), "dj");
         assert_eq!(Mode::Live.to_string(), "live");
         assert_eq!(Mode::Measurement.to_string(), "measurement");
@@ -927,8 +927,8 @@ mod tests {
 
     #[test]
     fn mode_serde_lowercase() {
-        let json = serde_json::to_string(&Mode::Monitoring).unwrap();
-        assert_eq!(json, "\"monitoring\"");
+        let json = serde_json::to_string(&Mode::Standby).unwrap();
+        assert_eq!(json, "\"standby\"");
     }
 
     // -----------------------------------------------------------------------
@@ -1018,14 +1018,14 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn monitoring_has_21_links() {
+    fn standby_has_21_links() {
         // convolver-out → USBStreamer ch 0-3 (4)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
         // + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 21.
-        // F-124: No level-bridge-sw in monitoring (no app to tap).
-        // F-131: No pcm-bridge app tap in monitoring (no app to tap).
+        // F-124: No level-bridge-sw in standby (no app to tap).
+        // F-131: No pcm-bridge app tap in standby (no app to tap).
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Monitoring).len(), 21);
+        assert_eq!(table.links_for(Mode::Standby).len(), 21);
     }
 
     #[test]
@@ -1098,7 +1098,7 @@ mod tests {
     fn pcm_bridge_links_per_mode() {
         // F-131: pcm-bridge taps app output (stereo master) for spectrum on ch1-2.
         // UMIK-1 always-on tap on ch3 in all modes.
-        // Monitoring: 1 (UMIK-1 only). DJ/Live: 3 (stereo L/R + UMIK-1).
+        // Standby: 1 (UMIK-1 only). DJ/Live: 3 (stereo L/R + UMIK-1).
         // Measurement: 1 (UMIK-1 ch3; no app tap).
         let table = RoutingTable::production();
         for mode in Mode::ALL {
@@ -1110,7 +1110,7 @@ mod tests {
                 })
                 .collect();
             let expected = match mode {
-                Mode::Monitoring => 1,   // UMIK-1 ch3 only (no app to tap)
+                Mode::Standby => 1,   // UMIK-1 ch3 only (no app to tap)
                 Mode::Measurement => 1,  // UMIK-1 ch3 only (no app tap in measurement)
                 _ => 3,                  // F-131: stereo master L/R + UMIK-1 ch3
             };
@@ -1131,11 +1131,11 @@ mod tests {
     }
 
     #[test]
-    fn pcm_bridge_monitoring_has_umik_link() {
-        // Monitoring mode has 1 pcm-bridge link: UMIK-1 ch3 (always-on).
+    fn pcm_bridge_standby_has_umik_link() {
+        // Standby mode has 1 pcm-bridge link: UMIK-1 ch3 (always-on).
         // No app tap (F-131: no app to tap).
         let table = RoutingTable::production();
-        let links = table.links_for(Mode::Monitoring);
+        let links = table.links_for(Mode::Standby);
         let pcm_links: Vec<_> = links
             .iter()
             .filter(|l| {
@@ -1198,7 +1198,7 @@ mod tests {
     fn all_modes_have_level_bridge_links() {
         // D-043/US-084/F-124: level-bridge links in all modes.
         // hw-out (8) + hw-in (8) = 16 in every mode.
-        // sw links are mode-specific: Monitoring=0, DJ=4, Live=8, Measurement=1.
+        // sw links are mode-specific: Standby=0, DJ=4, Live=8, Measurement=1.
         let table = RoutingTable::production();
         for mode in Mode::ALL {
             let links = table.links_for(mode);
@@ -1209,7 +1209,7 @@ mod tests {
                 })
                 .collect();
             let expected_sw = match mode {
-                Mode::Monitoring => 0,   // no app to tap
+                Mode::Standby => 0,   // standby: no app to tap
                 Mode::Dj => 8,           // Mixxx 8ch (consistent with 8-ch metering layout)
                 Mode::Live => 8,         // Reaper 8ch
                 Mode::Measurement => 1,  // signal-gen mono
@@ -1234,11 +1234,11 @@ mod tests {
         // F-124: level-bridge-sw taps the active app's output ports per mode.
         let table = RoutingTable::production();
 
-        // Monitoring: no level-bridge-sw links (no app).
-        let mon_sw: Vec<_> = table.links_for(Mode::Monitoring).iter()
+        // Standby: no level-bridge-sw links (no app).
+        let mon_sw: Vec<_> = table.links_for(Mode::Standby).iter()
             .filter(|l| matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-level-bridge-sw"))
             .collect();
-        assert_eq!(mon_sw.len(), 0, "Monitoring should have 0 level-bridge-sw links");
+        assert_eq!(mon_sw.len(), 0, "Standby should have 0 level-bridge-sw links");
 
         // DJ: Mixxx 8ch (out_0..out_7 → input_1..8, consistent 8-ch metering).
         // Mixxx populates 6 (Master L/R + gap 3-4 + HP L/R); ch 7-8 show silence.
@@ -1277,7 +1277,7 @@ mod tests {
     fn level_bridge_hw_out_taps_usbstreamer_monitor() {
         // level-bridge-hw-out taps USBStreamer's monitor ports (8ch).
         let table = RoutingTable::production();
-        let links = table.links_for(Mode::Monitoring);
+        let links = table.links_for(Mode::Standby);
         let hw_out_links: Vec<_> = links
             .iter()
             .filter(|l| {
@@ -1296,7 +1296,7 @@ mod tests {
     fn level_bridge_hw_in_taps_ada8200_capture() {
         // level-bridge-hw-in taps ADA8200 capture ports (8ch).
         let table = RoutingTable::production();
-        let links = table.links_for(Mode::Monitoring);
+        let links = table.links_for(Mode::Standby);
         let hw_in_links: Vec<_> = links
             .iter()
             .filter(|l| {
@@ -1336,7 +1336,7 @@ mod tests {
     #[test]
     fn from_entries_roundtrip() {
         let table = RoutingTable::from_entries(vec![
-            (Mode::Monitoring, vec![]),
+            (Mode::Standby, vec![]),
             (Mode::Dj, vec![DesiredLink {
                 output_node: NodeMatch::Exact("test".to_string()),
                 output_port: "out_0".to_string(),
@@ -1345,7 +1345,7 @@ mod tests {
                 optional: false,
             }]),
         ]);
-        assert_eq!(table.links_for(Mode::Monitoring).len(), 0);
+        assert_eq!(table.links_for(Mode::Standby).len(), 0);
         assert_eq!(table.links_for(Mode::Dj).len(), 1);
         assert_eq!(table.links_for(Mode::Live).len(), 0); // not in table
     }
@@ -1377,7 +1377,7 @@ mod tests {
     fn convolver_output_uses_output_aux_ports() {
         // Convolver playback source uses output_AUX prefix.
         let table = RoutingTable::production();
-        let mon_links = table.links_for(Mode::Monitoring);
+        let mon_links = table.links_for(Mode::Standby);
         for link in mon_links {
             if matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-convolver-out") {
                 assert!(
@@ -1393,7 +1393,7 @@ mod tests {
     fn usbstreamer_uses_playback_aux_ports() {
         // USBStreamer playback adapter gets playback_AUX ports.
         let table = RoutingTable::production();
-        let mon_links = table.links_for(Mode::Monitoring);
+        let mon_links = table.links_for(Mode::Standby);
         for link in mon_links {
             if matches!(&link.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output.usb-MiniDSP")) {
                 assert!(
@@ -1812,18 +1812,18 @@ mod tests {
     }
 
     #[test]
-    fn monitoring_has_no_app_links() {
-        // Monitoring mode: no application (Mixxx/Reaper/signal-gen) links.
+    fn standby_has_no_app_links() {
+        // Standby mode: no application (Mixxx/Reaper/signal-gen) links.
         // Only infrastructure links: convolver-out → USBStreamer, convolver-out → pcm-bridge,
         // and level-bridge metering links.
         let table = RoutingTable::production();
-        let mon_links = table.links_for(Mode::Monitoring);
+        let mon_links = table.links_for(Mode::Standby);
         for link in mon_links {
             let is_app = matches!(&link.output_node, NodeMatch::Prefix(p) if p == "Mixxx" || p == "REAPER")
                 || matches!(&link.output_node, NodeMatch::Exact(n) if n == "pi4audio-signal-gen");
             assert!(
                 !is_app,
-                "Monitoring should not have application output links, got: {}",
+                "Standby should not have application output links, got: {}",
                 link,
             );
         }
@@ -1871,12 +1871,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn three_way_monitoring_has_23_links() {
+    fn three_way_standby_has_23_links() {
         // convolver-out → USBStreamer ch 0-5 (6)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
         // + level-bridge-hw-out (8) + level-bridge-hw-in (8) = 23.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
-        assert_eq!(table.links_for(Mode::Monitoring).len(), 23);
+        assert_eq!(table.links_for(Mode::Standby).len(), 23);
     }
 
     #[test]

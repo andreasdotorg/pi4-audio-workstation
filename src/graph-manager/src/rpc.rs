@@ -131,7 +131,7 @@ pub struct StateSnapshot {
 }
 
 impl StateSnapshot {
-    /// Default empty snapshot (monitoring mode, no data).
+    /// Default empty snapshot (standby mode, no data).
     pub fn empty() -> Self {
         let mut devices = HashMap::new();
         devices.insert("usbstreamer".to_string(), "unknown".to_string());
@@ -139,7 +139,7 @@ impl StateSnapshot {
         devices.insert("convolver".to_string(), "unknown".to_string());
         devices.insert("convolver-out".to_string(), "unknown".to_string());
         Self {
-            mode: "monitoring".to_string(),
+            mode: "standby".to_string(),
             nodes: Vec::new(),
             links: Vec::new(),
             devices,
@@ -483,7 +483,7 @@ fn handle_get_state(
         let mode = stored_mode
             .lock()
             .map(|m| m.clone())
-            .unwrap_or_else(|_| "monitoring".to_string());
+            .unwrap_or_else(|_| "standby".to_string());
         let snap = StateSnapshot::empty();
         let resp = StateResponse {
             r#type: "response",
@@ -518,7 +518,7 @@ fn handle_get_state(
             let mode = stored_mode
                 .lock()
                 .map(|m| m.clone())
-                .unwrap_or_else(|_| "monitoring".to_string());
+                .unwrap_or_else(|_| "standby".to_string());
             let snap = StateSnapshot::empty();
             let resp = StateResponse {
                 r#type: "response",
@@ -591,7 +591,7 @@ fn handle_get_links(
         let mode = stored_mode
             .lock()
             .map(|m| m.clone())
-            .unwrap_or_else(|_| "monitoring".to_string());
+            .unwrap_or_else(|_| "standby".to_string());
         let snap = LinkSnapshot::empty(&mode);
         let resp = LinksResponse {
             r#type: "response",
@@ -628,7 +628,7 @@ fn handle_get_links(
             let mode = stored_mode
                 .lock()
                 .map(|m| m.clone())
-                .unwrap_or_else(|_| "monitoring".to_string());
+                .unwrap_or_else(|_| "standby".to_string());
             let snap = LinkSnapshot::empty(&mode);
             let resp = LinksResponse {
                 r#type: "response",
@@ -912,7 +912,7 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
             let mode = current_mode
                 .lock()
                 .map(|m| m.clone())
-                .unwrap_or_else(|_| "monitoring".to_string());
+                .unwrap_or_else(|_| "standby".to_string());
             let mut snap = StateSnapshot::empty();
             snap.mode = mode;
             let _ = reply.send(snap);
@@ -924,7 +924,7 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
             let mode = current_mode
                 .lock()
                 .map(|m| m.clone())
-                .unwrap_or_else(|_| "monitoring".to_string());
+                .unwrap_or_else(|_| "standby".to_string());
             let _ = reply.send(LinkSnapshot::empty(&mode));
         }
         RpcCommand::WatchdogStatus { reply } => {
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[test]
     fn set_mode_valid_modes() {
-        for mode_str in &["monitoring", "dj", "live", "measurement"] {
+        for mode_str in &["standby", "dj", "live", "measurement"] {
             assert!(
                 mode_str.parse::<Mode>().is_ok(),
                 "Expected valid mode: {}",
@@ -1285,12 +1285,12 @@ mod tests {
     #[test]
     fn set_mode_missing_mode_field() {
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let stored_mode = Mutex::new("monitoring".to_string());
+        let stored_mode = Mutex::new("standby".to_string());
 
         // Spawn stub handler so the channel doesn't hang.
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &Mutex::new("monitoring".to_string()));
+                handle_pw_command(cmd, &Mutex::new("standby".to_string()));
             }
         });
 
@@ -1308,11 +1308,11 @@ mod tests {
     #[test]
     fn set_mode_invalid_mode_value() {
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let stored_mode = Mutex::new("monitoring".to_string());
+        let stored_mode = Mutex::new("standby".to_string());
 
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &Mutex::new("monitoring".to_string()));
+                handle_pw_command(cmd, &Mutex::new("standby".to_string()));
             }
         });
 
@@ -1330,9 +1330,9 @@ mod tests {
     #[test]
     fn set_mode_valid_updates_stored() {
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let stored_mode = Arc::new(Mutex::new("monitoring".to_string()));
+        let stored_mode = Arc::new(Mutex::new("standby".to_string()));
 
-        let mode_for_handler = Arc::new(Mutex::new("monitoring".to_string()));
+        let mode_for_handler = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn({
             let mode = mode_for_handler.clone();
             move || {
@@ -1355,7 +1355,7 @@ mod tests {
     #[test]
     fn ping_always_returns_ok() {
         let (cmd_tx, _cmd_rx) = mpsc::channel();
-        let stored_mode = Mutex::new("monitoring".to_string());
+        let stored_mode = Mutex::new("standby".to_string());
 
         let req = parse_line(r#"{"cmd":"ping"}"#).unwrap();
         let result = handle_request(&req, &cmd_tx, &stored_mode);
@@ -1372,7 +1372,7 @@ mod tests {
     #[test]
     fn unknown_command_rejected() {
         let (cmd_tx, _cmd_rx) = mpsc::channel();
-        let stored_mode = Mutex::new("monitoring".to_string());
+        let stored_mode = Mutex::new("standby".to_string());
 
         let req = parse_line(r#"{"cmd":"reboot"}"#).unwrap();
         let result = handle_request(&req, &cmd_tx, &stored_mode);
@@ -1418,7 +1418,7 @@ mod tests {
         let snap = StateSnapshot::empty();
         let json = serde_json::to_string(&snap).unwrap();
         let v: Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(v["mode"], "monitoring");
+        assert_eq!(v["mode"], "standby");
         assert!(v["nodes"].is_array());
         assert!(v["links"].is_array());
         assert!(v["devices"].is_object());
@@ -1484,14 +1484,14 @@ mod tests {
     #[test]
     fn event_mode_changed_serializes() {
         let event = GraphEvent::ModeChanged {
-            from: "monitoring".to_string(),
+            from: "standby".to_string(),
             to: "dj".to_string(),
         };
         let json = format_event(&event);
         let v: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["type"], "event");
         assert_eq!(v["event"], "mode_changed");
-        assert_eq!(v["from"], "monitoring");
+        assert_eq!(v["from"], "standby");
         assert_eq!(v["to"], "dj");
     }
 
@@ -1574,9 +1574,9 @@ mod tests {
     #[test]
     fn get_state_stub_response_format() {
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let stored_mode = Mutex::new("monitoring".to_string());
+        let stored_mode = Mutex::new("standby".to_string());
 
-        let mode = Arc::new(Mutex::new("monitoring".to_string()));
+        let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
                 handle_pw_command(cmd, &mode);
@@ -1591,7 +1591,7 @@ mod tests {
                 assert_eq!(v["type"], "response");
                 assert_eq!(v["cmd"], "get_state");
                 assert_eq!(v["ok"], true);
-                assert_eq!(v["mode"], "monitoring");
+                assert_eq!(v["mode"], "standby");
                 assert!(v["nodes"].is_array());
                 assert!(v["links"].is_array());
                 assert!(v["devices"].is_object());
@@ -1607,9 +1607,9 @@ mod tests {
     #[test]
     fn get_devices_stub_response_format() {
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let stored_mode = Mutex::new("monitoring".to_string());
+        let stored_mode = Mutex::new("standby".to_string());
 
-        let mode = Arc::new(Mutex::new("monitoring".to_string()));
+        let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
                 handle_pw_command(cmd, &mode);
@@ -1697,7 +1697,7 @@ mod tests {
     fn tcp_server_accepts_and_responds() {
         let shutdown = Arc::new(AtomicBool::new(false));
         let _handle =
-            start_test_rpc_server("127.0.0.1:0", "monitoring", shutdown.clone());
+            start_test_rpc_server("127.0.0.1:0", "standby", shutdown.clone());
 
         // Give the server a moment to bind.
         // We can't know the port from start_rpc_thread with port 0,
@@ -1719,7 +1719,7 @@ mod tests {
         let shutdown = Arc::new(AtomicBool::new(false));
         let addr_str = addr.to_string();
         let _handle =
-            start_test_rpc_server(&addr_str, "monitoring", shutdown.clone());
+            start_test_rpc_server(&addr_str, "standby", shutdown.clone());
 
         // Give the server a moment to bind.
         thread::sleep(std::time::Duration::from_millis(100));
@@ -1755,7 +1755,7 @@ mod tests {
         let shutdown = Arc::new(AtomicBool::new(false));
         let addr_str = addr.to_string();
         let _handle =
-            start_test_rpc_server(&addr_str, "monitoring", shutdown.clone());
+            start_test_rpc_server(&addr_str, "standby", shutdown.clone());
 
         thread::sleep(std::time::Duration::from_millis(100));
 
@@ -1796,7 +1796,7 @@ mod tests {
         let shutdown = Arc::new(AtomicBool::new(false));
         let addr_str = addr.to_string();
         let _handle =
-            start_test_rpc_server(&addr_str, "monitoring", shutdown.clone());
+            start_test_rpc_server(&addr_str, "standby", shutdown.clone());
 
         thread::sleep(std::time::Duration::from_millis(100));
 

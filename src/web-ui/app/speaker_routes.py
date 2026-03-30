@@ -186,7 +186,7 @@ _VALID_POLARITIES = {"normal", "inverted"}
 _VALID_ENCLOSURE_TYPES = {"sealed", "ported", "horn", "bandpass", "onken", "open_baffle", "isobaric"}
 
 # Valid GM modes for mode_constraints.
-_VALID_GM_MODES = {"dj", "live", "monitoring", "measurement"}
+_VALID_GM_MODES = {"dj", "live", "standby", "measurement"}
 
 # Maximum channel index (0-indexed, 8 channels total).
 _MAX_CHANNEL = 7

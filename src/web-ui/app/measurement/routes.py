@@ -236,7 +236,7 @@ async def start_measurement(body: StartRequest, request: Request):
 
 
 async def _run_session_lifecycle(app: Any, session: MeasurementSession) -> None:
-    """Run the session and restore monitoring mode when it finishes."""
+    """Run the session and restore standby mode when it finishes."""
     try:
         await session.run()
     finally:
@@ -253,7 +253,7 @@ async def _run_session_lifecycle(app: Any, session: MeasurementSession) -> None:
             )
             if terminal:
                 restore_gm = session.state is not MeasurementState.COMPLETE
-                await mode_manager.enter_monitoring_mode(restore_gm=restore_gm)
+                await mode_manager.enter_standby_mode(restore_gm=restore_gm)
         else:
             log.info("Lifecycle: session superseded — skipping mode restore")
         # Close SignalGenClient if it was used as sd_override (SG-11).
@@ -341,18 +341,18 @@ async def reset_measurement_state(request: Request):
             pass
 
     # Yield to the event loop to let any in-flight lifecycle callbacks
-    # (e.g. enter_monitoring_mode from a zombie lifecycle) settle before
+    # (e.g. enter_standby_mode from a zombie lifecycle) settle before
     # we force-reset the state.  Without this, a zombie lifecycle's
     # finally block can overwrite our clean state (F-049).
     await asyncio.sleep(0.1)
 
-    # Force mode back to monitoring unconditionally.  Even if a zombie
-    # lifecycle already restored monitoring mode, we need to clear the
+    # Force mode back to standby unconditionally.  Even if a zombie
+    # lifecycle already restored standby mode, we need to clear the
     # last_completed_session reference it may have set.
     from ..mode_manager import DaemonMode
     mode_manager._measurement_session = None
     mode_manager._last_completed_session = None
-    mode_manager._mode = DaemonMode.MONITORING
+    mode_manager._mode = DaemonMode.STANDBY
     request.app.state.measurement_task = None
     log.info("Measurement state fully reset for e2e tests")
     return {"status": "reset"}

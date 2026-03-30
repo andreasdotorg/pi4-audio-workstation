@@ -316,9 +316,9 @@ Two RPC commands are used:
   snapshot including convolver presence.
 
 **Derived state mapping:**
-- `state = "Running"`: mode is not `monitoring` AND `missing == 0`
-- `state = "Idle"`: mode is `monitoring` (no production links)
-- `state = "Degraded"`: mode is not `monitoring` AND `missing > 0`
+- `state = "Running"`: mode is not `standby` AND `missing == 0`
+- `state = "Idle"`: mode is `standby` (no production links)
+- `state = "Degraded"`: mode is not `standby` AND `missing > 0`
 - `state = "Disconnected"`: GraphManager unreachable
 - `buffer_level`: percentage of link health (`100 * actual / desired`)
 
@@ -734,9 +734,9 @@ at `127.0.0.1:4002`. Replaces the CamillaDSPCollector (D-040, commits
   convolver presence and device status.
 
 **Derived health mapping:**
-- `state = "Running"`: non-monitoring mode, all links present (`missing == 0`)
-- `state = "Idle"`: monitoring mode (no production links active)
-- `state = "Degraded"`: non-monitoring mode, `missing > 0`
+- `state = "Running"`: non-standby mode, all links present (`missing == 0`)
+- `state = "Idle"`: standby mode (no production links active)
+- `state = "Degraded"`: non-standby mode, `missing > 0`
 - `state = "Disconnected"`: GraphManager unreachable
 - `buffer_level`: link health as percentage (`100 * actual / desired`)
 

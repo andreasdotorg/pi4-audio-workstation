@@ -282,7 +282,7 @@ class ProcessManager:
                 name="graph-manager",
                 args=[
                     graphmgr_bin,
-                    "--mode", "monitoring",
+                    "--mode", "standby",
                     "--listen", f"tcp:{GRAPHMGR_E2E_HOST}:{graphmgr_port}",
                     "--log-level", "debug",
                 ],

@@ -470,8 +470,8 @@ class MeasurementSession:
                      self._pre_measurement_gm_mode)
         except Exception as exc:
             log.warning("F-160: Failed to query GM mode: %s — "
-                        "will restore to monitoring", exc)
-            self._pre_measurement_gm_mode = "monitoring"
+                        "will restore to standby", exc)
+            self._pre_measurement_gm_mode = "standby"
 
         try:
             await asyncio.to_thread(self._gm_client.enter_measurement_mode)
@@ -485,7 +485,7 @@ class MeasurementSession:
         except Exception:
             # On failure, try to restore the previous mode.
             try:
-                target = self._pre_measurement_gm_mode or "monitoring"
+                target = self._pre_measurement_gm_mode or "standby"
                 await asyncio.to_thread(
                     self._gm_client.set_mode, target)
             except Exception:
@@ -1504,7 +1504,7 @@ class MeasurementSession:
         """Restore GraphManager to the mode active before measurement (F-160)."""
         if self._gm_client is None:
             return
-        target = self._pre_measurement_gm_mode or "monitoring"
+        target = self._pre_measurement_gm_mode or "standby"
         try:
             await asyncio.to_thread(self._gm_client.set_mode, target)
             log.info("F-160: Restored GraphManager to %s mode", target)
