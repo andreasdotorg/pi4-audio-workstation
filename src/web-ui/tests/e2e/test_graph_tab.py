@@ -192,7 +192,8 @@ class TestResponsiveGraph:
 
         _screenshot(pg, "graph-dj-1920x1080.png")
         ctx.close()
-        real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+        real_errors = [e for e in console_errors
+                       if "/ws/siggen" not in e and "/ws/pcm" not in e]
         assert not real_errors, f"JS errors at 1920px: {real_errors}"
 
     def test_graph_at_600(self, page, browser):
@@ -232,7 +233,8 @@ class TestResponsiveGraph:
 
         _screenshot(pg, "graph-dj-600x800.png")
         ctx.close()
-        real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+        real_errors = [e for e in console_errors
+                       if "/ws/siggen" not in e and "/ws/pcm" not in e]
         assert not real_errors, f"JS errors at 600px: {real_errors}"
 
     def test_port_labels_hidden_at_600(self, page, browser):

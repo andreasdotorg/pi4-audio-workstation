@@ -288,7 +288,9 @@ def page(browser, mock_server, request):
     context.close()
     # Filter out known-benign errors: siggen WS returns 403 when
     # PI4AUDIO_SIGGEN is not set (always the case in mock/test mode).
-    real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+    # PCM WS endpoints also return 403 in mock mode (no real pcm-bridge).
+    real_errors = [e for e in console_errors
+                   if "/ws/siggen" not in e and "/ws/pcm" not in e]
     assert not real_errors, f"JS console errors: {real_errors}"
 
 
@@ -319,7 +321,8 @@ def frozen_page(browser, mock_server, request):
     )
     yield pg
     context.close()
-    real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+    real_errors = [e for e in console_errors
+                   if "/ws/siggen" not in e and "/ws/pcm" not in e]
     assert not real_errors, f"JS console errors: {real_errors}"
 
 

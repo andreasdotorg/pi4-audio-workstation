@@ -257,7 +257,8 @@ class TestResponsiveConfig:
 
         _screenshot(pg, "cfg-tab-1920.png")
         ctx.close()
-        real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+        real_errors = [e for e in console_errors
+                       if "/ws/siggen" not in e and "/ws/pcm" not in e]
         assert not real_errors, f"JS errors at 1920px: {real_errors}"
 
     def test_single_column_at_600(self, page, browser):
@@ -284,7 +285,8 @@ class TestResponsiveConfig:
 
         _screenshot(pg, "cfg-tab-600.png")
         ctx.close()
-        real_errors = [e for e in console_errors if "/ws/siggen" not in e]
+        real_errors = [e for e in console_errors
+                       if "/ws/siggen" not in e and "/ws/pcm" not in e]
         assert not real_errors, f"JS errors at 600px: {real_errors}"
 
 
