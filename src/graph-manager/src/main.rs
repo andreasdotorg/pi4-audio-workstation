@@ -407,6 +407,12 @@ fn dispatch_rpc_command(
             *current_mode.borrow_mut() = mode;
             info!("Mode transition: {} -> {}", old_mode, mode);
 
+            // 1b. Set quantum for the new mode (F-230).
+            // DJ needs quantum 1024 for efficient convolution; all other modes
+            // clear the force-quantum so PipeWire falls back to the config
+            // default (256, set in 10-audio-settings.conf).
+            set_quantum_for_mode(mode);
+
             // 2. Run reconciliation.
             let g = graph.borrow();
             let result = reconcile::reconcile(&g, routing_table, mode);
@@ -722,6 +728,50 @@ fn parse_pw_dump_xruns(json_str: &str) -> Result<(u64, String), String> {
     }
 
     Ok((total_xruns, driver_node_name))
+}
+
+/// Set PipeWire quantum for the given mode (F-230).
+///
+/// DJ mode needs quantum 1024 for efficient convolution (saves CPU for Mixxx).
+/// All other modes clear force-quantum (set to 0), so PipeWire falls back to
+/// the config default (quantum 256, set in `10-audio-settings.conf`).
+///
+/// Uses `pw-metadata -n settings 0 clock.force-quantum <value>`.
+/// Errors are logged but not fatal — quantum mismatch is a performance issue,
+/// not a correctness issue.
+#[cfg(feature = "pipewire-backend")]
+fn set_quantum_for_mode(mode: Mode) {
+    use std::process::Command;
+
+    let quantum = match mode {
+        Mode::Dj => 1024,
+        // Live (256), Standby, Measurement: clear force-quantum → config default.
+        _ => 0,
+    };
+
+    let quantum_str = quantum.to_string();
+    match Command::new("pw-metadata")
+        .args(["-n", "settings", "0", "clock.force-quantum", &quantum_str])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            if quantum > 0 {
+                info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
+            } else {
+                info!("F-230: Cleared clock.force-quantum for {} mode (using config default)", mode);
+            }
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::warn!(
+                "F-230: pw-metadata set force-quantum={} failed (exit {}): {}",
+                quantum, output.status, stderr.trim()
+            );
+        }
+        Err(e) => {
+            log::warn!("F-230: pw-metadata not available: {}", e);
+        }
+    }
 }
 
 /// Update the cached PipeWire graph info (quantum, sample rate, xruns).

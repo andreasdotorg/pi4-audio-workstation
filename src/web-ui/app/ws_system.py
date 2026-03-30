@@ -97,7 +97,7 @@ def _build_system_snapshot(app) -> dict:
         "xruns": None,
         "chunksize": 0,
         "gm_connected": False,
-        "gm_mode": "dj",
+        "gm_mode": "standby",
         "gm_links_desired": None,
         "gm_links_actual": None,
         "gm_links_missing": None,
@@ -137,7 +137,7 @@ def _build_system_snapshot(app) -> dict:
             "available_mb": 0,
         }),
         "uptime_seconds": sys_snap.get("uptime_seconds"),
-        "mode": cdsp_snap.get("gm_mode", "dj") if cdsp_snap else "dj",
+        "mode": cdsp_snap.get("gm_mode", "standby") if cdsp_snap else "standby",
         "safety_alerts": cdsp_col.safety_snapshot() if cdsp_col else {
             "gm_connected": False,
             "watchdog_latched": False,

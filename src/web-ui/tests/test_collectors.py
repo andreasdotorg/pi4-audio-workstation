@@ -230,14 +230,14 @@ class TestBuildSystemSnapshot:
         data = _build_system_snapshot(app)
         assert data["mode"] == "live"
 
-    def test_mode_defaults_to_dj_when_no_collector(self):
-        """Mode defaults to 'dj' when FilterChainCollector is unavailable."""
+    def test_mode_defaults_to_standby_when_no_collector(self):
+        """F-228: Mode defaults to 'standby' when FilterChainCollector is unavailable."""
         app = MagicMock()
         app.state.system_collector = None
         app.state.pw = None
         app.state.cdsp = None
         data = _build_system_snapshot(app)
-        assert data["mode"] == "dj"
+        assert data["mode"] == "standby"
 
 
 # ── 3. SystemCollector scheduling extraction (TK-245) ─────────

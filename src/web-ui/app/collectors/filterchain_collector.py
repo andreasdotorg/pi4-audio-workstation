@@ -186,7 +186,7 @@ class FilterChainCollector:
                 "chunksize": 0,
                 "cdsp_connected": False,
                 "gm_connected": False,
-                "gm_mode": "dj",
+                "gm_mode": "standby",
                 "gm_links_desired": None,
                 "gm_links_actual": None,
                 "gm_links_missing": None,

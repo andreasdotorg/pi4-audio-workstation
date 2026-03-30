@@ -112,7 +112,7 @@ def _empty_monitoring() -> dict:
             "playback_rate": 0,
             "chunksize": 0,
             "gm_connected": False,
-            "gm_mode": "dj",
+            "gm_mode": "standby",
             "gm_links_desired": 0,
             "gm_links_actual": 0,
             "gm_links_missing": 0,
