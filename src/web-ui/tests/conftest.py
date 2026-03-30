@@ -5,6 +5,8 @@ import sys
 
 # Set mock mode BEFORE any app imports.
 os.environ["PI_AUDIO_MOCK"] = "1"
+# Disable auth middleware for tests (US-110).
+os.environ["PI4AUDIO_AUTH_DISABLED"] = "1"
 
 # Add room-correction scripts to sys.path so gain_calibration, measure_nearfield,
 # room_correction.sweep, etc. are importable.

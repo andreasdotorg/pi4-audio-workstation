@@ -135,6 +135,7 @@ def mock_server(request):
     # - PI4AUDIO_UMIK1_CAL: path to mock calibration file
     # - PI4AUDIO_MEAS_DIR: path to src/measurement/ for graph_manager_client import
     env = os.environ.copy()
+    env["PI4AUDIO_AUTH_DISABLED"] = "1"  # US-110: no auth in E2E tests
     env["PI4AUDIO_UMIK1_CAL"] = mock_cal_file
     env["PI4AUDIO_MEAS_DIR"] = str(
         web_ui_dir.parent / "measurement")

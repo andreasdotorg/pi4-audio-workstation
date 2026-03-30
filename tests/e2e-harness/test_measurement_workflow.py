@@ -44,6 +44,8 @@ for d in (_WEB_UI_DIR, _MEAS_DIR, _RC_DIR, _MOCK_DIR):
 
 # Set mock mode for sounddevice (no real UMIK-1 in E2E harness).
 os.environ["PI_AUDIO_MOCK"] = "1"
+# Disable auth middleware for tests (US-110).
+os.environ["PI4AUDIO_AUTH_DISABLED"] = "1"
 
 # Point to the measurement client modules directory.
 os.environ["PI4AUDIO_MEAS_DIR"] = _MEAS_DIR

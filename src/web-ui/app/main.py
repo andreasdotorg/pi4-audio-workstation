@@ -70,6 +70,10 @@ MOCK_MODE = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
 # 2 = stereo main mix (Mixxx L/R, default), 4 = legacy 2-way, 6 = 3-way.
 PCM_CHANNELS = int(os.environ.get("PI4AUDIO_PCM_CHANNELS", "2"))
 
+# US-110: Passkey auth.  Disabled via PI4AUDIO_AUTH_DISABLED=1
+# (set in local-demo.sh and test conftest).
+AUTH_ENABLED = os.environ.get("PI4AUDIO_AUTH_DISABLED", "") != "1"
+
 
 # -- Systemd watchdog (D-036 / WP-G) ---------------------------------------
 
@@ -255,6 +259,10 @@ async def lifespan(app: FastAPI):
             await task
         except Exception:
             pass
+    # Close auth DB if it was opened (US-110).
+    from .auth import models as auth_models
+    await auth_models.close_db()
+
     executor.shutdown(wait=False)
     log.info("Shutdown complete")
 
@@ -283,7 +291,17 @@ async def recovery_guard(request: Request, call_next):
     return await call_next(request)
 
 
-# -- Include measurement router ---------------------------------------------
+# -- Auth middleware (US-110) -----------------------------------------------
+
+if AUTH_ENABLED:
+    from .auth.middleware import AuthMiddleware
+    app.add_middleware(AuthMiddleware)
+    log.info("Auth middleware enabled (US-110)")
+else:
+    log.info("Auth middleware disabled (PI4AUDIO_AUTH_DISABLED=1 or default)")
+
+
+# -- Include routers --------------------------------------------------------
 
 app.include_router(measurement_router)
 app.include_router(test_tool_router)
@@ -313,6 +331,10 @@ try:
     app.include_router(hardware_router)
 except ImportError:
     pass  # hardware_routes not yet available (pre-commit)
+
+if AUTH_ENABLED:
+    from .auth.routes import router as auth_router
+    app.include_router(auth_router)
 
 
 # -- Routes --
