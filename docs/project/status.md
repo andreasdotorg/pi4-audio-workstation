@@ -128,7 +128,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Metric | Value |
 |--------|-------|
 | Git commits | ~197 |
-| Total stories filed | 117 |
+| Total stories filed | 118 |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 8 (US-088, US-090, US-092-097 — 7 REJECTED pending F-223 fix) |
