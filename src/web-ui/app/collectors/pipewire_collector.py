@@ -142,19 +142,37 @@ class PipeWireCollector:
         return False
 
     async def _send_command(self, cmd: dict) -> dict | None:
+        """Send a JSON command and read the response line.
+
+        F-233: Skips interleaved push events (``"type":"event"``) that
+        the GM server broadcasts to all connected clients on the same
+        TCP stream.
+        """
         if self._writer is None or self._reader is None:
             return None
         try:
             line = json.dumps(cmd, separators=(",", ":")) + "\n"
             self._writer.write(line.encode())
             await self._writer.drain()
-            resp_line = await asyncio.wait_for(
-                self._reader.readline(), timeout=2.0)
-            if not resp_line:
-                log.warning("PipeWireCollector: GM closed connection")
-                self._disconnect()
-                return None
-            return json.loads(resp_line.decode())
+
+            # F-233: Loop reading lines, skipping interleaved push
+            # events, until we get the response for our command.
+            while True:
+                resp_line = await asyncio.wait_for(
+                    self._reader.readline(), timeout=2.0)
+                if not resp_line:
+                    log.warning("PipeWireCollector: GM closed connection")
+                    self._disconnect()
+                    return None
+
+                resp = json.loads(resp_line.decode())
+
+                if resp.get("type") == "event":
+                    log.debug("F-233: skipped push event during RPC: %s",
+                              resp.get("event", "unknown"))
+                    continue
+
+                return resp
         except asyncio.TimeoutError:
             log.warning("PipeWireCollector: GM RPC timed out")
             self._disconnect()

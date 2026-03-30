@@ -293,6 +293,13 @@ class FilterChainCollector:
         """Send a JSON command and read the response line.
 
         Returns the parsed response dict, or None on failure.
+
+        F-233: The GM server broadcasts push events (``"type":"event"``)
+        to all connected clients on the same TCP stream used for RPC
+        responses.  If a push event arrives between sending a command
+        and reading the response, we must skip it and keep reading
+        until the actual response arrives.  Push events are logged at
+        DEBUG level for diagnostics.
         """
         if self._writer is None or self._reader is None:
             return None
@@ -301,14 +308,25 @@ class FilterChainCollector:
             self._writer.write(line.encode())
             await self._writer.drain()
 
-            resp_line = await asyncio.wait_for(
-                self._reader.readline(), timeout=2.0)
-            if not resp_line:
-                log.warning("GraphManager closed connection")
-                self._disconnect()
-                return None
+            # F-233: Loop reading lines, skipping interleaved push
+            # events, until we get the response for our command.
+            while True:
+                resp_line = await asyncio.wait_for(
+                    self._reader.readline(), timeout=2.0)
+                if not resp_line:
+                    log.warning("GraphManager closed connection")
+                    self._disconnect()
+                    return None
 
-            return json.loads(resp_line.decode())
+                resp = json.loads(resp_line.decode())
+
+                # Push events have "type":"event" — skip them.
+                if resp.get("type") == "event":
+                    log.debug("F-233: skipped push event during RPC: %s",
+                              resp.get("event", "unknown"))
+                    continue
+
+                return resp
         except asyncio.TimeoutError:
             log.warning("GraphManager RPC timed out")
             self._disconnect()

@@ -1346,3 +1346,192 @@ class TestMonitoringPayloadMerge:
                 f"Key '{key}' in mock monitoring but missing "
                 f"from FilterChainCollector"
             )
+
+
+# ── 11. F-233: Push event interleaving ──────────────────────────
+
+async def _make_gm_server_with_events(responses, events_before=None,
+                                       host="127.0.0.1"):
+    """Mock GM TCP server that injects push events before responses.
+
+    Parameters
+    ----------
+    responses : dict[str, dict]
+        Maps command names to response dicts.
+    events_before : list[dict] | None
+        Push event dicts to send BEFORE each response.  Simulates the
+        real GM broadcasting events while a client is waiting for its
+        RPC response.
+
+    Returns ``(server, port, clients)``.
+    """
+    if events_before is None:
+        events_before = []
+    clients = []
+
+    async def handle_client(reader, writer):
+        clients.append(writer)
+        try:
+            while True:
+                line = await reader.readline()
+                if not line:
+                    break
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                cmd = msg.get("cmd", "")
+                # Inject push events before the response.
+                for event in events_before:
+                    writer.write(json.dumps(event).encode() + b"\n")
+                    await writer.drain()
+                if cmd in responses:
+                    resp = responses[cmd]
+                else:
+                    resp = {"type": "response", "cmd": cmd,
+                            "ok": False, "error": "unknown command"}
+                writer.write(json.dumps(resp).encode() + b"\n")
+                await writer.drain()
+        except (asyncio.CancelledError, ConnectionResetError):
+            pass
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(handle_client, host, 0)
+    port = server.sockets[0].getsockname()[1]
+    return server, port, clients
+
+
+class TestFilterChainPushEventDesync:
+    """F-233: Verify _send_command skips interleaved push events."""
+
+    def test_single_event_before_response(self):
+        """One push event before the response does not desync."""
+        async def _test():
+            push_event = {
+                "type": "event",
+                "event": "node_added",
+                "id": 42,
+                "name": "pi4audio-convolver",
+                "media_class": "Audio/Sink",
+            }
+            server, port, _ = await _make_gm_server_with_events(
+                responses={
+                    "get_links": _GM_LINKS_DJ,
+                    "get_state": _GM_STATE_DJ,
+                    "watchdog_status": _GM_WATCHDOG_OK,
+                    "gain_integrity_status": _GM_GAIN_INTEGRITY_OK,
+                },
+                events_before=[push_event],
+            )
+            async with server:
+                fc = FilterChainCollector(host="127.0.0.1", port=port)
+                await fc.start()
+                await asyncio.sleep(1.5)
+                snap = fc.dsp_health_snapshot()
+                await fc.stop()
+
+            # Without F-233 fix, _links and _state would be None
+            # because the push event would be read as the response.
+            assert fc._links is not None
+            assert fc._state is not None
+            assert snap["state"] == "Running"
+            assert snap["gm_mode"] == "dj"
+            assert snap["gm_links_desired"] == 12
+
+        _run_async(_test())
+
+    def test_multiple_events_before_response(self):
+        """Multiple push events before the response are all skipped."""
+        async def _test():
+            events = [
+                {"type": "event", "event": "node_added",
+                 "id": 42, "name": "conv", "media_class": "Audio/Sink"},
+                {"type": "event", "event": "link_created",
+                 "output_node": "mixxx", "output_port": "out_0",
+                 "input_node": "conv", "input_port": "in_0"},
+                {"type": "event", "event": "mode_changed",
+                 "from": "standby", "to": "dj"},
+            ]
+            server, port, _ = await _make_gm_server_with_events(
+                responses={
+                    "get_links": _GM_LINKS_DJ,
+                    "get_state": _GM_STATE_DJ,
+                    "watchdog_status": _GM_WATCHDOG_OK,
+                    "gain_integrity_status": _GM_GAIN_INTEGRITY_OK,
+                },
+                events_before=events,
+            )
+            async with server:
+                fc = FilterChainCollector(host="127.0.0.1", port=port)
+                await fc.start()
+                await asyncio.sleep(2.0)
+                snap = fc.dsp_health_snapshot()
+                await fc.stop()
+
+            assert fc._links is not None
+            assert fc._state is not None
+            assert snap["state"] == "Running"
+            assert snap["gm_links_desired"] == 12
+
+        _run_async(_test())
+
+    def test_state_populated_despite_events(self):
+        """F-232: get_gm_state() returns data even when events interleave."""
+        async def _test():
+            push_event = {
+                "type": "event", "event": "device_connected",
+                "name": "usbstreamer",
+            }
+            server, port, _ = await _make_gm_server_with_events(
+                responses={
+                    "get_links": _GM_LINKS_DJ,
+                    "get_state": _GM_STATE_DJ,
+                    "watchdog_status": _GM_WATCHDOG_OK,
+                    "gain_integrity_status": _GM_GAIN_INTEGRITY_OK,
+                },
+                events_before=[push_event],
+            )
+            async with server:
+                fc = FilterChainCollector(host="127.0.0.1", port=port)
+                await fc.start()
+                await asyncio.sleep(1.5)
+                gm_state = fc.get_gm_state()
+                await fc.stop()
+
+            # F-232: _state was always None because the push event was
+            # consumed as the get_state response.  Now it should work.
+            assert gm_state is not None
+            assert gm_state["mode"] == "dj"
+            assert "devices" in gm_state
+
+        _run_async(_test())
+
+
+class TestPipeWireCollectorPushEventDesync:
+    """F-233: PipeWireCollector also skips interleaved push events."""
+
+    def test_pw_collector_skips_events(self):
+        """PipeWireCollector gets valid data despite interleaved events."""
+        async def _test():
+            push_event = {
+                "type": "event", "event": "node_removed",
+                "id": 99, "name": "old-node",
+            }
+            server, port, _ = await _make_gm_server_with_events(
+                responses={"get_graph_info": _GM_GRAPH_INFO_DJ},
+                events_before=[push_event],
+            )
+            async with server:
+                pw = PipeWireCollector(host="127.0.0.1", port=port)
+                await pw.start()
+                await asyncio.sleep(1.5)
+                snap = pw.snapshot()
+                await pw.stop()
+
+            assert snap["quantum"] == 1024
+            assert snap["sample_rate"] == 48000
+            assert snap["xruns"] == 3
+            assert snap["pw_connected"] is True
+
+        _run_async(_test())
