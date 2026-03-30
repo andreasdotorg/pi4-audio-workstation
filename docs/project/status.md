@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-03-30 (end of session 4). Individual story/defect/decision
+Last updated: 2026-03-30 (session 5). Individual story/defect/decision
 details now in `stories/`, `defects/`, `decisions/` directories with corresponding
 index files.
 
@@ -24,14 +24,14 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-075 | COMPLETE | Local PW integration test env | Done (AC 1-7, `dd019ea`+`25ed785`+`0eaf87c`) |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | Blocked by F-198 (F-217 FIXED, commit bf15dfe) |
-| US-090 | REVIEW | FIR filter generation web UI | ALL ADVISORS APPROVED (Architect + AE + UX). Awaiting owner acceptance. |
+| US-090 | REVIEW | FIR filter generation web UI | OWNER REJECTED (F-223: auth middleware blocks local-demo). Must fix F-223 + re-verify E2E. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
-| US-092 | REVIEW | Per-driver thermal/mechanical protection | ALL ADVISORS APPROVED (Architect + AE + Security). Awaiting owner acceptance. |
-| US-093 | REVIEW | Amplifier sensitivity calibration | ALL ADVISORS APPROVED (Architect + AE + Security). Awaiting owner acceptance. |
-| US-094 | REVIEW | ISO 226 equal loudness compensation | ALL ADVISORS APPROVED (Architect + AE). Awaiting owner acceptance. |
-| US-095 | REVIEW | Graph viz — truthful PW topology | ALL ADVISORS APPROVED (Architect + UX). Awaiting owner acceptance. |
-| US-096 | REVIEW | UMIK-1 full calibration pipeline | ALL ADVISORS APPROVED (Architect + AE). Awaiting owner acceptance. |
-| US-097 | REVIEW | Room compensation web UI workflow | ALL ADVISORS APPROVED (Architect + AE + UX). Awaiting owner acceptance. AE note: document per-channel sweep sequencing as mandatory. |
+| US-092 | REVIEW | Per-driver thermal/mechanical protection | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
+| US-093 | REVIEW | Amplifier sensitivity calibration | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
+| US-094 | REVIEW | ISO 226 equal loudness compensation | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
+| US-095 | REVIEW | Graph viz — truthful PW topology | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
+| US-096 | REVIEW | UMIK-1 full calibration pipeline | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
+| US-097 | REVIEW | Room compensation web UI workflow | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
 | US-098 | TEST | Room correction pipeline verification | P0 done; P1/P2 deferral REJECTED — must verify locally (owner directive, session 5) |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
@@ -57,7 +57,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-044 Pi tests (T-044-6/7) | Owner Pi session |
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
-| US-089-098 acceptance | Owner prioritization + Pi deploy |
+| US-090/092-097 re-acceptance | F-223 fix (auth middleware in local-demo) |
+| US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
 
 ## Component Status
@@ -110,6 +111,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts (diagnosing) |
 | F-209 | ~~P1 / High~~ | ~~US-044 watchdog/gain integrity assume builtins are separate PW nodes~~ VERIFIED (session 4, 248 tests pass) |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
+| F-222 | High | Zombie process accumulation in container dev environment (PID 1 = sleep infinity) |
+| F-223 | High | Auth middleware intercepts all requests in local-demo despite PI4AUDIO_AUTH_DISABLED=1 — blocks 7 stories |
 | F-061 | ~~High~~ | ~~pw-dump subprocess hangs under WebSocket load~~ VERIFIED (session 4) |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
@@ -123,12 +126,12 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Total stories filed | 116 |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
-| Stories in REVIEW | 8 (US-088, US-090, US-092-097) |
+| Stories in REVIEW | 8 (US-088, US-090, US-092-097 — 7 REJECTED pending F-223 fix) |
 | Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
-| Open defects (HIGH+) | 2 (F-187, F-037) |
+| Open defects (HIGH+) | 4 (F-187, F-037, F-222, F-223) |
 | Open defects (Medium) | ~19 |
-| Total defects filed | 221 |
+| Total defects filed | 223 |
 | Test suites | test-all (537), test-e2e (194) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
