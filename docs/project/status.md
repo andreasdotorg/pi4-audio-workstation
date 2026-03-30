@@ -25,14 +25,14 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | Blocked by F-198 / F-217 (conftest filter gap) |
 | US-090 | REVIEW | FIR filter generation web UI | Gate 1 passed (session 4), advisory reviews pending |
-| US-091 | REVIEW | Multi-way crossover support | Gate 1 passed (session 4), advisory reviews pending |
+| US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
 | US-092 | REVIEW | Per-driver thermal/mechanical protection | Gate 1 passed (session 4), advisory reviews pending |
 | US-093 | REVIEW | Amplifier sensitivity calibration | Gate 1 passed (session 4), advisory reviews pending |
 | US-094 | REVIEW | ISO 226 equal loudness compensation | Gate 1 passed (session 4), advisory reviews pending |
 | US-095 | REVIEW | Graph viz — truthful PW topology | Gate 1 passed (session 4), advisory reviews pending |
 | US-096 | REVIEW | UMIK-1 full calibration pipeline | Gate 1 passed (session 4), advisory reviews pending |
 | US-097 | REVIEW | Room compensation web UI workflow | Gate 1 passed (session 4), advisory reviews pending |
-| US-098 | REVIEW (contingent) | Room correction pipeline verification | P0 done, P1/P2 deferral needs owner sign-off |
+| US-098 | TEST | Room correction pipeline verification | P0 done; P1/P2 deferral REJECTED — must verify locally (owner directive, session 5) |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
 | US-044 | IMPLEMENT/TEST | Safety protection suite | AC #3-5 implemented (54 tests), AC #1-2/6-8 need Pi. Local-demo verification in progress. |
@@ -122,9 +122,9 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Git commits | ~190 |
 | Total stories filed | 115 |
 | Stories done | 13 |
-| Stories in TEST | 4 (US-089, US-077, US-070, US-044) |
-| Stories in REVIEW | 10 (US-088, US-090-097, US-098 contingent) |
-| Stories in IMPLEMENT | ~6 |
+| Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
+| Stories in REVIEW | 8 (US-088, US-090, US-092-097) |
+| Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
 | Open defects (HIGH+) | 2 (F-187, F-037) |
 | Open defects (Medium) | ~15 |
@@ -173,7 +173,7 @@ through D-060). Most significant recent decisions:
 1. **F-061 VERIFIED** — all PW subprocess calls migrated to `asyncio.to_thread(subprocess.run)`. Zero `create_subprocess_exec` instances remain. 827 tests pass.
 2. **F-209 VERIFIED** — gain integrity + watchdog fixed. Both modules now use realistic convolver param model (not top-level nodes). 248 tests pass.
 3. **HIGH+ defects reduced 4 → 2** — F-061 and F-209 verified. Remaining: F-187 (Critical, blocked/venue), F-037 (High, converted to US-110).
-4. **8 stories advanced to REVIEW** — US-090 through US-097 passed QE Gate 1. US-098 contingent on owner P1/P2 deferral sign-off.
+4. **7 stories advanced to REVIEW** — US-090, US-092-097 passed QE Gate 1. US-091 conditional (4 integration defects: F-188/189/190/191). US-098 contingent on owner P1/P2 deferral sign-off.
 5. **US-111 scope revised** — T-111-01 spike confirmed WP required on PW 1.6.x. AC #4 (spa-node-factory clock) and AC #6 (WP elimination) DROPPED. 14 tasks → 13. Room-sim filter-chain and loopback components proceed.
 6. **US-111 moved to IMPLEMENT** — architect decomposed 13 tasks (post scope revision), implementation started.
 7. **US-110 moved to IMPLEMENT** — architect decomposed 17 tasks for passkey auth.
@@ -184,18 +184,18 @@ through D-060). Most significant recent decisions:
 ### Owner Notifications
 
 1. **WP removal architecturally impossible on PW 1.6.x** — T-111-01 spike confirmed filter-chain ports require WirePlumber for activation. `spa-node-factory` clock driver enters error state. This is a permanent constraint, not a workaround gap. US-111 proceeds with WP retained (policy disabled).
-2. **US-098 needs P1/P2 deferral sign-off** — P0 verification done, P1/P2 deferred. Owner confirmation needed to complete REVIEW phase.
-3. **8 stories ready for advisory review** — US-090 through US-097 passed Gate 1, pending advisory sign-offs and owner acceptance.
+2. **US-098 P1/P2 deferral REJECTED** — Owner directive (session 5): P1 (channel identity) and P2 (transient fidelity) must be verified in local-demo. US-098 reverted to TEST.
+3. **7 stories ready for advisory review** — US-090, US-092-097 passed Gate 1, pending advisory sign-offs and owner acceptance. US-091 reverted to IMPLEMENT (4 integration defects).
 
 ### Pending for Next Session
 
 1. **US-111 implementation** — room-sim filter-chain, loopback ada8200-in, process cleanup. 12 tasks remain.
 2. **US-110 implementation** — passkey auth. 17 tasks. D-060 local CA prerequisite.
 3. **US-072 Pi deployment** — test Pi at 192.168.178.35, nixos-anywhere ready.
-4. **Advisory reviews** — 8 stories (US-090-097) need architect, AE, security, UX sign-offs.
+4. **Advisory reviews** — 7 stories (US-090, US-092-097) need architect, AE, security, UX sign-offs. US-091 reverted to IMPLEMENT.
 5. **F-187 (Critical)** — noise on 4 channels after PW restarts. Requires physical Pi at venue.
 6. **F-217 fix** — conftest filter gap. Quick fix, unblocks US-089 Gate 1.
-7. **US-098 owner sign-off** — P1/P2 deferral confirmation.
+7. **US-098 P1/P2 local verification** — Owner rejected deferral. P1 (channel identity) and P2 (transient fidelity) must pass in local-demo.
 
 ## Session 3 Summary (2026-03-29)
 
