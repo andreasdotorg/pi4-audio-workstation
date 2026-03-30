@@ -99,27 +99,12 @@ context.properties = {
 }
 
 context.objects = [
-    # USBStreamer output replacement: 8ch null Audio/Sink, graph clock driver.
-    # Production: alsa_output.usb-MiniDSP_USBStreamer-00.pro-output-0
-    # GM uses Prefix("alsa_output.usb-MiniDSP_USBStreamer") match.
-    # Ports: playback_AUX0..AUX7 (ch 1-4 speakers, 5-6 HP, 7-8 IEM).
-    { factory = adapter
-        args = {
-            factory.name     = support.null-audio-sink
-            node.name        = "alsa_output.usb-MiniDSP_USBStreamer"
-            media.class      = Audio/Sink
-            object.linger    = true
-            node.driver      = true
-            audio.channels   = 8
-            audio.rate       = 48000
-            audio.position   = [ AUX0 AUX1 AUX2 AUX3 AUX4 AUX5 AUX6 AUX7 ]
-            node.autoconnect = false
-            node.always-process = true
-            node.latency     = 1024/48000
-            session.suspend-timeout-seconds = 0
-            node.pause-on-idle = false
-        }
-    }
+    # USBStreamer output: replaced by room-sim filter-chain (US-111 T-111-06).
+    # The room-sim config is injected by local-demo.sh as a separate drop-in
+    # (room-sim-convolver.conf). Its capture side uses the USBStreamer name so
+    # GM's convolver→USBStreamer links route directly into the room simulator.
+    # Monitor ports (monitor_AUX0..7) are available for level-bridge-hw-out.
+
     # USBStreamer capture replacement: 8ch null Audio/Duplex.
     # Production: alsa_input.usb-MiniDSP_USBStreamer-00.pro-input-0
     # GM uses Prefix("alsa_input.usb-MiniDSP_USBStreamer") match.
