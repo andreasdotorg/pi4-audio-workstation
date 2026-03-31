@@ -1419,3 +1419,69 @@ explain the mechanical step: read `config.json` `members` array.
 
 **Recurrence of:** L-040 (agent communication assumptions). Extends the
 "theory of mind" principle to roster discovery.
+
+---
+
+## L-068: Architect must reject architectural workarounds that bypass broken components
+
+**Date:** 2026-03-31
+**Context:** F-235 — measurement mode broken because pw-record can't activate
+ports without WirePlumber linking policy (disabled per D-043).
+
+**What happened:** Worker-1 implemented a pcm-bridge TCP fallback in
+pw_capture.py that bypassed pw-record entirely when port activation failed.
+The Architect reviewed and approved the change without flagging that it
+violated the architecture — it routed around a broken component (pw-record)
+instead of fixing or replacing it. The fallback also constituted a mock
+(reading pre-captured PCM data from pcm-bridge instead of real-time
+measurement capture), violating E2E testing principles.
+
+**Root cause:** The Architect focused on "does this make the test pass?"
+rather than "does this preserve architectural integrity?" Workarounds that
+bypass broken components hide the real problem and create shadow data paths
+that diverge from production behavior.
+
+**Corrective actions:**
+1. Architect must flag any fix that routes around a broken component rather
+   than fixing it.
+2. When a component can't fulfill its role (pw-record can't activate), the
+   correct response is to fix the component or redesign the integration —
+   not to add a parallel path.
+3. "Tests pass" is necessary but not sufficient for approval. The Architect
+   must also verify the fix is architecturally sound.
+
+**Recurrence of:** L-016 (mock compatibility shims masking real mismatches).
+
+---
+
+## L-069: QE must verify defect fixes end-to-end in the browser, not just via unit/integration test pass
+
+**Date:** 2026-03-31
+**Context:** F-235 — QE approved the pcm-bridge TCP fallback based on 1197
+passing pytest tests without verifying the actual measurement workflow in the
+browser.
+
+**What happened:** Worker-1's fix added a TCP fallback that made existing
+tests pass (1197 passed, 1 skipped). QE approved based on test results.
+However, no one verified whether the actual measurement flow works
+end-to-end — navigating to the measurement tab, triggering a measurement,
+and getting valid results. The fallback masked the real problem: measurement
+mode still doesn't work.
+
+**Root cause:** QE treated "all tests pass" as equivalent to "the defect is
+fixed." For user-facing defects, automated test pass is necessary but not
+sufficient. The actual user workflow must be verified, especially for defects
+reported by the owner from browser testing.
+
+**Corrective actions:**
+1. For any defect fix affecting user-facing functionality, QE must perform
+   browser-based E2E verification (Playwright MCP or manual) of the actual
+   user workflow, not just run the test suite.
+2. Owner directive (session 7): Every story approval must include an
+   exploratory testing session where QE uses Playwright MCP to exercise the
+   story in the browser — happy path and corner cases.
+3. "Tests pass" without E2E browser verification is insufficient for defect
+   closure or story acceptance.
+
+**Recurrence of:** L-017 (passing mock tests is not DoD), L-065 (premature
+defect closure without valid verification).
