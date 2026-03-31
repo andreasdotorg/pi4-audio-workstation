@@ -1,0 +1,45 @@
+# Venue config: local-demo (development/testing).
+#
+# All channels use Dirac (identity) coefficients — no crossover or room
+# correction.  Gains at -20 dB (Mult 0.1) for safe headroom during testing.
+# Zero delay on all channels.
+#
+# This is the default venue for local-demo development environments and
+# the fallback when no venue-specific measurement data exists.
+
+name: "local-demo"
+description: "Local development and testing — Dirac passthrough on all channels"
+
+channels:
+  1_sat_l:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  2_sat_r:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  3_sub1_lp:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  4_sub2_lp:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  5_eng_l:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  6_eng_r:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  7_iem_l:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  8_iem_r:
+    gain_db: -20
+    delay_ms: 0
+    coefficients: "dirac.wav"

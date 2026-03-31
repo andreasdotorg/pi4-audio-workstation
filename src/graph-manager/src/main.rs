@@ -38,6 +38,7 @@ mod link_audit;
 mod reconcile;
 mod routing;
 mod rpc;
+mod venue;
 mod watchdog;
 
 // PipeWire registry listener — Linux only (needs libpipewire).
@@ -198,6 +199,9 @@ fn run_pipewire(
     let graph_info_cache = Rc::new(RefCell::new(rpc::GraphInfoSnapshot::empty()));
     info!("Graph info cache initialized");
 
+    // Active venue name (US-113: set via set_venue RPC).
+    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
     // Created link proxies — must be kept alive for links to persist.
     // Keyed by (output_port_id, input_port_id).
     let link_proxies: Rc<RefCell<std::collections::HashMap<(u32, u32), pipewire::link::Link>>> =
@@ -268,6 +272,7 @@ fn run_pipewire(
         let watchdog_state = watchdog_state.clone();
         let gain_integrity_state = gain_integrity_state.clone();
         let graph_info_cache = graph_info_cache.clone();
+        let active_venue = active_venue.clone();
         move |_expirations| {
             // Drain all pending commands.
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -290,6 +295,7 @@ fn run_pipewire(
                     &watchdog_state,
                     &gain_integrity_state,
                     &graph_info_cache,
+                    &active_venue,
                 );
             }
         }
@@ -391,6 +397,7 @@ fn dispatch_rpc_command(
     watchdog_state: &std::rc::Rc<std::cell::RefCell<watchdog::Watchdog>>,
     gain_integrity_state: &std::rc::Rc<std::cell::RefCell<gain_integrity::GainIntegrityCheck>>,
     graph_info_cache: &std::rc::Rc<std::cell::RefCell<rpc::GraphInfoSnapshot>>,
+    active_venue: &std::rc::Rc<std::cell::RefCell<Option<String>>>,
 ) {
     use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
@@ -538,6 +545,69 @@ fn dispatch_rpc_command(
         rpc::RpcCommand::GetGraphInfo { reply } => {
             let snap = graph_info_cache.borrow().clone();
             let _ = reply.send(snap);
+        }
+
+        rpc::RpcCommand::ListVenues { reply } => {
+            let dir = venue::venues_dir();
+            let venues = venue::list_venues(&dir);
+            let _ = reply.send(venues);
+        }
+
+        rpc::RpcCommand::GetVenue { reply } => {
+            let name = active_venue.borrow().clone();
+            let _ = reply.send(name);
+        }
+
+        rpc::RpcCommand::SetVenue { name, reply } => {
+            use rpc::RpcResult;
+
+            // 1. Load and validate the venue profile.
+            let dir = venue::venues_dir();
+            let profile = match venue::find_venue(&dir, &name) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = reply.send(RpcResult::Error(e));
+                    return;
+                }
+            };
+
+            // 2. Compute linear gain values.
+            let gains = venue::venue_gains(&profile);
+
+            // 3. Apply gains via native PW API (best-effort: continue on failure).
+            let g = graph.borrow();
+            let mut applied = 0usize;
+            let mut errors = 0usize;
+
+            if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                for (param_name, mult) in &gains {
+                    let prefixed = format!("{}:Mult", param_name);
+                    if reg_handle.set_node_param_mult(convolver.id, &prefixed, *mult as f32) {
+                        info!("set_venue: {} = {:.6} (Mult)", prefixed, mult);
+                        applied += 1;
+                    } else {
+                        log::error!("set_venue: failed to set {} on convolver node {}", prefixed, convolver.id);
+                        errors += 1;
+                    }
+                }
+            } else {
+                log::error!("set_venue: convolver node '{}' not found in graph", watchdog::CONVOLVER_NODE_NAME);
+                let _ = reply.send(RpcResult::Error(
+                    "convolver node not found in graph".to_string(),
+                ));
+                return;
+            }
+            drop(g);
+
+            // 4. Update active venue name.
+            *active_venue.borrow_mut() = Some(name.clone());
+
+            info!(
+                "set_venue: '{}' applied ({}/{} gains set, {} errors)",
+                name, applied, gains.len(), errors
+            );
+
+            let _ = reply.send(RpcResult::Ok);
         }
     }
 }

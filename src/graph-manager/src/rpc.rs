@@ -53,6 +53,8 @@ pub struct RpcRequest {
     pub cmd: String,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default)]
+    pub venue: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +317,22 @@ pub enum RpcCommand {
     GetGraphInfo {
         reply: mpsc::Sender<GraphInfoSnapshot>,
     },
+
+    /// List available venue profiles.
+    ListVenues {
+        reply: mpsc::Sender<Vec<crate::venue::VenueSummary>>,
+    },
+
+    /// Get the currently active venue name.
+    GetVenue {
+        reply: mpsc::Sender<Option<String>>,
+    },
+
+    /// Set a venue profile (loads gains from YAML, applies via pw-cli).
+    SetVenue {
+        name: String,
+        reply: mpsc::Sender<RpcResult>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -415,6 +433,9 @@ pub fn handle_request(
         "watchdog_unlatch" => handle_watchdog_unlatch(cmd_tx),
         "gain_integrity_status" => handle_gain_integrity_status(cmd_tx),
         "get_graph_info" => handle_get_graph_info(cmd_tx),
+        "list_venues" => handle_list_venues(cmd_tx),
+        "get_venue" => handle_get_venue(cmd_tx),
+        "set_venue" => handle_set_venue(req, cmd_tx),
         other => HandleResult::Error(
             other.to_string(),
             format!("unknown command: \"{}\"", other),
@@ -824,6 +845,126 @@ fn handle_get_graph_info(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
 }
 
 // ---------------------------------------------------------------------------
+// Venue handlers
+// ---------------------------------------------------------------------------
+
+fn handle_list_venues(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::ListVenues { reply: reply_tx })
+        .is_err()
+    {
+        return HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "list_venues",
+                "ok": true,
+                "venues": [],
+            }))
+            .unwrap_or_default(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(venues) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "list_venues",
+                "ok": true,
+                "venues": venues,
+            }))
+            .unwrap_or_default(),
+        ),
+        Err(_) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "list_venues",
+                "ok": true,
+                "venues": [],
+            }))
+            .unwrap_or_default(),
+        ),
+    }
+}
+
+fn handle_get_venue(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::GetVenue { reply: reply_tx })
+        .is_err()
+    {
+        return HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "get_venue",
+                "ok": true,
+                "venue": null,
+            }))
+            .unwrap_or_default(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(venue_name) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "get_venue",
+                "ok": true,
+                "venue": venue_name,
+            }))
+            .unwrap_or_default(),
+        ),
+        Err(_) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "get_venue",
+                "ok": true,
+                "venue": null,
+            }))
+            .unwrap_or_default(),
+        ),
+    }
+}
+
+fn handle_set_venue(
+    req: &RpcRequest,
+    cmd_tx: &mpsc::Sender<RpcCommand>,
+) -> HandleResult {
+    let name = match &req.venue {
+        Some(s) => s.clone(),
+        None => {
+            return HandleResult::Error(
+                "set_venue".to_string(),
+                "missing \"venue\" field".to_string(),
+            )
+        }
+    };
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::SetVenue {
+            name,
+            reply: reply_tx,
+        })
+        .is_err()
+    {
+        return HandleResult::Error(
+            "set_venue".to_string(),
+            "internal: PW thread not responding".to_string(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(RpcResult::Ok) => HandleResult::Ack("set_venue".to_string()),
+        Ok(RpcResult::Error(e)) => HandleResult::Error("set_venue".to_string(), e),
+        Err(_) => HandleResult::Error(
+            "set_venue".to_string(),
+            "internal: PW thread dropped reply channel".to_string(),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Response formatting
 // ---------------------------------------------------------------------------
 
@@ -948,6 +1089,27 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
         }
         RpcCommand::GetGraphInfo { reply } => {
             let _ = reply.send(GraphInfoSnapshot::empty());
+        }
+        RpcCommand::ListVenues { reply } => {
+            let dir = crate::venue::venues_dir();
+            let venues = crate::venue::list_venues(&dir);
+            let _ = reply.send(venues);
+        }
+        RpcCommand::GetVenue { reply } => {
+            // Stub: no active venue in test mode.
+            let _ = reply.send(None);
+        }
+        RpcCommand::SetVenue { name, reply } => {
+            // Stub: validate the venue exists but don't apply gains.
+            let dir = crate::venue::venues_dir();
+            match crate::venue::find_venue(&dir, &name) {
+                Ok(_) => {
+                    let _ = reply.send(RpcResult::Ok);
+                }
+                Err(e) => {
+                    let _ = reply.send(RpcResult::Error(e));
+                }
+            }
         }
     }
 }
@@ -1819,5 +1981,164 @@ mod tests {
 
         shutdown.store(true, Ordering::Relaxed);
         thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // -----------------------------------------------------------------------
+    // Venue RPC commands (US-113 Phase 2)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_list_venues_command() {
+        let json = r#"{"cmd":"list_venues"}"#;
+        let req = parse_line(json).unwrap();
+        assert_eq!(req.cmd, "list_venues");
+    }
+
+    #[test]
+    fn parse_get_venue_command() {
+        let json = r#"{"cmd":"get_venue"}"#;
+        let req = parse_line(json).unwrap();
+        assert_eq!(req.cmd, "get_venue");
+    }
+
+    #[test]
+    fn parse_set_venue_command() {
+        let json = r#"{"cmd":"set_venue","venue":"local-demo"}"#;
+        let req = parse_line(json).unwrap();
+        assert_eq!(req.cmd, "set_venue");
+        assert_eq!(req.venue.as_deref(), Some("local-demo"));
+    }
+
+    #[test]
+    fn set_venue_missing_venue_field() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &Mutex::new("standby".to_string()));
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"set_venue"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        match result {
+            HandleResult::Error(cmd, msg) => {
+                assert_eq!(cmd, "set_venue");
+                assert!(msg.contains("missing"), "Error: {}", msg);
+            }
+            _ => panic!("Expected error for missing venue field"),
+        }
+    }
+
+    #[test]
+    fn list_venues_stub_response_format() {
+        // Point PI4AUDIO_VENUES_DIR to the real configs/venues directory.
+        let venues_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if venues_dir.exists() {
+            std::env::set_var("PI4AUDIO_VENUES_DIR", &venues_dir);
+        }
+
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        let mode = Arc::new(Mutex::new("standby".to_string()));
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &mode);
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"list_venues"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        match result {
+            HandleResult::ResponseJson(json) => {
+                let v: Value = serde_json::from_str(&json).unwrap();
+                assert_eq!(v["type"], "response");
+                assert_eq!(v["cmd"], "list_venues");
+                assert_eq!(v["ok"], true);
+                assert!(v["venues"].is_array());
+                // With real configs directory, we should have at least 2 venues.
+                if venues_dir.exists() {
+                    assert!(v["venues"].as_array().unwrap().len() >= 2);
+                }
+            }
+            _ => panic!("Expected ResponseJson for list_venues"),
+        }
+
+        std::env::remove_var("PI4AUDIO_VENUES_DIR");
+    }
+
+    #[test]
+    fn get_venue_stub_response_format() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        let mode = Arc::new(Mutex::new("standby".to_string()));
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &mode);
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"get_venue"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        match result {
+            HandleResult::ResponseJson(json) => {
+                let v: Value = serde_json::from_str(&json).unwrap();
+                assert_eq!(v["type"], "response");
+                assert_eq!(v["cmd"], "get_venue");
+                assert_eq!(v["ok"], true);
+                // Stub returns null venue (no active venue).
+                assert!(v["venue"].is_null());
+            }
+            _ => panic!("Expected ResponseJson for get_venue"),
+        }
+    }
+
+    #[test]
+    fn set_venue_not_found_returns_error() {
+        // Point PI4AUDIO_VENUES_DIR to the real configs/venues directory.
+        let venues_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if !venues_dir.exists() {
+            // Skip if not running from project root.
+            return;
+        }
+        std::env::set_var("PI4AUDIO_VENUES_DIR", &venues_dir);
+
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        let mode = Arc::new(Mutex::new("standby".to_string()));
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &mode);
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"set_venue","venue":"nonexistent-xyz"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        match result {
+            HandleResult::Error(cmd, msg) => {
+                assert_eq!(cmd, "set_venue");
+                assert!(msg.contains("venue not found"), "Error: {}", msg);
+            }
+            _ => panic!("Expected error for nonexistent venue"),
+        }
+
+        // Clean up env var to not affect other tests.
+        std::env::remove_var("PI4AUDIO_VENUES_DIR");
     }
 }
