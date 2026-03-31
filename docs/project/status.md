@@ -123,6 +123,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-239 | Medium | Default profile 2way-80hz-ported fails: missing sub-ported-15.yml (US-090). |
 | F-240 | Medium | Unknown filter_type "fullrange" not handled by backend (US-090). |
 | F-241 | Medium | DRIVER PROTECTION stale state after profile activation (US-092). |
+| F-246 | Medium | Mixxx invisible in graph viz — classifyNode() drops JACK clients with empty media_class (US-095). Affects production. |
 | F-039 | Medium | DSP load gauge 0% — needs pw-top BUSY parsing |
 | F-242 | Low | Negative sensitivity returns opaque "write_failed" (US-093). |
 | F-243 | Low | Negative phon values accepted client-side (US-094). |
@@ -156,7 +157,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Defects resolved session 6 | 9 (F-223, F-225, F-226, F-228, F-230, F-232, F-233, F-238 + audit bugs) |
 | Open defects (Medium) | ~30 (F-234, F-236, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
-| Total defects filed | 245 (F-239 through F-245 filed session 7 from QE+UX reviews) |
+| Total defects filed | 246 (F-239 through F-246 filed session 7 from QE+UX+architect reviews) |
 | Test suites | test-all (537), test-e2e (229 — 35 new US-075 production-replica tests) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
