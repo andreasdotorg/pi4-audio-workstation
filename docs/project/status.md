@@ -45,7 +45,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | deferred/parked | First-boot active config + FoH passthrough | D-062 filed. Owner: 8ch passthrough + universal audio gate. Parked for US-075. |
+| US-113 | deferred/parked | First-boot active config + FoH passthrough | D-062 filed. Blocked by US-115 (8ch convolver). |
+| US-115 | ready | 8-channel filter-chain convolver (D-063) | Critical path — blocks US-113. Architect decomposed 7 tasks. Owner pre-approved. |
 
 
 ### Owner-Blocking Items
@@ -147,7 +148,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Metric | Value |
 |--------|-------|
 | Git commits | ~212 (15 pushed in session 6) |
-| Total stories filed | 118 |
+| Total stories filed | 119 (US-115 filed session 7) |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 8 (US-088, US-071, US-090, US-092-097 — 7 REJECTED, F-223 now fixed, E2E re-verification needed) |
