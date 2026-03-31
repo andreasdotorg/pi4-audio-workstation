@@ -54,6 +54,14 @@
   services.speechd.enable = false;     # speech-dispatcher (no screen reader)
   boot.initrd.services.lvm.enable = false;  # LVM not used (simple partition)
 
+  # US-072: Only ext4 + vfat needed (root + boot per disko.nix).
+  # profiles/base.nix (imported by sd-image-aarch64.nix) enables btrfs,
+  # cifs, f2fs, ntfs, vfat, xfs, and ZFS by default.  ZFS is the critical
+  # one: it is an out-of-tree kernel module whose build pulls the kernel
+  # -dev output (full source tree rsync, ~1.5 GB) into the closure,
+  # overflowing the 30 GB builder disk.  mkForce replaces the full set.
+  boot.supportedFilesystems = lib.mkForce [ "ext4" "vfat" ];
+
   # Allow specific unfree packages (Reaper DAW)
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) [ "reaper" ];
