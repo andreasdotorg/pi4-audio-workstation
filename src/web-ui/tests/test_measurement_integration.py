@@ -396,9 +396,11 @@ class TestWatchdogTimeout:
     def test_watchdog_triggers_abort_on_stall(self, client):
         """If the session stalls without kicking watchdog, abort fires."""
         async def stalling_gain_cal(self):
+            # Shorten watchdog for this test (production uses 30s).
+            self._watchdog._timeout_s = 5.0
             self._transition(MeasurementState.GAIN_CAL)
             await self._broadcast_state()
-            # Stall without kicking watchdog. After 10s, watchdog fires.
+            # Stall without kicking watchdog. After 5s, watchdog fires.
             for _ in range(120):
                 await asyncio.sleep(0.1)
                 if self.abort_event.is_set():
@@ -410,8 +412,8 @@ class TestWatchdogTimeout:
                                json=DEFAULT_START_BODY)
             assert resp.status_code == 200
 
-            # Wait for the watchdog (10s) + stall completion (12s) + cleanup.
-            final = _wait_for_session_done(client, timeout_s=30.0)
+            # Wait for the watchdog (5s) + stall completion (7s) + cleanup.
+            final = _wait_for_session_done(client, timeout_s=20.0)
             assert final["state"] in ("aborted", "idle")
 
 

@@ -141,7 +141,7 @@ class _AbortAdapter:
 # ---------------------------------------------------------------------------
 
 class MeasurementWatchdog:
-    """10-second software watchdog.  ``kick()`` is thread-safe."""
+    """Software watchdog (default 10s, session uses 30s).  ``kick()`` is thread-safe."""
 
     def __init__(self, timeout_s: float = 10.0,
                  on_timeout: Optional[Callable[[], None]] = None) -> None:
@@ -271,7 +271,7 @@ class MeasurementSession:
 
         self._broadcast_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._watchdog = MeasurementWatchdog(
-            timeout_s=10.0, on_timeout=self._on_watchdog_timeout)
+            timeout_s=30.0, on_timeout=self._on_watchdog_timeout)
         self._gm_client: Any = None
         self._pump_task: Optional[asyncio.Task] = None
         self._is_mock: bool = False
