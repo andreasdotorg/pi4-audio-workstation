@@ -46,7 +46,7 @@ class TestParseSpaConfig:
 
     def test_node_description(self, parsed):
         args = parsed["context.modules"][0]["args"]
-        assert args["node.description"] == "FIR Convolver (4ch x 16k taps)"
+        assert args["node.description"] == "FIR Convolver (8ch x 16k taps)"
 
     def test_filter_graph_exists(self, parsed):
         args = parsed["context.modules"][0]["args"]
@@ -62,13 +62,13 @@ class TestParseSpaConfig:
         cap = args["capture.props"]
         assert cap["node.name"] == "pi4audio-convolver"
         assert cap["media.class"] == "Audio/Sink"
-        assert cap["audio.channels"] == 4
+        assert cap["audio.channels"] == 8
         assert cap["node.autoconnect"] is False
 
     def test_audio_position_array(self, parsed):
         args = parsed["context.modules"][0]["args"]
         pos = args["capture.props"]["audio.position"]
-        assert pos == ["AUX0", "AUX1", "AUX2", "AUX3"]
+        assert pos == ["AUX0", "AUX1", "AUX2", "AUX3", "AUX4", "AUX5", "AUX6", "AUX7"]
 
     def test_playback_props(self, parsed):
         args = parsed["context.modules"][0]["args"]
@@ -82,19 +82,26 @@ class TestParseSpaConfig:
 
 class TestExtractTopology:
     def test_node_count(self, topology):
-        assert len(topology["nodes"]) == 8
+        # D-063: 8 convolver + 8 gain = 16 nodes
+        assert len(topology["nodes"]) == 16
 
     def test_convolver_nodes(self, topology):
         convolvers = [n for n in topology["nodes"] if n["label"] == "convolver"]
-        assert len(convolvers) == 4
+        assert len(convolvers) == 8
         names = {n["name"] for n in convolvers}
-        assert names == {"conv_left_hp", "conv_right_hp", "conv_sub1_lp", "conv_sub2_lp"}
+        assert names == {
+            "conv_left_hp", "conv_right_hp", "conv_sub1_lp", "conv_sub2_lp",
+            "conv_hp_l", "conv_hp_r", "conv_iem_l", "conv_iem_r",
+        }
 
     def test_gain_nodes(self, topology):
         gains = [n for n in topology["nodes"] if n["label"] == "linear"]
-        assert len(gains) == 4
+        assert len(gains) == 8
         names = {n["name"] for n in gains}
-        assert names == {"gain_left_hp", "gain_right_hp", "gain_sub1_lp", "gain_sub2_lp"}
+        assert names == {
+            "gain_left_hp", "gain_right_hp", "gain_sub1_lp", "gain_sub2_lp",
+            "gain_hp_l", "gain_hp_r", "gain_iem_l", "gain_iem_r",
+        }
 
     def test_all_nodes_are_builtin(self, topology):
         for node in topology["nodes"]:
@@ -106,17 +113,20 @@ class TestExtractTopology:
         assert conv["config"]["filename"] == "/etc/pi4audio/coeffs/combined_left_hp.wav"
 
     def test_gain_has_control(self, topology):
+        # D-063: universal audio gate — all Mult defaults to 0.0 (muted at startup).
         gain = next(n for n in topology["nodes"] if n["name"] == "gain_left_hp")
         assert "control" in gain
-        assert gain["control"]["Mult"] == 0.001
+        assert gain["control"]["Mult"] == 0.0
         assert gain["control"]["Add"] == 0.0
 
     def test_sub_gain_values(self, topology):
+        # D-063: all gains start at 0.0 (muted). Runtime pw-cli sets operational values.
         gain = next(n for n in topology["nodes"] if n["name"] == "gain_sub1_lp")
-        assert gain["control"]["Mult"] == 0.000631
+        assert gain["control"]["Mult"] == 0.0
 
     def test_link_count(self, topology):
-        assert len(topology["links"]) == 4
+        # D-063: 8 convolver→gain links
+        assert len(topology["links"]) == 8
 
     def test_links_connect_convolver_to_gain(self, topology):
         for link in topology["links"]:
@@ -131,9 +141,14 @@ class TestExtractTopology:
         assert ("conv_right_hp", "gain_right_hp") in pairs
         assert ("conv_sub1_lp", "gain_sub1_lp") in pairs
         assert ("conv_sub2_lp", "gain_sub2_lp") in pairs
+        assert ("conv_hp_l", "gain_hp_l") in pairs
+        assert ("conv_hp_r", "gain_hp_r") in pairs
+        assert ("conv_iem_l", "gain_iem_l") in pairs
+        assert ("conv_iem_r", "gain_iem_r") in pairs
 
     def test_input_count(self, topology):
-        assert len(topology["inputs"]) == 4
+        # D-063: 8 convolver inputs
+        assert len(topology["inputs"]) == 8
 
     def test_inputs_are_convolver_inputs(self, topology):
         for inp in topology["inputs"]:
@@ -141,7 +156,8 @@ class TestExtractTopology:
             assert inp["port"] == "In"
 
     def test_output_count(self, topology):
-        assert len(topology["outputs"]) == 4
+        # D-063: 8 gain outputs
+        assert len(topology["outputs"]) == 8
 
     def test_outputs_are_gain_outputs(self, topology):
         for out in topology["outputs"]:

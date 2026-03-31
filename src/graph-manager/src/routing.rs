@@ -444,9 +444,8 @@ impl RoutingTable {
     /// additively. The -6 dB mono sum compensation is baked into the sub FIR
     /// WAV coefficients (architect guidance).
     ///
-    /// Headphone channels follow the speaker channels on the USBStreamer.
-    /// For 2-way (4 speaker ch): HP on USBStreamer ch 5-6.
-    /// For 3-way (6 speaker ch): HP on USBStreamer ch 7-8.
+    /// D-063: HP channels route through convolver (fixed on ch 5-6 / AUX4-5).
+    /// Dirac identity coefficients provide passthrough. No bypass links.
     fn dj_links(layout: &SpeakerLayout) -> Vec<DesiredLink> {
         let mut links = Vec::new();
         let mx = AppPortNaming::MixxxOutput;
@@ -491,19 +490,19 @@ impl RoutingTable {
             2,
         ));
 
-        // Mixxx headphones → USBStreamer direct (bypass convolver).
-        // HP channels start at num_speaker_channels + 1.
-        let hp_l = layout.num_speaker_channels + 1;
-        let hp_r = layout.num_speaker_channels + 2;
-        // Mixxx soundconfig.xml: channel offset places HP after speaker channels.
-        // For 2-way: Mixxx ch 5-6 (out_4/out_5) → USBStreamer ch 5-6.
-        // For 3-way: Mixxx ch 7-8 (out_6/out_7) → USBStreamer ch 7-8.
-        for (mx_ch, usb_ch) in [(hp_l, hp_l), (hp_r, hp_r)] {
+        // D-063: Mixxx headphones → convolver (no bypass).
+        // HP channels follow speaker channels on the convolver.
+        // For 2-way (4 speaker ch): HP on convolver ch 5-6 (AUX4/AUX5).
+        // For 3-way (6 speaker ch): HP on convolver ch 7-8 (AUX6/AUX7).
+        let hp_cv_l = layout.num_speaker_channels + 1;
+        let hp_cv_r = layout.num_speaker_channels + 2;
+        // Mixxx HP output channels match the same offset from speaker channels.
+        for ch in hp_cv_l..=hp_cv_r {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(MIXXX_PREFIX.to_string()),
-                output_port: mx.port_name(mx_ch),
-                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                input_port: usb.port_name(usb_ch),
+                output_port: mx.port_name(ch),
+                input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                input_port: cv_in.port_name(ch),
                 optional: false,
             });
         }
@@ -531,8 +530,10 @@ impl RoutingTable {
     /// Sub channels get L+R mono sum fan-out (TK-239). The -6 dB mono sum
     /// compensation is baked into the sub FIR WAV coefficients.
     ///
-    /// HP and IEM bypass the convolver and go directly to USBStreamer.
-    /// HP channels follow the speaker channels. IEM follows HP.
+    /// D-063: HP and IEM route through convolver (no bypass links).
+    /// HP channels are fixed on convolver ch 5-6 (AUX4-5).
+    /// IEM channels are fixed on convolver ch 7-8 (AUX6-7).
+    /// Dirac identity coefficients provide passthrough.
     ///
     /// ADA8200 8-channel capture feeds Reaper inputs for vocal mic,
     /// spare mic/line, and additional inputs (C-005 verified).
@@ -582,32 +583,39 @@ impl RoutingTable {
             2,
         ));
 
-        // Reaper headphones → USBStreamer direct (bypass convolver).
-        // HP channels start at num_speaker_channels + 1.
-        let hp_l = layout.num_speaker_channels + 1;
-        let hp_r = layout.num_speaker_channels + 2;
-        for ch in hp_l..=hp_r {
+        // D-063: Reaper headphones → convolver (no bypass).
+        // HP channels follow speaker channels on the convolver.
+        // For 2-way (4 speaker ch): HP on convolver ch 5-6 (AUX4/AUX5).
+        // For 3-way (6 speaker ch): HP on convolver ch 7-8 (AUX6/AUX7).
+        let hp_cv_l = layout.num_speaker_channels + 1;
+        let hp_cv_r = layout.num_speaker_channels + 2;
+        for ch in hp_cv_l..=hp_cv_r {
             links.push(DesiredLink {
                 output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
                 output_port: rp_out.port_name(ch),
-                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                input_port: usb.port_name(ch),
+                input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                input_port: cv_in.port_name(ch),
                 optional: false,
             });
         }
 
-        // Reaper singer IEM → USBStreamer direct (passthrough per D-011).
-        // IEM channels start at num_speaker_channels + 3.
-        let iem_l = layout.num_speaker_channels + 3;
-        let iem_r = layout.num_speaker_channels + 4;
-        for ch in iem_l..=iem_r {
-            links.push(DesiredLink {
-                output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
-                output_port: rp_out.port_name(ch),
-                input_node: NodeMatch::Prefix(USBSTREAMER_OUT_PREFIX.to_string()),
-                input_port: usb.port_name(ch),
-                optional: true, // IEM is optional equipment
-            });
+        // D-063: Reaper singer IEM → convolver (no bypass).
+        // IEM channels follow HP channels on the convolver.
+        // For 2-way (4 speaker ch): IEM on convolver ch 7-8 (AUX6/AUX7).
+        // For 3-way (6 speaker ch): IEM would need ch 9-10 (beyond 8ch convolver).
+        // IEM links are only created if they fit within the 8ch convolver.
+        let iem_cv_l = layout.num_speaker_channels + 3;
+        let iem_cv_r = layout.num_speaker_channels + 4;
+        if iem_cv_r <= 8 {
+            for ch in iem_cv_l..=iem_cv_r {
+                links.push(DesiredLink {
+                    output_node: NodeMatch::Prefix(REAPER_PREFIX.to_string()),
+                    output_port: rp_out.port_name(ch),
+                    input_node: NodeMatch::Exact(CONVOLVER_IN.to_string()),
+                    input_port: cv_in.port_name(ch),
+                    optional: true, // IEM is optional equipment
+                });
+            }
         }
 
         // ADA8200 capture → Reaper inputs (TK-239, C-005 verified).
@@ -748,15 +756,17 @@ impl RoutingTable {
             .collect()
     }
 
-    /// Convolver output → USBStreamer playback (ch 1..N speaker channels).
-    /// Used by all modes (speakers always go through the convolver).
+    /// Convolver output → USBStreamer playback (all 8 channels).
+    /// Used by all modes. D-063: all 8 USBStreamer channels route through
+    /// the convolver (speakers + HP + IEM). Channels beyond the speaker
+    /// layout use Dirac (identity) coefficients for passthrough.
     ///
     /// Verified on Pi (C-005): filter-chain playback node uses
     /// `output_AUX0..output_AUXN` port names.
-    fn convolver_to_usbstreamer_links(layout: &SpeakerLayout) -> Vec<DesiredLink> {
+    fn convolver_to_usbstreamer_links(_layout: &SpeakerLayout) -> Vec<DesiredLink> {
         let cv_out = AppPortNaming::ConvolverOutput;
         let usb = AppPortNaming::UsbStreamerPlayback;
-        (1..=layout.num_speaker_channels)
+        (1..=8)
             .map(|ch| DesiredLink {
                 output_node: NodeMatch::Exact(CONVOLVER_OUT.to_string()),
                 output_port: cv_out.port_name(ch),
@@ -971,64 +981,64 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn standby_has_21_links() {
-        // convolver-out → USBStreamer ch 0-3 (4)
+    fn standby_has_25_links() {
+        // D-063: convolver-out → USBStreamer ch 0-7 (8)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
-        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8) = 21.
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8) = 25.
         // F-124: No level-bridge-sw in standby (no app to tap).
         // F-131: No pcm-bridge app tap in standby (no app to tap).
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Standby).len(), 21);
+        assert_eq!(table.links_for(Mode::Standby).len(), 25);
     }
 
     #[test]
-    fn dj_has_39_links() {
+    fn dj_has_43_links() {
         // Mixxx → convolver mains (2) + Mixxx → convolver subs fan-out (4)
-        // + convolver → USBStreamer (4) + F-131: Mixxx → pcm-bridge stereo (2)
-        // + Mixxx → USBStreamer HP (2)
+        // + D-063: convolver → USBStreamer (8) + F-131: Mixxx → pcm-bridge stereo (2)
+        // + D-063: Mixxx → convolver HP (2)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
         // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
-        // + F-124: Mixxx → level-bridge-sw (8: consistent 8-ch metering) = 39.
+        // + F-124: Mixxx → level-bridge-sw (8: consistent 8-ch metering) = 43.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Dj).len(), 39);
+        assert_eq!(table.links_for(Mode::Dj).len(), 43);
     }
 
     #[test]
-    fn live_has_49_links() {
+    fn live_has_53_links() {
         // REAPER → convolver mains (2) + REAPER → convolver subs fan-out (4)
-        // + convolver → USBStreamer (4) + F-131: REAPER → pcm-bridge stereo (2)
-        // + REAPER → USBStreamer HP (2) + REAPER → USBStreamer IEM (2)
+        // + D-063: convolver → USBStreamer (8) + F-131: REAPER → pcm-bridge stereo (2)
+        // + D-063: REAPER → convolver HP (2) + D-063: REAPER → convolver IEM (2)
         // + ADA8200 → REAPER capture (8)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
         // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
-        // + F-124: REAPER → level-bridge-sw (8) = 49.
+        // + F-124: REAPER → level-bridge-sw (8) = 53.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Live).len(), 49);
+        assert_eq!(table.links_for(Mode::Live).len(), 53);
     }
 
     #[test]
-    fn measurement_has_27_links() {
-        // F-097: signal-gen mono fan-out → convolver (4) + convolver → USBStreamer (4)
+    fn measurement_has_31_links() {
+        // F-097: signal-gen mono fan-out → convolver (4) + D-063: convolver → USBStreamer (8)
         // + F-131: signal-gen → pcm-bridge ch1 (1)
         // + UMIK-1 → pcm-bridge ch3 (1)
         // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
-        // + F-124: signal-gen → level-bridge-sw (1) = 27.
+        // + F-124: signal-gen → level-bridge-sw (1) = 31.
         // F-227: signal-gen-capture (1) and room-sim→UMIK-1 loopback (4) removed.
         let table = RoutingTable::production();
-        assert_eq!(table.links_for(Mode::Measurement).len(), 27);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 31);
     }
 
     #[test]
     fn live_iem_links_are_optional() {
         let table = RoutingTable::production();
         let live_links = table.links_for(Mode::Live);
-        // IEM links (out7, out8 → USBStreamer AUX6, AUX7) should be optional.
-        // Filter to USBStreamer target only (F-124: out7/out8 also go to level-bridge-sw).
+        // D-063: IEM links (out7, out8 → convolver AUX6, AUX7) should be optional.
+        // Filter to convolver target only (F-124: out7/out8 also go to level-bridge-sw).
         let iem_links: Vec<_> = live_links
             .iter()
             .filter(|l| {
                 (l.output_port == "out7" || l.output_port == "out8")
-                    && matches!(&l.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output"))
+                    && matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-convolver")
             })
             .collect();
         assert_eq!(iem_links.len(), 2);
@@ -1281,7 +1291,7 @@ mod tests {
 
     #[test]
     fn all_modes_share_convolver_to_usbstreamer() {
-        // Every mode should have the 4 convolver → USBStreamer links.
+        // D-063: Every mode should have 8 convolver → USBStreamer links.
         let table = RoutingTable::production();
         for mode in Mode::ALL {
             let links = table.links_for(mode);
@@ -1294,8 +1304,8 @@ mod tests {
                 .collect();
             assert_eq!(
                 conv_to_usb.len(),
-                4,
-                "Mode {} should have 4 convolver→USBStreamer links",
+                8,
+                "Mode {} should have 8 convolver→USBStreamer links",
                 mode
             );
         }
@@ -1417,7 +1427,7 @@ mod tests {
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "Mixxx"))
             .collect();
-        // 2 mains + 4 sub fan-out + 2 HP + F-131: 2 pcm-bridge stereo
+        // 2 mains + 4 sub fan-out + D-063: 2 HP→convolver + F-131: 2 pcm-bridge stereo
         // + F-124: 8 level-bridge-sw = 18
         assert_eq!(mixxx_links.len(), 18);
     }
@@ -1476,8 +1486,8 @@ mod tests {
             .iter()
             .filter(|l| matches!(&l.output_node, NodeMatch::Prefix(p) if p == "REAPER"))
             .collect();
-        // 2 mains + 4 sub fan-out + 2 HP + 2 IEM + F-131: 2 pcm-bridge stereo
-        // + F-124: 8 level-bridge-sw = 20
+        // 2 mains + 4 sub fan-out + D-063: 2 HP→convolver + 2 IEM→convolver
+        // + F-131: 2 pcm-bridge stereo + F-124: 8 level-bridge-sw = 20
         assert_eq!(reaper_links.len(), 20);
     }
 
@@ -1802,36 +1812,36 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn three_way_standby_has_23_links() {
-        // convolver-out → USBStreamer ch 0-5 (6)
+    fn three_way_standby_has_25_links() {
+        // D-063: convolver-out → USBStreamer ch 0-7 (8)
         // + UMIK-1 → pcm-bridge ch3 (1, always-on)
-        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8) = 23.
+        // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8) = 25.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
-        assert_eq!(table.links_for(Mode::Standby).len(), 23);
+        assert_eq!(table.links_for(Mode::Standby).len(), 25);
     }
 
     #[test]
-    fn three_way_dj_has_43_links() {
+    fn three_way_dj_has_45_links() {
         // Stereo main channels (3,4,5,6): 4 links (1:1 from Master L/R)
         // + Sub mono sum fan-out (ch 1,2): 2 subs * 2 master channels = 4
-        // + convolver → USBStreamer (6)
+        // + D-063: convolver → USBStreamer (8)
         // + pcm-bridge stereo (2)
-        // + HP (2, ch 7-8 on USBStreamer)
+        // + D-063: HP → convolver (2, ch 5-6)
         // + UMIK-1 → pcm-bridge ch3 (1)
         // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
-        // + level-bridge-sw (8) = 43.
+        // + level-bridge-sw (8) = 45.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
-        assert_eq!(table.links_for(Mode::Dj).len(), 43);
+        assert_eq!(table.links_for(Mode::Dj).len(), 45);
     }
 
     #[test]
     fn three_way_live_has_53_links() {
         // Stereo main channels (3,4,5,6): 4 links (1:1 from Master L/R)
         // + Sub mono sum fan-out (ch 1,2): 2 subs * 2 master channels = 4
-        // + convolver → USBStreamer (6)
+        // + D-063: convolver → USBStreamer (8)
         // + pcm-bridge stereo (2)
-        // + HP (2, ch 7-8 on USBStreamer)
-        // + IEM (2, ch 9-10 on USBStreamer, optional)
+        // + D-063: HP → convolver (2, ch 7-8)
+        // + D-063: IEM: 0 (would need ch 9-10, beyond 8ch convolver)
         // + ADA8200 capture (8)
         // + UMIK-1 → pcm-bridge ch3 (1)
         // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
@@ -1841,19 +1851,20 @@ mod tests {
     }
 
     #[test]
-    fn three_way_measurement_has_31_links() {
-        // signal-gen mono fan-out → convolver (6) + convolver → USBStreamer (6)
+    fn three_way_measurement_has_33_links() {
+        // signal-gen mono fan-out → convolver (6) + D-063: convolver → USBStreamer (8)
         // + F-131: signal-gen → pcm-bridge ch1 (1)
         // + UMIK-1 → pcm-bridge ch3 (1)
         // + F-225: level-bridge-hw-out from convolver output (8) + level-bridge-hw-in (8)
-        // + level-bridge-sw (1) = 31.
+        // + level-bridge-sw (1) = 33.
         // F-227: signal-gen-capture (1) and room-sim→UMIK-1 loopback (6) removed.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
-        assert_eq!(table.links_for(Mode::Measurement).len(), 31);
+        assert_eq!(table.links_for(Mode::Measurement).len(), 33);
     }
 
     #[test]
-    fn three_way_has_6_convolver_to_usbstreamer() {
+    fn three_way_has_8_convolver_to_usbstreamer() {
+        // D-063: all layouts produce 8 convolver→USBStreamer links.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
         for mode in Mode::ALL {
             let links = table.links_for(mode);
@@ -1866,8 +1877,8 @@ mod tests {
                 .collect();
             assert_eq!(
                 conv_to_usb.len(),
-                6,
-                "Mode {} should have 6 convolver→USBStreamer links for 3-way",
+                8,
+                "Mode {} should have 8 convolver→USBStreamer links for 3-way",
                 mode
             );
         }
@@ -1931,8 +1942,10 @@ mod tests {
     }
 
     #[test]
-    fn three_way_dj_hp_on_ch7_8() {
-        // 3-way: HP channels at num_speaker_channels+1 and +2 = USBStreamer ch 7-8.
+    fn three_way_dj_hp_through_convolver() {
+        // D-063: 3-way DJ HP routes through convolver ch 7-8 (AUX6/AUX7).
+        // HP follows speaker channels: 6 speaker ch → HP on ch 7-8.
+        // Mixxx HP output is ch 7-8 (out_6/out_7) for 3-way layout.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
         let dj_links = table.links_for(Mode::Dj);
 
@@ -1940,44 +1953,44 @@ mod tests {
             .iter()
             .filter(|l| {
                 matches!(&l.output_node, NodeMatch::Prefix(p) if p == "Mixxx")
-                    && matches!(&l.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output"))
+                    && matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-convolver")
                     && (l.input_port == "playback_AUX6" || l.input_port == "playback_AUX7")
             })
             .collect();
-        assert_eq!(hp_links.len(), 2, "3-way DJ should have 2 HP links on ch 7-8");
+        assert_eq!(hp_links.len(), 2, "3-way DJ should have 2 HP→convolver links on AUX6/AUX7");
         assert!(!hp_links[0].optional);
         assert!(!hp_links[1].optional);
     }
 
     #[test]
-    fn three_way_live_hp_on_ch7_8_iem_on_ch9_10() {
-        // 3-way live: HP on ch 7-8, IEM on ch 9-10.
+    fn three_way_live_hp_through_convolver_no_iem() {
+        // D-063: 3-way live HP→convolver ch 7-8 (AUX6/AUX7).
+        // IEM would need ch 9-10 which exceeds the 8ch convolver — no IEM links.
         let table = RoutingTable::production_for(SpeakerLayout::three_way_stereo());
         let live_links = table.links_for(Mode::Live);
 
-        // HP links (ch 7-8).
+        // HP links → convolver AUX6/AUX7 (ch 7-8).
         let hp_links: Vec<_> = live_links
             .iter()
             .filter(|l| {
                 matches!(&l.output_node, NodeMatch::Prefix(p) if p == "REAPER")
-                    && matches!(&l.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output"))
+                    && matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-convolver")
                     && (l.input_port == "playback_AUX6" || l.input_port == "playback_AUX7")
             })
             .collect();
-        assert_eq!(hp_links.len(), 2, "3-way Live HP should be on ch 7-8");
+        assert_eq!(hp_links.len(), 2, "3-way Live HP should go to convolver AUX6/AUX7");
         assert!(hp_links.iter().all(|l| !l.optional));
 
-        // IEM links (ch 9-10).
-        let iem_links: Vec<_> = live_links
+        // No IEM links to convolver (would need ch 9-10, beyond 8ch).
+        let iem_to_convolver: Vec<_> = live_links
             .iter()
             .filter(|l| {
                 matches!(&l.output_node, NodeMatch::Prefix(p) if p == "REAPER")
-                    && matches!(&l.input_node, NodeMatch::Prefix(p) if p.starts_with("alsa_output"))
+                    && matches!(&l.input_node, NodeMatch::Exact(n) if n == "pi4audio-convolver")
                     && (l.input_port == "playback_AUX8" || l.input_port == "playback_AUX9")
             })
             .collect();
-        assert_eq!(iem_links.len(), 2, "3-way Live IEM should be on ch 9-10");
-        assert!(iem_links.iter().all(|l| l.optional));
+        assert_eq!(iem_to_convolver.len(), 0, "3-way Live: no IEM through convolver (beyond 8ch)");
     }
 
     #[test]

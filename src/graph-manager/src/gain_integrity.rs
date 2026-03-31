@@ -319,6 +319,10 @@ mod tests {
             ("gain_right_hp".to_string(), 0.001),
             ("gain_sub1_lp".to_string(), 0.000631),
             ("gain_sub2_lp".to_string(), 0.000631),
+            ("gain_hp_l".to_string(), 1.0),
+            ("gain_hp_r".to_string(), 1.0),
+            ("gain_iem_l".to_string(), 1.0),
+            ("gain_iem_r".to_string(), 1.0),
         ]
     }
 
@@ -343,12 +347,8 @@ mod tests {
     #[test]
     fn violation_detected_when_mult_exceeds_one() {
         let mut check = GainIntegrityCheck::new();
-        let gains = vec![
-            ("gain_left_hp".to_string(), 1.5),
-            ("gain_right_hp".to_string(), 0.001),
-            ("gain_sub1_lp".to_string(), 0.000631),
-            ("gain_sub2_lp".to_string(), 0.000631),
-        ];
+        let mut gains = production_gains();
+        gains[0] = ("gain_left_hp".to_string(), 1.5);
         let result = check.check(&gains);
         match result {
             GainCheckResult::Violation { violating, .. } => {
@@ -365,12 +365,10 @@ mod tests {
     #[test]
     fn mult_exactly_one_is_ok() {
         let mut check = GainIntegrityCheck::new();
-        let gains = vec![
-            ("gain_left_hp".to_string(), 1.0),
-            ("gain_right_hp".to_string(), 1.0),
-            ("gain_sub1_lp".to_string(), 1.0),
-            ("gain_sub2_lp".to_string(), 1.0),
-        ];
+        let gains: Vec<(String, f64)> = GAIN_PARAM_NAMES
+            .iter()
+            .map(|n| (n.to_string(), 1.0))
+            .collect();
         let result = check.check(&gains);
         assert!(matches!(result, GainCheckResult::AllOk { .. }));
     }
@@ -378,12 +376,8 @@ mod tests {
     #[test]
     fn mult_slightly_above_one_is_violation() {
         let mut check = GainIntegrityCheck::new();
-        let gains = vec![
-            ("gain_left_hp".to_string(), 1.0001),
-            ("gain_right_hp".to_string(), 0.001),
-            ("gain_sub1_lp".to_string(), 0.000631),
-            ("gain_sub2_lp".to_string(), 0.000631),
-        ];
+        let mut gains = production_gains();
+        gains[0] = ("gain_left_hp".to_string(), 1.0001);
         let result = check.check(&gains);
         assert!(matches!(result, GainCheckResult::Violation { .. }));
     }
@@ -391,12 +385,9 @@ mod tests {
     #[test]
     fn multiple_violations() {
         let mut check = GainIntegrityCheck::new();
-        let gains = vec![
-            ("gain_left_hp".to_string(), 2.0),
-            ("gain_right_hp".to_string(), 3.0),
-            ("gain_sub1_lp".to_string(), 0.000631),
-            ("gain_sub2_lp".to_string(), 0.000631),
-        ];
+        let mut gains = production_gains();
+        gains[0] = ("gain_left_hp".to_string(), 2.0);
+        gains[1] = ("gain_right_hp".to_string(), 3.0);
         let result = check.check(&gains);
         match result {
             GainCheckResult::Violation { violating, .. } => {
@@ -411,15 +402,19 @@ mod tests {
         let mut check = GainIntegrityCheck::new();
         let gains = vec![
             ("gain_left_hp".to_string(), 0.001),
-            // Missing: gain_right_hp, gain_sub1_lp, gain_sub2_lp
+            // Missing: 7 other gain params
         ];
         let result = check.check(&gains);
         match result {
             GainCheckResult::MissingNodes { missing } => {
-                assert_eq!(missing.len(), 3);
+                assert_eq!(missing.len(), 7);
                 assert!(missing.contains(&"gain_right_hp".to_string()));
                 assert!(missing.contains(&"gain_sub1_lp".to_string()));
                 assert!(missing.contains(&"gain_sub2_lp".to_string()));
+                assert!(missing.contains(&"gain_hp_l".to_string()));
+                assert!(missing.contains(&"gain_hp_r".to_string()));
+                assert!(missing.contains(&"gain_iem_l".to_string()));
+                assert!(missing.contains(&"gain_iem_r".to_string()));
             }
             other => panic!("expected MissingNodes, got {:?}", other),
         }
@@ -437,13 +432,9 @@ mod tests {
         assert_eq!(check.consecutive_violations, 0);
 
         // 1 violation resets ok counter.
-        let gains = vec![
-            ("gain_left_hp".to_string(), 2.0),
-            ("gain_right_hp".to_string(), 0.001),
-            ("gain_sub1_lp".to_string(), 0.000631),
-            ("gain_sub2_lp".to_string(), 0.000631),
-        ];
-        check.check(&gains);
+        let mut violation_gains = production_gains();
+        violation_gains[0] = ("gain_left_hp".to_string(), 2.0);
+        check.check(&violation_gains);
         assert_eq!(check.consecutive_ok, 0);
         assert_eq!(check.consecutive_violations, 1);
 
@@ -470,13 +461,8 @@ mod tests {
     #[test]
     fn ignores_non_gain_params() {
         let mut check = GainIntegrityCheck::new();
-        let gains = vec![
-            ("gain_left_hp".to_string(), 0.001),
-            ("gain_right_hp".to_string(), 0.001),
-            ("gain_sub1_lp".to_string(), 0.000631),
-            ("gain_sub2_lp".to_string(), 0.000631),
-            ("some_other_param".to_string(), 5.0), // not a gain param
-        ];
+        let mut gains = production_gains();
+        gains.push(("some_other_param".to_string(), 5.0)); // not a gain param
         let result = check.check(&gains);
         // The non-gain param with Mult 5.0 should be ignored.
         assert!(matches!(result, GainCheckResult::AllOk { .. }));
@@ -499,12 +485,8 @@ mod tests {
     #[test]
     fn status_describes_violation() {
         let mut check = GainIntegrityCheck::new();
-        let gains = vec![
-            ("gain_left_hp".to_string(), 2.0),
-            ("gain_right_hp".to_string(), 0.001),
-            ("gain_sub1_lp".to_string(), 0.000631),
-            ("gain_sub2_lp".to_string(), 0.000631),
-        ];
+        let mut gains = production_gains();
+        gains[0] = ("gain_left_hp".to_string(), 2.0);
         check.check(&gains);
         let status = check.status();
         assert!(status.last_result.as_ref().unwrap().contains("VIOLATION"));
@@ -534,7 +516,11 @@ mod tests {
                                 "gain_left_hp:Mult", 0.001,
                                 "gain_right_hp:Mult", 0.001,
                                 "gain_sub1_lp:Mult", 0.000631,
-                                "gain_sub2_lp:Mult", 0.000631
+                                "gain_sub2_lp:Mult", 0.000631,
+                                "gain_hp_l:Mult", 1.0,
+                                "gain_hp_r:Mult", 1.0,
+                                "gain_iem_l:Mult", 1.0,
+                                "gain_iem_r:Mult", 1.0
                             ] }
                         ]
                     }
@@ -550,13 +536,16 @@ mod tests {
         ]"#;
 
         let gains = parse_pw_dump_gains(json).unwrap();
-        assert_eq!(gains.len(), 4);
+        assert_eq!(gains.len(), 8);
 
         let left = gains.iter().find(|(n, _)| n == "gain_left_hp").unwrap();
         assert_eq!(left.1, 0.001);
 
         let sub1 = gains.iter().find(|(n, _)| n == "gain_sub1_lp").unwrap();
         assert_eq!(sub1.1, 0.000631);
+
+        let hp_l = gains.iter().find(|(n, _)| n == "gain_hp_l").unwrap();
+        assert_eq!(hp_l.1, 1.0);
     }
 
     #[test]

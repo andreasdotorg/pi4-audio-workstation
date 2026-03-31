@@ -18,9 +18,10 @@
 //! safety attenuation). A bypass link could send unattenuated audio
 //! directly to the amplifiers.
 //!
-//! Headphone/IEM ports (AUX4..AUX7) are NOT subject to this rule —
-//! they legitimately receive direct links from Mixxx/Reaper in DJ/Live
-//! modes.
+//! D-063: All 8 USBStreamer ports (AUX0..AUX7) are protected. HP and IEM
+//! channels now route through the convolver (Dirac identity coefficients
+//! for passthrough). No application may bypass the convolver to reach
+//! any USBStreamer port.
 //!
 //! ## Design
 //!
@@ -44,8 +45,8 @@ const USBSTREAMER_OUT_PREFIX: &str = "alsa_output.usb-MiniDSP_USBStreamer";
 /// Convolver output node name (the only authorized source for speaker ports).
 const CONVOLVER_OUT: &str = "pi4audio-convolver-out";
 
-/// Default number of speaker channels (2-way layout).
-const DEFAULT_SPEAKER_CHANNELS: u32 = 4;
+/// Default number of protected channels (D-063: all 8 USBStreamer ports).
+const DEFAULT_SPEAKER_CHANNELS: u32 = 8;
 
 /// Generate the list of protected speaker port names for N speaker channels.
 fn speaker_ports(num_speaker_channels: u32) -> Vec<String> {
@@ -68,7 +69,7 @@ pub struct AuditViolation {
 }
 
 /// Audit all links in the graph for convolver bypass violations,
-/// using the default 4-channel speaker layout.
+/// using the default 8-channel layout (D-063: all USBStreamer ports protected).
 ///
 /// Convenience wrapper around `audit_links_for()`.
 pub fn audit_links(graph: &GraphState) -> Vec<AuditViolation> {
@@ -189,13 +190,13 @@ mod tests {
     fn graph_with_legitimate_links() -> GraphState {
         let mut g = GraphState::new();
 
-        // Convolver output node.
+        // Convolver output node (D-063: 8 channels).
         g.add_node(make_node(
             200,
             "pi4audio-convolver-out",
             "Stream/Output/Audio",
         ));
-        for ch in 0..4u32 {
+        for ch in 0..8u32 {
             g.add_port(make_port(
                 20000 + ch,
                 200,
@@ -219,8 +220,8 @@ mod tests {
             ));
         }
 
-        // Legitimate links: convolver-out → USBStreamer ch 0-3.
-        for ch in 0..4u32 {
+        // Legitimate links: convolver-out → USBStreamer ch 0-7 (D-063: all 8).
+        for ch in 0..8u32 {
             g.add_link(make_link(
                 1000 + ch,
                 200,
@@ -252,33 +253,39 @@ mod tests {
     }
 
     #[test]
-    fn headphone_bypass_not_flagged() {
-        // Mixxx → USBStreamer AUX4 (headphone L) is legitimate.
+    fn headphone_bypass_is_violation() {
+        // D-063: Mixxx → USBStreamer AUX4 (headphone L) is a violation.
+        // HP must route through convolver.
         let mut g = graph_with_legitimate_links();
 
         g.add_node(make_node(400, "Mixxx", "Stream/Output/Audio"));
         g.add_port(make_port(40002, 400, "out_2", "out"));
 
-        // Mixxx → USBStreamer AUX4 (headphone, not speaker).
+        // Mixxx → USBStreamer AUX4 bypasses convolver.
         g.add_link(make_link(2000, 400, 40002, 300, 30004));
 
         let violations = audit_links(&g);
-        assert!(violations.is_empty());
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].source_node, "Mixxx");
+        assert_eq!(violations[0].target_port, "playback_AUX4");
     }
 
     #[test]
-    fn iem_bypass_not_flagged() {
-        // Reaper → USBStreamer AUX6 (IEM L) is legitimate.
+    fn iem_bypass_is_violation() {
+        // D-063: Reaper → USBStreamer AUX6 (IEM L) is a violation.
+        // IEM must route through convolver.
         let mut g = graph_with_legitimate_links();
 
         g.add_node(make_node(500, "REAPER", "Stream/Output/Audio"));
         g.add_port(make_port(50006, 500, "out7", "out"));
 
-        // Reaper → USBStreamer AUX6 (IEM, not speaker).
+        // Reaper → USBStreamer AUX6 bypasses convolver.
         g.add_link(make_link(2000, 500, 50006, 300, 30006));
 
         let violations = audit_links(&g);
-        assert!(violations.is_empty());
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].source_node, "REAPER");
+        assert_eq!(violations[0].target_port, "playback_AUX6");
     }
 
     // -----------------------------------------------------------------------
@@ -357,9 +364,9 @@ mod tests {
     }
 
     #[test]
-    fn all_four_speaker_ports_protected() {
-        // Verify each speaker port (AUX0..3) triggers a violation.
-        for ch in 0..4u32 {
+    fn all_eight_ports_protected() {
+        // D-063: Verify all 8 USBStreamer ports (AUX0..7) trigger violations.
+        for ch in 0..8u32 {
             let mut g = graph_with_legitimate_links();
 
             g.add_node(make_node(999, "rogue", "Stream/Output/Audio"));
@@ -371,35 +378,13 @@ mod tests {
             assert_eq!(
                 violations.len(),
                 1,
-                "Expected violation for speaker port AUX{}, got {:?}",
+                "Expected violation for port AUX{}, got {:?}",
                 ch,
                 violations,
             );
             assert_eq!(
                 violations[0].target_port,
                 format!("playback_AUX{}", ch),
-            );
-        }
-    }
-
-    #[test]
-    fn aux4_through_aux7_not_protected() {
-        // Verify headphone/IEM ports (AUX4..7) do NOT trigger violations
-        // under the default 4-channel audit.
-        for ch in 4..8u32 {
-            let mut g = graph_with_legitimate_links();
-
-            g.add_node(make_node(999, "rogue", "Stream/Output/Audio"));
-            g.add_port(make_port(99900, 999, "output_0", "out"));
-
-            g.add_link(make_link(2000, 999, 99900, 300, 30000 + ch));
-
-            let violations = audit_links(&g);
-            assert!(
-                violations.is_empty(),
-                "AUX{} should not be protected, got {:?}",
-                ch,
-                violations,
             );
         }
     }
@@ -514,7 +499,7 @@ mod tests {
         g.add_node(make_node(999, "rogue", "Stream/Output/Audio"));
         g.add_port(make_port(99900, 999, "output_0", "out"));
 
-        // One bypass link alongside 4 legitimate convolver links.
+        // One bypass link alongside 8 legitimate convolver links.
         g.add_link(make_link(2000, 999, 99900, 300, 30000));
 
         let violations = audit_links(&g);

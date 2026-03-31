@@ -23,7 +23,11 @@
         "gain_left_hp",
         "gain_right_hp",
         "gain_sub1_lp",
-        "gain_sub2_lp"
+        "gain_sub2_lp",
+        "gain_hp_l",
+        "gain_hp_r",
+        "gain_iem_l",
+        "gain_iem_r"
     ];
 
     // Slider range: 0.0 to 0.1 (soft cap -20 dB).

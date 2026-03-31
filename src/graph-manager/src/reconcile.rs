@@ -924,18 +924,18 @@ mod tests {
     fn build_production_graph() -> GraphState {
         let mut g = GraphState::new();
 
-        // -- Convolver input (Audio/Sink): 4 playback ports --
+        // -- Convolver input (Audio/Sink): 8 playback ports (D-063) --
         g.add_node(make_node(100, "pi4audio-convolver", "Audio/Sink"));
-        for ch in 0..4u32 {
+        for ch in 0..8u32 {
             g.add_port(make_port(
                 10000 + ch, 100,
                 &format!("playback_AUX{}", ch), "in",
             ));
         }
 
-        // -- Convolver output (Stream/Output/Audio): 4 output ports --
+        // -- Convolver output (Stream/Output/Audio): 8 output ports (D-063) --
         g.add_node(make_node(200, "pi4audio-convolver-out", "Stream/Output/Audio"));
-        for ch in 0..4u32 {
+        for ch in 0..8u32 {
             g.add_port(make_port(
                 20000 + ch, 200,
                 &format!("output_AUX{}", ch), "out",
@@ -1076,9 +1076,10 @@ mod tests {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Step 1: Reconcile in DJ mode — should create all 12 DJ links.
+        // Step 1: Reconcile in DJ mode — should create all 16 DJ links.
+        // D-063: 2 stereo→conv + 4 sub→conv + 8 conv→USB + 2 HP→conv = 16.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
-        assert_eq!(count_creates(&actions), 12, "DJ mode: expected 12 creates");
+        assert_eq!(count_creates(&actions), 16, "DJ mode: expected 16 creates");
         assert_eq!(count_destroys(&actions), 0, "DJ mode: no destroys initially");
 
         // Simulate: apply all creates.
@@ -1096,23 +1097,23 @@ mod tests {
         for ch in 0..8u32 {
             g.remove_port(30000 + ch);
         }
-        // Remove links that had USBStreamer ports. In DJ mode, links to
-        // USBStreamer are: convolver-out→USB (4) + Mixxx HP→USB (2) = 6.
-        // We need to find and remove those links.
+        // Remove links that had USBStreamer ports. In DJ mode (D-063),
+        // links to USBStreamer are: convolver-out→USB (8) = 8.
+        // HP now goes through convolver, not directly to USB.
         let usb_port_ids: Vec<u32> = (30000..30008).collect();
         let links_to_remove: Vec<u32> = g.links()
             .filter(|l| usb_port_ids.contains(&l.output_port) || usb_port_ids.contains(&l.input_port))
             .map(|l| l.id)
             .collect();
-        assert_eq!(links_to_remove.len(), 6, "6 links involve USBStreamer ports");
+        assert_eq!(links_to_remove.len(), 8, "8 links involve USBStreamer ports");
         for link_id in &links_to_remove {
             g.remove_link(*link_id);
         }
 
-        // Reconcile after unplug: USBStreamer gone, so 6 links can't resolve.
-        // The 6 Mixxx→convolver links are still satisfied (both endpoints
-        // still present). No creates (USBStreamer node missing), no destroys
-        // (those links are already gone from the graph).
+        // Reconcile after unplug: USBStreamer gone, so 8 conv→USB links can't
+        // resolve. The 8 Mixxx→convolver links are still satisfied (both
+        // endpoints still present). No creates (USBStreamer node missing),
+        // no destroys (those links are already gone from the graph).
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
             count_creates(&actions), 0,
@@ -1136,11 +1137,11 @@ mod tests {
             ));
         }
 
-        // Reconcile after re-plug: should recreate the 6 USBStreamer links.
+        // Reconcile after re-plug: should recreate the 8 conv→USB links.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
-            count_creates(&actions), 6,
-            "after re-plug: expected 6 creates for USBStreamer links, got {:?}", actions,
+            count_creates(&actions), 8,
+            "after re-plug: expected 8 creates for USBStreamer links, got {:?}", actions,
         );
         assert_eq!(count_destroys(&actions), 0, "after re-plug: no destroys");
 
@@ -1163,8 +1164,9 @@ mod tests {
         let mut g = build_production_graph();
 
         // Step 1: Establish full DJ topology.
+        // D-063: 2 stereo→conv + 4 sub→conv + 8 conv→USB + 2 HP→conv = 16.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
-        assert_eq!(count_creates(&actions), 12);
+        assert_eq!(count_creates(&actions), 16);
         let next_id = apply_creates(&mut g, &actions, 1000);
 
         // Step 2: Mixxx crashes — both nodes disappear.
@@ -1178,7 +1180,7 @@ mod tests {
         g.remove_port(40101);
 
         // Links involving Mixxx ports disappear from PW graph.
-        // DJ Mixxx links: master→convolver (2) + master→sub (4) + HP→USB (2) = 8.
+        // DJ Mixxx links (D-063): master→conv (2) + master→sub (4) + HP→conv (2) = 8.
         let mixxx_port_ids: Vec<u32> = (40000..40006).collect();
         let links_to_remove: Vec<u32> = g.links()
             .filter(|l| mixxx_port_ids.contains(&l.output_port) || mixxx_port_ids.contains(&l.input_port))
@@ -1189,7 +1191,7 @@ mod tests {
             g.remove_link(*link_id);
         }
 
-        // Reconcile: Mixxx gone, 8 links can't resolve. The 4
+        // Reconcile: Mixxx gone, 8 links can't resolve. The 8
         // convolver→USBStreamer links are still present and desired.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
         assert_eq!(
@@ -1243,24 +1245,25 @@ mod tests {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Establish Standby topology: 4 links (convolver→USB).
+        // Establish Standby topology: 8 links (convolver→USB, D-063).
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
-        assert_eq!(count_creates(&actions), 4);
+        assert_eq!(count_creates(&actions), 8);
         let next_id = apply_creates(&mut g, &actions, 1000);
         assert!(reconcile(&g, &table, Mode::Standby).actions.is_empty());
 
         // Switch to DJ: creates Mixxx links, keeps convolver→USB links.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
 
-        // DJ has 12 total links. 4 convolver→USB links are shared with
+        // DJ has 16 total links. 8 convolver→USB links are shared with
         // Standby and already exist. So: 8 new creates, 0 destroys.
+        // D-063: 2 stereo→conv + 4 sub→conv + 2 HP→conv = 8 new.
         assert_eq!(
             count_creates(&actions), 8,
-            "Mon→DJ: expected 8 new creates (Mixxx links), got {:?}", actions,
+            "Standby→DJ: expected 8 new creates (Mixxx links), got {:?}", actions,
         );
         assert_eq!(
             count_destroys(&actions), 0,
-            "Mon→DJ: convolver→USB links shared, no destroys",
+            "Standby→DJ: convolver→USB links shared, no destroys",
         );
 
         apply_creates(&mut g, &actions, next_id);
@@ -1272,17 +1275,17 @@ mod tests {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Establish DJ topology: 12 links.
+        // Establish DJ topology: 16 links (D-063).
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Dj);
-        assert_eq!(count_creates(&actions), 12);
+        assert_eq!(count_creates(&actions), 16);
         let next_id = apply_creates(&mut g, &actions, 1000);
         assert!(reconcile(&g, &table, Mode::Dj).actions.is_empty());
 
         // Switch to Live.
-        // Live has 22 links. Shared with DJ: convolver→USB (4 links).
-        // DJ-only links to destroy: Mixxx→convolver (6) + Mixxx HP→USB (2) = 8.
-        // Live-only links to create: Reaper→convolver (6) + Reaper HP→USB (2)
-        //   + Reaper IEM→USB (2) + ADA8200→Reaper (8) = 18.
+        // Live has 26 links. Shared with DJ: convolver→USB (8 links).
+        // DJ-only links to destroy: Mixxx→conv stereo (2) + sub (4) + HP→conv (2) = 8.
+        // Live-only links to create: Reaper→conv stereo (2) + sub (4) + HP→conv (2)
+        //   + IEM→conv (2) + ADA8200→Reaper (8) = 18.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Live);
 
         assert_eq!(
@@ -1304,25 +1307,25 @@ mod tests {
         let table = RoutingTable::production();
         let mut g = build_production_graph();
 
-        // Establish Live topology: 22 links.
+        // Establish Live topology: 26 links (D-063).
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Live);
-        assert_eq!(count_creates(&actions), 22);
+        assert_eq!(count_creates(&actions), 26);
         let next_id = apply_creates(&mut g, &actions, 1000);
         assert!(reconcile(&g, &table, Mode::Live).actions.is_empty());
 
         // Switch to Standby.
-        // Standby has 4 links (convolver→USB), all shared with Live.
-        // Live-only links to destroy: Reaper→convolver (6) + Reaper HP→USB (2)
-        //   + Reaper IEM→USB (2) + ADA8200→Reaper (8) = 18.
+        // Standby has 8 links (convolver→USB), all shared with Live.
+        // Live-only links to destroy: Reaper→conv stereo (2) + sub (4) + HP→conv (2)
+        //   + IEM→conv (2) + ADA8200→Reaper (8) = 18.
         let ReconcileResult { actions, .. } = reconcile(&g, &table, Mode::Standby);
 
         assert_eq!(
             count_creates(&actions), 0,
-            "Live→Mon: no new creates (convolver→USB already exists), got {:?}", actions,
+            "Live→Standby: no new creates (convolver→USB already exists), got {:?}", actions,
         );
         assert_eq!(
             count_destroys(&actions), 18,
-            "Live→Mon: expected 18 destroys (Reaper + ADA8200 links), got {:?}", actions,
+            "Live→Standby: expected 18 destroys (Reaper + ADA8200 links), got {:?}", actions,
         );
 
         apply_destroys(&mut g, &actions);

@@ -7,14 +7,16 @@
 { config, lib, pkgs, ... }:
 
 let
-  # T-072-06: Build Dirac (unity-passthrough) FIR coefficient WAVs at Nix build
-  # time.  tmpfiles 'C' rules below copy them to /etc/pi4audio/coeffs/ only if
-  # no venue-specific coefficients are already present.
+  # D-063: Build Dirac (unity-passthrough) FIR coefficient WAVs at Nix build
+  # time.  All 16384-sample Dirac impulses — uniform tap length matching
+  # speaker FIR channels.  tmpfiles 'C' rules below copy them to
+  # /etc/pi4audio/coeffs/ only if no venue-specific coefficients are present.
+  # dirac.wav is the permanent identity coefficient for HP/IEM channels.
   diracCoeffs = pkgs.runCommand "pi4audio-dirac-coeffs" {
     nativeBuildInputs = [ pkgs.python3 ];
   } ''
     mkdir -p $out
-    python3 ${../../../scripts/generate-dirac-coeffs.py} $out
+    python3 ${../../../scripts/generate-dirac.py} $out
   '';
 
   # Build a derivation containing all PipeWire config fragments.
@@ -71,9 +73,10 @@ in
   # pipeline are never overwritten.
   systemd.tmpfiles.rules = [
     "d /etc/pi4audio/coeffs 0755 root root - -"
-    "C /etc/pi4audio/coeffs/combined_left_hp.wav  0644 root root - ${diracCoeffs}/combined_left_hp.wav"
-    "C /etc/pi4audio/coeffs/combined_right_hp.wav 0644 root root - ${diracCoeffs}/combined_right_hp.wav"
-    "C /etc/pi4audio/coeffs/combined_sub1_lp.wav  0644 root root - ${diracCoeffs}/combined_sub1_lp.wav"
-    "C /etc/pi4audio/coeffs/combined_sub2_lp.wav  0644 root root - ${diracCoeffs}/combined_sub2_lp.wav"
+    "C /etc/pi4audio/coeffs/dirac.wav              0644 root root - ${diracCoeffs}/dirac.wav"
+    "C /etc/pi4audio/coeffs/combined_left_hp.wav   0644 root root - ${diracCoeffs}/combined_left_hp.wav"
+    "C /etc/pi4audio/coeffs/combined_right_hp.wav  0644 root root - ${diracCoeffs}/combined_right_hp.wav"
+    "C /etc/pi4audio/coeffs/combined_sub1_lp.wav   0644 root root - ${diracCoeffs}/combined_sub1_lp.wav"
+    "C /etc/pi4audio/coeffs/combined_sub2_lp.wav   0644 root root - ${diracCoeffs}/combined_sub2_lp.wav"
   ];
 }

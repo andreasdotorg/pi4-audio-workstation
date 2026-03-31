@@ -1,9 +1,10 @@
 //! Filter-chain watchdog — safety mute via native PipeWire API (T-044-4).
 //!
 //! Monitors critical audio nodes in the PipeWire graph and latches a safety
-//! MUTE when any disappear. The mute sets Mult=0.0 on the 4 gain builtins
-//! inside the filter-chain convolver node. If the convolver node itself is
-//! gone, the fallback destroys ALL links to the USBStreamer input ports.
+//! MUTE when any disappear. The mute sets Mult=0.0 on the 8 gain builtins
+//! inside the filter-chain convolver node (D-063). If the convolver node
+//! itself is gone, the fallback destroys ALL links to the USBStreamer input
+//! ports.
 //!
 //! ## Safety model
 //!
@@ -20,17 +21,18 @@
 //! | `pi4audio-convolver`     | Filter-chain capture side   |
 //! | `pi4audio-convolver-out` | Filter-chain playback side  |
 //!
-//! The 4 gain builtins (`gain_left_hp`, `gain_right_hp`, `gain_sub1_lp`,
-//! `gain_sub2_lp`) are internal to the filter-chain module — they appear
-//! as parameters on the `pi4audio-convolver` node, NOT as separate PW
-//! graph nodes. They are addressed by prefixed param name (e.g.,
-//! `gain_left_hp:Mult`) when setting Mult values.
+//! The 8 gain builtins (`gain_left_hp`, `gain_right_hp`, `gain_sub1_lp`,
+//! `gain_sub2_lp`, `gain_hp_l`, `gain_hp_r`, `gain_iem_l`, `gain_iem_r`)
+//! are internal to the filter-chain module — they appear as parameters on
+//! the `pi4audio-convolver` node, NOT as separate PW graph nodes. They are
+//! addressed by prefixed param name (e.g., `gain_left_hp:Mult`) when
+//! setting Mult values.
 //!
 //! ## Mute mechanism
 //!
-//! **Primary:** Set Mult parameter to 0.0 on the convolver node for all 4
+//! **Primary:** Set Mult parameter to 0.0 on the convolver node for all 8
 //! gain builtins using `pw_node_set_param()` via `pipewire-rs` with prefixed
-//! param names (e.g., `gain_left_hp:Mult`). Target: <1ms per param, <5ms total.
+//! param names (e.g., `gain_left_hp:Mult`). Target: <1ms per param, <8ms total.
 //!
 //! **Fallback:** If the convolver node itself is gone (can't set params on
 //! a nonexistent node), destroy ALL links to USBStreamer input ports using
@@ -68,15 +70,23 @@ pub const MONITORED_NODES: &[&str] = &[
 /// param muting (the gain builtins live inside this node).
 pub const CONVOLVER_NODE_NAME: &str = "pi4audio-convolver";
 
-/// Prefixed param names for the 4 gain builtins inside the filter-chain.
+/// Prefixed param names for the 8 gain builtins inside the filter-chain.
 /// These are used with `pw_node_set_param()` on the convolver node to
 /// set Mult=0.0 on each gain stage. Also used by the gain integrity
 /// check to verify Mult <= 1.0.
+///
+/// D-063: All 8 USBStreamer channels route through the convolver.
+/// Channels 5-8 (HP L/R, IEM L/R) use Dirac (identity) coefficients
+/// for passthrough; their gain nodes allow safety mute and level control.
 pub const GAIN_PARAM_NAMES: &[&str] = &[
     "gain_left_hp",
     "gain_right_hp",
     "gain_sub1_lp",
     "gain_sub2_lp",
+    "gain_hp_l",
+    "gain_hp_r",
+    "gain_iem_l",
+    "gain_iem_r",
 ];
 
 /// USBStreamer node name prefix — used for fallback link destruction.
@@ -330,7 +340,7 @@ mod tests {
             "alsa_output.usb-MiniDSP_USBStreamer-00.pro-output-0",
             "Audio/Sink",
         ));
-        for ch in 0..4u32 {
+        for ch in 0..8u32 {
             g.add_port(TrackedPort {
                 id: 40000 + ch,
                 node_id: 400,
@@ -339,7 +349,7 @@ mod tests {
                 properties: HashMap::new(),
             });
         }
-        for ch in 0..4u32 {
+        for ch in 0..8u32 {
             g.add_port(TrackedPort {
                 id: 20000 + ch,
                 node_id: 200,
@@ -348,7 +358,7 @@ mod tests {
                 properties: HashMap::new(),
             });
         }
-        for ch in 0..4u32 {
+        for ch in 0..8u32 {
             g.add_link(TrackedLink {
                 id: 1000 + ch,
                 output_node: 200,
@@ -404,7 +414,7 @@ mod tests {
 
         match action {
             WatchdogAction::DestroyUsbLinks { link_ids } => {
-                assert_eq!(link_ids.len(), 4);
+                assert_eq!(link_ids.len(), 8);
             }
             other => panic!("expected DestroyUsbLinks, got {:?}", other),
         }
@@ -447,9 +457,9 @@ mod tests {
 
         match action {
             WatchdogAction::DestroyUsbLinks { link_ids } => {
-                assert_eq!(link_ids.len(), 4);
+                assert_eq!(link_ids.len(), 8);
                 for id in &link_ids {
-                    assert!(*id >= 1000 && *id <= 1003);
+                    assert!(*id >= 1000 && *id <= 1007);
                 }
             }
             other => panic!("expected DestroyUsbLinks, got {:?}", other),
@@ -520,13 +530,17 @@ mod tests {
             ("gain_right_hp".to_string(), 0.001),
             ("gain_sub1_lp".to_string(), 0.000631),
             ("gain_sub2_lp".to_string(), 0.000631),
+            ("gain_hp_l".to_string(), 1.0),
+            ("gain_hp_r".to_string(), 1.0),
+            ("gain_iem_l".to_string(), 1.0),
+            ("gain_iem_r".to_string(), 1.0),
         ]);
 
         let gains = wd.unlatch();
         assert!(!wd.is_latched());
         assert!(gains.is_some());
         let gains = gains.unwrap();
-        assert_eq!(gains.len(), 4);
+        assert_eq!(gains.len(), 8);
         assert_eq!(gains[0], ("gain_left_hp".to_string(), 0.001));
     }
 

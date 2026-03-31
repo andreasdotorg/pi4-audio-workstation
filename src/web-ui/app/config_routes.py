@@ -40,6 +40,10 @@ DEFAULT_GAIN_NODE_NAMES = [
     "gain_right_hp",  # AUX1 - Right main
     "gain_sub1_lp",   # AUX2 - Sub 1
     "gain_sub2_lp",   # AUX3 - Sub 2
+    "gain_hp_l",      # AUX4 - Headphone L (D-063)
+    "gain_hp_r",      # AUX5 - Headphone R (D-063)
+    "gain_iem_l",     # AUX6 - IEM L (D-063)
+    "gain_iem_r",     # AUX7 - IEM R (D-063)
 ]
 
 GAIN_LABELS = {
@@ -47,6 +51,10 @@ GAIN_LABELS = {
     "gain_right_hp": "Right HP",
     "gain_sub1_lp": "Sub 1 LP",
     "gain_sub2_lp": "Sub 2 LP",
+    "gain_hp_l": "Headphone L",
+    "gain_hp_r": "Headphone R",
+    "gain_iem_l": "IEM L",
+    "gain_iem_r": "IEM R",
 }
 
 
@@ -71,6 +79,10 @@ _mock_gains: Dict[str, float] = {
     "gain_right_hp": 0.001,
     "gain_sub1_lp": 0.000631,
     "gain_sub2_lp": 0.000631,
+    "gain_hp_l": 1.0,
+    "gain_hp_r": 1.0,
+    "gain_iem_l": 1.0,
+    "gain_iem_r": 1.0,
 }
 _mock_quantum: int = 1024
 
@@ -265,6 +277,6 @@ def _mock_config_response() -> dict:
         "filter_chain": {
             "node_name": "filter-chain-convolver",
             "node_id": 42,
-            "description": "4-channel FIR convolver (mock)",
+            "description": "8-channel FIR convolver (mock)",
         },
     }

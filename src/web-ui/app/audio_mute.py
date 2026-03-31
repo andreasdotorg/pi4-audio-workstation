@@ -25,6 +25,10 @@ DEFAULT_GAIN_NODE_NAMES = [
     "gain_right_hp",  # AUX1 - Right main
     "gain_sub1_lp",   # AUX2 - Sub 1
     "gain_sub2_lp",   # AUX3 - Sub 2
+    "gain_hp_l",      # AUX4 - Headphone L (D-063)
+    "gain_hp_r",      # AUX5 - Headphone R (D-063)
+    "gain_iem_l",     # AUX6 - IEM L (D-063)
+    "gain_iem_r",     # AUX7 - IEM R (D-063)
 ]
 
 
