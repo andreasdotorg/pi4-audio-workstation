@@ -81,7 +81,7 @@
       mode = "monitor";
       target = "pi4audio-convolver";
       port = 9090;
-      channels = 4;
+      channels = 8;
       rate = 48000;
       quantum = 256;
       levelsListen = "tcp:127.0.0.1:9100";

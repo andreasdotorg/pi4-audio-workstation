@@ -205,7 +205,7 @@ class TestWsPcmTcpRouting:
     def test_monitor_routes_to_correct_port(self):
         """Monitor source connects to its configured TCP port."""
         port = _free_port()
-        frame = _build_pcm_frame(256, 4, fill_value=0.42)
+        frame = _build_pcm_frame(256, 8, fill_value=0.42)
         ready = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port, [frame], ready)
         ready.wait(timeout=5)
@@ -214,7 +214,7 @@ class TestWsPcmTcpRouting:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg = ws.receive_bytes()
@@ -223,7 +223,7 @@ class TestWsPcmTcpRouting:
     def test_umik1_source_routes_to_its_port(self):
         """A second source (umik1) connects to its own TCP port."""
         port = _free_port()
-        frame = _build_pcm_frame(256, 4, fill_value=0.99)
+        frame = _build_pcm_frame(256, 8, fill_value=0.99)
         ready = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port, [frame], ready)
         ready.wait(timeout=5)
@@ -235,7 +235,7 @@ class TestWsPcmTcpRouting:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/umik1") as ws:
                 msg = ws.receive_bytes()
@@ -249,8 +249,8 @@ class TestWsPcmTcpRouting:
         port_a = _free_port()
         port_b = _free_port()
 
-        frame_a = _build_pcm_frame(256, 4, fill_value=0.11)
-        frame_b = _build_pcm_frame(256, 4, fill_value=0.99)
+        frame_a = _build_pcm_frame(256, 8, fill_value=0.11)
+        frame_b = _build_pcm_frame(256, 8, fill_value=0.99)
 
         ready_a = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port_a, [frame_a], ready_a)
@@ -265,7 +265,7 @@ class TestWsPcmTcpRouting:
         # Test monitor source.
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg_a = ws.receive_bytes()
@@ -277,7 +277,7 @@ class TestWsPcmTcpRouting:
 
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/umik1") as ws:
                 msg_b = ws.receive_bytes()
@@ -303,7 +303,7 @@ class TestBinaryFrameProxy:
     def test_single_frame_arrives_unmodified(self):
         """A single frame must arrive byte-for-byte identical."""
         port = _free_port()
-        frame = _build_pcm_frame(256, 4, fill_value=0.777)
+        frame = _build_pcm_frame(256, 8, fill_value=0.777)
         ready = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port, [frame], ready)
         ready.wait(timeout=5)
@@ -312,7 +312,7 @@ class TestBinaryFrameProxy:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg = ws.receive_bytes()
@@ -325,9 +325,9 @@ class TestBinaryFrameProxy:
         """Multiple frames sent sequentially arrive as individual messages."""
         port = _free_port()
         frames = [
-            _build_pcm_frame(256, 4, fill_value=0.1),
-            _build_pcm_frame(256, 4, fill_value=0.2),
-            _build_pcm_frame(256, 4, fill_value=0.3),
+            _build_pcm_frame(256, 8, fill_value=0.1),
+            _build_pcm_frame(256, 8, fill_value=0.2),
+            _build_pcm_frame(256, 8, fill_value=0.3),
         ]
         ready = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port, frames, ready)
@@ -337,7 +337,7 @@ class TestBinaryFrameProxy:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 # The relay now sends one complete v2 frame per WS message.
@@ -364,7 +364,7 @@ class TestBinaryFrameProxy:
         """The v2 header must be preserved exactly."""
         port = _free_port()
         # Use a distinctive frame count (512 instead of 256).
-        frame = _build_pcm_frame(512, 4, fill_value=0.5)
+        frame = _build_pcm_frame(512, 8, fill_value=0.5)
         ready = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port, [frame], ready)
         ready.wait(timeout=5)
@@ -373,7 +373,7 @@ class TestBinaryFrameProxy:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/test-src") as ws:
                 msg = ws.receive_bytes()
@@ -397,7 +397,7 @@ class TestUnknownSourceRejection:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             # Starlette TestClient raises an exception when WebSocket is
             # closed before accept.  The close code 4004 triggers this.
@@ -408,7 +408,7 @@ class TestUnknownSourceRejection:
     def test_known_source_accepted(self):
         """A known source should be accepted (not rejected with 4004)."""
         port = _free_port()
-        frame = _build_pcm_frame(256, 4)
+        frame = _build_pcm_frame(256, 8)
         ready = threading.Event()
         _start_fake_pcm_bridge("127.0.0.1", port, [frame], ready)
         ready.wait(timeout=5)
@@ -417,7 +417,7 @@ class TestUnknownSourceRejection:
         from app.main import app
         with patch("app.main.MOCK_MODE", False), \
              patch("app.main.PCM_SOURCES", sources), \
-             patch("app.main.PCM_CHANNELS", 4):
+             patch("app.main.PCM_CHANNELS", 8):
             client = TestClient(app)
             with client.websocket_connect("/ws/pcm/monitor") as ws:
                 msg = ws.receive_bytes()

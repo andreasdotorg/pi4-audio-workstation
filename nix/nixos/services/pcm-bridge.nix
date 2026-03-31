@@ -28,7 +28,7 @@ let
 
       channels = lib.mkOption {
         type = lib.types.ints.positive;
-        default = 4;
+        default = 8;
         description = "Number of audio channels.";
       };
 

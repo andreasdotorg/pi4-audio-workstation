@@ -547,7 +547,7 @@ start_services() {
         --managed \
         --mode monitor \
         --listen tcp:0.0.0.0:9090 \
-        --channels 4 \
+        --channels 8 \
         --rate 48000 &
     PIDS+=($!)
     maybe_disown $!
@@ -603,7 +603,7 @@ start_services() {
     export PI4AUDIO_SKIP_GM_RECOVERY=1
     export PI4AUDIO_AUTH_DISABLED=1
     export PI4AUDIO_SIGGEN=1
-    export PI4AUDIO_PCM_CHANNELS=4
+    export PI4AUDIO_PCM_CHANNELS=8
     export PI4AUDIO_MEASUREMENT_ATTENUATION_DB=-20
     export PI4AUDIO_RECORDING_PEAK_CEILING_DBFS=20
     export PI4AUDIO_MIC_CLIP_THRESHOLD_DBFS=0
