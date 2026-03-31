@@ -26,7 +26,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-089 | TEST | Speaker config management web UI | Blocked by F-198 |
 | US-090 | REVIEW | FIR filter generation web UI | OWNER REJECTED (F-223 NOW FIXED `adb93d9`). E2E re-verification needed. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
-| US-092 | REVIEW | Per-driver thermal/mechanical protection | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-092 | REVIEW | Per-driver thermal/mechanical protection | OWNER REJECTED (F-223 FIXED). QE pass + UX pass. F-244 (DELETE confirmation) is cross-cutting, non-blocking. |
 | US-093 | REVIEW | Amplifier sensitivity calibration | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
 | US-094 | REVIEW | ISO 226 equal loudness compensation | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
 | US-095 | REVIEW | Graph viz — truthful PW topology | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
@@ -112,13 +112,20 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts. Blocked — needs Pi at venue. |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
 | F-222 | High | Zombie process accumulation in container dev environment (PID 1 = sleep infinity) |
-| F-235 | High | Measurement mode still doesn't work in local-demo. Blocks US-098. |
+| F-235 | High | Measurement mode still doesn't work in local-demo. Blocks US-097, US-098. |
+| F-244 | High | All entity DELETE buttons in config tab lack confirmation dialogs. Cross-cutting UX (US-089/US-093). |
+| F-245 | High | Measurement error UI shows raw Python/NumPy exception. Overlaps F-235. |
 | F-234 | Medium | Only 35/39 DJ links in local-demo (4 missing). Investigation needed. |
 | F-236 | Medium | UMIK-1 spectrum in test tab shows frequency-dependent rolloff (likely code duplication). |
 | F-237 | Medium | Speaker config activation UX unclear / no venue config management (relates to US-113/D-062). |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
+| F-239 | Medium | Default profile 2way-80hz-ported fails: missing sub-ported-15.yml (US-090). |
+| F-240 | Medium | Unknown filter_type "fullrange" not handled by backend (US-090). |
+| F-241 | Medium | DRIVER PROTECTION stale state after profile activation (US-092). |
 | F-039 | Medium | DSP load gauge 0% — needs pw-top BUSY parsing |
+| F-242 | Low | Negative sensitivity returns opaque "write_failed" (US-093). |
+| F-243 | Low | Negative phon values accepted client-side (US-094). |
 
 ### Defects Resolved in Session 6 (9 total)
 
@@ -145,10 +152,11 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Stories in REVIEW | 8 (US-088, US-071, US-090, US-092-097 — 7 REJECTED, F-223 now fixed, E2E re-verification needed) |
 | Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
-| Open defects (HIGH+) | 4 (F-187, F-037, F-222, F-235) |
+| Open defects (HIGH+) | 6 (F-187, F-037, F-222, F-235, F-244, F-245) |
 | Defects resolved session 6 | 9 (F-223, F-225, F-226, F-228, F-230, F-232, F-233, F-238 + audit bugs) |
-| Open defects (Medium) | ~27 (F-234, F-236, F-237 added session 6) |
-| Total defects filed | 238 (F-234 through F-238 filed session 6; F-231 = dup of F-226) |
+| Open defects (Medium) | ~30 (F-234, F-236, F-237 session 6; F-239, F-240, F-241 session 7) |
+| Open defects (Low) | F-242, F-243 (session 7) |
+| Total defects filed | 245 (F-239 through F-245 filed session 7 from QE+UX reviews) |
 | Test suites | test-all (537), test-e2e (229 — 35 new US-075 production-replica tests) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
