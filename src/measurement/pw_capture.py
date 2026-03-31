@@ -14,6 +14,13 @@ Signal flow (local-demo):
 The measurement code is identical in both cases — the only difference
 is what PipeWire node backs the target name.
 
+F-235 fix: In local-demo, WP policy.standard is disabled (D-039/F-210),
+so pw-record's Stream/Input/Audio node never auto-activates via --target.
+The fix uses --target 0 (no auto-link) with explicit node activation
+properties, then manually creates the link via pw-link.  On production
+(WP policy active), --target works normally and the manual pw-link is
+a harmless no-op (link already exists).
+
 Usage::
 
     capture = start_capture("alsa_input.usb-miniDSP_UMIK-1", "/tmp/cap.wav")
@@ -23,7 +30,6 @@ Usage::
 """
 
 import logging
-import os
 import signal
 import subprocess
 import time
@@ -59,6 +65,78 @@ def _set_default_source(target: str) -> None:
         logger.info("Set default audio source to %s", target)
 
 
+def _get_pw_record_input_ports() -> list[str]:
+    """Discover pw-record's input port names via ``pw-link -i``."""
+    try:
+        result = subprocess.run(
+            ["pw-link", "-i"], capture_output=True, text=True, timeout=3,
+        )
+        ports = []
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("pw-record:") or stripped.startswith("pw-cat:"):
+                ports.append(stripped)
+        return ports
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+
+
+def _get_source_output_port(target: str) -> Optional[str]:
+    """Find the first output port of *target* via ``pw-link -o``."""
+    try:
+        result = subprocess.run(
+            ["pw-link", "-o"], capture_output=True, text=True, timeout=3,
+        )
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(f"{target}:"):
+                return stripped
+        return None
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+def _ensure_link(target: str, channels: int) -> None:
+    """Create a PipeWire link from *target* source to pw-record.
+
+    F-235: When WP policy.standard is disabled (local-demo), pw-record
+    with ``--target 0`` creates ports but no links.  This function
+    discovers the port names and links them manually via ``pw-link``.
+    On production (WP policy active), the link may already exist — we
+    ignore "already linked" errors.
+    """
+    record_ports = _get_pw_record_input_ports()
+    if not record_ports:
+        logger.warning("pw-record has no input ports — link skipped")
+        return
+
+    source_port = _get_source_output_port(target)
+    if source_port is None:
+        logger.warning("Source %s has no output ports — link skipped", target)
+        return
+
+    # For mono capture, link the source to the first pw-record input port.
+    # For multi-channel, link each source output to the corresponding input.
+    record_input = record_ports[0]
+    try:
+        result = subprocess.run(
+            ["pw-link", source_port, record_input],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            logger.info("Linked %s -> %s", source_port, record_input)
+        else:
+            stderr = result.stderr.strip()
+            # "File exists" means link already exists — not an error.
+            if "exists" in stderr.lower():
+                logger.info("Link already exists: %s -> %s",
+                            source_port, record_input)
+            else:
+                logger.warning("pw-link failed: %s", stderr)
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        logger.warning("pw-link unavailable: %s", exc)
+
+
 def start_capture(
     output_path: str,
     target: str = DEFAULT_TARGET,
@@ -88,15 +166,21 @@ def start_capture(
         terminate it cleanly.
     """
     # Set default source as best-effort hint (works with WP policy.standard).
-    # Also pass --target to pw-record for direct targeting (works without
-    # WP linking policy, e.g., local-demo where policy.standard is disabled
-    # per F-210).
     _set_default_source(target)
 
+    # Ensure output directory exists.
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
     bin_path = pw_record_bin or "pw-record"
+    # F-235: Use --target 0 (no auto-link) with explicit activation
+    # properties.  This forces pw-record's stream node to create ports
+    # even when WP policy.standard is disabled (local-demo, D-039/F-210).
+    # On production (WP policy active), --target 0 still works — we
+    # create the link manually via pw-link afterwards.
     cmd = [
         bin_path,
-        "--target", target,
+        "--target", "0",
+        "-P", "node.always-process=true,node.passive=true,node.want-driver=true",
         "--rate", str(sample_rate),
         "--channels", str(channels),
         "--format", "f32",
@@ -104,15 +188,12 @@ def start_capture(
     ]
     logger.info("Starting capture: %s", " ".join(cmd))
 
-    # Ensure output directory exists.
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )
-    # Settle time for pw-record to connect to the target node.
+    # Settle time for pw-record to create ports.
     time.sleep(1.0)
 
     if proc.poll() is not None:
@@ -120,6 +201,12 @@ def start_capture(
         raise RuntimeError(
             f"pw-record exited immediately (rc={proc.returncode}): {stderr}"
         )
+
+    # F-235: Manually link the target source to pw-record.
+    # pw-record with --target 0 creates ports but no links.
+    # The port name is "input_MONO" for mono capture, "input_FL" for
+    # stereo left, etc.  We discover the actual port name via pw-link -i.
+    _ensure_link(target, channels)
 
     logger.info("Capture started (pid=%d, target=%s, path=%s)",
                 proc.pid, target, output_path)
