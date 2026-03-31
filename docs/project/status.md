@@ -1,8 +1,8 @@
 # Project Status
 
-Last updated: 2026-03-30 (session 5). Individual story/defect/decision
-details now in `stories/`, `defects/`, `decisions/` directories with corresponding
-index files.
+Last updated: 2026-03-31 (session 7, reflecting session 6 work). Individual
+story/defect/decision details now in `stories/`, `defects/`, `decisions/`
+directories with corresponding index files.
 
 ## Current Mission
 
@@ -20,19 +20,19 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | Story | Phase | Summary | Blocker |
 |-------|-------|---------|---------|
-| US-072 | IMPLEMENT 16/20 | NixOS reproducible build | Remaining 4 tasks need Pi hardware (T-072-05, T-072-13, T-072-18, T-072-19) |
-| US-075 | COMPLETE | Local PW integration test env | Done (AC 1-7, `dd019ea`+`25ed785`+`0eaf87c`) |
+| US-072 | IMPLEMENT 16/20 | NixOS reproducible build | Remaining 4 tasks need Pi hardware. SD card build blocked: -dev kernel output fills 30GB builder (owner: exclude -dev) |
+| US-075 | COMPLETE | Local PW integration test env | Done. 35 E2E production-replica tests committed (`7b43222`). |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
-| US-089 | TEST | Speaker config management web UI | Blocked by F-198 (F-217 FIXED, commit bf15dfe) |
-| US-090 | REVIEW | FIR filter generation web UI | OWNER REJECTED (F-223: auth middleware blocks local-demo). Must fix F-223 + re-verify E2E. |
+| US-089 | TEST | Speaker config management web UI | Blocked by F-198 |
+| US-090 | REVIEW | FIR filter generation web UI | OWNER REJECTED (F-223 NOW FIXED `adb93d9`). E2E re-verification needed. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
-| US-092 | REVIEW | Per-driver thermal/mechanical protection | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
-| US-093 | REVIEW | Amplifier sensitivity calibration | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
-| US-094 | REVIEW | ISO 226 equal loudness compensation | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
-| US-095 | REVIEW | Graph viz — truthful PW topology | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
-| US-096 | REVIEW | UMIK-1 full calibration pipeline | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
-| US-097 | REVIEW | Room compensation web UI workflow | OWNER REJECTED (F-223). Must fix F-223 + re-verify E2E. |
-| US-098 | TEST | Room correction pipeline verification | P0 done; P1/P2 deferral REJECTED — must verify locally (owner directive, session 5) |
+| US-092 | REVIEW | Per-driver thermal/mechanical protection | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-093 | REVIEW | Amplifier sensitivity calibration | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-094 | REVIEW | ISO 226 equal loudness compensation | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-095 | REVIEW | Graph viz — truthful PW topology | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-096 | REVIEW | UMIK-1 full calibration pipeline | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-097 | REVIEW | Room compensation web UI workflow | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-098 | TEST | Room correction pipeline verification | P0 done; P1/P2 blocked by F-235 (measurement mode broken in local-demo) |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
 | US-044 | IMPLEMENT/TEST | Safety protection suite | AC #3-5 implemented (54 tests), AC #1-2/6-8 need Pi. Local-demo verification in progress. |
@@ -42,7 +42,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-080 | IMPLEMENT | Multi-point spectrum analyzer | Owner re-validation |
 | US-081 | IMPLEMENT | Peak+RMS meters with clip indicator | Owner re-validation |
 | US-082 | IMPLEMENT | Audio file playback in signal-gen | Owner re-validation |
-| US-083 | draft | Integration smoke tests | Depends US-075 |
+| US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
 | US-113 | deferred/parked | First-boot active config + FoH passthrough | D-062 filed. Owner: 8ch passthrough + universal audio gate. Parked for US-075. |
@@ -58,7 +58,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-044 Pi tests (T-044-6/7) | Owner Pi session |
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
-| US-090/092-097 re-acceptance | F-223 fix (auth middleware in local-demo) |
+| US-090/092-097 re-acceptance | F-223 FIXED (`adb93d9`). E2E re-verification needed, then owner re-acceptance. |
 | US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
 
@@ -109,36 +109,47 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | ID | Severity | Summary |
 |----|----------|---------|
-| F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts (diagnosing) |
-| F-209 | ~~P1 / High~~ | ~~US-044 watchdog/gain integrity assume builtins are separate PW nodes~~ VERIFIED (session 4, 248 tests pass) |
+| F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts. Blocked — needs Pi at venue. |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
 | F-222 | High | Zombie process accumulation in container dev environment (PID 1 = sleep infinity) |
-| F-223 | ~~High~~ | ~~Auth middleware intercepts all requests in local-demo~~ RESOLVED (session 6, `adb93d9` — auth now opt-in) |
-| F-225 | ~~High~~ | ~~No meter bars for 8 output channels in local-demo~~ RESOLVED (session 6, `c27d880`) |
-| F-226 | ~~High~~ | ~~No UMIK-1 signal in measurement/test mode in local-demo~~ RESOLVED (session 6, `c27d880`) |
-| F-232 | ~~High~~ | ~~Topology endpoint returns stale/empty GM data~~ RESOLVED (session 6, `8962aab`) |
-| F-233 | ~~High~~ | ~~FilterChainCollector poll loop silently stops updating~~ RESOLVED (session 6, `8962aab`) |
-| F-235 | High | Measurement mode still doesn't work in local-demo |
-| F-061 | ~~High~~ | ~~pw-dump subprocess hangs under WebSocket load~~ VERIFIED (session 4) |
+| F-235 | High | Measurement mode still doesn't work in local-demo. Blocks US-098. |
+| F-234 | Medium | Only 35/39 DJ links in local-demo (4 missing). Investigation needed. |
+| F-236 | Medium | UMIK-1 spectrum in test tab shows frequency-dependent rolloff (likely code duplication). |
+| F-237 | Medium | Speaker config activation UX unclear / no venue config management (relates to US-113/D-062). |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
 | F-039 | Medium | DSP load gauge 0% — needs pw-top BUSY parsing |
+
+### Defects Resolved in Session 6 (9 total)
+
+| ID | Severity | Resolution |
+|----|----------|------------|
+| F-223 | High | Auth middleware now opt-in (`adb93d9`). Unblocks 7 stories. |
+| F-225 | High | Convolver metering + passthrough coeffs fix (`c27d880`). |
+| F-226 | High | UMIK-1 signal path + dead link cleanup (`c27d880`). |
+| F-228 | Low | Default gm_mode changed from "dj" to "standby" (`00ff2f9`). |
+| F-230 | Medium | Quantum change on mode switch — DJ now sets 1024 (`00ff2f9`). |
+| F-232 | High | Topology endpoint stale/empty GM data — push event desync (`8962aab`). |
+| F-233 | High | FilterChainCollector poll loop stops updating — push event fix (`8962aab`). |
+| F-238 | Low | Documented as trade-off (production gains correct, low in sim). No code change. |
+| (session 6 also fixed multiple US-075 audit bugs in commits `3e79abf`, `25b9595`, `180a4a8`) |
 
 ## Key Metrics
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~197 |
+| Git commits | ~212 (15 pushed in session 6) |
 | Total stories filed | 118 |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
-| Stories in REVIEW | 8 (US-088, US-090, US-092-097 — 7 REJECTED pending F-223 fix) |
+| Stories in REVIEW | 8 (US-088, US-071, US-090, US-092-097 — 7 REJECTED, F-223 now fixed, E2E re-verification needed) |
 | Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
-| Open defects (HIGH+) | 4 (F-187, F-037, F-222, F-235) — 5 resolved session 6: F-223, F-225, F-226, F-232, F-233 |
-| Open defects (Medium) | ~24 |
-| Total defects filed | 237 (F-231 = duplicate of F-226) |
-| Test suites | test-all (537), test-e2e (194) |
+| Open defects (HIGH+) | 4 (F-187, F-037, F-222, F-235) |
+| Defects resolved session 6 | 9 (F-223, F-225, F-226, F-228, F-230, F-232, F-233, F-238 + audit bugs) |
+| Open defects (Medium) | ~27 (F-234, F-236, F-237 added session 6) |
+| Total defects filed | 238 (F-234 through F-238 filed session 6; F-231 = dup of F-226) |
+| Test suites | test-all (537), test-e2e (229 — 35 new US-075 production-replica tests) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
 | PA path latency (q256) | ~5.3ms |
@@ -167,47 +178,52 @@ through D-063). Most significant recent decisions:
 - **D-062** (2026-03-30): First-boot / active config — symlink-based coefficient management, FoH passthrough baseline, mute-default safety (amends D-010, D-051, D-053)
 - **D-063** (2026-03-30): 8ch filter-chain convolver + universal audio gate — owner directive: 8ch passthrough, mandatory gate, cosine ramp-up (amends D-062)
 
-## Session 4 Summary (2026-03-30)
+## Session 6 Summary (2026-03-31)
 
-### Commits
+### Commits (15 pushed)
 
 | SHA | Description |
 |-----|-------------|
-| 56a83a6 | docs(project): US-111/US-110 → IMPLEMENT, status updates |
-| 54bad97 | docs(project): F-209 verified — gain_integrity fix confirmed, 248 tests pass |
-| 2cfb477 | docs(project): F-061 verified — all PW subprocess calls use asyncio.to_thread |
-| 7c0bd96 | (worker commit — US-072 / US-111 code) |
-| 6a4ee23 | (worker commit — US-072 / US-111 code) |
-| pending | docs(project): advance 8 stories to REVIEW, file F-217, US-111 scope revision |
+| 3e79abf | Consolidate PW lifecycle, start/stop, US-075 bugs |
+| 4d11657 | Mixxx substitute + dirac removal |
+| 62105d8 | Monitoring → standby rename (48 files) |
+| 0104d30 | Room-sim IR 1024→16384 |
+| 25b9595 | US-075 bugs #5, #8, #10 |
+| e42cd61 | Docs D-062, D-063, F-224, US-113 |
+| 180a4a8 | Fix stale measurement link count assertions |
+| c27d880 | F-225/F-226/F-227 convolver metering, passthrough coeffs, dead links |
+| 8962aab | F-233/F-232 skip GM push events in RPC response reads |
+| 47b66fd | Defect docs F-225 through F-233 |
+| 00ff2f9 | F-230 quantum change on mode switch, F-228 default mode standby |
+| 3da77d6 | US-114 minimal kernel config story (draft) |
+| adb93d9 | F-223 disable auth middleware by default (login page not implemented) |
+| 7b43222 | US-075 E2E production-replica validation tests (35 new) |
+| b9e4be0 | F-234 through F-238 filed, 7 defects RESOLVED |
 
 ### Accomplishments
 
-1. **F-061 VERIFIED** — all PW subprocess calls migrated to `asyncio.to_thread(subprocess.run)`. Zero `create_subprocess_exec` instances remain. 827 tests pass.
-2. **F-209 VERIFIED** — gain integrity + watchdog fixed. Both modules now use realistic convolver param model (not top-level nodes). 248 tests pass.
-3. **HIGH+ defects reduced 4 → 2** — F-061 and F-209 verified. Remaining: F-187 (Critical, blocked/venue), F-037 (High, converted to US-110).
-4. **7 stories advanced to REVIEW** — US-090, US-092-097 passed QE Gate 1. US-091 conditional (4 integration defects: F-188/189/190/191). US-098 contingent on owner P1/P2 deferral sign-off.
-5. **US-111 scope revised** — T-111-01 spike confirmed WP required on PW 1.6.x. AC #4 (spa-node-factory clock) and AC #6 (WP elimination) DROPPED. 14 tasks → 13. Room-sim filter-chain and loopback components proceed.
-6. **US-111 moved to IMPLEMENT** — architect decomposed 13 tasks (post scope revision), implementation started.
-7. **US-110 moved to IMPLEMENT** — architect decomposed 17 tasks for passkey auth.
-8. **F-217 filed (Medium)** — conftest filter gap (`/ws/pcm` 403 in mock mode). Blocks US-089 clean Gate 1.
-9. **US-072 Pi-free sub-work identified** — ~5.5h: smoke test script, service dependency review, disko config, nixos-anywhere research, upgrade runbook.
-10. **nixos-upgrade.md written** — T-072-19a complete. HOWTO for nixos-anywhere + nixos-rebuild deployment.
+1. **F-223 RESOLVED** — auth middleware now opt-in via `PI4AUDIO_AUTH_ENABLED=1` (`adb93d9`). Unblocks 7 OWNER REJECTED stories (US-090, US-092-097) for E2E re-verification.
+2. **9 defects resolved** — F-223, F-225, F-226, F-228, F-230, F-232, F-233, F-238, plus multiple US-075 audit bugs.
+3. **35 new E2E production-replica tests** committed (`7b43222`) for US-075 — mode switching, quantum, topology, meters.
+4. **5 new defects filed** from owner morning testing — F-234 (4 missing DJ links), F-235 (measurement mode broken), F-236 (UMIK spectrum rolloff), F-237 (config activation UX), F-238 (sim gains trade-off).
+5. **Monitoring → standby rename** across 48 files (`62105d8`).
+6. **Room-sim IR length corrected** from 1024 to 16384 (`0104d30`).
+7. **US-114** (minimal kernel config) filed as draft story.
 
-### Owner Notifications
+### Pending for Session 7
 
-1. **WP removal architecturally impossible on PW 1.6.x** — T-111-01 spike confirmed filter-chain ports require WirePlumber for activation. `spa-node-factory` clock driver enters error state. This is a permanent constraint, not a workaround gap. US-111 proceeds with WP retained (policy disabled).
-2. **US-098 P1/P2 deferral REJECTED** — Owner directive (session 5): P1 (channel identity) and P2 (transient fidelity) must be verified in local-demo. US-098 reverted to TEST.
-3. **7 stories ready for advisory review** — US-090, US-092-097 passed Gate 1, pending advisory sign-offs and owner acceptance. US-091 reverted to IMPLEMENT (4 integration defects).
+1. **E2E re-verification of US-090, US-092-097** — F-223 fixed, stories unblocked.
+2. **F-235 (HIGH)** — measurement mode broken in local-demo. Blocks US-098 P1/P2.
+3. **F-234** — 4 missing DJ links. Investigation needed.
+4. **F-236** — UMIK spectrum rolloff in test tab. Likely code duplication fix.
+5. **US-072** — SD card build blocked on -dev kernel output exclusion.
+6. **Status.md update** — this file was stale (session 5).
 
-### Pending for Next Session
+## Session 4/5 Summary (2026-03-30)
 
-1. **US-111 implementation** — room-sim filter-chain, loopback ada8200-in, process cleanup. 12 tasks remain.
-2. **US-110 implementation** — passkey auth. 17 tasks. D-060 local CA prerequisite.
-3. **US-072 Pi deployment** — test Pi at 192.168.178.35, nixos-anywhere ready.
-4. **Advisory reviews** — 7 stories (US-090, US-092-097) need architect, AE, security, UX sign-offs. US-091 reverted to IMPLEMENT.
-5. **F-187 (Critical)** — noise on 4 channels after PW restarts. Requires physical Pi at venue.
-6. **F-217 fix** — conftest filter gap. Quick fix, unblocks US-089 Gate 1.
-7. **US-098 P1/P2 local verification** — Owner rejected deferral. P1 (channel identity) and P2 (transient fidelity) must pass in local-demo.
+(See git history. Key: F-061/F-209 verified, 7 stories advanced to REVIEW, US-111
+scope revised (WP required on PW 1.6.x), US-110/US-111 moved to IMPLEMENT, F-217
+filed, nixos-upgrade.md written, US-098 P1/P2 deferral REJECTED by owner.)
 
 ## Session 3 Summary (2026-03-29)
 
