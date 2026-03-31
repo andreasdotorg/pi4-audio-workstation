@@ -113,11 +113,12 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-209 | ~~P1 / High~~ | ~~US-044 watchdog/gain integrity assume builtins are separate PW nodes~~ VERIFIED (session 4, 248 tests pass) |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
 | F-222 | High | Zombie process accumulation in container dev environment (PID 1 = sleep infinity) |
-| F-223 | High | Auth middleware intercepts all requests in local-demo despite PI4AUDIO_AUTH_DISABLED=1 — blocks 7 stories |
-| F-225 | High | No meter bars for 8 output channels in local-demo web UI |
-| F-226 | High | No UMIK-1 signal in measurement/test mode in local-demo |
-| F-232 | High | Topology endpoint returns stale/empty GM data |
-| F-233 | High | FilterChainCollector poll loop silently stops updating — push event desync |
+| F-223 | ~~High~~ | ~~Auth middleware intercepts all requests in local-demo~~ RESOLVED (session 6, `adb93d9` — auth now opt-in) |
+| F-225 | ~~High~~ | ~~No meter bars for 8 output channels in local-demo~~ RESOLVED (session 6, `c27d880`) |
+| F-226 | ~~High~~ | ~~No UMIK-1 signal in measurement/test mode in local-demo~~ RESOLVED (session 6, `c27d880`) |
+| F-232 | ~~High~~ | ~~Topology endpoint returns stale/empty GM data~~ RESOLVED (session 6, `8962aab`) |
+| F-233 | ~~High~~ | ~~FilterChainCollector poll loop silently stops updating~~ RESOLVED (session 6, `8962aab`) |
+| F-235 | High | Measurement mode still doesn't work in local-demo |
 | F-061 | ~~High~~ | ~~pw-dump subprocess hangs under WebSocket load~~ VERIFIED (session 4) |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
@@ -134,9 +135,9 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Stories in REVIEW | 8 (US-088, US-090, US-092-097 — 7 REJECTED pending F-223 fix) |
 | Stories in IMPLEMENT | ~7 |
 | Stories ready | 0 |
-| Open defects (HIGH+) | 8 (F-187, F-037, F-222, F-223, F-225, F-226, F-232, F-233) |
-| Open defects (Medium) | ~21 |
-| Total defects filed | 232 (F-231 = duplicate of F-226) |
+| Open defects (HIGH+) | 4 (F-187, F-037, F-222, F-235) — 5 resolved session 6: F-223, F-225, F-226, F-232, F-233 |
+| Open defects (Medium) | ~24 |
+| Total defects filed | 237 (F-231 = duplicate of F-226) |
 | Test suites | test-all (537), test-e2e (194) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
