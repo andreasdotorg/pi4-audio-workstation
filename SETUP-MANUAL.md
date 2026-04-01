@@ -88,19 +88,16 @@
                                     │    ├─ Live mic input (ADA8200)      │
                                     │    ├─ Effects / processing          │
                                     │    │                                │
-                                    │    ▼  FOH outputs via convolver:    │
+                                    │    ▼  All 8ch via convolver (D-063):│
                                     │    ├─ ch1-2: Mains (FIR HP + corr) │
                                     │    ├─ ch3-4: Subs (FIR LP + corr)  │
-                                    │    ├─ ch5-6: Engineer HP (passthru) │
-                                    │    │                                │
-                                    │    ▼  IEM bypasses convolver:       │
-                                    │    └─ ch7-8: Singer IEM (direct PW  │
-                                    │         link → USBStreamer)          │
+                                    │    ├─ ch5-6: Engineer HP (Dirac)    │
+                                    │    └─ ch7-8: Singer IEM (Dirac)    │
                                     │                                     │
                                     │  PipeWire filter-chain convolver    │
-                                    │    ├─ ch0-1: Mains min-phase FIR   │
-                                    │    ├─ ch2-3: Subs FIR + delay      │
-                                    │    └─ Gain nodes (linear Mult)      │
+                                    │    ├─ ch0-3: Speaker FIR filters   │
+                                    │    ├─ ch4-7: Dirac passthrough     │
+                                    │    └─ 8 gain nodes (linear Mult)   │
                                     │                                     │
                                     └────┬────────────────────────────────┘
                                          │ USB
@@ -447,12 +444,14 @@ JACK wrapper -- the entire audio pipeline lives inside PipeWire's processing gra
 ┌─────────────────────────────────────────────┐
 │   PipeWire                                  │
 │   ├─ pw-jack bridge (JACK API for apps)     │
-│   ├─ filter-chain convolver (FIR DSP)       │
+│   ├─ filter-chain convolver (FIR DSP, 8ch)  │
 │   │   ├─ ch0-1: Mains FIR (HP + correction)│
 │   │   ├─ ch2-3: Subs FIR (LP + correction) │
-│   │   └─ Gain nodes (linear Mult params)    │
+│   │   ├─ ch4-5: Engineer HP (Dirac pass)   │
+│   │   ├─ ch6-7: Singer IEM (Dirac pass)    │
+│   │   └─ 8 gain nodes (linear Mult params) │
 │   ├─ GraphManager (link topology control)   │
-│   └─ Direct links (headphone/IEM bypass)    │
+│   └─ Audio gate: all muted at startup (D-063│
 └──────────────┬──────────────────────────────┘
                │ USB
                ▼
@@ -663,7 +662,7 @@ Pi, loaded as drop-in files in lexicographic order:
 | `10-audio-settings.conf` | Global clock: 48kHz, quantum range 256-1024 |
 | `20-usbstreamer.conf` | ADA8200 capture adapter (8ch input via ADAT) |
 | `21-usbstreamer-playback.conf` | USBStreamer playback adapter (8ch output, graph driver) |
-| `30-filter-chain-convolver.conf` | FIR convolver + gain nodes (4ch) |
+| `30-filter-chain-convolver.conf` | FIR convolver + gain nodes (8ch, D-063) |
 
 These files are version-controlled in this repository under `configs/pipewire/`.
 
@@ -677,9 +676,14 @@ scp configs/pipewire/10-audio-settings.conf \
     configs/pipewire/30-filter-chain-convolver.conf \
     ela@mugge:~/.config/pipewire/pipewire.conf.d/
 
-# Copy FIR coefficient WAV files
+# Copy FIR coefficient WAV files (including Dirac identity for monitoring channels)
 sudo mkdir -p /etc/pi4audio/coeffs
 sudo cp coeffs/combined_*.wav /etc/pi4audio/coeffs/
+sudo cp coeffs/dirac.wav /etc/pi4audio/coeffs/
+
+# Copy venue configuration profiles (US-113)
+sudo mkdir -p /etc/pi4audio/venues
+sudo cp configs/venues/*.yml /etc/pi4audio/venues/
 
 # SAFETY: Warn the owner before restarting PipeWire!
 # Restarting PipeWire causes USBStreamer transients through the amp chain.
@@ -689,40 +693,61 @@ systemctl --user restart pipewire
 
 #### Filter-Chain Convolver Overview
 
-The convolver processes 4 speaker channels through combined minimum-phase FIR
-filters (crossover + room correction). Channels 4-7 (headphones, IEM) bypass
-the convolver entirely — GraphManager links them directly to the USBStreamer.
+The convolver processes all 8 output channels through FIR filters (D-063). Speaker
+channels (0-3) use combined minimum-phase FIR filters (crossover + room correction).
+Monitoring channels (4-7: headphones, IEM) use Dirac (identity) coefficients for
+transparent passthrough. This eliminates bypass links entirely — GraphManager uses
+a single uniform routing pattern for all channels.
 
 ```
-Internal filter-chain signal flow:
+Internal filter-chain signal flow (8ch, D-063):
 
-AUX0 ──> conv_left_hp  ──> gain_left_hp  ──> AUX0  (Left main)
-AUX1 ──> conv_right_hp ──> gain_right_hp ──> AUX1  (Right main)
-AUX2 ──> conv_sub1_lp  ──> gain_sub1_lp  ──> AUX2  (Sub 1)
-AUX3 ──> conv_sub2_lp  ──> gain_sub2_lp  ──> AUX3  (Sub 2)
+AUX0 ──> conv_left_hp  ──> gain_left_hp  ──> AUX0  (Left main — FIR HP+corr)
+AUX1 ──> conv_right_hp ──> gain_right_hp ──> AUX1  (Right main — FIR HP+corr)
+AUX2 ──> conv_sub1_lp  ──> gain_sub1_lp  ──> AUX2  (Sub 1 — FIR LP+corr)
+AUX3 ──> conv_sub2_lp  ──> gain_sub2_lp  ──> AUX3  (Sub 2 — FIR LP+corr)
+AUX4 ──> conv_hp_l     ──> gain_hp_l     ──> AUX4  (Engineer HP L — Dirac)
+AUX5 ──> conv_hp_r     ──> gain_hp_r     ──> AUX5  (Engineer HP R — Dirac)
+AUX6 ──> conv_iem_l    ──> gain_iem_l    ──> AUX6  (Singer IEM L — Dirac)
+AUX7 ──> conv_iem_r    ──> gain_iem_r    ──> AUX7  (Singer IEM R — Dirac)
 ```
 
 Each channel has two stages:
-1. **Convolver** (`builtin/convolver`): 16,384-tap FIR with combined crossover
-   slope + room correction. Coefficient WAV files at `/etc/pi4audio/coeffs/`.
+1. **Convolver** (`builtin/convolver`): 16,384-tap FIR filter. Speaker channels
+   use combined crossover + room correction coefficients. Monitoring channels use
+   Dirac (identity) for transparent passthrough. Coefficient WAV files at
+   `/etc/pi4audio/coeffs/`.
 2. **Gain node** (`builtin/linear`): Flat attenuation via `y = x * Mult`.
    Workaround for PW 1.4.9 silently ignoring `config.gain` on convolvers.
 
 #### Gain Control
 
-Each speaker channel has an independent gain stage implemented as a `linear` builtin
+Each channel has an independent gain stage implemented as a `linear` builtin
 node with a `Mult` (multiply) parameter. The gain is expressed as a linear multiplier
 where 1.0 = 0 dB (unity), 0.001 = -60 dB, and 0.0 = muted. These gain nodes were
 introduced as a workaround for PipeWire 1.4.9 silently ignoring `config.gain` on
-convolver nodes. The current default values provide heavy attenuation as a safety
-measure:
+convolver nodes.
 
-| Gain Node | Current Mult | Equivalent dB | Speaker |
-|-----------|-------------|---------------|---------|
-| `gain_left_hp` | 0.001 | -60 dB | Left main |
-| `gain_right_hp` | 0.001 | -60 dB | Right main |
-| `gain_sub1_lp` | 0.000631 | -64 dB | Sub 1 |
-| `gain_sub2_lp` | 0.000631 | -64 dB | Sub 2 |
+**D-063 universal audio gate:** All 8 gain nodes default to Mult = 0.0 (muted) in
+the configuration file. No audio flows through the system until the operator
+explicitly opens the gate by setting operational gain values. This prevents
+accidental high-level signals through the amplifier chain during startup or
+PipeWire restarts. Operational gains are set at runtime via `pw-cli` or the
+GraphManager's `open_gate` / `set_venue` RPC commands, and are session-only —
+they revert to 0.0 (muted) on PipeWire restart (C-009).
+
+The operational gain values depend on the loaded venue configuration:
+
+| Gain Node | Channel | Production Mult | Production dB | Local-demo Mult |
+|-----------|---------|-----------------|---------------|-----------------|
+| `gain_left_hp` | Left main | 0.001 | -60 dB | 0.1 |
+| `gain_right_hp` | Right main | 0.001 | -60 dB | 0.1 |
+| `gain_sub1_lp` | Sub 1 | 0.000631 | -64 dB | 0.1 |
+| `gain_sub2_lp` | Sub 2 | 0.000631 | -64 dB | 0.1 |
+| `gain_hp_l` | Engineer HP L | 1.0 | 0 dB | 0.1 |
+| `gain_hp_r` | Engineer HP R | 1.0 | 0 dB | 0.1 |
+| `gain_iem_l` | Singer IEM L | 1.0 | 0 dB | 0.1 |
+| `gain_iem_r` | Singer IEM R | 1.0 | 0 dB | 0.1 |
 
 To adjust gain at runtime, you first need to find the convolver node ID, which is
 dynamic and changes across PipeWire restarts:
@@ -745,6 +770,76 @@ Mult must never exceed 1.0 (US-044 watchdog enforces this). See
 Default Mult values in `30-filter-chain-convolver.conf` persist across PipeWire
 restarts. Runtime `pw-cli` changes are session-only — they revert to `.conf`
 defaults on PipeWire restart.
+
+#### Venue Configuration (US-113)
+
+Venue configuration profiles define per-channel gain, delay, and coefficient file
+settings for a specific performance location. They are stored as YAML files in
+`/etc/pi4audio/venues/` (or `configs/venues/` in the repository).
+
+**YAML schema:**
+
+```yaml
+name: "venue-name"
+description: "optional description"
+channels:
+  1_sat_l:   { gain_db: -60, delay_ms: 0,   coefficients: "combined_left_hp.wav" }
+  2_sat_r:   { gain_db: -60, delay_ms: 0,   coefficients: "combined_right_hp.wav" }
+  3_sub1_lp: { gain_db: -64, delay_ms: 3.2, coefficients: "combined_sub1_lp.wav" }
+  4_sub2_lp: { gain_db: -64, delay_ms: 5.1, coefficients: "combined_sub2_lp.wav" }
+  5_eng_l:   { gain_db: 0,   delay_ms: 0,   coefficients: "dirac.wav" }
+  6_eng_r:   { gain_db: 0,   delay_ms: 0,   coefficients: "dirac.wav" }
+  7_iem_l:   { gain_db: 0,   delay_ms: 0,   coefficients: "dirac.wav" }
+  8_iem_r:   { gain_db: 0,   delay_ms: 0,   coefficients: "dirac.wav" }
+```
+
+All 8 channels must be present. `gain_db` is capped at 0 dB (D-009) and converted
+to a linear Mult value via `10^(gain_db/20)`. Values below -120 dB are treated as
+muted (Mult = 0.0). `delay_ms` must be between 0 and 50 ms. `coefficients` is the
+filename of a WAV file in `/etc/pi4audio/coeffs/`.
+
+**Included profiles:**
+
+| Profile | Speaker Gains | Monitoring Gains | Coefficients | Use |
+|---------|--------------|------------------|--------------|-----|
+| `production` | -60 dB (mains), -64 dB (subs) | 0 dB | Combined FIR files | Real venues |
+| `local-demo` | -20 dB (all) | -20 dB | Dirac (all) | Development/testing |
+
+**Loading a venue at runtime:** Use the web UI (Venue tab) or the HTTP API
+endpoints. The web UI forwards requests to the GraphManager's TCP RPC on port
+4002 internally.
+
+```bash
+# List available venues
+curl -sk https://localhost:8080/api/v1/venue/list | jq
+
+# Load a venue (sets gains, delays, and coefficient paths)
+curl -sk -X POST https://localhost:8080/api/v1/venue/select \
+  -H 'Content-Type: application/json' -d '{"venue":"production"}' | jq
+
+# Open the audio gate (applies operational gains from venue config)
+curl -sk -X POST https://localhost:8080/api/v1/venue/gate/open | jq
+
+# Close the audio gate (mutes all channels)
+curl -sk -X POST https://localhost:8080/api/v1/venue/gate/close | jq
+
+# Check current venue and gate status
+curl -sk https://localhost:8080/api/v1/venue/current | jq
+```
+
+For direct GraphManager access (raw TCP, newline-delimited JSON):
+
+```bash
+echo '{"cmd":"list_venues"}' | nc localhost 4002
+echo '{"cmd":"set_venue","venue":"production"}' | nc localhost 4002
+echo '{"cmd":"open_gate"}' | nc localhost 4002
+echo '{"cmd":"close_gate"}' | nc localhost 4002
+echo '{"cmd":"get_gate"}' | nc localhost 4002
+```
+
+The typical venue setup workflow is: boot system (gate closed, all muted) -> load
+venue config -> run room correction measurements -> open gate -> perform. After the
+gig, closing the gate mutes all channels safely before power-down.
 
 #### Quantum Switching
 
@@ -788,11 +883,12 @@ GraphManager is a Rust binary that runs at SCHED_FIFO priority 80 and serves as 
 sole PipeWire link manager (D-039). It is responsible for creating and destroying the
 PipeWire links that route audio between applications, the convolver, and the USBStreamer.
 When Mixxx or Reaper appears in the PipeWire graph, GraphManager detects it and creates
-the appropriate link topology for that mode: speaker channels route through the convolver
-for FIR processing, while headphone and IEM channels bypass the convolver via direct
-links to the USBStreamer. GraphManager also handles mode transitions (DJ to Live and
-back), including changing the quantum via `pw-metadata`. It enforces the intended link
-topology by preventing WirePlumber from creating rogue auto-connections (D-043).
+the appropriate link topology for that mode. Post-D-063, all 8 channels route through
+the convolver (no bypass links) — monitoring channels use Dirac passthrough coefficients.
+GraphManager also handles mode transitions (DJ to Live and back), including changing the
+quantum via `pw-metadata`, and manages the audio gate (open/close) and venue
+configuration loading. It enforces the intended link topology by preventing WirePlumber
+from creating rogue auto-connections (D-043).
 
 ```bash
 # GraphManager runs as a systemd user service
@@ -954,7 +1050,8 @@ to 20Hz with headroom, 2.9Hz frequency resolution, and a 341ms filter window.
 
 **CPU impact:** The PipeWire filter-chain convolver uses FFTW3 with ARM NEON
 optimizations. BM-2 benchmarks (2026-03-16) measured the convolver CPU cost with
-16,384-tap FIR filters on 4 speaker channels:
+16,384-tap FIR filters on 4 speaker channels. Post-D-063, the convolver runs 8
+channels (4 additional Dirac passthrough), estimated at ~3.4% at quantum 1024:
 
 | PipeWire Quantum | Convolver CPU | Use Case |
 |---|---|---|
@@ -973,8 +1070,9 @@ Run them on the actual Pi 4 with the actual USB audio setup.
 
 #### Test T1: Convolver CPU — VALIDATED (BM-2)
 
-BM-2 benchmarks (PipeWire filter-chain convolver, 16k taps x 4ch, FFTW3/NEON,
-2026-03-16) confirmed that the convolver CPU cost is well within budget:
+BM-2 benchmarks (PipeWire filter-chain convolver, 16k taps x 4ch at time of test,
+FFTW3/NEON, 2026-03-16) confirmed the convolver CPU cost is well within budget.
+D-063 extended to 8ch (4 additional Dirac identity channels):
 
 | Quantum | Convolver CPU |
 |---------|--------------|
@@ -1225,18 +1323,19 @@ Create a Reaper project template for the Cole Porter performance:
 | 4: FOH Bus | Submix | → JACK out 1-2 (→ PW convolver → speakers L/R) |
 | 5: Sub Bus | Submix | → JACK out 3-4 (→ PW convolver → sub 1 & 2) |
 | 6: Engineer Monitor | Submix | → JACK out 5-6 (→ PW convolver passthrough → headphones) |
-| 7: IEM Bus | Submix | → JACK out 7-8 (→ direct PW link → IEM, bypasses convolver) |
+| 7: IEM Bus | Submix | → JACK out 7-8 (→ PW convolver Dirac passthrough → IEM) |
 
-The FOH and sub buses route through the PipeWire filter-chain convolver for FIR
-processing. The singer's IEM (bus 7) bypasses the convolver entirely via a direct
-PipeWire link to USBStreamer channels 6-7, adding only quantum latency (approximately
-5.3ms at quantum 256). This bypass is managed by the GraphManager.
+All 8 output channels route through the PipeWire filter-chain convolver (D-063). The
+FOH and sub buses use combined minimum-phase FIR filters for crossover and room
+correction. The engineer monitor and singer IEM buses use Dirac (identity) coefficients
+for transparent passthrough — no frequency-domain processing. The IEM path adds only
+quantum latency (approximately 5.3ms at quantum 256).
 
 ### 8.4 Reaper Startup Script
 
 The startup script sets the quantum to 256 for live mode (low latency) and launches
 Reaper. The GraphManager detects the mode change and adjusts the link topology
-accordingly, including creating the singer IEM bypass link.
+accordingly.
 
 ```bash
 cat > ~/bin/start-reaper << 'SCRIPT'
@@ -1584,12 +1683,18 @@ GraphManager routing table.
 
 Runtime configuration controls:
 
-- **Per-channel gain sliders:** Four sliders for the filter-chain gain nodes
-  (gain_left_hp, gain_right_hp, gain_sub1_lp, gain_sub2_lp). Each shows current
-  Mult value and dB equivalent. Slider range 0.0-0.1 (soft cap -20 dB).
-  Server-side hard cap at Mult 1.0 (0 dB) per D-009.
+- **Per-channel gain sliders:** Eight sliders for all filter-chain gain nodes
+  (4 speaker + 4 monitoring channels, D-063). Each shows current Mult value and
+  dB equivalent. Slider range 0.0-0.1 (soft cap -20 dB). Server-side hard cap
+  at Mult 1.0 (0 dB) per D-009.
   - **Apply** button sends gain changes to PipeWire via `pw-cli`.
   - **Reset** button reverts sliders to last-fetched server values.
+- **Venue selector (US-113):** Dropdown listing available venue config profiles
+  from `/etc/pi4audio/venues/`. Selecting a venue loads per-channel gains, delays,
+  and coefficient file assignments via the GraphManager `set_venue` RPC.
+- **Audio gate controls (D-063):** Open/close buttons for the universal audio gate.
+  Gate status indicator shows whether audio is flowing (gate open) or muted (gate
+  closed). The gate must be explicitly opened after PipeWire restart or venue change.
 - **Quantum selector:** Buttons for common quantum values (64, 128, 256, 512,
   1024). Shows current active quantum and calculated latency. Warning displayed
   about audio path impact when changing quantum. Changes applied via
@@ -1758,6 +1863,9 @@ to change modes and quantum values.
 | Check system health | `~/bin/health-check` |
 | View web UI | Browse to `https://mugge:8080` |
 | Connect via VNC | VNC client to `mugge:5900` |
+| Load venue config | `curl -sk -X POST https://localhost:8080/api/v1/venue/select -H 'Content-Type: application/json' -d '{"venue":"production"}'` |
+| Open audio gate | `curl -sk -X POST https://localhost:8080/api/v1/venue/gate/open` |
+| Close audio gate | `curl -sk -X POST https://localhost:8080/api/v1/venue/gate/close` |
 | Restart PipeWire | `systemctl --user restart pipewire` (**warn owner first -- transient risk through amp chain**) |
 
 ### Pre-Gig Checklist
@@ -1765,12 +1873,14 @@ to change modes and quantum values.
 1. Power on the Pi and wait approximately 30 seconds for boot
 2. Verify all USB devices are connected (`lsusb`)
 3. Run `~/bin/health-check` to verify the audio stack
-4. Connect via VNC and start either Mixxx or Reaper depending on the gig type
-5. The GraphManager automatically creates the correct link topology when the
-   application appears in the PipeWire graph
-6. Send a test signal through the system to verify audio flow
-7. If doing room correction at the venue, run the measurement procedure
+4. Load the venue configuration via web UI or GraphManager RPC (`set_venue`)
+5. If doing room correction at the venue, run the measurement procedure
    (see the Automated Room Correction Pipeline section in CLAUDE.md)
+6. Connect via VNC and start either Mixxx or Reaper depending on the gig type
+7. The GraphManager automatically creates the correct link topology when the
+   application appears in the PipeWire graph
+8. Open the audio gate (via web UI or `open_gate` RPC) — audio is muted until this step
+9. Send a test signal through the system to verify audio flow
 
 ---
 
@@ -1799,7 +1909,12 @@ pw-link -l
 # 5. Check GraphManager status
 systemctl --user status pi4audio-graph-manager
 
-# 6. Test direct ALSA output (bypasses PipeWire entirely)
+# 6. Check audio gate status (D-063: all muted at startup)
+curl -sk https://localhost:8080/api/v1/venue/current | jq
+# If gate is closed, open it via web UI or:
+curl -sk -X POST https://localhost:8080/api/v1/venue/gate/open | jq
+
+# 7. Test direct ALSA output (bypasses PipeWire entirely)
 speaker-test -D hw:1,0 -c 8 -r 48000 -t sine
 ```
 
@@ -1885,7 +2000,11 @@ sudo apt install -y \
 │   ├── combined_left_hp.wav           — Combined FIR: HP crossover + room correction (left)
 │   ├── combined_right_hp.wav          — Combined FIR: HP crossover + room correction (right)
 │   ├── combined_sub1_lp.wav           — Combined FIR: LP crossover + room correction (sub 1)
-│   └── combined_sub2_lp.wav           — Combined FIR: LP crossover + room correction (sub 2)
+│   ├── combined_sub2_lp.wav           — Combined FIR: LP crossover + room correction (sub 2)
+│   └── dirac.wav                      — 16384-sample identity impulse (Dirac passthrough)
+├── venues/                             — Venue config YAML profiles (US-113)
+│   ├── production.yml                 — Production defaults (C-005 gains, FIR coefficients)
+│   └── local-demo.yml                 — Development/testing (Dirac passthrough, -20 dB)
 └── udev/
     └── 99-usbstreamer.rules           — USB audio device rules
 
@@ -1902,7 +2021,7 @@ sudo apt install -y \
 ├── 10-audio-settings.conf             — Global clock: 48kHz, quantum range 256-1024
 ├── 20-usbstreamer.conf                — ADA8200 capture adapter (8ch input via ADAT)
 ├── 21-usbstreamer-playback.conf       — USBStreamer playback adapter (8ch output, graph driver)
-└── 30-filter-chain-convolver.conf     — FIR convolver + gain nodes (4ch)
+└── 30-filter-chain-convolver.conf     — FIR convolver + gain nodes (8ch, D-063)
 
 ~/.config/wireplumber/wireplumber.conf.d/
 └── 50-audio-routing.conf              — Device management (D-043: WirePlumber linking disabled)
@@ -1932,10 +2051,15 @@ CPU. The live config uses ~2x the convolver CPU of the DJ config (3.47% vs 1.70%
 This is acceptable because Reaper (live mode app) is lighter than Mixxx (DJ mode
 app). Validated by BM-2 benchmarks (2026-03-16).
 
-**Singer IEM bypass:** The singer's IEM channels (6-7) bypass the convolver entirely
-via a direct PipeWire link to USBStreamer output ports, adding only quantum latency
-(approximately 5ms). Engineer headphone channels still route through the convolver
-passthrough path.
+**Singer IEM and engineer headphones (D-063):** All 8 channels route through the
+filter-chain convolver. The singer's IEM channels (6-7) and engineer headphone
+channels (4-5) use Dirac (identity) coefficients, providing transparent passthrough
+with no frequency-domain processing. The Dirac convolver adds no measurable latency
+beyond the graph quantum — PipeWire's partitioned convolution processes within a
+single graph cycle regardless of coefficient values. This uniform routing eliminates
+bypass links and simplifies GraphManager topology. IEM and headphone latency is
+quantum-only (approximately 5.3ms at quantum 256), identical to the previous
+direct-link approach.
 
 ### Sample Rate Consistency
 

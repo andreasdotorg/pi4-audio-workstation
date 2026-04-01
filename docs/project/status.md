@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-03-31 (session 7 wrap-up). Individual
+Last updated: 2026-04-01 (session 8). Individual
 story/defect/decision details now in `stories/`, `defects/`, `decisions/`
 directories with corresponding index files.
 
@@ -32,7 +32,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-095 | REVIEW | Graph viz — truthful PW topology | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
 | US-096 | REVIEW | UMIK-1 full calibration pipeline | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
 | US-097 | REVIEW | Room compensation web UI workflow | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
-| US-098 | TEST | Room correction pipeline verification | P0 done; P1/P2 blocked by F-235 (measurement mode broken in local-demo) |
+| US-098 | TEST | Room correction pipeline verification | P0 done; F-235 RESOLVED — P1/P2 unblocked |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
 | US-044 | IMPLEMENT/TEST | Safety protection suite | AC #3-5 implemented (54 tests), AC #1-2/6-8 need Pi. Local-demo verification in progress. |
@@ -45,7 +45,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | IMPLEMENT 2/? | First-boot active config + FoH passthrough | Phase 1 (data model) + Phase 2 (GM RPC) committed. Blocked by US-115 completion for full E2E. |
+| US-113 | IMPLEMENT 3/? | First-boot active config + FoH passthrough | Phases 1-3 committed (`146a390`, `d6b462e`). Phase 4 (Web UI) done. Phase 5 (E2E) pending. |
+| US-114 | IMPLEMENT | Minimal kernel config for Pi 4B | Config committed (`c61ea84`). Needs Pi build + boot test. |
 | US-115 | IMPLEMENT (Phase 0 done) | 8-channel filter-chain convolver (D-063) | Phase 0 complete: 8ch configs, dirac.wav, gain nodes, routing. Critical path — blocks US-113 E2E. |
 | US-116 | ready | Per-channel time delay measurement + compensation | Depends US-115, US-113. 8 AC, 8 tasks. AE-consulted detection improvements. |
 
@@ -68,7 +69,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| PW filter-chain config | deployed | 4ch FIR convolver + gain nodes on Pi |
+| PW filter-chain config | deployed | 8ch FIR convolver + gain nodes on Pi (D-063) |
 | GraphManager | deployed | Link topology + mode transitions (port 4002) |
 | signal-gen | deployed | RT measurement audio (port 4001) |
 | pcm-bridge | deployed | Lock-free level metering (port 9100) |
@@ -114,7 +115,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-187 | Critical | Noise on 4 channels + broken spectrum after multiple PW restarts. Blocked — needs Pi at venue. |
 | F-037 | High | Web UI no auth — converted to US-110 (ready, blocked on D-060 implementation) |
 | F-222 | High | Zombie process accumulation in container dev environment (PID 1 = sleep infinity) |
-| F-235 | High | Measurement mode still doesn't work in local-demo. Blocks US-097, US-098. |
+| ~~F-235~~ | ~~High~~ | ~~RESOLVED (`94fbf2a`, `1bb85ec`): pw-record activation without WP linking. 36/36 tests pass.~~ |
 | F-244 | High | All entity DELETE buttons in config tab lack confirmation dialogs. Cross-cutting UX (US-089/US-093). |
 | F-245 | High | Measurement error UI shows raw Python/NumPy exception. Overlaps F-235. |
 | F-234 | Medium | Only 35/39 DJ links in local-demo (4 missing). Investigation needed. |
@@ -149,15 +150,15 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~217 (15 session 6, 5 session 7) |
+| Git commits | ~222 (15 session 6, 5 session 7, 5 session 8) |
 | Total stories filed | 120 (US-115, US-116 filed session 7) |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 8 (US-088, US-071, US-090, US-092-097 — 7 REJECTED, F-223 now fixed, E2E re-verification needed) |
-| Stories in IMPLEMENT | ~9 (US-113 Phases 1+2 committed, US-115 Phase 0 done) |
+| Stories in IMPLEMENT | ~10 (US-113 Phases 1-3 committed, US-114 committed, US-115 Phase 0 done) |
 | Stories ready | 0 |
-| Open defects (HIGH+) | 6 (F-187, F-037, F-222, F-235, F-244, F-245) |
-| Defects resolved session 7 | 2 (F-236, F-247) |
+| Open defects (HIGH+) | 5 (F-187, F-037, F-222, F-244, F-245) |
+| Defects resolved session 8 | 1 (F-235) |
 | Open defects (Medium) | ~30 (F-234, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
 | Total defects filed | 247 (F-239 through F-247 filed session 7) |
@@ -189,6 +190,31 @@ through D-063). Most significant recent decisions:
 - **D-061** (2026-03-30): GM manages PW/WP lifecycle — amends D-058 (PW/WP move from systemd to GM-managed)
 - **D-062** (2026-03-30): First-boot / active config — symlink-based coefficient management, FoH passthrough baseline, mute-default safety (amends D-010, D-051, D-053)
 - **D-063** (2026-03-30): 8ch filter-chain convolver + universal audio gate — owner directive: 8ch passthrough, mandatory gate, cosine ramp-up (amends D-062)
+
+## Session 8 Summary (2026-04-01)
+
+### Commits (5 pushed)
+
+| SHA | Description |
+|-----|-------------|
+| 03903c4 | D-063 watchdog mute closes audio gate (architect must-fix) |
+| d6b462e | US-113 Phase 3: D-063 audio gate integration |
+| b1375ce | Fix: use python3 default instead of python in local-demo |
+| c61ea84 | US-114 minimal kernel config for Pi 4B audio workstation |
+| 9be9269 | US-114 minimal kernel config (initial) |
+
+### Accomplishments
+
+1. **US-113 Phase 3 complete** — D-063 audio gate integrated into GraphManager.
+   Gate starts closed (all Mult=0.0). `open_gate` RPC applies venue gains with
+   cosine ramp-up. Watchdog mute now also closes the gate for consistency.
+2. **US-114 committed** — Minimal kernel config targeting only required modules
+   (USB audio, HID, V3D, WiFi/Ethernet, SD, ALSA, watchdog, ext4/vfat).
+3. **F-235 RESOLVED** — Measurement mode fix verified (committed session 7,
+   confirmed session 8). 36/36 tests pass, E2E pw-record capture working.
+4. **python3 fix** — local-demo scripts now use `python3` instead of `python`.
+5. **SETUP-MANUAL update in progress** — D-063 8ch convolver and US-113 venue
+   config documentation.
 
 ## Session 7 Summary (2026-03-31)
 
