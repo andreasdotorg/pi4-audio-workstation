@@ -19,6 +19,36 @@
 #         raspberrypi/linux#7035) is included in RPi fork >= 6.12.62.
 #         The nixos-hardware module pins 6.12.47 (tag stable_20250916)
 #         which does NOT include this fix. We pin 6.12.62 explicitly.
+#
+# US-114: Minimal kernel config for dedicated audio workstation.
+#         NixOS common-config.nix enables hundreds of modules for a
+#         general-purpose system. We disable everything not needed by
+#         the Pi 4B audio workstation hardware inventory:
+#
+#         KEPT (required by hardware):
+#           - PREEMPT_RT (D-013)
+#           - USB core + xHCI, snd-usb-audio (USBStreamer, UMIK-1)
+#           - USB HID (Hercules, APCmini mk2, Nektar SE25)
+#           - DRM + VC4 + V3D (Mixxx, labwc Wayland compositor)
+#           - I2C + GPIO (Pi HAT support, future)
+#           - WiFi brcmfmac + Ethernet genet (BCM2711 built-in)
+#           - SD/MMC, ext4+vfat, tmpfs, squashfs (Nix store)
+#           - TCP/IP + nftables (firewall), NET_SCHED (systemd)
+#           - BCM2835 watchdog + thermal (flight-case safety)
+#           - Device tree overlay support (config.txt dtoverlays)
+#
+#         DISABLED (not needed):
+#           - Bluetooth (D-019), HAM radio, InfiniBand, CAN, ATM
+#           - L2TP, IPsec, MPTCP, PPP, SLIP, BRIDGE
+#           - HDA/AC97/PCI sound, Intel SoC sound
+#           - AMD/Nouveau/Hyper-V/Rockchip GPU drivers
+#           - NFS, CIFS, Ceph, F2FS, UDF, ISO9660
+#           - KVM, Xen, VirtIO
+#           - TV tuners, cameras, SCSI/RAID, NVMe
+#           - Joystick force-feedback, IR/LIRC, accessibility
+#
+#         The bcm2711_defconfig base already provides most Pi 4 support.
+#         structuredExtraConfig overrides common-config via lib.mkForce.
 { config, lib, pkgs, ... }:
 
 let
@@ -43,16 +73,244 @@ let
         src = rpiKernelSrc;
 
         structuredExtraConfig = with lib.kernel; {
-          # Enable full PREEMPT_RT (real-time preemption)
+
+          # =============================================================
+          # PREEMPT_RT (D-013 mandatory)
+          # =============================================================
           PREEMPT_RT = yes;
-          # EXPERT is required by PREEMPT_RT — already in bcm2711_defconfig,
-          # but set explicitly to be safe
           EXPERT = yes;
-          # PREEMPT_RT is a choice that deselects the other preemption models
           PREEMPT = lib.mkForce no;
           PREEMPT_VOLUNTARY = lib.mkForce no;
-          # RT_GROUP_SCHED is incompatible with PREEMPT_RT
+          PREEMPT_LAZY = lib.mkForce (option no);
           RT_GROUP_SCHED = lib.mkForce (option no);
+
+          # =============================================================
+          # Pi 4 hardware: explicit KEEP (ensure not accidentally stripped)
+          # =============================================================
+          # DRM/KMS full stack — display is critical for Mixxx + labwc
+          # DRM, DRM_V3D, DRM_VC4 are in bcm2711_defconfig; reaffirm here
+          # so future common-config changes can't break us.
+          DRM_VC4_HDMI_CEC = lib.mkForce yes;
+
+          # I2C + GPIO — Pi HAT support, future expansion
+          # I2C_BCM2835, GPIOLIB are in bcm2711_defconfig already.
+
+          # Device tree overlay support — required for config.txt dtoverlays
+          # (vc4-kms-v3d, disable-bt). OF_OVERLAY is set by common-config.
+
+          # Thermal protection — critical for flight-case with limited
+          # ventilation. Without this the Pi hard-throttles or crashes
+          # under sustained convolver load.
+          # BCM2835_THERMAL, THERMAL_GOV_STEP_WISE are in bcm2711_defconfig
+          # and common-config respectively. Not overriding — just noting.
+
+          # =============================================================
+          # Networking: strip unused protocols
+          # =============================================================
+          # Keep: TCP/IP, IPv6, nftables inet family, NET_SCHED (systemd),
+          #        CGROUP_BPF, NET_CLS_BPF (systemd eBPF accounting)
+          HAMRADIO = lib.mkForce no;
+          CAN = option no;
+          ATM = option no;
+          ARCNET = option no;
+          INFINIBAND = lib.mkForce (option no);
+          NET_FC = lib.mkForce no;
+          WAN = lib.mkForce no;
+          HIPPI = lib.mkForce (option no);
+
+          # Bridge — not needed; no VMs, containers, or bridged interfaces.
+          # nftables uses inet family (not bridge family) for our firewall.
+          BRIDGE = lib.mkForce (option no);
+          BRIDGE_NETFILTER = lib.mkForce (option no);
+          NF_TABLES_BRIDGE = lib.mkForce (option no);
+          BRIDGE_VLAN_FILTERING = lib.mkForce no;
+
+          # Tunnels / VPN protocols
+          L2TP_V3 = lib.mkForce no;
+          L2TP_IP = lib.mkForce (option no);
+          L2TP_ETH = lib.mkForce (option no);
+          NET_FOU_IP_TUNNELS = lib.mkForce (option no);
+          IPV6_FOU_TUNNEL = lib.mkForce (option no);
+          INET_ESPINTCP = lib.mkForce no;
+          INET6_ESPINTCP = lib.mkForce no;
+          TLS = lib.mkForce (option no);  # kTLS — kernel TLS offload, not userspace TLS
+          MPTCP = lib.mkForce no;
+          MPTCP_IPV6 = lib.mkForce no;
+          BONDING = lib.mkForce (option no);
+
+          # PPP / SLIP — no dial-up
+          PPP_MULTILINK = lib.mkForce no;
+          PPP_FILTER = lib.mkForce no;
+          SLIP_COMPRESSED = lib.mkForce no;
+          SLIP_SMART = lib.mkForce no;
+
+          # =============================================================
+          # Bluetooth: fully disabled (D-019)
+          # =============================================================
+          # Pi 4 has on-board BCM43455 BT sharing UART with WiFi.
+          # We use USB audio (USBStreamer) and USB MIDI (all controllers).
+          # config.txt should have dtoverlay=disable-bt.
+          BT = lib.mkForce (option no);
+          BT_HCIUART = lib.mkForce (option no);
+          BT_BCM = lib.mkForce (option no);
+          BT_RFCOMM = lib.mkForce (option no);
+          BT_BNEP = lib.mkForce (option no);
+          BT_HIDP = lib.mkForce (option no);
+          BT_HCIBTUSB_MTK = lib.mkForce no;
+          BT_QCA = lib.mkForce (option no);
+          BT_RFCOMM_TTY = lib.mkForce (option no);
+
+          # =============================================================
+          # Sound: strip non-USB audio
+          # =============================================================
+          # Keep: SND core, SND_USB_AUDIO, SND_USB_AUDIO_MIDI_V2
+          # HDA / AC97 / PCI sound — no such hardware on Pi 4.
+          # SND_SOC — ASoC framework. Pi on-board audio uses SND_BCM2835_SOC_I2S
+          # but we use USBStreamer exclusively. snd-usb-audio is under SND_USB,
+          # NOT SND_SOC, so disabling SND_SOC is safe.
+          SND_SOC = lib.mkForce (option no);
+          SND_AC97_POWER_SAVE = lib.mkForce no;
+          SND_HDA_INPUT_BEEP = lib.mkForce no;
+          SND_HDA_RECONFIG = lib.mkForce no;
+          SND_HDA_PATCH_LOADER = lib.mkForce no;
+          SND_HDA_CODEC_CS8409 = lib.mkForce (option no);
+          SND_USB_CAIAQ_INPUT = lib.mkForce no;
+
+          # =============================================================
+          # GPU / Display: strip non-Pi drivers
+          # =============================================================
+          # Keep: DRM, DRM_VC4, DRM_V3D, DRM_KMS_HELPER, DRM_GEM_DMA_HELPER,
+          #        DRM_SIMPLEDRM, DRM_FBDEV_EMULATION, FRAMEBUFFER_CONSOLE
+          DRM_AMDGPU_SI = lib.mkForce no;
+          DRM_AMDGPU_CIK = lib.mkForce no;
+          DRM_AMD_ACP = lib.mkForce no;
+          DRM_AMD_SECURE_DISPLAY = lib.mkForce (option no);
+          DRM_AMD_ISP = lib.mkForce (option no);
+          DRM_NOUVEAU_GSP_DEFAULT = lib.mkForce (option no);
+          DRM_HYPERV = lib.mkForce (option no);
+
+          # Rockchip — not our SoC
+          ROCKCHIP_DW_HDMI_QP = lib.mkForce (option no);
+          ROCKCHIP_DW_MIPI_DSI2 = lib.mkForce (option no);
+
+          # Allwinner — not our SoC
+          SUN8I_DE2_CCU = lib.mkForce no;
+
+          # Legacy framebuffer drivers for desktop GPUs
+          FB_NVIDIA_I2C = lib.mkForce no;
+          FB_RIVA_I2C = lib.mkForce no;
+          FB_ATY_CT = lib.mkForce no;
+          FB_ATY_GX = lib.mkForce no;
+          FB_SAVAGE_I2C = lib.mkForce no;
+          FB_SAVAGE_ACCEL = lib.mkForce no;
+          FB_SIS_300 = lib.mkForce no;
+          FB_SIS_315 = lib.mkForce no;
+          FB_3DFX_ACCEL = lib.mkForce no;
+
+          # =============================================================
+          # Filesystems: strip network / exotic FS
+          # =============================================================
+          # Keep: ext4, vfat (boot), tmpfs (systemd), squashfs (Nix store),
+          #        devtmpfs, NLS (vfat mount), FUSE (low cost, useful)
+          # boot.supportedFilesystems already forces [ "ext4" "vfat" ]
+          NFS_FS = lib.mkForce (option no);
+          NFS_V4_2 = lib.mkForce (option no);
+          NFSD_V4 = lib.mkForce (option no);
+          CIFS_XATTR = lib.mkForce no;
+          CIFS_FSCACHE = lib.mkForce no;
+          CIFS_UPCALL = lib.mkForce no;
+          CIFS_DFS_UPCALL = lib.mkForce no;
+          CEPH_FSCACHE = lib.mkForce no;
+          CEPH_FS_POSIX_ACL = lib.mkForce no;
+          F2FS_FS = lib.mkForce (option no);
+          UDF_FS = lib.mkForce (option no);
+          SUNRPC_DEBUG = lib.mkForce no;
+          ISO9660_FS = lib.mkForce (option no);
+
+          # =============================================================
+          # Virtualisation: fully disabled
+          # =============================================================
+          KVM_GENERIC_DIRTYLOG_READ_PROTECT = lib.mkForce no;
+          KVM_MMIO = lib.mkForce no;
+          KVM_VFIO = lib.mkForce no;
+          KSM = lib.mkForce no;
+          VIRT_DRIVERS = lib.mkForce no;
+          VIRTIO_MENU = lib.mkForce no;
+          VIRTIO_MMIO_CMDLINE_DEVICES = lib.mkForce no;
+          XEN = lib.mkForce (option no);
+          XEN_DOM0 = lib.mkForce (option no);
+          HYPERV = lib.mkForce (option no);
+
+          # =============================================================
+          # Media: strip TV / camera / IR
+          # =============================================================
+          MEDIA_DIGITAL_TV_SUPPORT = lib.mkForce no;
+          MEDIA_CAMERA_SUPPORT = lib.mkForce no;
+          MEDIA_ANALOG_TV_SUPPORT = lib.mkForce no;
+          MEDIA_PCI_SUPPORT = lib.mkForce no;
+          STAGING_MEDIA = lib.mkForce no;
+          LIRC = lib.mkForce no;
+          RC_CORE = lib.mkForce no;
+          RC_DEVICES = lib.mkForce (option no);
+          RC_DECODERS = lib.mkForce (option no);
+          MEDIA_CEC_RC = lib.mkForce no;
+
+          # =============================================================
+          # USB: strip gadget mode
+          # =============================================================
+          # Pi 4B USB-C is power-only (OTG-capable but no gadget use case)
+          USB_GADGET = option no;
+
+          # =============================================================
+          # Storage: strip SCSI / RAID / NVMe
+          # =============================================================
+          SCSI_LOWLEVEL = lib.mkForce no;
+          SCSI_LOWLEVEL_PCMCIA = lib.mkForce no;
+          SCSI_SAS_ATA = lib.mkForce no;
+          MEGARAID_NEWGEN = lib.mkForce no;
+          FUSION = lib.mkForce no;
+          NVME_MULTIPATH = lib.mkForce no;
+          NVME_TARGET = lib.mkForce (option no);
+          NVME_HWMON = lib.mkForce no;
+
+          # =============================================================
+          # Platform: strip non-Pi hardware
+          # =============================================================
+          CHROME_PLATFORMS = lib.mkForce (option no);
+          HSA_AMD = lib.mkForce (option no);
+          HSA_AMD_P2P = lib.mkForce (option no);
+          ACPI_HOTPLUG_CPU = lib.mkForce (option no);
+          ACPI_HOTPLUG_MEMORY = lib.mkForce (option no);
+          GOOGLE_FIRMWARE = lib.mkForce no;
+
+          # =============================================================
+          # HID: strip joystick force-feedback drivers
+          # =============================================================
+          # None of these USB game controllers are in our hardware inventory.
+          # Our MIDI controllers (Hercules, APCmini, Nektar) use standard
+          # USB HID which remains enabled.
+          HID_ACRUX_FF = lib.mkForce no;
+          DRAGONRISE_FF = lib.mkForce no;
+          GREENASIA_FF = lib.mkForce no;
+          HOLTEK_FF = lib.mkForce no;
+          JOYSTICK_PSXPAD_SPI_FF = lib.mkForce no;
+          LOGITECH_FF = lib.mkForce no;
+          LOGIG940_FF = lib.mkForce no;
+          LOGIWHEELS_FF = lib.mkForce no;
+          NINTENDO_FF = lib.mkForce (option no);
+          NVIDIA_SHIELD_FF = lib.mkForce (option no);
+          PLAYSTATION_FF = lib.mkForce (option no);
+          SONY_FF = lib.mkForce no;
+          SMARTJOYPLUS_FF = lib.mkForce no;
+          THRUSTMASTER_FF = lib.mkForce no;
+          ZEROPLUS_FF = lib.mkForce no;
+          LOGIRUMBLEPAD2_FF = lib.mkForce no;
+
+          # =============================================================
+          # Misc: strip remaining unused subsystems
+          # =============================================================
+          ACCESSIBILITY = lib.mkForce no;
+          AUXDISPLAY = lib.mkForce no;
         };
       };
     }
