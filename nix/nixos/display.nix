@@ -48,6 +48,7 @@
             export XDG_RUNTIME_DIR="/run/user/$(${pkgs.coreutils}/bin/id -u)"
             export XDG_SESSION_TYPE=wayland
             export LIBSEAT_BACKEND=logind
+            export WLR_LIBINPUT_NO_DEVICES=1
             exec ${pkgs.dbus}/bin/dbus-run-session ${pkgs.labwc}/bin/labwc
           '';
         in toString labwc-session;
