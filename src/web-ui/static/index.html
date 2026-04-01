@@ -386,6 +386,51 @@
         </div>
     </div>
 
+    <!-- Venue Selection + Gate Control (US-113 Phase 4) -->
+    <div class="cfg-layout cfg-venue-layout" id="cfg-venue">
+        <!-- Left column: venue selection -->
+        <div class="cfg-column">
+            <div class="cfg-section">
+                <div class="cfg-section-title" title="Load a venue config to set per-channel gains, delays, and coefficients">VENUE</div>
+                <div class="venue-select-row">
+                    <select class="venue-select" id="venue-select" title="Available venue configurations">
+                        <option value="">-- select venue --</option>
+                    </select>
+                    <button class="cfg-apply-btn venue-apply-btn" id="venue-apply-btn" disabled
+                            title="Load selected venue config via GraphManager">APPLY</button>
+                </div>
+                <div class="venue-status" id="venue-status"></div>
+                <div class="venue-detail" id="venue-detail">
+                    <!-- Populated by venue.js -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Right column: gate control -->
+        <div class="cfg-column">
+            <div class="cfg-section">
+                <div class="cfg-section-title" title="D-063 audio gate — controls whether gains are applied to the signal chain">AUDIO GATE</div>
+                <div class="gate-status-row">
+                    <span class="gate-indicator" id="gate-indicator" title="Gate state: CLOSED = all gains zeroed, OPEN = venue gains active">CLOSED</span>
+                    <span class="gate-venue-label" id="gate-venue-label">No venue loaded</span>
+                </div>
+                <div class="gate-actions">
+                    <button class="cfg-apply-btn gate-open-btn" id="gate-open-btn" disabled
+                            title="Open gate: apply venue gains to the signal chain. Requires loaded venue.">OPEN GATE</button>
+                    <button class="cfg-reset-btn gate-close-btn" id="gate-close-btn" disabled
+                            title="Close gate: zero all gains immediately (safe)">CLOSE GATE</button>
+                </div>
+                <div class="gate-status" id="gate-status"></div>
+                <div class="gate-info">
+                    <div class="gate-info-text">
+                        Gate starts CLOSED on boot. All gains are zero until explicitly opened.
+                        Watchdog mute closes the gate automatically.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- FIR Filter Generation (US-090) -->
     <div class="cfg-layout cfg-fir-layout" id="cfg-fir-gen">
         <div class="cfg-column">
@@ -1236,6 +1281,7 @@
 <script src="/static/js/system.js?v=49"></script>
 <script src="/static/js/graph.js?v=49"></script>
 <script src="/static/js/config.js?v=50"></script>
+<script src="/static/js/venue.js?v=50"></script>
 <script src="/static/js/speaker-config.js?v=49"></script>
 <script src="/static/js/hardware-config.js?v=49"></script>
 <script src="/static/js/protection.js?v=49"></script>

@@ -270,6 +270,50 @@ class GraphManagerClient:
                 f"be active. Aborting for safety.")
         logger.info("GraphManager measurement mode verified")
 
+    # ------------------------------------------------------------------
+    # Venue / gate commands (US-113 Phase 4)
+    # ------------------------------------------------------------------
+
+    def list_venues(self) -> list:
+        """List available venue configs.
+
+        Returns list of dicts with 'name' and 'display_name' keys.
+        """
+        resp = self._send_cmd({"cmd": "list_venues"})
+        return resp.get("venues", [])
+
+    def get_venue(self) -> Optional[str]:
+        """Return the active venue name, or None if no venue is loaded."""
+        resp = self._send_cmd({"cmd": "get_venue"})
+        return resp.get("venue")
+
+    def set_venue(self, venue: str) -> None:
+        """Load a venue config by name."""
+        self._send_cmd({"cmd": "set_venue", "venue": venue})
+        logger.info("GraphManager venue set to: %s", venue)
+
+    def open_gate(self) -> None:
+        """Open the audio gate (D-063). Requires a venue to be loaded."""
+        self._send_cmd({"cmd": "open_gate"})
+        logger.info("GraphManager gate opened")
+
+    def close_gate(self) -> None:
+        """Close the audio gate (D-063). Zeroes all gains."""
+        self._send_cmd({"cmd": "close_gate"})
+        logger.info("GraphManager gate closed")
+
+    def get_gate(self) -> dict:
+        """Query gate status.
+
+        Returns dict with 'gate_open', 'has_pending_gains', 'venue' keys.
+        """
+        resp = self._send_cmd({"cmd": "get_gate"})
+        return {
+            "gate_open": resp.get("gate_open", False),
+            "has_pending_gains": resp.get("has_pending_gains", False),
+            "venue": resp.get("venue"),
+        }
+
 
 class MockGraphManagerClient:
     """Mock GraphManagerClient for testing without a running GraphManager.
@@ -333,3 +377,36 @@ class MockGraphManagerClient:
                 f"MockGraphManagerClient is not in measurement mode "
                 f"(current mode: {self._mode})")
         logger.info("MockGraphManagerClient measurement mode verified")
+
+    def list_venues(self) -> list:
+        return [
+            {"name": "local-demo", "display_name": "Local Demo"},
+            {"name": "rehearsal-room", "display_name": "Rehearsal Room"},
+        ]
+
+    def get_venue(self) -> Optional[str]:
+        return getattr(self, "_venue", None)
+
+    def set_venue(self, venue: str) -> None:
+        self._venue = venue
+        self._gate_open = False
+        self._has_pending = True
+        logger.info("MockGraphManagerClient venue set to: %s", venue)
+
+    def open_gate(self) -> None:
+        if not getattr(self, "_venue", None):
+            raise GraphManagerError("no venue loaded")
+        self._gate_open = True
+        self._has_pending = False
+        logger.info("MockGraphManagerClient gate opened")
+
+    def close_gate(self) -> None:
+        self._gate_open = False
+        logger.info("MockGraphManagerClient gate closed")
+
+    def get_gate(self) -> dict:
+        return {
+            "gate_open": getattr(self, "_gate_open", False),
+            "has_pending_gains": getattr(self, "_has_pending", False),
+            "venue": getattr(self, "_venue", None),
+        }

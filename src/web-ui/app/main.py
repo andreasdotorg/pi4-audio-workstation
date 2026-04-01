@@ -314,6 +314,12 @@ app.include_router(config_router)
 app.include_router(graph_router)
 
 try:
+    from .venue_routes import router as venue_router
+    app.include_router(venue_router)
+except ImportError:
+    pass  # venue_routes not yet available (pre-commit)
+
+try:
     from .speaker_routes import router as speaker_router
     app.include_router(speaker_router)
 except ImportError:
