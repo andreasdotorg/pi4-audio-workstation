@@ -62,6 +62,31 @@
   # overflowing the 30 GB builder disk.  mkForce replaces the full set.
   boot.supportedFilesystems = lib.mkForce [ "ext4" "vfat" ];
 
+  # US-072: Disable all-hardware installer defaults.
+  # sd-image.nix imports all-hardware.nix which sets enableAllHardware=true,
+  # pulling ~50 SCSI/RAID/NVMe/VirtIO initrd modules.  Our custom kernel
+  # (kernel-rt.nix) strips SCSI_LOWLEVEL, BLK_DEV_NVME, VIRTUALIZATION,
+  # so those modules don't exist → modules-shrunk build fails.
+  hardware.enableAllHardware = lib.mkForce false;
+
+  # Disable kernel.nix default initrd modules (ahci, sata_*, nvme, etc.).
+  # Pi 4 has no SATA, NVMe, or PCI storage controllers.
+  boot.initrd.includeDefaultModules = false;
+
+  # Pi 4 initrd: only modules needed for SD card boot.
+  # Most Pi 4 hardware support is built-in (=y) in our kernel config:
+  #   ext4, SCSI (sd_mod), USB storage/UAS, xHCI, USB HID, HID generic,
+  #   PCIe brcmstb, reset-raspberrypi, BLK_DEV_SD.
+  # Only these are loadable modules (=m) needed at boot:
+  boot.initrd.availableKernelModules = lib.mkForce [
+    "mmc_block"     # SD/MMC block device (=m) — required for SD card boot
+    "vc4"           # Pi 4 display driver (=m) — early KMS console
+    "ehci_hcd"      # USB 2.0 host controller (=m) — emergency keyboard
+  ];
+
+  # No LVM or device-mapper on this system.
+  boot.initrd.kernelModules = lib.mkForce [];
+
   # Allow specific unfree packages (Reaper DAW)
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) [ "reaper" ];
