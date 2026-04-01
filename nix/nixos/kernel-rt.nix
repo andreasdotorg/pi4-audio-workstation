@@ -87,22 +87,18 @@ let
           # =============================================================
           # Pi 4 hardware: explicit KEEP (ensure not accidentally stripped)
           # =============================================================
-          # DRM/KMS full stack — display is critical for Mixxx + labwc
-          # DRM, DRM_V3D, DRM_VC4 are in bcm2711_defconfig; reaffirm here
-          # so future common-config changes can't break us.
+          # The following are critical and MUST remain enabled.
+          # They come from bcm2711_defconfig and/or common-config.nix.
+          # Listed here so future maintainers know NOT to touch them:
+          #   - I2C_BCM2835, GPIOLIB, GPIO_BCM_VIRT (I2C/GPIO, future HAT)
+          #   - BCM2835_THERMAL, THERMAL_GOV_STEP_WISE (thermal protection)
+          #   - OF_OVERLAY, OF_DYNAMIC (device tree overlays — Pi boot)
+          #   - DRM, DRM_V3D, DRM_VC4, DRM_KMS_HELPER (GPU — Mixxx, labwc)
+          #   - SND_USB_AUDIO, SND_USB_AUDIO_MIDI_V2 (USBStreamer, UMIK-1)
+          #   - INOTIFY_USER, TMPFS, EPOLL (systemd hard requirements)
+          #   - BCM2835_WDT (watchdog)
+          #   - BRCMFMAC (WiFi), GENET (Ethernet)
           DRM_VC4_HDMI_CEC = lib.mkForce yes;
-
-          # I2C + GPIO — Pi HAT support, future expansion
-          # I2C_BCM2835, GPIOLIB are in bcm2711_defconfig already.
-
-          # Device tree overlay support — required for config.txt dtoverlays
-          # (vc4-kms-v3d, disable-bt). OF_OVERLAY is set by common-config.
-
-          # Thermal protection — critical for flight-case with limited
-          # ventilation. Without this the Pi hard-throttles or crashes
-          # under sustained convolver load.
-          # BCM2835_THERMAL, THERMAL_GOV_STEP_WISE are in bcm2711_defconfig
-          # and common-config respectively. Not overriding — just noting.
 
           # =============================================================
           # Networking: strip unused protocols
@@ -164,16 +160,14 @@ let
           # Sound: strip non-USB audio
           # =============================================================
           # Keep: SND core, SND_USB_AUDIO, SND_USB_AUDIO_MIDI_V2
-          # HDA / AC97 / PCI sound — no such hardware on Pi 4.
+          # No PCI bus, no HDA codec, no AC97 on Pi 4 — top-level toggles
+          # disable entire subsystems more effectively than individual options.
           # SND_SOC — ASoC framework. Pi on-board audio uses SND_BCM2835_SOC_I2S
           # but we use USBStreamer exclusively. snd-usb-audio is under SND_USB,
           # NOT SND_SOC, so disabling SND_SOC is safe.
           SND_SOC = lib.mkForce (option no);
+          SND_PCI = lib.mkForce (option no);
           SND_AC97_POWER_SAVE = lib.mkForce no;
-          SND_HDA_INPUT_BEEP = lib.mkForce no;
-          SND_HDA_RECONFIG = lib.mkForce no;
-          SND_HDA_PATCH_LOADER = lib.mkForce no;
-          SND_HDA_CODEC_CS8409 = lib.mkForce (option no);
           SND_USB_CAIAQ_INPUT = lib.mkForce no;
 
           # =============================================================
@@ -213,15 +207,11 @@ let
           # Keep: ext4, vfat (boot), tmpfs (systemd), squashfs (Nix store),
           #        devtmpfs, NLS (vfat mount), FUSE (low cost, useful)
           # boot.supportedFilesystems already forces [ "ext4" "vfat" ]
+          # Top-level toggles disable entire subsystems (architect Issue 5)
           NFS_FS = lib.mkForce (option no);
-          NFS_V4_2 = lib.mkForce (option no);
-          NFSD_V4 = lib.mkForce (option no);
-          CIFS_XATTR = lib.mkForce no;
-          CIFS_FSCACHE = lib.mkForce no;
-          CIFS_UPCALL = lib.mkForce no;
-          CIFS_DFS_UPCALL = lib.mkForce no;
-          CEPH_FSCACHE = lib.mkForce no;
-          CEPH_FS_POSIX_ACL = lib.mkForce no;
+          NFSD = lib.mkForce (option no);
+          CIFS = lib.mkForce (option no);
+          CEPH_FS = lib.mkForce (option no);
           F2FS_FS = lib.mkForce (option no);
           UDF_FS = lib.mkForce (option no);
           SUNRPC_DEBUG = lib.mkForce no;
