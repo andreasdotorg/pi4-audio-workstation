@@ -36,6 +36,14 @@ let
     dtoverlay=vc4-kms-v3d
     gpu_mem=256
 
+    # D-019: Bluetooth disabled — free the UART for serial console.
+    # Pi 4 BCM43455 combo chip shares UART between BT and serial.
+    # BT kernel support is stripped (kernel-rt.nix), so disable the
+    # hardware at firmware level too. This prevents the VideoCore
+    # firmware from initializing BT and avoids brcmfmac WARNINGs
+    # from BT-related firmware events on the combo chip.
+    dtoverlay=disable-bt
+
     [all]
     arm_64bit=1
     enable_uart=1
