@@ -94,6 +94,7 @@ let
           #   - BCM2835_THERMAL, THERMAL_GOV_STEP_WISE (thermal protection)
           #   - OF_OVERLAY, OF_DYNAMIC (device tree overlays — Pi boot)
           #   - DRM, DRM_V3D, DRM_VC4, DRM_KMS_HELPER (GPU — Mixxx, labwc)
+          #   - SND, SND_SOC (required by DRM_VC4 — see Sound section)
           #   - SND_USB_AUDIO, SND_USB_AUDIO_MIDI_V2 (USBStreamer, UMIK-1)
           #   - INOTIFY_USER, TMPFS, EPOLL (systemd hard requirements)
           #   - BCM2835_WDT (watchdog)
@@ -157,17 +158,18 @@ let
           BT_RFCOMM_TTY = lib.mkForce (option no);
 
           # =============================================================
-          # Sound: strip non-USB audio
+          # Sound: strip non-USB audio (keep SND_SOC for DRM_VC4)
           # =============================================================
           # Keep: SND core, SND_USB_AUDIO, SND_USB_AUDIO_MIDI_V2
           # No PCI bus, no HDA codec, no AC97 on Pi 4 — top-level toggles
           # disable entire subsystems more effectively than individual options.
-          # SND_SOC — ASoC framework. Pi on-board audio uses SND_BCM2835_SOC_I2S
-          # but we use USBStreamer exclusively. snd-usb-audio is under SND_USB,
-          # NOT SND_SOC, so disabling SND_SOC is safe.
-          SND_SOC = lib.mkForce (option no);
+          #
+          # CRITICAL: SND_SOC MUST remain enabled. DRM_VC4 (the Pi 4's
+          # primary display driver) depends on "SND && SND_SOC" for HDMI
+          # audio output. Without SND_SOC, DRM_VC4 cannot be compiled and
+          # the Pi has no display driver. The defconfig sets SND_SOC=m.
+          # We keep it and only disable individual SoC codecs we don't need.
           SND_PCI = lib.mkForce (option no);
-          SND_AC97_POWER_SAVE = lib.mkForce no;
           SND_USB_CAIAQ_INPUT = lib.mkForce no;
 
           # =============================================================
@@ -218,32 +220,31 @@ let
           ISO9660_FS = lib.mkForce (option no);
 
           # =============================================================
-          # Virtualisation: fully disabled
+          # Virtualisation: fully disabled (parent-level)
           # =============================================================
-          KVM_GENERIC_DIRTYLOG_READ_PROTECT = lib.mkForce no;
-          KVM_MMIO = lib.mkForce no;
-          KVM_VFIO = lib.mkForce no;
+          # VIRTUALIZATION is the top-level menuconfig that gates KVM, Xen,
+          # vhost, etc. Disabling it cascades to all child options —
+          # KVM_MMIO, KVM_VFIO, KVM_GENERIC_DIRTYLOG_READ_PROTECT, VIRT_DRIVERS,
+          # VIRTIO_MENU, XEN, HYPERV are all unreachable with VIRTUALIZATION=n.
+          # The bcm2711_defconfig sets VIRTUALIZATION=y and KVM=y, but we
+          # have no VMs or containers on this dedicated audio workstation.
+          VIRTUALIZATION = lib.mkForce no;
           KSM = lib.mkForce no;
-          VIRT_DRIVERS = lib.mkForce no;
-          VIRTIO_MENU = lib.mkForce no;
-          VIRTIO_MMIO_CMDLINE_DEVICES = lib.mkForce no;
-          XEN = lib.mkForce (option no);
-          XEN_DOM0 = lib.mkForce (option no);
-          HYPERV = lib.mkForce (option no);
 
           # =============================================================
-          # Media: strip TV / camera / IR
+          # Media: fully disabled (parent-level)
           # =============================================================
-          MEDIA_DIGITAL_TV_SUPPORT = lib.mkForce no;
-          MEDIA_CAMERA_SUPPORT = lib.mkForce no;
-          MEDIA_ANALOG_TV_SUPPORT = lib.mkForce no;
-          MEDIA_PCI_SUPPORT = lib.mkForce no;
-          STAGING_MEDIA = lib.mkForce no;
-          LIRC = lib.mkForce no;
+          # MEDIA_SUPPORT is the top-level menuconfig for V4L2, DVB, cameras,
+          # tuners, etc. Disabling it cascades to all media sub-options —
+          # MEDIA_DIGITAL_TV_SUPPORT, MEDIA_CAMERA_SUPPORT, MEDIA_ANALOG_TV_SUPPORT,
+          # MEDIA_PCI_SUPPORT, STAGING_MEDIA, tuner modules are all unreachable.
+          # The bcm2711_defconfig sets MEDIA_SUPPORT=m.
+          #
+          # MEDIA_CEC_SUPPORT is independent (sourced before MEDIA_SUPPORT in
+          # drivers/media/Kconfig). CEC is needed for DRM_VC4_HDMI_CEC, so
+          # keep it enabled. RC_CORE (IR remotes) is also independent.
+          MEDIA_SUPPORT = lib.mkForce (option no);
           RC_CORE = lib.mkForce no;
-          RC_DEVICES = lib.mkForce (option no);
-          RC_DECODERS = lib.mkForce (option no);
-          MEDIA_CEC_RC = lib.mkForce no;
 
           # =============================================================
           # USB: strip gadget mode
@@ -259,6 +260,13 @@ let
           SCSI_SAS_ATA = lib.mkForce no;
           MEGARAID_NEWGEN = lib.mkForce no;
           FUSION = lib.mkForce no;
+          # Pi 4B has no NVMe — disable the entire subsystem.
+          # BLK_DEV_NVME is the top-level NVMe block device; disabling it
+          # cascades to all transport modules (TCP, FC) and their TLS deps.
+          # Without this, NVME_TCP_TLS selects TLS, blocking our TLS=no.
+          BLK_DEV_NVME = lib.mkForce (option no);
+          NVME_FC = lib.mkForce (option no);
+          NVME_TCP = lib.mkForce (option no);
           NVME_MULTIPATH = lib.mkForce no;
           NVME_TARGET = lib.mkForce (option no);
           NVME_HWMON = lib.mkForce no;
