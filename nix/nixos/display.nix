@@ -26,15 +26,31 @@
   # user ela and launch labwc directly — no greeter UI needed for a
   # headless audio workstation accessed via VNC.
   #
-  # Environment: XDG_SESSION_TYPE tells pam_systemd this is a graphical
-  # session. LIBSEAT_BACKEND=logind forces libseat to use systemd-logind
-  # for seat/device access instead of falling back to the built-in seatd
-  # (which needs root for /dev/tty0).
+  # greetd calls execve("/bin/sh", "-c", command) with PAM env only —
+  # the daemon's own systemd environment is NOT inherited by sessions.
+  # All env vars needed by labwc must be set inside the command string.
+  #
+  # Environment vars set in the command:
+  #   XDG_RUNTIME_DIR — pam_systemd.so should set this, but may fail
+  #     silently (optional PAM module). Explicit set as safety net.
+  #   XDG_SESSION_TYPE — tells pam_systemd this is a Wayland session.
+  #   LIBSEAT_BACKEND — forces logind backend for DRM device access.
+  #
+  # dbus-run-session provides a D-Bus session bus for labwc and its
+  # children (wayvnc, etc.). Without it, libseat's logind backend
+  # cannot communicate with systemd-logind.
   services.greetd = {
     enable = true;
     settings = {
       default_session = {
-        command = "XDG_RUNTIME_DIR=/run/user/$(${pkgs.coreutils}/bin/id -u) exec ${pkgs.labwc}/bin/labwc";
+        command = let
+          labwc-session = pkgs.writeShellScript "labwc-session" ''
+            export XDG_RUNTIME_DIR="/run/user/$(${pkgs.coreutils}/bin/id -u)"
+            export XDG_SESSION_TYPE=wayland
+            export LIBSEAT_BACKEND=logind
+            exec ${pkgs.dbus}/bin/dbus-run-session ${pkgs.labwc}/bin/labwc
+          '';
+        in toString labwc-session;
         user = "ela";
       };
     };
@@ -50,12 +66,6 @@
     TTYReset = true;
     TTYVHangup = true;
     TTYVTDisallocate = true;
-  };
-
-  # Force libseat to use the logind backend and set session type.
-  systemd.services.greetd.environment = {
-    XDG_SESSION_TYPE = "wayland";
-    LIBSEAT_BACKEND = "logind";
   };
 
   # ── wayvnc: remote desktop access ─────────────────────────────
