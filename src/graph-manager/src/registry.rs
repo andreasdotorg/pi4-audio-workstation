@@ -378,6 +378,7 @@ fn run_reconcile(
     component_registry: &Rc<RefCell<ComponentRegistry>>,
     watchdog: &Rc<RefCell<Watchdog>>,
     last_warned: &mut HashMap<String, Instant>,
+    gate_open: &Rc<RefCell<bool>>,
 ) {
     let result = reconcile::reconcile(graph, table, mode);
 
@@ -418,7 +419,7 @@ fn run_reconcile(
     // Run safety watchdog check (T-044-4).
     // This fires on every graph mutation — if a critical node disappears,
     // the watchdog latches a safety mute within the same PW loop iteration.
-    run_watchdog_check(graph, watchdog, registry, event_tx);
+    run_watchdog_check(graph, watchdog, registry, event_tx, gate_open);
 
     // Run link audit (T-044-3).
     // Verify no links bypass the convolver/gain chain to reach USBStreamer
@@ -446,6 +447,7 @@ fn run_watchdog_check(
     watchdog: &Rc<RefCell<Watchdog>>,
     registry: &RegistryHandle,
     event_tx: &mpsc::Sender<GraphEvent>,
+    gate_open: &Rc<RefCell<bool>>,
 ) {
     let action = watchdog.borrow_mut().check(graph);
 
@@ -503,6 +505,17 @@ fn run_watchdog_check(
                 missing_nodes: missing,
                 mechanism: "gain_mute_native".to_string(),
             });
+
+            // D-063: Close the audio gate to keep state consistent.
+            // After watchdog mute, get_gate must report closed. Operator
+            // must re-open the gate explicitly after unlatching.
+            if *gate_open.borrow() {
+                *gate_open.borrow_mut() = false;
+                log::error!("WATCHDOG: Gate closed (watchdog mute)");
+                let _ = event_tx.send(GraphEvent::GateClosed {
+                    reason: "watchdog mute".to_string(),
+                });
+            }
         }
 
         WatchdogAction::DestroyUsbLinks { link_ids } => {
@@ -524,6 +537,15 @@ fn run_watchdog_check(
                 missing_nodes: missing,
                 mechanism: "link_destroy".to_string(),
             });
+
+            // D-063: Close the audio gate to keep state consistent.
+            if *gate_open.borrow() {
+                *gate_open.borrow_mut() = false;
+                log::error!("WATCHDOG: Gate closed (watchdog fallback mute)");
+                let _ = event_tx.send(GraphEvent::GateClosed {
+                    reason: "watchdog mute".to_string(),
+                });
+            }
         }
 
     }
@@ -604,6 +626,7 @@ pub fn register_graph_listener(
     link_proxies: Rc<RefCell<HashMap<(u32, u32), pipewire::link::Link>>>,
     component_registry: Rc<RefCell<ComponentRegistry>>,
     watchdog: Rc<RefCell<Watchdog>>,
+    gate_open: Rc<RefCell<bool>>,
 ) -> (pipewire::registry::Registry, Box<dyn std::any::Any>, RegistryHandle) {
     let registry = core
         .get_registry()
@@ -654,6 +677,7 @@ pub fn register_graph_listener(
     let link_proxies_add = link_proxies.clone();
     let comp_reg_add = component_registry.clone();
     let watchdog_add = watchdog.clone();
+    let gate_open_add = gate_open.clone();
     let graph_remove = graph;
     let table_remove = table;
     let mode_remove = mode;
@@ -661,6 +685,7 @@ pub fn register_graph_listener(
     let link_proxies_remove = link_proxies;
     let comp_reg_remove = component_registry;
     let watchdog_remove = watchdog;
+    let gate_open_remove = gate_open;
 
     let listener = registry
         .add_listener_local()
@@ -785,6 +810,7 @@ pub fn register_graph_listener(
                     &comp_reg_add,
                     &watchdog_add,
                     &mut last_warned_add.borrow_mut(),
+                    &gate_open_add,
                 );
                 // F-079: If new mutations arrived during reconciliation,
                 // re-run to pick up newly arrived ports/nodes. Loop until
@@ -803,6 +829,7 @@ pub fn register_graph_listener(
                         &comp_reg_add,
                         &watchdog_add,
                         &mut last_warned_add.borrow_mut(),
+                        &gate_open_add,
                     );
                 }
                 reconciling_add.set(false);
@@ -848,6 +875,7 @@ pub fn register_graph_listener(
                     &comp_reg_remove,
                     &watchdog_remove,
                     &mut last_warned_remove.borrow_mut(),
+                    &gate_open_remove,
                 );
                 while dirty_remove.get() {
                     dirty_remove.set(false);
@@ -863,6 +891,7 @@ pub fn register_graph_listener(
                         &comp_reg_remove,
                         &watchdog_remove,
                         &mut last_warned_remove.borrow_mut(),
+                        &gate_open_remove,
                     );
                 }
                 reconciling_remove.set(false);

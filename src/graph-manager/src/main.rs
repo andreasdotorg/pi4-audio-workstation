@@ -226,6 +226,7 @@ fn run_pipewire(
             link_proxies.clone(),
             component_registry.clone(),
             watchdog_state.clone(),
+            gate_open.clone(),
         );
     info!("PipeWire registry listener registered (reconciliation + lifecycle + watchdog wired)");
 
@@ -327,6 +328,7 @@ fn run_pipewire(
         let reg_handle = reg_handle.clone();
         let event_tx = event_tx.clone();
         let graph = graph.clone();
+        let gate_open = gate_open.clone();
         move |_expirations| {
             run_gain_integrity_check(
                 &gain_integrity_state,
@@ -334,6 +336,7 @@ fn run_pipewire(
                 &reg_handle,
                 &event_tx,
                 &graph,
+                &gate_open,
             );
         }
     });
@@ -605,6 +608,9 @@ fn dispatch_rpc_command(
             *active_venue.borrow_mut() = Some(name.clone());
 
             // 3. If gate is open, apply gains immediately (hot venue switch).
+            // NOTE: Gains are applied in a single loop iteration with no ramp.
+            // This may cause an audible click if gain values change significantly.
+            // Acceptable for venue switch (operator action, not mid-performance).
             if *gate_open.borrow() {
                 let g = graph.borrow();
                 if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
@@ -650,10 +656,12 @@ fn dispatch_rpc_command(
 
             // D-063: Cosine ramp-up over 30 steps.
             // Each step applies Mult = target * (1 - cos(pi * step / 30)) / 2.
-            // On the PW main loop thread, we apply all 30 steps immediately —
-            // PipeWire will process them across successive graph cycles.
-            // At quantum 1024 / 48kHz ≈ 21ms per cycle, 30 steps ≈ 630ms.
-            // At quantum 256, 30 steps ≈ 160ms. Both are smooth enough.
+            // NOTE: Current implementation applies all 30 steps within a single
+            // PW main loop iteration (instantaneous apply, not a true temporal
+            // ramp). PipeWire coalesces the param updates — only the final value
+            // takes effect in the next graph cycle. A true temporal ramp would
+            // require a per-cycle timer callback. Acceptable for MVP; revisit if
+            // audible clicks are reported on gate open.
             let steps = 30u32;
             for step in 1..=steps {
                 let t = std::f64::consts::PI * step as f64 / steps as f64;
@@ -725,6 +733,7 @@ fn run_gain_integrity_check(
     reg_handle: &registry::RegistryHandle,
     event_tx: &std::sync::mpsc::Sender<rpc::GraphEvent>,
     graph: &std::rc::Rc<std::cell::RefCell<graph::GraphState>>,
+    gate_open: &std::rc::Rc<std::cell::RefCell<bool>>,
 ) {
     use std::process::Command;
 
@@ -800,6 +809,18 @@ fn run_gain_integrity_check(
                 }
             } else {
                 log::error!("GAIN INTEGRITY: Convolver node not found — cannot mute gain params");
+            }
+            drop(g);
+
+            // D-063: Close the audio gate to keep state consistent.
+            // After gain integrity mute, get_gate must report closed.
+            // Operator must re-open the gate explicitly after investigation.
+            if *gate_open.borrow() {
+                *gate_open.borrow_mut() = false;
+                log::error!("GAIN INTEGRITY: Gate closed (gain integrity violation)");
+                let _ = event_tx.send(rpc::GraphEvent::GateClosed {
+                    reason: "gain integrity violation".to_string(),
+                });
             }
         }
         gain_integrity::GainCheckResult::AllOk { .. } => {
