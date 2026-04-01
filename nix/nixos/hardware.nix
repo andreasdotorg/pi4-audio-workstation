@@ -21,6 +21,12 @@
   # D-040: snd-aloop removed — CamillaDSP abandoned, PW filter-chain
   # convolver handles all DSP natively (no ALSA loopback needed).
 
+  # brcmfmac: WiFi unused (Ethernet only). The BCM43455 driver triggers a
+  # FORTIFY_SOURCE memcpy kernel WARNING with full stack trace on boot.
+  # Blacklisting eliminates the stack dump and also prevents brcmfmac_wcc,
+  # brcmutil, and cfg80211 from loading (no other consumers).
+  boot.blacklistedKernelModules = [ "brcmfmac" ];
+
   # ── Firmware ───────────────────────────────────────────────────
   hardware.enableRedistributableFirmware = true;
 
