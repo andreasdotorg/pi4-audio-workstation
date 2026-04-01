@@ -73,15 +73,27 @@
   # Pi 4 has no SATA, NVMe, or PCI storage controllers.
   boot.initrd.includeDefaultModules = false;
 
-  # Pi 4 initrd: only modules needed for SD card boot.
-  # Most Pi 4 hardware support is built-in (=y) in our kernel config:
-  #   ext4, SCSI (sd_mod), USB storage/UAS, xHCI, USB HID, HID generic,
-  #   PCIe brcmstb, reset-raspberrypi, BLK_DEV_SD.
-  # Only these are loadable modules (=m) needed at boot:
+  # Pi 4B initrd modules — only what's needed to mount root from SD/USB.
+  # Most are built-in (=y) in our kernel but listed for documentation and
+  # safety (availableKernelModules silently skips missing .ko files).
+  # Only mmc_block (=m) is strictly required; the rest are =y built-ins.
   boot.initrd.availableKernelModules = lib.mkForce [
-    "mmc_block"     # SD/MMC block device (=m) — required for SD card boot
-    "vc4"           # Pi 4 display driver (=m) — early KMS console
-    "ehci_hcd"      # USB 2.0 host controller (=m) — emergency keyboard
+    # SD card boot
+    "mmc_block"          # SD/MMC block layer (=m, critical)
+    # USB storage (for USB boot or recovery)
+    "sd_mod"             # SCSI disk — USB storage presents as SCSI (=y)
+    "usb_storage"        # USB mass storage class (=y)
+    "uas"                # USB Attached SCSI — USB 3.0 fast path (=y)
+    # Pi 4 USB host controllers
+    "xhci_hcd"           # USB 3.0 HCD (=y)
+    "xhci_pci"           # PCI glue for VL805 USB 3.0 chip (=y)
+    "pcie_brcmstb"       # Pi 4 PCIe bridge — VL805 sits on PCIe (=y)
+    "reset_raspberrypi"  # VL805 firmware loader via VideoCore mailbox (=y)
+    # Emergency console
+    "usbhid"             # USB keyboard (=y)
+    "hid_generic"        # Generic HID fallback (=y)
+    # Filesystem (=y built-in, but mkForce kills auto-add from ext.nix)
+    "ext4"
   ];
 
   # No LVM or device-mapper on this system.
