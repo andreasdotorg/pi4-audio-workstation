@@ -345,7 +345,7 @@ resolve_binaries() {
         SG_BIN="$LOCAL_DEMO_SG_BIN"
         LB_BIN="$LOCAL_DEMO_LB_BIN"
         PCM_BIN="$LOCAL_DEMO_PCM_BIN"
-        PYTHON="${LOCAL_DEMO_PYTHON:-python}"
+        PYTHON="${LOCAL_DEMO_PYTHON:-python3}"
         PW_JACK="${LOCAL_DEMO_PW_JACK:-pw-jack}"
         echo "[local-demo] Using pre-resolved binary paths from nix."
     else
@@ -366,7 +366,7 @@ resolve_binaries() {
         SG_BIN=$(resolve_binary signal-gen pi4audio-signal-gen)
         LB_BIN=$(resolve_binary level-bridge level-bridge)
         PCM_BIN=$(resolve_binary pcm-bridge pcm-bridge)
-        PYTHON="python"
+        PYTHON="python3"
         PW_JACK="pw-jack"
     fi
 
