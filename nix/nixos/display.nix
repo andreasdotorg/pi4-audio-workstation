@@ -25,6 +25,11 @@
   # greetd is a minimal login daemon. We configure it to auto-login
   # user ela and launch labwc directly — no greeter UI needed for a
   # headless audio workstation accessed via VNC.
+  #
+  # Environment: XDG_SESSION_TYPE tells pam_systemd this is a graphical
+  # session. LIBSEAT_BACKEND=logind forces libseat to use systemd-logind
+  # for seat/device access instead of falling back to the built-in seatd
+  # (which needs root for /dev/tty0).
   services.greetd = {
     enable = true;
     settings = {
@@ -33,6 +38,24 @@
         user = "ela";
       };
     };
+  };
+
+  # ── logind seat assignment ───────────────────────────────────────
+  # greetd's systemd service needs TTYPath so that systemd-logind
+  # associates the service (and its PAM sessions) with VT 1 → seat0.
+  # Without this, libseat cannot get DRM device access from logind
+  # and labwc fails with "Timeout waiting session to become active".
+  systemd.services.greetd.serviceConfig = {
+    TTYPath = "/dev/tty1";
+    TTYReset = true;
+    TTYVHangup = true;
+    TTYVTDisallocate = true;
+  };
+
+  # Force libseat to use the logind backend and set session type.
+  systemd.services.greetd.environment = {
+    XDG_SESSION_TYPE = "wayland";
+    LIBSEAT_BACKEND = "logind";
   };
 
   # ── wayvnc: remote desktop access ─────────────────────────────
