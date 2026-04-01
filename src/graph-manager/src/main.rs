@@ -202,6 +202,11 @@ fn run_pipewire(
     // Active venue name (US-113: set via set_venue RPC).
     let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
+    // D-063 audio gate state: all gains start at 0.0, gate closed.
+    // Gate must be explicitly opened via `open_gate` RPC after loading a venue.
+    let gate_open: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+    let pending_gains: Rc<RefCell<Vec<(String, f64)>>> = Rc::new(RefCell::new(Vec::new()));
+
     // Created link proxies — must be kept alive for links to persist.
     // Keyed by (output_port_id, input_port_id).
     let link_proxies: Rc<RefCell<std::collections::HashMap<(u32, u32), pipewire::link::Link>>> =
@@ -273,6 +278,8 @@ fn run_pipewire(
         let gain_integrity_state = gain_integrity_state.clone();
         let graph_info_cache = graph_info_cache.clone();
         let active_venue = active_venue.clone();
+        let gate_open = gate_open.clone();
+        let pending_gains = pending_gains.clone();
         move |_expirations| {
             // Drain all pending commands.
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -296,6 +303,8 @@ fn run_pipewire(
                     &gain_integrity_state,
                     &graph_info_cache,
                     &active_venue,
+                    &gate_open,
+                    &pending_gains,
                 );
             }
         }
@@ -398,6 +407,8 @@ fn dispatch_rpc_command(
     gain_integrity_state: &std::rc::Rc<std::cell::RefCell<gain_integrity::GainIntegrityCheck>>,
     graph_info_cache: &std::rc::Rc<std::cell::RefCell<rpc::GraphInfoSnapshot>>,
     active_venue: &std::rc::Rc<std::cell::RefCell<Option<String>>>,
+    gate_open: &std::rc::Rc<std::cell::RefCell<bool>>,
+    pending_gains: &std::rc::Rc<std::cell::RefCell<Vec<(String, f64)>>>,
 ) {
     use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
@@ -438,6 +449,23 @@ fn dispatch_rpc_command(
                 event_tx,
                 link_proxies,
             );
+
+            // 3b. D-063: Close the gate on standby transition.
+            // Standby means "no audio" — gains must be zeroed.
+            if mode == Mode::Standby && *gate_open.borrow() {
+                if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                    for name in watchdog::GAIN_PARAM_NAMES {
+                        let prefixed = format!("{}:Mult", name);
+                        reg_handle.set_node_param_mult(convolver.id, &prefixed, 0.0);
+                    }
+                }
+                *gate_open.borrow_mut() = false;
+                info!("D-063: Gate closed on standby transition");
+                let _ = event_tx.send(GraphEvent::GateClosed {
+                    reason: "standby transition".to_string(),
+                });
+            }
+            drop(g);
 
             // 4. Send reply.
             let _ = reply.send(RpcResult::Ok);
@@ -571,43 +599,113 @@ fn dispatch_rpc_command(
                 }
             };
 
-            // 2. Compute linear gain values.
+            // 2. Compute linear gain values and store as pending (D-063).
             let gains = venue::venue_gains(&profile);
+            *pending_gains.borrow_mut() = gains.clone();
+            *active_venue.borrow_mut() = Some(name.clone());
 
-            // 3. Apply gains via native PW API (best-effort: continue on failure).
-            let g = graph.borrow();
-            let mut applied = 0usize;
-            let mut errors = 0usize;
-
-            if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
-                for (param_name, mult) in &gains {
-                    let prefixed = format!("{}:Mult", param_name);
-                    if reg_handle.set_node_param_mult(convolver.id, &prefixed, *mult as f32) {
-                        info!("set_venue: {} = {:.6} (Mult)", prefixed, mult);
-                        applied += 1;
-                    } else {
-                        log::error!("set_venue: failed to set {} on convolver node {}", prefixed, convolver.id);
-                        errors += 1;
+            // 3. If gate is open, apply gains immediately (hot venue switch).
+            if *gate_open.borrow() {
+                let g = graph.borrow();
+                if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                    let mut applied = 0usize;
+                    for (param_name, mult) in &gains {
+                        let prefixed = format!("{}:Mult", param_name);
+                        if reg_handle.set_node_param_mult(convolver.id, &prefixed, *mult as f32) {
+                            info!("set_venue (hot): {} = {:.6}", prefixed, mult);
+                            applied += 1;
+                        }
                     }
+                    info!("set_venue: '{}' hot-applied ({}/{} gains)", name, applied, gains.len());
                 }
             } else {
-                log::error!("set_venue: convolver node '{}' not found in graph", watchdog::CONVOLVER_NODE_NAME);
-                let _ = reply.send(RpcResult::Error(
-                    "convolver node not found in graph".to_string(),
-                ));
+                info!("set_venue: '{}' loaded ({} gains pending, gate closed)", name, gains.len());
+            }
+
+            let _ = reply.send(RpcResult::Ok);
+        }
+
+        rpc::RpcCommand::OpenGate { reply } => {
+            let gains = pending_gains.borrow().clone();
+            if gains.is_empty() {
+                let _ = reply.send(RpcResult::Error("no venue loaded".to_string()));
                 return;
+            }
+
+            if *gate_open.borrow() {
+                let _ = reply.send(RpcResult::Error("gate already open".to_string()));
+                return;
+            }
+
+            let g = graph.borrow();
+            let convolver = match g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                Some(c) => c,
+                None => {
+                    let _ = reply.send(RpcResult::Error(
+                        "convolver node not found in graph".to_string(),
+                    ));
+                    return;
+                }
+            };
+
+            // D-063: Cosine ramp-up over 30 steps.
+            // Each step applies Mult = target * (1 - cos(pi * step / 30)) / 2.
+            // On the PW main loop thread, we apply all 30 steps immediately —
+            // PipeWire will process them across successive graph cycles.
+            // At quantum 1024 / 48kHz ≈ 21ms per cycle, 30 steps ≈ 630ms.
+            // At quantum 256, 30 steps ≈ 160ms. Both are smooth enough.
+            let steps = 30u32;
+            for step in 1..=steps {
+                let t = std::f64::consts::PI * step as f64 / steps as f64;
+                let ramp = (1.0 - t.cos()) / 2.0;
+                for (param_name, target_mult) in &gains {
+                    let prefixed = format!("{}:Mult", param_name);
+                    let mult = (*target_mult * ramp) as f32;
+                    reg_handle.set_node_param_mult(convolver.id, &prefixed, mult);
+                }
             }
             drop(g);
 
-            // 4. Update active venue name.
-            *active_venue.borrow_mut() = Some(name.clone());
+            *gate_open.borrow_mut() = true;
 
+            let venue_name = active_venue.borrow().clone().unwrap_or_default();
             info!(
-                "set_venue: '{}' applied ({}/{} gains set, {} errors)",
-                name, applied, gains.len(), errors
+                "D-063: Gate opened for '{}' ({} channels, {} ramp steps)",
+                venue_name, gains.len(), steps
             );
 
+            let _ = event_tx.send(GraphEvent::GateOpened {
+                venue: venue_name,
+                channels: gains.len(),
+            });
             let _ = reply.send(RpcResult::Ok);
+        }
+
+        rpc::RpcCommand::CloseGate { reply } => {
+            let g = graph.borrow();
+            if let Some(convolver) = g.node_by_name(watchdog::CONVOLVER_NODE_NAME) {
+                for name in watchdog::GAIN_PARAM_NAMES {
+                    let prefixed = format!("{}:Mult", name);
+                    reg_handle.set_node_param_mult(convolver.id, &prefixed, 0.0);
+                }
+            }
+            drop(g);
+
+            *gate_open.borrow_mut() = false;
+            info!("D-063: Gate closed (all gains zeroed)");
+
+            let _ = event_tx.send(GraphEvent::GateClosed {
+                reason: "close_gate RPC".to_string(),
+            });
+            let _ = reply.send(RpcResult::Ok);
+        }
+
+        rpc::RpcCommand::GetGate { reply } => {
+            let _ = reply.send(rpc::GateStatus {
+                gate_open: *gate_open.borrow(),
+                has_pending_gains: !pending_gains.borrow().is_empty(),
+                venue: active_venue.borrow().clone(),
+            });
         }
     }
 }

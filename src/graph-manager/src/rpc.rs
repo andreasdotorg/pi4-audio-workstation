@@ -254,6 +254,14 @@ impl GraphInfoSnapshot {
     }
 }
 
+/// Gate status for `get_gate` responses (D-063).
+#[derive(Debug, Clone, Serialize)]
+pub struct GateStatus {
+    pub gate_open: bool,
+    pub has_pending_gains: bool,
+    pub venue: Option<String>,
+}
+
 /// Individual link detail for `get_links` responses.
 #[derive(Debug, Clone, Serialize)]
 pub struct LinkDetail {
@@ -328,10 +336,25 @@ pub enum RpcCommand {
         reply: mpsc::Sender<Option<String>>,
     },
 
-    /// Set a venue profile (loads gains from YAML, applies via pw-cli).
+    /// Set a venue profile (loads gains from YAML, stores as pending).
     SetVenue {
         name: String,
         reply: mpsc::Sender<RpcResult>,
+    },
+
+    /// Open the audio gate (D-063: apply pending gains with cosine ramp-up).
+    OpenGate {
+        reply: mpsc::Sender<RpcResult>,
+    },
+
+    /// Close the audio gate (D-063: immediate Mult=0.0 on all channels).
+    CloseGate {
+        reply: mpsc::Sender<RpcResult>,
+    },
+
+    /// Query the current gate state.
+    GetGate {
+        reply: mpsc::Sender<GateStatus>,
     },
 }
 
@@ -397,6 +420,17 @@ pub enum GraphEvent {
         /// Number of violating links destroyed.
         destroyed: usize,
     },
+    /// D-063: Audio gate opened (gains ramping up).
+    #[serde(rename = "gate_opened")]
+    GateOpened {
+        venue: String,
+        channels: usize,
+    },
+    /// D-063: Audio gate closed (all gains zeroed).
+    #[serde(rename = "gate_closed")]
+    GateClosed {
+        reason: String,
+    },
 }
 
 
@@ -436,6 +470,9 @@ pub fn handle_request(
         "list_venues" => handle_list_venues(cmd_tx),
         "get_venue" => handle_get_venue(cmd_tx),
         "set_venue" => handle_set_venue(req, cmd_tx),
+        "open_gate" => handle_open_gate(cmd_tx),
+        "close_gate" => handle_close_gate(cmd_tx),
+        "get_gate" => handle_get_gate(cmd_tx),
         other => HandleResult::Error(
             other.to_string(),
             format!("unknown command: \"{}\"", other),
@@ -965,6 +1002,99 @@ fn handle_set_venue(
 }
 
 // ---------------------------------------------------------------------------
+// Gate handlers (D-063)
+// ---------------------------------------------------------------------------
+
+fn handle_open_gate(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::OpenGate { reply: reply_tx })
+        .is_err()
+    {
+        return HandleResult::Error(
+            "open_gate".to_string(),
+            "internal: PW thread not responding".to_string(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(RpcResult::Ok) => HandleResult::Ack("open_gate".to_string()),
+        Ok(RpcResult::Error(e)) => HandleResult::Error("open_gate".to_string(), e),
+        Err(_) => HandleResult::Error(
+            "open_gate".to_string(),
+            "internal: PW thread dropped reply channel".to_string(),
+        ),
+    }
+}
+
+fn handle_close_gate(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::CloseGate { reply: reply_tx })
+        .is_err()
+    {
+        return HandleResult::Error(
+            "close_gate".to_string(),
+            "internal: PW thread not responding".to_string(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(RpcResult::Ok) => HandleResult::Ack("close_gate".to_string()),
+        Ok(RpcResult::Error(e)) => HandleResult::Error("close_gate".to_string(), e),
+        Err(_) => HandleResult::Error(
+            "close_gate".to_string(),
+            "internal: PW thread dropped reply channel".to_string(),
+        ),
+    }
+}
+
+fn handle_get_gate(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::GetGate { reply: reply_tx })
+        .is_err()
+    {
+        return HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "get_gate",
+                "ok": true,
+                "gate_open": false,
+                "has_pending_gains": false,
+                "venue": null,
+            }))
+            .unwrap_or_default(),
+        );
+    }
+
+    match reply_rx.recv() {
+        Ok(status) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "get_gate",
+                "ok": true,
+                "gate_open": status.gate_open,
+                "has_pending_gains": status.has_pending_gains,
+                "venue": status.venue,
+            }))
+            .unwrap_or_default(),
+        ),
+        Err(_) => HandleResult::ResponseJson(
+            serde_json::to_string(&serde_json::json!({
+                "type": "response",
+                "cmd": "get_gate",
+                "ok": true,
+                "gate_open": false,
+                "has_pending_gains": false,
+                "venue": null,
+            }))
+            .unwrap_or_default(),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Response formatting
 // ---------------------------------------------------------------------------
 
@@ -1110,6 +1240,20 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
                     let _ = reply.send(RpcResult::Error(e));
                 }
             }
+        }
+        RpcCommand::OpenGate { reply } => {
+            // Stub: no pending gains in test mode.
+            let _ = reply.send(RpcResult::Error("no venue loaded".to_string()));
+        }
+        RpcCommand::CloseGate { reply } => {
+            let _ = reply.send(RpcResult::Ok);
+        }
+        RpcCommand::GetGate { reply } => {
+            let _ = reply.send(GateStatus {
+                gate_open: false,
+                has_pending_gains: false,
+                venue: None,
+            });
         }
     }
 }
@@ -2140,5 +2284,138 @@ mod tests {
 
         // Clean up env var to not affect other tests.
         std::env::remove_var("PI4AUDIO_VENUES_DIR");
+    }
+
+    // -----------------------------------------------------------------------
+    // Gate RPC commands (US-113 Phase 3, D-063)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_open_gate_command() {
+        let json = r#"{"cmd":"open_gate"}"#;
+        let req = parse_line(json).unwrap();
+        assert_eq!(req.cmd, "open_gate");
+    }
+
+    #[test]
+    fn parse_close_gate_command() {
+        let json = r#"{"cmd":"close_gate"}"#;
+        let req = parse_line(json).unwrap();
+        assert_eq!(req.cmd, "close_gate");
+    }
+
+    #[test]
+    fn parse_get_gate_command() {
+        let json = r#"{"cmd":"get_gate"}"#;
+        let req = parse_line(json).unwrap();
+        assert_eq!(req.cmd, "get_gate");
+    }
+
+    #[test]
+    fn open_gate_stub_returns_error_no_venue() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        let mode = Arc::new(Mutex::new("standby".to_string()));
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &mode);
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"open_gate"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        match result {
+            HandleResult::Error(cmd, msg) => {
+                assert_eq!(cmd, "open_gate");
+                assert!(msg.contains("no venue"), "Error: {}", msg);
+            }
+            _ => panic!("Expected error for open_gate without venue"),
+        }
+    }
+
+    #[test]
+    fn close_gate_stub_returns_ok() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        let mode = Arc::new(Mutex::new("standby".to_string()));
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &mode);
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"close_gate"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        assert!(matches!(result, HandleResult::Ack(ref c) if c == "close_gate"));
+    }
+
+    #[test]
+    fn get_gate_stub_response_format() {
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let stored_mode = Mutex::new("standby".to_string());
+
+        let mode = Arc::new(Mutex::new("standby".to_string()));
+        thread::spawn(move || {
+            while let Ok(cmd) = cmd_rx.recv() {
+                handle_pw_command(cmd, &mode);
+            }
+        });
+
+        let req = parse_line(r#"{"cmd":"get_gate"}"#).unwrap();
+        let result = handle_request(&req, &cmd_tx, &stored_mode);
+        match result {
+            HandleResult::ResponseJson(json) => {
+                let v: Value = serde_json::from_str(&json).unwrap();
+                assert_eq!(v["type"], "response");
+                assert_eq!(v["cmd"], "get_gate");
+                assert_eq!(v["ok"], true);
+                assert_eq!(v["gate_open"], false);
+                assert_eq!(v["has_pending_gains"], false);
+                assert!(v["venue"].is_null());
+            }
+            _ => panic!("Expected ResponseJson for get_gate"),
+        }
+    }
+
+    #[test]
+    fn gate_status_serializes() {
+        let status = GateStatus {
+            gate_open: true,
+            has_pending_gains: true,
+            venue: Some("test-venue".to_string()),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["gate_open"], true);
+        assert_eq!(v["has_pending_gains"], true);
+        assert_eq!(v["venue"], "test-venue");
+    }
+
+    #[test]
+    fn event_gate_opened_serializes() {
+        let event = GraphEvent::GateOpened {
+            venue: "local-demo".to_string(),
+            channels: 8,
+        };
+        let json = format_event(&event);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "event");
+        assert_eq!(v["event"], "gate_opened");
+        assert_eq!(v["venue"], "local-demo");
+        assert_eq!(v["channels"], 8);
+    }
+
+    #[test]
+    fn event_gate_closed_serializes() {
+        let event = GraphEvent::GateClosed {
+            reason: "standby transition".to_string(),
+        };
+        let json = format_event(&event);
+        let v: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["type"], "event");
+        assert_eq!(v["event"], "gate_closed");
+        assert_eq!(v["reason"], "standby transition");
     }
 }
