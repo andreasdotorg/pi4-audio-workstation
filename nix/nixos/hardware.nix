@@ -157,6 +157,54 @@
               status = "okay";
             };
           };
+
+          /* Enable DDC0 (HDMI0 EDID I2C) */
+          fragment@13 {
+            target = <&ddc0>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable DDC1 (HDMI1 EDID I2C) */
+          fragment@14 {
+            target = <&ddc1>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Disable firmware KMS (replaced by full KMS) */
+          fragment@15 {
+            target = <&firmwarekms>;
+            __overlay__ {
+              status = "disabled";
+            };
+          };
+
+          /* Enable DVP clock controller (provides audio clock for HDMI) */
+          fragment@16 {
+            target = <&dvp>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable AON interrupt controller (HDMI interrupts) */
+          fragment@17 {
+            target = <&aon_intr>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Disable legacy BCM2835 HDMI audio (conflicts with VC4 HDMI audio) */
+          fragment@18 {
+            target-path = "/chosen";
+            __overlay__ {
+              bootargs = "snd_bcm2835.enable_hdmi=0";
+            };
+          };
         };
       '';
     }
