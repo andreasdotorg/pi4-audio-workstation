@@ -34,7 +34,7 @@
     enable = true;
     settings = {
       default_session = {
-        command = "${pkgs.labwc}/bin/labwc";
+        command = "XDG_RUNTIME_DIR=/run/user/$(${pkgs.coreutils}/bin/id -u) exec ${pkgs.labwc}/bin/labwc";
         user = "ela";
       };
     };
