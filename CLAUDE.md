@@ -6,7 +6,7 @@
 
 ### *** STOP — DO NOT DESTROY THE TEAM ***
 
-**This has happened EIGHT TIMES (L-001, L-007, L-008, L-021, L-023, L-031, L-037, S5-audit).**
+**This has happened NINE TIMES (L-001, L-007, L-008, L-021, L-023, L-031, L-037, S5-audit, S8-dup).**
 Context compaction does NOT reset sessions for team members. They are
 independent processes with their own context windows. They survive compaction.
 
@@ -32,6 +32,28 @@ compaction-recovery failure just like shutting down the team.
 **This was violated in session 5** when 4 advisory agents were re-spawned
 instead of messaging the existing persistent team members.
 
+**NEVER USE TeamDelete TO "FIX" SPAWNING ERRORS.**
+**S8-dup (session 8):** After compaction, the orchestrator got "Team does not
+exist" errors from the Agent tool. Instead of asking the owner, it ran
+`TeamDelete` (destroying the team config) then `TeamCreate` + spawned 10 new
+agents — while the original 10 agents were STILL RUNNING as independent
+processes. Result: 20 agents running simultaneously, including TWO change
+managers both capable of running git commands, and workers editing files in
+parallel with no coordination. `TeamDelete` only removes config files on
+disk — it does NOT shut down running agent processes.
+
+**If the Agent tool returns "Team does not exist":**
+1. The team config file may have been lost or the session state is stale
+2. **DO NOT run TeamDelete.** It will make things worse.
+3. **DO NOT run TeamCreate + spawn duplicates.** The old agents are still alive.
+4. **ASK THE OWNER.** Say: "Agent spawning is failing with 'team does not
+   exist' but existing agents may still be alive. How do you want to proceed?"
+5. The owner will either restart the session or give explicit instructions.
+
+**The pattern to watch for:** "Something is broken → I'll delete and recreate
+it." This ALWAYS causes duplicate agents. The correct response to ANY tooling
+error is: STOP and ASK THE OWNER.
+
 **If you believe the team might be dead:**
 1. Send ONE ping to ONE agent (e.g., project-manager)
 2. Wait for response (up to 30 seconds)
@@ -50,7 +72,7 @@ STOP.
 
 **Destroying a live team wastes hours of accumulated context and is the
 single most disruptive action you can take. The user has explicitly told
-you this. Eight times.**
+you this. Nine times.**
 
 ### After Compaction
 
