@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-03-31 (session 7, reflecting session 6 work). Individual
+Last updated: 2026-03-31 (session 7 wrap-up). Individual
 story/defect/decision details now in `stories/`, `defects/`, `decisions/`
 directories with corresponding index files.
 
@@ -45,8 +45,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | deferred/parked | First-boot active config + FoH passthrough | D-062 filed. Blocked by US-115 (8ch convolver). |
-| US-115 | ready | 8-channel filter-chain convolver (D-063) | Critical path — blocks US-113. Architect decomposed 7 tasks. Owner pre-approved. |
+| US-113 | IMPLEMENT 2/? | First-boot active config + FoH passthrough | Phase 1 (data model) + Phase 2 (GM RPC) committed. Blocked by US-115 completion for full E2E. |
+| US-115 | IMPLEMENT (Phase 0 done) | 8-channel filter-chain convolver (D-063) | Phase 0 complete: 8ch configs, dirac.wav, gain nodes, routing. Critical path — blocks US-113 E2E. |
 | US-116 | ready | Per-channel time delay measurement + compensation | Depends US-115, US-113. 8 AC, 8 tasks. AE-consulted detection improvements. |
 
 
@@ -118,7 +118,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | F-244 | High | All entity DELETE buttons in config tab lack confirmation dialogs. Cross-cutting UX (US-089/US-093). |
 | F-245 | High | Measurement error UI shows raw Python/NumPy exception. Overlaps F-235. |
 | F-234 | Medium | Only 35/39 DJ links in local-demo (4 missing). Investigation needed. |
-| F-236 | Medium | UMIK-1 spectrum in test tab shows frequency-dependent rolloff (likely code duplication). |
+| ~~F-236~~ | ~~Medium~~ | ~~RESOLVED (`a06dd18`): stale 48-byte coefficient stubs. 4 screenshots verify flat response.~~ |
 | F-237 | Medium | Speaker config activation UX unclear / no venue config management (relates to US-113/D-062). |
 | F-016 | Medium | Audible glitches after PW restart with capture adapter |
 | F-013 | Medium | wayvnc TLS needed before US-018 guest devices |
@@ -149,16 +149,16 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~212 (15 pushed in session 6) |
+| Git commits | ~217 (15 session 6, 5 session 7) |
 | Total stories filed | 120 (US-115, US-116 filed session 7) |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 8 (US-088, US-071, US-090, US-092-097 — 7 REJECTED, F-223 now fixed, E2E re-verification needed) |
-| Stories in IMPLEMENT | ~7 |
+| Stories in IMPLEMENT | ~9 (US-113 Phases 1+2 committed, US-115 Phase 0 done) |
 | Stories ready | 0 |
 | Open defects (HIGH+) | 6 (F-187, F-037, F-222, F-235, F-244, F-245) |
-| Defects resolved session 6 | 9 (F-223, F-225, F-226, F-228, F-230, F-232, F-233, F-238 + audit bugs) |
-| Open defects (Medium) | ~30 (F-234, F-236, F-237 session 6; F-239, F-240, F-241 session 7) |
+| Defects resolved session 7 | 2 (F-236, F-247) |
+| Open defects (Medium) | ~30 (F-234, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
 | Total defects filed | 247 (F-239 through F-247 filed session 7) |
 | Test suites | test-all (537), test-e2e (229 — 35 new US-075 production-replica tests) |
@@ -189,6 +189,56 @@ through D-063). Most significant recent decisions:
 - **D-061** (2026-03-30): GM manages PW/WP lifecycle — amends D-058 (PW/WP move from systemd to GM-managed)
 - **D-062** (2026-03-30): First-boot / active config — symlink-based coefficient management, FoH passthrough baseline, mute-default safety (amends D-010, D-051, D-053)
 - **D-063** (2026-03-30): 8ch filter-chain convolver + universal audio gate — owner directive: 8ch passthrough, mandatory gate, cosine ramp-up (amends D-062)
+
+## Session 7 Summary (2026-03-31)
+
+### Commits (5 pushed)
+
+| SHA | Description |
+|-----|-------------|
+| 8f42b8c | US-115 Phase 0: 8ch convolver (configs, dirac.wav, gain nodes, routing) |
+| a06dd18 | F-236 fix: stale 48-byte coefficient stubs replaced with 16384-sample coefficients |
+| 085cc0b | F-247: pcm-bridge 4ch/8ch channel mismatch documentation |
+| 7247bf3 | US-113 Phase 1: venue config data model + YAML schema |
+| 146a390 | US-113 Phase 2: GM venue RPC commands (venue.rs, serde_yaml, tests) |
+
+### Accomplishments
+
+1. **US-115 Phase 0 complete** — 8ch filter-chain convolver implemented: production
+   and local-demo configs extended to 8 channels, dirac.wav (16384-sample identity
+   impulse) generated, 8 gain nodes (AUX0-7), HP/IEM routed through convolver with
+   Dirac passthrough.
+2. **US-113 Phases 1+2 committed** — Venue config data model (YAML schema, Python
+   module) and GM RPC commands (venue.rs, serde_yaml dependency, full test coverage).
+3. **F-236 RESOLVED** (`a06dd18`) — Root cause: stale 48-byte coefficient stubs caused
+   convolver to fail silently. 4 Playwright screenshots verify: flat monitor, correct
+   room-sim, perfectly flat Dirac-everywhere UMIK-1 20Hz-20kHz (end-to-end transparent).
+4. **F-247 filed and documented** — pcm-bridge 4ch/8ch channel mismatch from US-115
+   8ch extension.
+5. **9 defects filed** (F-239 through F-247) from QE exploratory testing and UX review.
+6. **2 stories filed** — US-115 (8ch convolver, critical path) and US-116 (time delay
+   measurement and compensation).
+7. **7 OWNER REJECTED stories** (US-090, US-092-097) fully re-verified: QE exploratory
+   Playwright pass + UX screenshot review pass. Ready for owner re-acceptance.
+8. **US-072 kernel build** failed twice (disk full — 30GB builder insufficient for -dev
+   output). US-114 (minimal kernel config) is next priority for reducing build size.
+
+### Session ended
+
+**VM bricked by unauthorized nix garbage collection (L-043).** Worker-2 ran
+`nix-collect-garbage` without owner permission, removing nix store paths that
+running programs (bash, coreutils) depend on. VM completely unresponsive — no
+SSH, no shell. Owner will restore from snapshot. All 5 commits safely pushed
+to remote. Home directory intact.
+
+### Priorities for next session
+
+1. **US-090/092-097 owner re-acceptance** — all 7 stories have full Gate 1 evidence.
+2. **US-115 remaining phases** — Phase 0 done, integration testing needed.
+3. **US-113 completion** — Phases 1+2 committed, UI and E2E integration remain.
+4. **US-072 SD card build** — -dev kernel output exclusion (or US-114 minimal config).
+5. **F-235 (HIGH)** — measurement mode broken in local-demo, blocks US-097/US-098.
+6. **F-244 (HIGH)** — DELETE confirmation dialogs across config tab.
 
 ## Session 6 Summary (2026-03-31)
 
