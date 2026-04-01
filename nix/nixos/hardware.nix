@@ -27,7 +27,211 @@
   # ── GPU / display ──────────────────────────────────────────────
   # We want full KMS (vc4-kms-v3d), NOT the legacy fake-KMS overlay.
   # The nixos-hardware RPi 4 module exposes hardware.raspberry-pi."4".fkms-3d;
-  # make sure it is off.  The actual dtoverlay=vc4-kms-v3d line lives in
-  # sd-image.nix's config.txt so the firmware loads it before Linux boots.
+  # make sure it is off — we apply full KMS via hardware.deviceTree.overlays.
   hardware.raspberry-pi."4".fkms-3d.enable = lib.mkForce false;
+
+  # Full KMS device tree overlay (vc4-kms-v3d equivalent).
+  #
+  # The VideoCore firmware processes dtoverlay=vc4-kms-v3d from config.txt,
+  # but U-Boot overrides the firmware-patched DTB with the base DTB from
+  # its FDTDIR. NixOS's hardware.deviceTree.overlays applies overlays at
+  # Nix build time, producing a pre-patched DTB that U-Boot loads directly.
+  #
+  # This overlay enables the same nodes as the upstream vc4-kms-v3d-pi4.dtbo:
+  # V3D (3D engine), VC4 (DRM driver), HVS (hardware video scaler),
+  # TXP (writeback), all 5 pixelvalves, and both HDMI controllers.
+  # The legacy firmware framebuffer is disabled.
+  # CMA is set to 256MB matching gpu_mem=256 in config.txt.
+  hardware.deviceTree.overlays = [
+    {
+      name = "rpi4-vc4-kms-v3d";
+      # Only apply to Pi 4 Model B (not CM4 variants which lack the fb node).
+      filter = "bcm2711-rpi-4-b.dtb";
+      dtsText = ''
+        /dts-v1/;
+        /plugin/;
+
+        / {
+          compatible = "brcm,bcm2711";
+
+          /* CMA: 256 MiB (matches gpu_mem=256 in config.txt) */
+          fragment@0 {
+            target = <&cma>;
+            __overlay__ {
+              size = <0x10000000>;
+            };
+          };
+
+          /* Disable legacy firmware framebuffer */
+          fragment@1 {
+            target = <&fb>;
+            __overlay__ {
+              status = "disabled";
+            };
+          };
+
+          /* Enable V3D 3D engine */
+          fragment@2 {
+            target = <&v3d>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable VC4 DRM driver (gpu node) */
+          fragment@3 {
+            target = <&vc4>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable HVS (hardware video scaler) */
+          fragment@4 {
+            target = <&hvs>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable TXP (writeback connector) */
+          fragment@5 {
+            target = <&txp>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable pixelvalve 0 (DSI0 / DPI) */
+          fragment@6 {
+            target = <&pixelvalve0>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable pixelvalve 1 (DSI1) */
+          fragment@7 {
+            target = <&pixelvalve1>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable pixelvalve 2 (HDMI0) */
+          fragment@8 {
+            target = <&pixelvalve2>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable pixelvalve 3 (HDMI1) */
+          fragment@9 {
+            target = <&pixelvalve3>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable pixelvalve 4 (composite video) */
+          fragment@10 {
+            target = <&pixelvalve4>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable HDMI0 */
+          fragment@11 {
+            target = <&hdmi0>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+
+          /* Enable HDMI1 */
+          fragment@12 {
+            target = <&hdmi1>;
+            __overlay__ {
+              status = "okay";
+            };
+          };
+        };
+      '';
+    }
+    # D-019: Disable Bluetooth hardware in the device tree.
+    # The BCM43455 combo chip shares UART between BT and serial console.
+    # BT kernel support is stripped (kernel-rt.nix BT=no). This overlay
+    # disables the BT UART node, re-assigns uart0 pins to serial console,
+    # and disables the bt node. Mirrors dtoverlay=disable-bt in config.txt
+    # (which the VideoCore firmware processes for firmware-level BT disable).
+    {
+      name = "rpi4-disable-bt";
+      filter = "bcm2711-rpi-4-b.dtb";
+      dtsText = ''
+        /dts-v1/;
+        /plugin/;
+
+        / {
+          compatible = "brcm,bcm2711";
+
+          /* Disable mini-UART (used by BT) */
+          fragment@0 {
+            target = <&uart1>;
+            __overlay__ {
+              status = "disabled";
+            };
+          };
+
+          /* Re-enable PL011 UART for serial console */
+          fragment@1 {
+            target = <&uart0>;
+            __overlay__ {
+              pinctrl-names = "default";
+              pinctrl-0 = <&uart0_pins>;
+              status = "okay";
+            };
+          };
+
+          /* Disable Bluetooth node */
+          fragment@2 {
+            target = <&bt>;
+            __overlay__ {
+              status = "disabled";
+            };
+          };
+
+          /* Clear UART0 pin muxing (release from BT) */
+          fragment@3 {
+            target = <&uart0_pins>;
+            __overlay__ {
+              brcm,pins;
+              brcm,function;
+              brcm,pull;
+            };
+          };
+
+          /* Clear BT pin muxing */
+          fragment@4 {
+            target = <&bt_pins>;
+            __overlay__ {
+              brcm,pins;
+              brcm,function;
+              brcm,pull;
+            };
+          };
+
+          /* Remap serial aliases: serial0→PL011, serial1→mini-UART */
+          fragment@5 {
+            target-path = "/aliases";
+            __overlay__ {
+              serial0 = "/soc/serial@7e201000";
+              serial1 = "/soc/serial@7e215040";
+            };
+          };
+        };
+      '';
+    }
+  ];
 }
