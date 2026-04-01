@@ -57,6 +57,18 @@
     };
   };
 
+  # ── labwc autostart: activate graphical-session.target ─────────
+  # labwc runs the autostart file as a shell script after setting
+  # WAYLAND_DISPLAY. We use it to import env vars into the systemd
+  # user session and activate graphical-session.target, which starts
+  # wayvnc and other graphical user services.
+  environment.etc."xdg/labwc/autostart" = {
+    text = ''
+      ${pkgs.systemd}/bin/systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE
+      ${pkgs.systemd}/bin/systemctl --user start graphical-session.target
+    '';
+  };
+
   # ── logind seat assignment ───────────────────────────────────────
   # greetd's systemd service needs TTYPath so that systemd-logind
   # associates the service (and its PAM sessions) with VT 1 → seat0.
