@@ -1,4 +1,4 @@
-"""E2E tests for profile activation flow (F-200).
+"""Integration tests for profile activation flow (F-200).
 
 Exercises the REAL generate_filter_chain_conf() through the activation
 chain — no mocking of PW config generation. Verifies actual PW config

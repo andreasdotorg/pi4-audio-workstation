@@ -216,7 +216,7 @@ baseline.
 - Existing e2e test infrastructure (`conftest.py` with `mock_server` fixture,
   `frozen_page` fixture for deterministic screenshots)
 - `--update-snapshots` flag for baseline creation
-- Screenshots saved to `src/web-ui/tests/e2e/screenshots/measurement/`
+- Screenshots saved to `src/web-ui/tests/integration/screenshots/measurement/`
 
 ### 5.3 Screenshot Matrix
 
@@ -274,14 +274,14 @@ baseline.
 ```bash
 # Create baseline screenshots (mock mode, macOS):
 cd src/web-ui
-pytest tests/e2e/test_measurement_wizard.py --update-snapshots --headed
+pytest tests/integration/test_measurement_wizard.py --update-snapshots --headed
 
 # Regression check (CI or local):
-pytest tests/e2e/test_measurement_wizard.py
+pytest tests/integration/test_measurement_wizard.py
 
 # Against real Pi:
 PI_AUDIO_URL=https://192.168.178.185:8080 \
-  pytest tests/e2e/test_measurement_wizard.py --headed
+  pytest tests/integration/test_measurement_wizard.py --headed
 ```
 
 ### 5.5 Pass/Fail Criteria
@@ -320,7 +320,7 @@ cd src/web-ui && python3 -m pytest tests/ -x -q
 PI_AUDIO_MOCK=1 python3 -m pytest tests/ -x -q --timeout=60
 
 # Visual check (T4, ~2 min):
-cd src/web-ui && pytest tests/e2e/test_measurement_wizard.py --headed
+cd src/web-ui && pytest tests/integration/test_measurement_wizard.py --headed
 ```
 
 ### 6.2 Pi Deployment Workflow
@@ -335,7 +335,7 @@ ssh ela@192.168.178.185 "cd /home/ela/mugge/src/room-correction && \
 
 # UX acceptance (T4 on Pi):
 PI_AUDIO_URL=https://192.168.178.185:8080 \
-  pytest tests/e2e/test_measurement_wizard.py --headed
+  pytest tests/integration/test_measurement_wizard.py --headed
 ```
 
 ---

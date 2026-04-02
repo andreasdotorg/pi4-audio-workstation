@@ -37,7 +37,7 @@ the story spec, and the DoD has unfinished items.
 - **Triggers:**
   - Push: `branches: [main]` only. **GAP:** AC says "push to any branch."
   - PR: `branches: [main]` -- MATCHES AC.
-- **Jobs:** Two parallel jobs (`test-all`, `test-e2e`) -- MATCHES.
+- **Jobs:** Two parallel jobs (`test-all`, `test-integration-browser`) -- MATCHES.
 - **runs-on:** `[self-hosted, Linux, ARM64]`
   - **GAP:** AC says `[self-hosted, linux, aarch64]`. Case and label mismatch with AC.
 - **Committed code:** `actions/checkout@v4` used -- MATCHES (runs against committed code).

@@ -1,4 +1,4 @@
-"""End-to-end pipeline integration test: measurement -> correction -> deploy -> verify.
+"""Pipeline integration test: measurement -> correction -> deploy -> verify.
 
 Validates that all gap fixes (GAP-1 through GAP-6) work together as a coherent
 pipeline in mock mode.  Exercises the full state machine:
@@ -15,7 +15,7 @@ Checks at each stage:
 
 Run:
     cd src/web-ui
-    python -m pytest tests/test_measurement_pipeline_e2e.py -v
+    python -m pytest tests/test_measurement_pipeline_integration.py -v
 """
 
 import os

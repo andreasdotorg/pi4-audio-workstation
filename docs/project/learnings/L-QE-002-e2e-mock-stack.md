@@ -87,12 +87,12 @@ the mock-backend integration tests.
 
 | Current name | Correct name | What it tests | Runner |
 |-------------|-------------|---------------|--------|
-| `test-e2e` | **Integration tests** (browser) | FastAPI + Chromium + frontend JS against mock backends | `nix run .#test-integration-browser` (rename) |
+| `test-e2e` (old) | **Integration tests** (browser) | FastAPI + Chromium + frontend JS against mock backends | `nix run .#test-integration-browser` (renamed) |
 | (does not exist) | **E2E tests** | Full stack: PipeWire + GM + services + web UI + browser | `nix run .#test-e2e` (to build) |
 | `test-integration` | **Integration tests** (PipeWire) | Headless PW + GM + audio pipeline, no browser | `nix run .#test-integration` (existing) |
 | `test-unit` | **Unit tests** | Python unit tests, mock mode | `nix run .#test-unit` (unchanged) |
 
-### Integration Tests (browser) — currently mislabeled `test-e2e`
+### Integration Tests (browser) — renamed from `test-e2e` to `test-integration-browser`
 
 - **Environment:** Nix sandbox, no PipeWire daemon, no GM, no audio hardware.
 - **What's real:** FastAPI route handlers, Pydantic validation, business
@@ -233,7 +233,7 @@ The QE failed to identify:
 
 ## References
 
-- `src/web-ui/tests/e2e/conftest.py:137-138` — mock server env (no PI_AUDIO_MOCK set)
+- `src/web-ui/tests/integration/conftest.py:137-138` — mock server env (no PI_AUDIO_MOCK set)
 - `src/web-ui/app/main.py:67` — MOCK_MODE defaults to "1"
 - `src/web-ui/app/config_routes.py:126-127` — mock path bypass in get_config()
 - `scripts/local-demo.sh:596` — PI_AUDIO_MOCK=0 in local-demo

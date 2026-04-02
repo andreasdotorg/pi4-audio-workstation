@@ -20,7 +20,7 @@ working tree (picks up uncommitted changes):
 nix run .#test-unit             # Web UI unit tests (excludes e2e)
 nix run .#test-room-correction  # Room correction DSP tests
 nix run .#test-graph-manager    # GraphManager Rust tests (pure logic)
-nix run .#test-e2e              # Playwright e2e tests
+nix run .#test-integration-browser  # Playwright browser integration tests
 nix run .#test-integration      # PipeWire integration test (Linux only, US-075)
 nix run .#test-all              # All suites sequentially
 nix run .#local-demo            # Local dev stack (PipeWire + GM + web UI, Linux only)
@@ -81,18 +81,18 @@ Located in `src/web-ui/tests/` (excluding the `e2e/` subdirectory).
 nix run .#test-unit
 ```
 
-### 2.3 Web UI End-to-End Tests (Playwright)
+### 2.3 Web UI Browser Integration Tests (Playwright)
 
-E2E tests use Playwright (Chromium) to drive the web UI against a
+Browser integration tests use Playwright (Chromium) to drive the web UI against a
 session-scoped mock FastAPI server that starts automatically on a free port.
-Located in `src/web-ui/tests/e2e/`.
+Located in `src/web-ui/tests/integration/`.
 
 ```sh
-nix run .#test-e2e
+nix run .#test-integration-browser
 ```
 
 **Visual regression tests** compare screenshots against reference images in
-`src/web-ui/tests/e2e/screenshots/`. After intentional UI changes,
+`src/web-ui/tests/integration/screenshots/`. After intentional UI changes,
 regenerate reference screenshots and review the diffs before committing.
 
 **Destructive tests** are marked `@pytest.mark.destructive` (they modify Pi
@@ -421,7 +421,7 @@ CI runs two parallel jobs on `ubuntu-latest` (GitHub-hosted) runners:
 | Job | What it runs | Typical duration |
 |-----|-------------|-----------------|
 | **`test-all`** | `nix run .#test-all` (web-ui unit, room-correction, midi, drivers, graph-manager via cargo), then individual Rust targets: `test-graph-manager`, `test-pcm-bridge`, `test-signal-gen` | 5-15 min |
-| **`test-e2e`** | `nix run .#test-e2e` (Playwright browser tests against mock server) | 7-20 min |
+| **`test-integration-browser`** | `nix run .#test-integration-browser` (Playwright browser tests against mock server) | 7-20 min |
 
 Both jobs install Nix via `cachix/install-nix-action` and cache the Nix store
 via `nix-community/cache-nix-action` (keyed on `flake.lock` hash). The first
@@ -438,7 +438,7 @@ store paths.
 
 ### 7.4 Branch Protection
 
-Branch protection on `main` requires both `test-all` and `test-e2e` to pass
+Branch protection on `main` requires both `test-all` and `test-integration-browser` to pass
 before a PR can be merged. Force-push to `main` is disabled. Squash merge is
 the default merge strategy (clean main history).
 

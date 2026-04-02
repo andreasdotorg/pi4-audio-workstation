@@ -1392,9 +1392,9 @@ infrastructure failures. The 5 genuine test failures (see F-042) are buried in n
    handlers under rapid connect/disconnect).
 
 **Files:**
-- `src/web-ui/tests/e2e/conftest.py` (mock_server fixture, lines 68-110)
+- `src/web-ui/tests/integration/conftest.py` (mock_server fixture, lines 68-110)
 - `src/web-ui/app/main.py` (FastAPI app, WebSocket handlers)
-- `src/web-ui/tests/e2e/test_status_bar.py` (23 errors from cascading timeout)
+- `src/web-ui/tests/integration/test_status_bar.py` (23 errors from cascading timeout)
 
 **Related:** F-042 (5 genuine assertion failures in same test run, separate from
 the server crash). D-020 (web UI). US-051 (status bar E2E coverage).
@@ -1449,7 +1449,7 @@ resolution.
 4. Fix accordingly (update tests or fix app code)
 
 **Files:**
-- `src/web-ui/tests/e2e/` (all test files — failing tests not yet identified by name)
+- `src/web-ui/tests/integration/` (all test files — failing tests not yet identified by name)
 - `src/web-ui/static/` (app code that may have regressed)
 
 **Related:** F-041 (server crash in same run — separate issue), F-038 (recent
@@ -1803,7 +1803,7 @@ interactive elements like MUTE button that should be keyboard-accessible).
 **Severity:** Medium (test suite unreliable — cannot gate deployments)
 **Status:** RESOLVED — 41 of 41 fixed. F-049 (measurement wizard state isolation) resolved 2026-03-27.
 **Found in:** E2E verification run (2026-03-21, post-F-041 fix)
-**Affects:** E2E test suite (`src/web-ui/tests/e2e/`), US-050/US-051 TEST phase
+**Affects:** E2E test suite (`src/web-ui/tests/integration/`), US-050/US-051 TEST phase
 **Found by:** worker-1 (E2E verification run)
 
 **Description:** After F-041 fix (`c76b882`) eliminated the server crash,
@@ -1844,13 +1844,13 @@ adjustments (z-index, tab-click-before-assert, visibility checks). Category
 4 may need deeper investigation of the measurement wizard state machine.
 
 **Files:**
-- `src/web-ui/tests/e2e/test_capture_spectrum.py` (category 1)
-- `src/web-ui/tests/e2e/test_status_bar.py` (category 2)
-- `src/web-ui/tests/e2e/test_dashboard_dual_ws.py` (category 2)
-- `src/web-ui/tests/e2e/test_visual_regression.py` (category 2)
-- `src/web-ui/tests/e2e/test_system_view.py` (category 3)
-- `src/web-ui/tests/e2e/test_measurement_wizard.py` (category 4)
-- `src/web-ui/tests/e2e/test_event_log.py` (category 5)
+- `src/web-ui/tests/integration/test_capture_spectrum.py` (category 1)
+- `src/web-ui/tests/integration/test_status_bar.py` (category 2)
+- `src/web-ui/tests/integration/test_dashboard_dual_ws.py` (category 2)
+- `src/web-ui/tests/integration/test_visual_regression.py` (category 2)
+- `src/web-ui/tests/integration/test_system_view.py` (category 3)
+- `src/web-ui/tests/integration/test_measurement_wizard.py` (category 4)
+- `src/web-ui/tests/integration/test_event_log.py` (category 5)
 - Possibly `src/web-ui/static/style.css` or `index.html` if fixes are in app code
 
 **Related:** F-041 (server crash — now verified fixed), F-042 (previous
@@ -1870,7 +1870,7 @@ US-050 (TEST phase needs green suite), US-051 (TEST phase needs green suite).
 **Severity:** Medium (test reliability — sequential test runs hang)
 **Status:** RESOLVED (2026-03-27, verified 45/45 consecutive sequential passes)
 **Found in:** F-048 fix session (2026-03-22)
-**Affects:** `src/web-ui/tests/e2e/test_measurement_wizard.py`
+**Affects:** `src/web-ui/tests/integration/test_measurement_wizard.py`
 **Found by:** Worker (E2E fix effort)
 
 **Description:** 8 measurement wizard E2E tests hang when run sequentially.
@@ -1890,8 +1890,8 @@ or by adding explicit cleanup in each test's teardown. May also need
 timeout protection so hung tests fail fast rather than blocking the suite.
 
 **Files:**
-- `src/web-ui/tests/e2e/test_measurement_wizard.py`
-- `src/web-ui/tests/e2e/conftest.py` (mock session fixtures)
+- `src/web-ui/tests/integration/test_measurement_wizard.py`
+- `src/web-ui/tests/integration/conftest.py` (mock session fixtures)
 - Possibly `src/web-ui/app/mock/mock_data.py` (mock session state)
 
 **Related:** F-048 (parent defect for E2E failures), US-050 (TEST phase
@@ -2237,7 +2237,7 @@ incident — a latching indicator would have caught this).
 **Found by:** Team (CI/sandbox test execution)
 
 **Description:** Screenshot-based E2E tests write PNG files to the source
-tree `screenshots/` directory (e.g., `src/web-ui/tests/e2e/screenshots/`).
+tree `screenshots/` directory (e.g., `src/web-ui/tests/integration/screenshots/`).
 In the Nix pure sandbox, the source tree is mounted from `/nix/store/`
 which is read-only. All screenshot write operations fail with
 `PermissionError`, causing 6+ tests to fail in every pure sandbox run.
@@ -2258,10 +2258,10 @@ fails in any read-only or sandboxed environment.
   (read-only), but newly captured screenshots must go to a writable path
 
 **Files:**
-- `src/web-ui/tests/e2e/test_status_bar.py`
-- `src/web-ui/tests/e2e/test_visual_regression.py`
-- `src/web-ui/tests/e2e/test_config_tab.py`
-- Possibly `src/web-ui/tests/e2e/conftest.py` (shared screenshot fixture)
+- `src/web-ui/tests/integration/test_status_bar.py`
+- `src/web-ui/tests/integration/test_visual_regression.py`
+- `src/web-ui/tests/integration/test_config_tab.py`
+- Possibly `src/web-ui/tests/integration/conftest.py` (shared screenshot fixture)
 
 **Related:** F-048 (E2E test reliability), US-050 (TEST phase needs green
 suite in CI).
@@ -2433,7 +2433,7 @@ controls — blocked on Pi by this), S-005 (deployment session).
 
 **Severity:** Medium
 **Status:** Resolved (`95aeb0a` 2026-03-22)
-**Found in:** F-059 fix test run (full suite: `pytest tests/ --ignore=tests/e2e/`)
+**Found in:** F-059 fix test run (full suite: `pytest tests/ --ignore=tests/integration/`)
 **Affects:** test_measurement_integration.py (20 tests), test_phase1_validation.py (5 tests)
 **Found by:** Worker (F-059 run), triaged by QE
 **Classification:** Test bug (QE + Architect confirmed 2026-03-22)
@@ -3363,7 +3363,7 @@ journald CPU load eliminated. worker-1 confirmed fix present.
 **Severity:** Low (test reliability — intermittent, does not affect production)
 **Status:** RESOLVED (2026-03-27, same root cause as F-049 — verified 45/45 passes)
 **Found in:** US-077 Phase 3 E2E run (2026-03-24)
-**Affects:** `src/web-ui/tests/e2e/test_measurement_wizard.py:158`
+**Affects:** `src/web-ui/tests/integration/test_measurement_wizard.py:158`
 **Found by:** worker-demo-fix (US-077 Phase 3 E2E verification)
 
 **Description:** `test_happy_path_completes` in `test_measurement_wizard.py`
@@ -6849,7 +6849,7 @@ test verifying the complete activation flow:
 
 Existing tests in `test_speaker_routes.py` cover `_compute_target_gains()`
 as a unit test (4 tests) and `_activate_profile_impl()` in isolation with
-mocked PW config generation. The `test_e2e_speaker_lifecycle.py` tests
+mocked PW config generation. The `test_speaker_lifecycle_integration.py` tests
 also mock the PW config generator. No test verifies the actual generated
 PW `.conf` content matches the expected filter-chain topology.
 

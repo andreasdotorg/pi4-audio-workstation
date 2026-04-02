@@ -2008,12 +2008,12 @@ The scaffolding supports two modes:
 **Advisor input:**
 - QE: 8 AC criteria, test markers, DoD gates, mock fixture must use real
   FastAPI app. Recommended moving test_server.py into `tests/`.
-- Architect: Subprocess uvicorn on random port, `tests/e2e/` subdirectory
+- Architect: Subprocess uvicorn on random port, `tests/integration/` subdirectory
   separate from test_server.py (different dependency profiles), visual
   regression is the primary value proposition, `freeze_time` mode needed
   for deterministic screenshots, cover stub views too.
 - Reconciliation: Adopted architect's directory structure (test_server.py
-  stays in place, Playwright tests in `tests/e2e/`). Different test suites
+  stays in place, Playwright tests in `tests/integration/`). Different test suites
   with different dependencies and execution speeds should be separate.
   Visual regression mandatory (owner confirmed 2026-03-11).
 
@@ -2042,7 +2042,7 @@ The scaffolding supports two modes:
 - [ ] Reference screenshots captured for Monitor and System views using at least one mock scenario (e.g., scenario A)
 - [ ] `MockDataGenerator` extended with a `freeze_time` parameter that pins `start_time` to a fixed value and seeds random offsets deterministically, producing identical mock data across runs (required for stable screenshot comparison)
 - [ ] Tests use Playwright's `expect(page).to_have_screenshot("name.png")` with a small pixel tolerance (`max_diff_pixel_ratio=0.01`) for anti-aliasing differences
-- [ ] Reference screenshots stored in `tests/e2e/screenshots/` and version-controlled
+- [ ] Reference screenshots stored in `tests/integration/screenshots/` and version-controlled
 - [ ] `pytest --update-snapshots` workflow documented for regenerating reference images
 
 *E2e support (scaffolding only — no mandatory e2e tests in this story):*
@@ -2056,10 +2056,10 @@ The scaffolding supports two modes:
 - [ ] `@pytest.mark.destructive` marker for tests that modify Pi state
 - [ ] `@pytest.mark.slow` marker for tests exceeding 10 seconds
 - [ ] pytest configuration (`pyproject.toml` or `pytest.ini`) registers all custom markers
-- [ ] Test discovery: `pytest src/web-ui/test_server.py` runs unit tests (fast, no browser). `pytest src/web-ui/tests/e2e/` runs Playwright tests (slow, needs browser). Both can run independently with different dependency profiles
+- [ ] Test discovery: `pytest src/web-ui/test_server.py` runs unit tests (fast, no browser). `pytest src/web-ui/tests/integration/` runs Playwright tests (slow, needs browser). Both can run independently with different dependency profiles
 
 *File organization (architect recommendation):*
-- [ ] Playwright tests in a separate `tests/e2e/` directory. Existing `test_server.py` stays in place (different test suite, different dependencies, different execution speed)
+- [ ] Playwright tests in a separate `tests/integration/` directory. Existing `test_server.py` stays in place (different test suite, different dependencies, different execution speed)
   ```
   src/web-ui/
     app/                          # existing FastAPI app
@@ -2077,7 +2077,7 @@ The scaffolding supports two modes:
   ```
 
 *Local test runner:*
-- [ ] `src/web-ui/Makefile` (or equivalent shell script) with targets for: `test-unit` (runs test_server.py), `test-e2e` (runs tests/e2e/ headless), `test-e2e-headed` (visible browser for debugging), `test-all`, `install-test-deps` (pip install + playwright install chromium)
+- [ ] `src/web-ui/Makefile` (or equivalent shell script) with targets for: `test-unit` (runs test_server.py), `test-integration-browser` (runs tests/integration/ headless), `test-integration-browser-headed` (visible browser for debugging), `test-all`, `install-test-deps` (pip install + playwright install chromium)
 
 **Future scope (explicitly NOT in this story):**
 - Accessibility testing (axe-core integration)
@@ -4488,7 +4488,7 @@ trust gap (AD finding F14) is eliminated.
 
 **Status:** in-progress (TEST phase 2026-03-24. Merged to main. CI green — run 23487581871. Two parallel jobs, Nix caching, concurrency groups. x86_64-linux added to flake.nix. DoD 3/7. Remaining: branch protection, test PR, docs, QE sign-off.)
 **Depends on:** All `nix run .#test-*` targets must exist in `flake.nix`
-(test-unit, test-e2e, test-room-correction, test-graph-manager, test-pcm-bridge,
+(test-unit, test-integration-browser, test-room-correction, test-graph-manager, test-pcm-bridge,
 test-signal-gen, test-drivers)
 **Blocks:** none (but enables PR-based workflow for all future stories)
 **Decisions:** D-044 (GitHub-hosted runners with cachix/install-nix-action,
@@ -4532,7 +4532,7 @@ PR-based workflow. No self-hosted runner infrastructure to maintain.
 - [ ] Two parallel jobs:
   - **`test-all`**: runs `nix run .#test-all` (unit tests + room-correction
     + graph-manager + pcm-bridge + signal-gen + drivers)
-  - **`test-e2e`**: runs `nix run .#test-e2e` (Playwright E2E tests —
+  - **`test-integration-browser`**: runs `nix run .#test-integration-browser` (Playwright browser integration tests —
     separated because they take 7-20 minutes and benefit from parallel
     execution)
 - [ ] Both jobs use `runs-on: ubuntu-latest`
@@ -4542,7 +4542,7 @@ PR-based workflow. No self-hosted runner infrastructure to maintain.
 
 **4. Branch protection rules:**
 - [ ] Branch protection enabled on `main` branch
-- [ ] Required status checks: both `test-all` and `test-e2e` must pass
+- [ ] Required status checks: both `test-all` and `test-integration-browser` must pass
 - [ ] Merging blocked if either check fails
 - [ ] Force-push to `main` disabled (prevents bypassing CI)
 - [ ] Branch deletion after merge: enabled (keeps branch list clean)
@@ -4578,7 +4578,7 @@ PR-based workflow. No self-hosted runner infrastructure to maintain.
   runners with `cachix/install-nix-action` (merged to main 2026-03-24, CI run 23487581871)
 - [x] Nix store caching configured and verified (`nix-community/cache-nix-action`,
   key includes `flake.lock` hash)
-- [x] Both jobs (`test-all`, `test-e2e`) pass on current `main` branch
+- [x] Both jobs (`test-all`, `test-integration-browser`) pass on current `main` branch
 - [ ] Branch protection configured on `main` with required status checks
 - [ ] Test PR created, verified that merge is blocked on CI failure and
   allowed on CI success
@@ -5738,7 +5738,7 @@ is already `mugge` — no hardware changes needed.
   in `src/`, `configs/`, `nix/`
 - [ ] Zero occurrences of old repo name as a live path in `src/`,
   `configs/`, `scripts/`, `nix/`
-- [ ] All tests pass: `nix run .#test-all`, `nix run .#test-e2e`,
+- [ ] All tests pass: `nix run .#test-all`, `nix run .#test-integration-browser`,
   `nix run .#test-integration`
 - [ ] Pi deployment verified: services start with new names, GM creates
   links using `mugge-` node names, audio flows end-to-end
@@ -6188,7 +6188,7 @@ been caught by integration tests against the real stack.
 ### Architect Gap Analysis (2026-03-28)
 
 Architect confirmed the gap extends beyond the original QE findings. Current
-E2E tests (Tier 1, `nix run .#test-e2e`) run entirely against the **mock
+E2E tests (Tier 1, `nix run .#test-integration-browser`) run entirely against the **mock
 server** — they never exercise the real data pipeline. Only
 `test_local_demo_measurement.py` (Tier 3) exercises real PipeWire, and it
 covers measurement mode only.
@@ -6211,7 +6211,7 @@ DJ/Live coverage requires F-204 resolution first.
 
 QE confirmed the full scope of the gap with hard numbers:
 
-- **213 mock E2E tests** (Tier 1, `nix run .#test-e2e`): Verify UI structure
+- **213 mock E2E tests** (Tier 1, `nix run .#test-integration-browser`): Verify UI structure
   against synthetic data from mock server. Provide **zero coverage** of the
   real data pipeline. These tests give a false sense of security — all pass
   while the real pipeline has bugs.

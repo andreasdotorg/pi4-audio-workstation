@@ -168,7 +168,7 @@ Production Pi at venue (unreachable).
 | Open defects (Medium) | ~30 (F-234, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
 | Total defects filed | 247 (F-239 through F-247 filed session 7) |
-| Test suites | test-all (537), test-e2e (229 — 35 new US-075 production-replica tests) |
+| Test suites | test-all (537), test-integration-browser (229 — 35 new US-075 production-replica tests) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
 | PA path latency (q256) | ~5.3ms |

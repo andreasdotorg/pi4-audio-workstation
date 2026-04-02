@@ -186,7 +186,7 @@ Covered by AC-1 tests (1.1-1.6) + AC-2 tests (2.1-2.6) + AC-6 tests (6.1-6.2).
 | D3.1 | Dashboard health bar still renders | Navigate to Dashboard, inspect `#health-bar` | Health bar visible, all indicators populated | Health bar missing, empty, or overlapped by status bar | UX spec Section 11: "Keep the Dashboard health bar" |
 | D3.2 | Dashboard full meters still render | Navigate to Dashboard with data flowing | 24-channel meter bars animate | Meters frozen, missing, or at wrong positions |  |
 | D3.3 | Dashboard spectrum still renders | Navigate to Dashboard | Spectrum canvas visible (if audio flowing: shows data) | Spectrum missing or black | |
-| D3.4 | Existing Playwright e2e tests pass | Run `nix run .#test-e2e` (or code review) | All existing tests pass, including the 3 abort tests (fixed in `0035320`) | Any test failure | DoD: "no regressions" |
+| D3.4 | Existing Playwright browser integration tests pass | Run `nix run .#test-integration-browser` (or code review) | All existing tests pass, including the 3 abort tests (fixed in `0035320`) | Any test failure | DoD: "no regressions" |
 
 #### DoD-4: Verified at 1280px viewport width
 
@@ -311,10 +311,10 @@ Navigate to Dashboard. Verify:
 
 With no measurement active, verify `#sb-abort-btn` has class "hidden".
 
-**Step 14: Playwright e2e tests (D3.4)**
+**Step 14: Playwright browser integration tests (D3.4)**
 
 ```bash
-nix run .#test-e2e
+nix run .#test-integration-browser
 ```
 
 If Nix is blocked, perform code review verification (already done for the 3
@@ -372,7 +372,7 @@ With audio flowing, rapidly switch between all 5 tabs. Verify:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Nix blocked on macOS (SQLite cache issue) | HIGH (currently happening) | Cannot run `nix run .#local-demo` or `nix run .#test-e2e` | Fall back to manual `uvicorn` with system Python (needs numpy) or defer to Pi |
+| Nix blocked on macOS (SQLite cache issue) | HIGH (currently happening) | Cannot run `nix run .#local-demo` or `nix run .#test-integration-browser` | Fall back to manual `uvicorn` with system Python (needs numpy) or defer to Pi |
 | numpy not on system Python | HIGH (confirmed) | Cannot start mock server locally | Use `nix develop` shell, or defer Phase A steps 2-13 to Pi |
 | Phase B blocked on Pi deployment | MEDIUM | Cannot validate real-data behavior | Phase A code review provides partial confidence; Phase B deferred until deployment |
 | Mock data does not exercise all meter groups | LOW | Some mini meter groups may show 0 in mock mode | Phase B validates with real data |

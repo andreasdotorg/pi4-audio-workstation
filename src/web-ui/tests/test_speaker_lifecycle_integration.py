@@ -1,4 +1,4 @@
-"""E2E tests: US-089 Speaker config full lifecycle.
+"""Integration tests: US-089 Speaker config full lifecycle.
 
 Exercises the complete speaker configuration workflow through HTTP
 endpoints in sequence:

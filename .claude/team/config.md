@@ -66,8 +66,8 @@ acceptable only for ad-hoc exploratory testing during development.
 | Change category | Required suites |
 |----------------|----------------|
 | Web UI backend (`src/web-ui/app/`) | `nix run .#test-unit` |
-| Web UI frontend (`src/web-ui/static/`) | `nix run .#test-unit` + `nix run .#test-e2e` |
-| Web UI backend + frontend | `nix run .#test-unit` + `nix run .#test-e2e` |
+| Web UI frontend (`src/web-ui/static/`) | `nix run .#test-unit` + `nix run .#test-integration-browser` |
+| Web UI backend + frontend | `nix run .#test-unit` + `nix run .#test-integration-browser` |
 | Room correction (`src/room-correction/`) | `nix run .#test-room-correction` |
 | GraphManager Rust (`src/graph-manager/`) | `nix run .#test-graph-manager` |
 | pcm-bridge Rust (`src/pcm-bridge/`) | `nix run .#test-pcm-bridge` |
@@ -78,7 +78,7 @@ acceptable only for ad-hoc exploratory testing during development.
 | Multiple categories | All relevant suites from above |
 
 **Key rules:**
-- Changes to BOTH frontend and backend require BOTH `test-unit` AND `test-e2e`
+- Changes to BOTH frontend and backend require BOTH `test-unit` AND `test-integration-browser`
 - Config-only changes (PipeWire, WirePlumber, systemd, udev) have no local
   test — mark "requires Pi validation" for Gate 2.
 - When in doubt whether E2E is needed, run E2E.

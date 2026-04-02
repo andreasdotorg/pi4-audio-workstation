@@ -538,8 +538,8 @@ files changed (impure, runs against working tree).
 | Change category | Required `nix run` suites |
 |----------------|--------------------------|
 | Web UI backend (`src/web-ui/app/`) | `test-unit` |
-| Web UI frontend (`src/web-ui/static/`) | `test-unit` + `test-e2e` |
-| Web UI backend + frontend | `test-unit` + `test-e2e` |
+| Web UI frontend (`src/web-ui/static/`) | `test-unit` + `test-integration-browser` |
+| Web UI backend + frontend | `test-unit` + `test-integration-browser` |
 | Room correction (`src/room-correction/`) | `test-room-correction` |
 | GraphManager Rust (`src/graph-manager/`) | `test-graph-manager` |
 | pcm-bridge Rust (`src/pcm-bridge/`) | `test-pcm-bridge` |
@@ -553,14 +553,14 @@ files changed (impure, runs against working tree).
 | Multiple categories | All relevant suites from above |
 
 **Key rule:** Changes that touch BOTH frontend and backend require BOTH
-`test-unit` AND `test-e2e`. A common mistake is running only unit tests
-when a JS change breaks an E2E assertion.
+`test-unit` AND `test-integration-browser`. A common mistake is running only unit tests
+when a JS change breaks a browser integration test assertion.
 
-**E2E frequency:** E2E tests (`nix run .#test-e2e`) take ~7-20 minutes.
+**Browser test frequency:** Browser integration tests (`nix run .#test-integration-browser`) take ~7-20 minutes.
 They are required when:
 - Frontend code changes (`src/web-ui/static/`, templates)
 - Backend changes that affect WebSocket data or API responses
-- Any change to mock data used by E2E tests
+- Any change to mock data used by browser integration tests
 
 E2E is not required for pure backend refactors with no API/WS change,
 Rust components, room-correction, MIDI, driver YAMLs, documentation,
