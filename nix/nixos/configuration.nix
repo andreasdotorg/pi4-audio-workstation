@@ -130,17 +130,16 @@
         (prev.lib.mesonEnable "intel-rt" false)        # Intel ray-tracing: not our HW
       ];
 
-      # Remove outputs that won't be populated without their source drivers.
-      # spirv2dxil: DirectX SPIR-V compiler — needs d3d12 gallium driver.
-      # opencl: Rusticl OpenCL — no v3d/vc4 Rusticl backend exists.
-      # Nix fails the build if a declared output path is empty.
-      outputs = prev.lib.subtractLists [ "spirv2dxil" "opencl" ]
+      # Remove spirv2dxil output — the DirectX SPIR-V compiler needs
+      # the d3d12 gallium driver which we don't build.  Nix fails if a
+      # declared output path is empty.  opencl stays: Rusticl is built
+      # unconditionally (no v3d backend, but the library exists).
+      outputs = prev.lib.remove "spirv2dxil"
         (oldAttrs.outputs or [ "out" ]);
 
-      # Replace postInstall to skip references to removed outputs.
-      # cross_tools moveToOutput calls silently skip missing binaries
-      # (asahi_clc, intel_clc, panfrost_*) — only mesa_clc and
-      # vtn_bindgen2 are always built.
+      # Replace postInstall to drop the spirv2dxil moveToOutput calls.
+      # opencl and cross_tools are kept; moveToOutput silently skips
+      # missing driver-specific binaries (asahi_clc, intel_clc, etc.).
       postInstall = ''
         moveToOutput bin/asahi_clc $cross_tools
         moveToOutput bin/intel_clc $cross_tools
@@ -149,6 +148,10 @@
         moveToOutput bin/panfrost_texfeatures $cross_tools
         moveToOutput bin/panfrostdump $cross_tools
         moveToOutput bin/vtn_bindgen2 $cross_tools
+
+        moveToOutput "lib/lib*OpenCL*" $opencl
+        mkdir -p $opencl/etc/OpenCL/vendors/
+        echo $opencl/lib/libRusticlOpenCL.so > $opencl/etc/OpenCL/vendors/rusticl.icd
       '';
     });
 
