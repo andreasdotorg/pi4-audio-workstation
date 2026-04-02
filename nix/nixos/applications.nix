@@ -15,7 +15,13 @@
     # ── Reaper — Live vocal performance mode ───────────────────
     # Runs via: pw-jack reaper
     # nixpkgs packages Reaper for aarch64-linux.
-    reaper
+    # US-118: VLC stub — Reaper's reaper_video.so dlopen's libvlc.so.5 for
+    # video decoding only. VLC pulls ~857 MiB of transitive dependencies
+    # (Samba, Qt5, ffmpeg 7, GTK4, gst-plugins-bad). Stubbing it out saves
+    # that entire closure; Reaper disables video decoder gracefully.
+    (reaper.override {
+      vlc = pkgs.runCommand "vlc-stub" {} "mkdir -p $out/lib";
+    })
 
     # ── pw-jack wrapper ────────────────────────────────────────
     # Provided by the PipeWire JACK bridge (services.pipewire.jack.enable
