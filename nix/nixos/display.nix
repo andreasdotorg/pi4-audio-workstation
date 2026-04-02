@@ -57,15 +57,16 @@
     };
   };
 
-  # ── labwc autostart: activate graphical-session.target ─────────
+  # ── labwc autostart: start wayvnc ──────────────────────────────
   # labwc runs the autostart file as a shell script after setting
-  # WAYLAND_DISPLAY. We use it to import env vars into the systemd
-  # user session and activate graphical-session.target, which starts
-  # wayvnc and other graphical user services.
+  # WAYLAND_DISPLAY. We import env vars into the systemd user manager
+  # and start wayvnc directly (graphical-session.target has
+  # RefuseManualStart=yes and cannot be started manually).
   environment.etc."xdg/labwc/autostart" = {
+    mode = "0755";
     text = ''
       ${pkgs.systemd}/bin/systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE
-      ${pkgs.systemd}/bin/systemctl --user start graphical-session.target
+      ${pkgs.systemd}/bin/systemctl --user start wayvnc.service
     '';
   };
 
