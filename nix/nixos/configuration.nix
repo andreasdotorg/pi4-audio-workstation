@@ -42,9 +42,12 @@
   system.stateVersion = "25.11";
   time.timeZone = "Europe/Berlin";
   i18n.defaultLocale = "en_US.UTF-8";
+  # US-117: Only build en_US.UTF-8 locale (full archive ~222 MiB → ~5 MiB).
+  i18n.supportedLocales = [ "en_US.UTF-8/UTF-8" ];
 
   # Enable flakes on the target system
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.trusted-users = [ "root" "ela" ];
 
   # Closure trim — dedicated audio workstation needs none of these.
   # Audit (2026-03-29): ~5000 derivations in full closure; disabling
@@ -103,10 +106,11 @@
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) [ "reaper" ];
 
-  # Minimal packages for Phase 1 validation
+  # Minimal packages — dedicated audio workstation, not a dev machine.
+  # US-117: git removed (~54 MiB self, ~364 MiB closure savings).
+  # Use `nix shell nixpkgs#git` if needed for maintenance.
   environment.systemPackages = with pkgs; [
     vim
-    git
     htop
   ];
 }
