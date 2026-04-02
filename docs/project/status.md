@@ -46,7 +46,7 @@ Production Pi at venue (unreachable).
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | REVIEW (all phases done) | First-boot active config + FoH passthrough | All 5 phases committed (`146a390`, `d6b462e`, `03903c4`, `6653c5f`, `c3b8c7a`). QE approved 34/34 E2E. Architect/AE/Security reviews approved. Awaiting owner acceptance. |
+| US-113 | BLOCKED (real-stack E2E) | First-boot active config + FoH passthrough | All 5 phases committed (`146a390`, `d6b462e`, `03903c4`, `6653c5f`, `c3b8c7a`). 34/34 mock E2E pass. **Owner directive: acceptance requires real-stack E2E (not mocks).** QE defining requirements (L-QE-002). |
 | US-114 | TEST (Pi validated) | Minimal kernel config for Pi 4B | ~100 overrides committed + session 9 fixes (`7976ee0`, `c791ada`, `4c17ebb`: SND_SOC/DRM_VC4 deps, initrd strip, NVMe disable). Kernel boots on test Pi with all required hardware. Remaining: build time/size docs (AC #6-7), upgrade procedure (AC #9). |
 | US-115 | IMPLEMENT (Phase 0 done) | 8-channel filter-chain convolver (D-063) | Phase 0 complete: 8ch configs, dirac.wav, gain nodes, routing. Critical path — blocks US-113 E2E. |
 | US-116 | ready | Per-channel time delay measurement + compensation | Depends US-115, US-113. 8 AC, 8 tasks. AE-consulted detection improvements. |
@@ -65,7 +65,7 @@ Production Pi at venue (unreachable).
 | US-044 Pi tests (T-044-6/7) | Owner Pi session |
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
-| US-113 acceptance | All 5 phases committed, QE 34/34 E2E, 3 advisory reviews approved. Ready for owner acceptance. |
+| US-113 acceptance | Real-stack E2E required (owner directive). QE defining requirements (L-QE-002). Mock E2E 34/34 pass insufficient. |
 | US-090/092-097 re-acceptance | QE E2E passed (session 9). Ready for owner re-acceptance (Gate 3). |
 | US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
