@@ -129,6 +129,27 @@
         (prev.lib.mesonEnable "gallium-va" false)      # VA-API: no HW video decode needed
         (prev.lib.mesonEnable "intel-rt" false)        # Intel ray-tracing: not our HW
       ];
+
+      # Remove outputs that won't be populated without their source drivers.
+      # spirv2dxil: DirectX SPIR-V compiler — needs d3d12 gallium driver.
+      # opencl: Rusticl OpenCL — no v3d/vc4 Rusticl backend exists.
+      # Nix fails the build if a declared output path is empty.
+      outputs = prev.lib.subtractLists [ "spirv2dxil" "opencl" ]
+        (oldAttrs.outputs or [ "out" ]);
+
+      # Replace postInstall to skip references to removed outputs.
+      # cross_tools moveToOutput calls silently skip missing binaries
+      # (asahi_clc, intel_clc, panfrost_*) — only mesa_clc and
+      # vtn_bindgen2 are always built.
+      postInstall = ''
+        moveToOutput bin/asahi_clc $cross_tools
+        moveToOutput bin/intel_clc $cross_tools
+        moveToOutput bin/mesa_clc $cross_tools
+        moveToOutput bin/panfrost_compile $cross_tools
+        moveToOutput bin/panfrost_texfeatures $cross_tools
+        moveToOutput bin/panfrostdump $cross_tools
+        moveToOutput bin/vtn_bindgen2 $cross_tools
+      '';
     });
 
     # PipeWire: disable Bluetooth audio support.
