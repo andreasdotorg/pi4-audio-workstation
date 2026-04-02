@@ -17,7 +17,7 @@ Usage:
 
     # Run the test (headed for debugging, headless for CI):
     cd src/web-ui
-    python -m pytest tests/e2e/test_local_demo_measurement.py -v --headed
+    python -m pytest tests/integration/test_local_demo_measurement.py -v --headed
 
     # Or with the LOCAL_DEMO_URL env var pointing to a non-default port:
     LOCAL_DEMO_URL=http://localhost:9090 python -m pytest ...

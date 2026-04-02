@@ -81,14 +81,14 @@ fi
 # --- 5. Pre-cache Playwright browsers ----------------------------------------
 
 # The nix-installer-action handles Nix setup per job, but Playwright browsers
-# are large (~400MB) and should be cached once. Build the e2e Python env to
+# are large (~400MB) and should be cached once. Build the browser-test Python env to
 # trigger the Nix store download of playwright-driver.browsers.
 
 echo "Pre-caching Playwright browsers via nix build..."
 cd "$HOME"  # avoid being inside runner dir for nix commands
 PROJECT_DIR="$(dirname "$(dirname "$(dirname "$(readlink -f "$0")")")")"
 nix build "${PROJECT_DIR}#devShells.aarch64-linux.default" --no-link 2>/dev/null || \
-  echo "Warning: could not pre-build devShell. Browsers will be fetched on first e2e run."
+  echo "Warning: could not pre-build devShell. Browsers will be fetched on first browser-test run."
 
 echo ""
 echo "Runner setup complete."

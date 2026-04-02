@@ -1,8 +1,8 @@
 # CI Pipeline for mugge (US-070, D-044)
 #
 # Two parallel jobs on GitHub-hosted ubuntu-latest runners with Nix:
-#   test-all  — unit, integration, room-correction, graph-manager, pcm-bridge, signal-gen
-#   test-e2e  — Playwright browser tests (separated for parallel execution)
+#   test-all                  — unit, integration, room-correction, graph-manager, pcm-bridge, signal-gen
+#   test-integration-browser  — Playwright browser tests (separated for parallel execution)
 #
 # Flaky test policy: If a test is flaky, fix it or skip it with a filed
 # defect (@pytest.mark.skip with defect ID). Do not add retry logic.
@@ -49,7 +49,7 @@ jobs:
       - name: Run signal-gen tests
         run: nix run .#test-signal-gen
 
-  test-e2e:
+  test-integration-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -64,5 +64,5 @@ jobs:
           primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-
 
-      - name: Run E2E tests
-        run: nix run .#test-e2e
+      - name: Run browser integration tests
+        run: nix run .#test-integration-browser

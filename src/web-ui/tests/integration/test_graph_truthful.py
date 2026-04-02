@@ -20,7 +20,7 @@ Usage:
 
     # Run the tests:
     cd src/web-ui
-    python -m pytest tests/e2e/test_graph_truthful.py -v
+    python -m pytest tests/integration/test_graph_truthful.py -v
 """
 
 import json

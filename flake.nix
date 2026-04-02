@@ -70,8 +70,8 @@
           pycamilladsp
         ]);
 
-        # Python with e2e dependencies — adds playwright on top of testPython's deps.
-        # Used by test-e2e app and devShell.
+        # Python with browser-test dependencies — adds playwright on top of testPython's deps.
+        # Used by test-integration-browser app and devShell.
         e2ePython = python.withPackages (ps: [
           ps.mido
           ps.python-rtmidi
@@ -90,7 +90,7 @@
           ps.pytest
           ps.httpx
           pycamilladsp
-          # E2E / browser testing
+          # Browser integration testing
           ps.playwright
           ps.pytest-playwright
         ]);
@@ -305,7 +305,7 @@
             cp -r ${./src/room-correction} room-correction
             chmod -R u+w web-ui room-correction
             cd web-ui
-            python -m pytest tests/ -v --ignore=tests/e2e/ --tb=short
+            python -m pytest tests/ -v --ignore=tests/integration/ --tb=short
             touch $out
           '';
 
@@ -364,24 +364,24 @@
             program = "${pkgs.writeShellScript "test-unit" ''
               export PI_AUDIO_MOCK=1
               cd ${toString ./.}/src/web-ui
-              exec ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/e2e/ "$@"
+              exec ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ "$@"
             ''}";
           };
 
-          test-e2e = {
+          test-integration-browser = {
             type = "app";
-            program = "${pkgs.writeShellScript "test-e2e" ''
+            program = "${pkgs.writeShellScript "test-integration-browser" ''
               export PI_AUDIO_MOCK=1
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
               cd ${toString ./.}/src/web-ui
-              exec ${e2ePython}/bin/python -m pytest tests/e2e/ -v "$@"
+              exec ${e2ePython}/bin/python -m pytest tests/integration/ -v "$@"
             ''}";
           };
 
-          # Full user journey E2E test — speaker setup through verified room
+          # Full user journey integration test — speaker setup through verified room
           # correction.  Runs real DSP code with MockSoundDevice + Playwright
-          # headless browser.  Slower than the regular E2E suite (~30-60s).
+          # headless browser.  Slower than the regular integration-browser suite (~30-60s).
           test-journey = {
             type = "app";
             program = "${pkgs.writeShellScript "test-journey" ''
@@ -389,7 +389,7 @@
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
               cd ${toString ./.}/src/web-ui
-              exec ${e2ePython}/bin/python -m pytest tests/e2e/test_full_user_journey.py -v "$@"
+              exec ${e2ePython}/bin/python -m pytest tests/integration/test_full_user_journey.py -v "$@"
             ''}";
           };
 
@@ -450,7 +450,7 @@
               set -e
               echo "=== web-ui unit tests ==="
               cd ${toString ./.}/src/web-ui
-              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/e2e/ --tb=short
+              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --tb=short
               echo ""
               echo "=== room-correction tests ==="
               cd ${toString ./.}/src/room-correction
@@ -508,7 +508,7 @@
               echo "========== test-all (unit + integration) =========="
               export PI_AUDIO_MOCK=1
               cd ${toString ./.}/src/web-ui
-              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/e2e/ --tb=short
+              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --tb=short
               echo ""
               echo "=== room-correction tests ==="
               cd ${toString ./.}/src/room-correction
@@ -530,13 +530,13 @@
               cd ${toString ./.}/src/graph-manager
               HOME="''${HOME:-/tmp}" CARGO_TARGET_DIR="''${HOME:-/tmp}/.cargo-target/pi4audio-gm" PATH="${pkgs.cargo}/bin:${pkgs.rustc}/bin:${pkgs.stdenv.cc}/bin:$PATH" cargo test --locked --no-default-features --release 2>&1
               echo ""
-              echo "========== test-e2e (browser tests) =========="
+              echo "========== test-integration-browser (browser tests) =========="
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
               cd ${toString ./.}/src/web-ui
-              ${e2ePython}/bin/python -m pytest tests/e2e/ -v --tb=short
+              ${e2ePython}/bin/python -m pytest tests/integration/ -v --tb=short
               echo ""
-              echo "All test suites passed (unit + integration + e2e)."
+              echo "All test suites passed (unit + integration + integration-browser)."
             ''}";
           };
 

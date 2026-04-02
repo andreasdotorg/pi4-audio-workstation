@@ -1,24 +1,24 @@
-.PHONY: test-unit test-e2e test-e2e-headed test-visual test-all \
+.PHONY: test-unit test-integration-browser test-integration-browser-headed test-visual test-all \
        update-snapshots install-test-deps
 
 test-unit:
 	python -m pytest tests/ -v -k "not e2e"
 
-test-e2e:
-	python -m pytest tests/e2e/ -v
+test-integration-browser:
+	python -m pytest tests/integration/ -v
 
-test-e2e-headed:
-	python -m pytest tests/e2e/ -v --headed
+test-integration-browser-headed:
+	python -m pytest tests/integration/ -v --headed
 
 test-visual:
-	python -m pytest tests/e2e/test_visual_regression.py -v
+	python -m pytest tests/integration/test_visual_regression.py -v
 
 # Regenerate reference screenshots after intentional UI changes.
-# Review the diffs in tests/e2e/screenshots/ before committing.
+# Review the diffs in tests/integration/screenshots/ before committing.
 update-snapshots:
-	python -m pytest tests/e2e/test_visual_regression.py -v --update-snapshots
+	python -m pytest tests/integration/test_visual_regression.py -v --update-snapshots
 
-test-all: test-unit test-e2e
+test-all: test-unit test-integration-browser
 
 install-test-deps:
 	pip install playwright pytest pytest-playwright numpy

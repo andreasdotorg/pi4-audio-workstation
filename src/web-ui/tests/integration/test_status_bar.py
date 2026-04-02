@@ -6,7 +6,7 @@ structure (AC-5), PHYS IN degradation (AC-7), WebSocket independence (AC-8),
 responsive breakpoints (AC-10), Dashboard regression (DoD-3), ABORT idle
 state, and label clarity (AC-4).
 
-Screenshots are saved to tests/e2e/screenshots/ for visual inspection.
+Screenshots are saved to tests/integration/screenshots/ for visual inspection.
 """
 
 import re

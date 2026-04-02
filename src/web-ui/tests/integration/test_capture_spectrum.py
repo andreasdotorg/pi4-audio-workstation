@@ -9,7 +9,7 @@ Verifies that the test tool page:
   - Spectrum starts on tab show, stops on tab hide
 
 Runs against the mock backend (PI_AUDIO_MOCK=1).
-Screenshots saved to tests/e2e/screenshots/.
+Screenshots saved to tests/integration/screenshots/.
 """
 
 import re

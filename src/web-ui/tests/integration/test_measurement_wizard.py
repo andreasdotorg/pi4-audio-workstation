@@ -4,7 +4,7 @@ Tests the full wizard lifecycle: IDLE -> GAIN_CAL -> MEASURING -> COMPLETE,
 the abort flow, and individual screen content.  Runs against the mock backend
 (PI_AUDIO_MOCK=1, default on macOS).
 
-Screenshots are saved to tests/e2e/screenshots/ for visual inspection.
+Screenshots are saved to tests/integration/screenshots/ for visual inspection.
 
 Note: In the Nix sandbox, headless Chromium has zero fonts installed.
 Text-only elements render at 0x0 pixels and are reported as "hidden"

@@ -18,7 +18,7 @@ Usage:
 
     # Run the tests:
     cd src/web-ui
-    python -m pytest tests/e2e/test_production_replica.py -v --headed
+    python -m pytest tests/integration/test_production_replica.py -v --headed
 
     # Or with custom URL:
     LOCAL_DEMO_URL=http://localhost:9090 python -m pytest ...

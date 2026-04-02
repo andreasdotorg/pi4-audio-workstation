@@ -4,15 +4,15 @@ Uses manual screenshot comparison since ``expect(page).to_have_screenshot()``
 is not available in pytest-playwright 0.7.x.  Screenshots are saved as PNG
 files and compared at the pixel level on subsequent runs.
 
-Reference screenshots live in ``tests/e2e/screenshots/``.
+Reference screenshots live in ``tests/integration/screenshots/``.
 
 Workflow:
     # Generate (or update) reference screenshots after intentional changes:
     cd src/web-ui
-    python -m pytest tests/e2e/test_visual_regression.py -v --update-snapshots
+    python -m pytest tests/integration/test_visual_regression.py -v --update-snapshots
 
     # Run visual regression (fails if diff exceeds threshold):
-    python -m pytest tests/e2e/test_visual_regression.py -v
+    python -m pytest tests/integration/test_visual_regression.py -v
 """
 
 import io
