@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-01 (session 8). Individual
+Last updated: 2026-04-02 (session 9). Individual
 story/defect/decision details now in `stories/`, `defects/`, `decisions/`
 directories with corresponding index files.
 
@@ -12,26 +12,27 @@ BM-2 benchmark showed PipeWire's built-in convolver is 3-5.6x more CPU-efficient
 than CamillaDSP on Pi 4B ARM (1.70% vs 5.23% at comparable buffer sizes). First
 successful PW-native DJ session (GM-12): 40+ minutes, zero xruns, 58% idle, 71C.
 
-**US-072 (NixOS Build) reactivated** — 20 tasks filed, 16 done, IMPLEMENT phase.
-Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
-(unreachable).
+**US-072 (NixOS Build) reactivated** — 20 tasks filed, IMPLEMENT phase. Hardware
+validation complete on test Pi (`192.168.178.35`): PREEMPT_RT 6.12.62, VC4 hardware
+GPU, greetd + labwc + wayvnc, PipeWire + WirePlumber running, zero kernel WARNINGs.
+Production Pi at venue (unreachable).
 
 ## Active Work
 
 | Story | Phase | Summary | Blocker |
 |-------|-------|---------|---------|
-| US-072 | IMPLEMENT 16/20 | NixOS reproducible build | Remaining 4 tasks need Pi hardware. SD card build blocked: -dev kernel output fills 30GB builder (owner: exclude -dev) |
+| US-072 | IMPLEMENT (HW validated) | NixOS reproducible build | SD card image built (6.57 GiB, 1.95 GiB zstd). Hardware validation complete on test Pi: PREEMPT_RT 6.12.62, VC4 HW GPU, greetd + labwc + wayvnc, PipeWire + WirePlumber, zero kernel WARNINGs. 11 fix commits this session. |
 | US-075 | COMPLETE | Local PW integration test env | Done. 35 E2E production-replica tests committed (`7b43222`). |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | Blocked by F-198 |
-| US-090 | REVIEW | FIR filter generation web UI | OWNER REJECTED (F-223 NOW FIXED `adb93d9`). E2E re-verification needed. |
+| US-090 | REVIEW (Gate 3) | FIR filter generation web UI | QE E2E passed (session 9). Awaiting owner re-acceptance. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
-| US-092 | REVIEW | Per-driver thermal/mechanical protection | OWNER REJECTED (F-223 FIXED). QE pass + UX pass. F-244 (DELETE confirmation) is cross-cutting, non-blocking. |
-| US-093 | REVIEW | Amplifier sensitivity calibration | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
-| US-094 | REVIEW | ISO 226 equal loudness compensation | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
-| US-095 | REVIEW | Graph viz — truthful PW topology | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
-| US-096 | REVIEW | UMIK-1 full calibration pipeline | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
-| US-097 | REVIEW | Room compensation web UI workflow | OWNER REJECTED (F-223 FIXED). E2E re-verification needed. |
+| US-092 | REVIEW (Gate 3) | Per-driver thermal/mechanical protection | QE E2E passed (session 9). F-244 (DELETE confirmation) cross-cutting, non-blocking. Awaiting owner re-acceptance. |
+| US-093 | REVIEW (Gate 3) | Amplifier sensitivity calibration | QE E2E passed (session 9). Awaiting owner re-acceptance. |
+| US-094 | REVIEW (Gate 3) | ISO 226 equal loudness compensation | QE E2E passed (session 9). Awaiting owner re-acceptance. |
+| US-095 | REVIEW (Gate 3) | Graph viz — truthful PW topology | QE E2E passed (session 9). Awaiting owner re-acceptance. |
+| US-096 | REVIEW (Gate 3) | UMIK-1 full calibration pipeline | QE E2E passed (session 9). Awaiting owner re-acceptance. |
+| US-097 | REVIEW (Gate 3) | Room compensation web UI workflow | QE E2E passed (session 9). Awaiting owner re-acceptance. |
 | US-098 | TEST | Room correction pipeline verification | P0 done; F-235 RESOLVED — P1/P2 unblocked |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
@@ -45,10 +46,13 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | IMPLEMENT 3/? | First-boot active config + FoH passthrough | Phases 1-3 committed (`146a390`, `d6b462e`). Phase 4 (Web UI) done. Phase 5 (E2E) pending. |
-| US-114 | IMPLEMENT | Minimal kernel config for Pi 4B | Config committed (`c61ea84`). Needs Pi build + boot test. |
+| US-113 | REVIEW (all phases done) | First-boot active config + FoH passthrough | All 5 phases committed (`146a390`, `d6b462e`, `03903c4`, `6653c5f`, `c3b8c7a`). QE approved 34/34 E2E. Architect/AE/Security reviews approved. Awaiting owner acceptance. |
+| US-114 | TEST (Pi validated) | Minimal kernel config for Pi 4B | ~100 overrides committed + session 9 fixes (`7976ee0`, `c791ada`, `4c17ebb`: SND_SOC/DRM_VC4 deps, initrd strip, NVMe disable). Kernel boots on test Pi with all required hardware. Remaining: build time/size docs (AC #6-7), upgrade procedure (AC #9). |
 | US-115 | IMPLEMENT (Phase 0 done) | 8-channel filter-chain convolver (D-063) | Phase 0 complete: 8ch configs, dirac.wav, gain nodes, routing. Critical path — blocks US-113 E2E. |
 | US-116 | ready | Per-channel time delay measurement + compensation | Depends US-115, US-113. 8 AC, 8 tasks. AE-consulted detection improvements. |
+| US-117 | draft | Tier 1 image size: firmware/locale/git/registry trim | ~1.1 GiB savings, zero functional impact. Depends US-072. |
+| US-118 | draft | Tier 2 image size: Reaper closure optimization | ~800 MiB savings. Reaper pulls VLC (1.4 GiB closure). Owner option decision needed. Depends US-072. |
+| US-119 | draft | Tier 3 image size: Mesa without LLVM, PipeWire without bluez | ~500-800 MiB savings. Custom builds required. Depends US-072, US-117. |
 
 
 ### Owner-Blocking Items
@@ -61,7 +65,8 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | US-044 Pi tests (T-044-6/7) | Owner Pi session |
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
-| US-090/092-097 re-acceptance | F-223 FIXED (`adb93d9`). E2E re-verification needed, then owner re-acceptance. |
+| US-113 acceptance | All 5 phases committed, QE 34/34 E2E, 3 advisory reviews approved. Ready for owner acceptance. |
+| US-090/092-097 re-acceptance | QE E2E passed (session 9). Ready for owner re-acceptance (Gate 3). |
 | US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
 
@@ -79,7 +84,7 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 | Core software | installed | PipeWire 1.4.9, Mixxx 2.5.0, Reaper 7.64, wayvnc |
 | Platform security | partial | Firewall active, SSH hardened. Web UI auth: US-110 (ready, passkey design, D-060 local CA) |
 | GitHub Actions CI | merged | Two parallel jobs, Nix store caching. Branch protection pending |
-| NixOS build (US-072) | in progress | RT kernel compiles, convolver module designed, 4 tasks remaining (need Pi) |
+| NixOS build (US-072) | HW validated on test Pi | 6.57 GiB (1.95 GiB zstd). PREEMPT_RT 6.12.62, VC4 HW GPU, greetd + labwc + wayvnc, PipeWire + WirePlumber. 11 fix commits session 9. Zero kernel WARNINGs. |
 
 ## Completed Stories
 
@@ -150,15 +155,16 @@ Test Pi available at `192.168.178.35` (SSH key working). Production Pi at venue
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~222 (15 session 6, 5 session 7, 5 session 8) |
-| Total stories filed | 120 (US-115, US-116 filed session 7) |
+| Git commits | ~240 (15 session 6, 5 session 7, 5 session 8, ~18 session 9) |
+| Total stories filed | 123 (US-117, US-118, US-119 filed session 9) |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
-| Stories in REVIEW | 8 (US-088, US-071, US-090, US-092-097 — 7 REJECTED, F-223 now fixed, E2E re-verification needed) |
-| Stories in IMPLEMENT | ~10 (US-113 Phases 1-3 committed, US-114 committed, US-115 Phase 0 done) |
+| Stories in REVIEW | 10 (US-088, US-071, US-113, US-090, US-092-097 — 8 awaiting owner acceptance) |
+| Stories in IMPLEMENT | ~9 (US-114 heading to TEST, US-115 Phase 0 done, US-072 HW validated) |
 | Stories ready | 0 |
 | Open defects (HIGH+) | 5 (F-187, F-037, F-222, F-244, F-245) |
 | Defects resolved session 8 | 1 (F-235) |
+| Session 9 commits | ~18 (11 US-072 HW validation + US-113 Phase 4/5 + US-114 fixes) |
 | Open defects (Medium) | ~30 (F-234, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
 | Total defects filed | 247 (F-239 through F-247 filed session 7) |
@@ -190,6 +196,68 @@ through D-063). Most significant recent decisions:
 - **D-061** (2026-03-30): GM manages PW/WP lifecycle — amends D-058 (PW/WP move from systemd to GM-managed)
 - **D-062** (2026-03-30): First-boot / active config — symlink-based coefficient management, FoH passthrough baseline, mute-default safety (amends D-010, D-051, D-053)
 - **D-063** (2026-03-30): 8ch filter-chain convolver + universal audio gate — owner directive: 8ch passthrough, mandatory gate, cosine ramp-up (amends D-062)
+
+## Session 9 Summary (2026-04-02)
+
+### Commits (~18, 11 pushed to test Pi)
+
+| SHA | Description |
+|-----|-------------|
+| 308c0b8 | labwc autostart — executable mode + start wayvnc directly |
+| c4d9823 | labwc autostart — activate graphical-session.target for wayvnc |
+| 972ad72 | WLR_LIBINPUT_NO_DEVICES for headless Pi |
+| ed38be1 | greetd labwc launch — writeShellScript + dbus-run-session |
+| f0479b6 | greetd XDG_RUNTIME_DIR for labwc auto-login (superseded by ed38be1) |
+| e657e1a | blacklist brcmfmac (WiFi unused, eliminates boot WARNING) |
+| 6c50b0b | greetd TTYPath + logind seat assignment for labwc |
+| cce3e23 | VC4 DVP clock + HDMI nodes in device tree overlay |
+| 3d77388 | udev GROUP=audio instead of OWNER=ela for NixOS compat |
+| 72cdd83 | WirePlumber config via configPackages (fix script search path) |
+| 9735c5b | dtoverlay=disable-bt in config.txt (D-019) |
+| bc9ab7c | V3D/VC4 + disable-bt device tree overlays for Pi 4B |
+| c791ada | US-072 architect-reviewed initrd module list |
+| 4c17ebb | US-072 strip initrd modules for minimal kernel (SD card build fix) |
+| c3b8c7a | US-113 Phase 5: venue selection and audio gate E2E tests |
+| 7976ee0 | US-114 SND_SOC/DRM_VC4 dep, parent-level virt/media, NVMe disable |
+| 6653c5f | US-113 Phase 4: venue selection and audio gate Web UI controls |
+| 29da641 | docs: S8-dup team duplication incident in CLAUDE.md |
+| e56cbd6 | docs: session 8 status, F-235/F-236 resolved, SETUP-MANUAL D-063/US-113 |
+
+### Accomplishments
+
+1. **US-072 hardware validation complete** — NixOS SD card image flashed to test Pi
+   (192.168.178.35). 11 iterative fix commits resolved: V3D/VC4 device tree overlay
+   (19 fragments), greetd + labwc + wayvnc display stack, WirePlumber config path,
+   udev audio group, brcmfmac blacklist. Result: PREEMPT_RT 6.12.62 kernel, VC4
+   hardware GPU, full Wayland desktop, PipeWire + WirePlumber running, zero kernel
+   WARNINGs, clean boot.
+2. **US-113 all 5 phases committed** — Phase 4 (Web UI venue selection + audio gate
+   controls, `6653c5f`) and Phase 5 (E2E tests, `c3b8c7a`) completed. QE approved
+   34/34 E2E. Story ready for owner acceptance.
+3. **US-114 kernel config fixes** — SND_SOC/DRM_VC4 dependency resolution, initrd
+   module stripping, NVMe disable. Kernel validated on test Pi hardware.
+4. **S8-dup incident documented** — CLAUDE.md updated with session 8 team duplication
+   incident (ninth occurrence).
+
+### Test Pi Validation Results
+
+All components verified on 192.168.178.35:
+- PREEMPT_RT 6.12.62+rpt-rpi-v8-rt kernel
+- VC4 hardware GPU (V3D DRM active)
+- greetd auto-login → labwc Wayland compositor → wayvnc (port 5900)
+- PipeWire + WirePlumber running as user services
+- Zero kernel WARNINGs in dmesg
+- Clean boot sequence
+
+### Pending Owner Decisions
+
+1. **US-113 acceptance** — all phases committed, QE approved, 3 advisory reviews approved
+2. **US-090/092-097 re-acceptance** — 7 stories at Gate 3, QE E2E passed
+
+### Uncommitted
+
+- US-117/118/119 story drafts (image size reduction tiers)
+- status.md update (this file)
 
 ## Session 8 Summary (2026-04-01)
 
