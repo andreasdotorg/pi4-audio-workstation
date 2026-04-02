@@ -13,6 +13,7 @@ import pytest
 from app.pw_helpers import (
     _extract_gain_params,
     _parse_mult_from_enum,
+    _sanitize_pw_dump,
     find_convolver_node,
     find_gain_node,
     find_quantum,
@@ -431,3 +432,109 @@ class TestFindFilterInfo:
     def test_returns_empty_when_missing(self):
         """Returns empty dict when convolver not found."""
         assert find_filter_info([]) == {}
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_pw_dump — PipeWire 1.6.x JSON corruption workaround
+# ---------------------------------------------------------------------------
+
+class TestSanitizePwDump:
+    """Test _sanitize_pw_dump() which strips corrupt pw-dump output."""
+
+    def test_clean_json_preserved(self):
+        """Valid JSON passes through and parses identically."""
+        import json
+        raw = b'[{"id": 1, "name": "test-node"}]'
+        result = _sanitize_pw_dump(raw)
+        assert json.loads(result) == [{"id": 1, "name": "test-node"}]
+
+    def test_leaked_id_lines_removed(self):
+        """Lines with "id-XXXXXXXX" internal IDs are stripped."""
+        import json
+        raw = (
+            b'{\n'
+            b'  "id": 42,\n'
+            b'  "id-abcd1234": {},\n'
+            b'  "name": "good"\n'
+            b'}'
+        )
+        result = _sanitize_pw_dump(raw)
+        parsed = json.loads(result)
+        assert parsed == {"id": 42, "name": "good"}
+
+    def test_truncated_name_removed(self):
+        """Lines with 'name:' and no value (end-of-line) are stripped."""
+        import json
+        # "name":\n with nothing after — truncated serialization
+        raw = (
+            b'{\n'
+            b'  "id": 7,\n'
+            b'  "name":\n'
+            b'}'
+        )
+        result = _sanitize_pw_dump(raw)
+        parsed = json.loads(result)
+        assert parsed == {"id": 7}
+
+    def test_missing_value_name_removed(self):
+        """Lines with 'name:' followed by comma/brace (missing value) stripped."""
+        import json
+        raw = (
+            b'{\n'
+            b'  "id": 7,\n'
+            b'  "name": ,\n'
+            b'  "type": "ok"\n'
+            b'}'
+        )
+        result = _sanitize_pw_dump(raw)
+        parsed = json.loads(result)
+        assert parsed == {"id": 7, "type": "ok"}
+
+    def test_trailing_comma_fixed(self):
+        """Trailing commas left by removed lines are cleaned up."""
+        import json
+        raw = (
+            b'{\n'
+            b'  "a": 1,\n'
+            b'  "id-abcd1234": {}\n'
+            b'}'
+        )
+        result = _sanitize_pw_dump(raw)
+        parsed = json.loads(result)
+        assert parsed == {"a": 1}
+
+    def test_non_utf8_bytes_handled(self):
+        """Non-UTF-8 bytes are replaced, not crashed on."""
+        import json
+        raw = b'[{"id": 1, "val": "hello\xa1world"}]'
+        result = _sanitize_pw_dump(raw)
+        parsed = json.loads(result)
+        assert parsed[0]["id"] == 1
+
+    def test_pw_dump_sync_sanitizer_fallback(self):
+        """_pw_dump_sync falls back to sanitizer on persistent parse errors."""
+        from unittest.mock import patch, MagicMock
+
+        # Simulate pw-dump returning JSON broken by truncated "name":
+        # json.loads() will fail because "name": has no value before comma
+        corrupt_json = (
+            b'[{\n'
+            b'  "id": 99,\n'
+            b'  "name": ,\n'
+            b'  "type": "PipeWire:Interface:Node"\n'
+            b'}]'
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = corrupt_json
+
+        from app.pw_helpers import _pw_dump_sync
+        with patch("subprocess.run", return_value=mock_result), \
+             patch("time.sleep"):
+            result = _pw_dump_sync()
+
+        # First json.loads fails, retry returns same data, sanitizer
+        # strips the corrupt "name": line -> valid JSON
+        assert result is not None
+        assert result[0]["id"] == 99
+        assert result[0]["type"] == "PipeWire:Interface:Node"

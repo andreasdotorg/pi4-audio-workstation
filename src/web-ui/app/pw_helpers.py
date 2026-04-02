@@ -41,11 +41,45 @@ log = logging.getLogger(__name__)
 CONVOLVER_NODE_NAME = "pi4audio-convolver"
 
 
+_RE_CORRUPT_LINE = re.compile(
+    r'"id-[0-9a-f]{8}"'  # internal IDs leaking as JSON keys
+    r'|"name":\s*$'       # truncated "name": with no value
+    r'|"name":\s*[,}\]]'  # "name": followed by delimiter (missing value)
+)
+
+
+def _sanitize_pw_dump(raw: bytes) -> str:
+    """Remove corrupt lines from pw-dump output.
+
+    PipeWire 1.6.x pw-dump produces invalid JSON when serializing
+    filter-chain ``linear`` builtin gain node PropInfo entries.  Corrupt
+    patterns include leaked internal IDs (``"id-XXXXXXXX"``), missing
+    values after ``"name":``, and non-UTF-8 bytes.
+
+    Strategy: decode tolerantly, drop lines matching known corruption
+    patterns, fix structural JSON artifacts (trailing commas before
+    closing braces/brackets).
+    """
+    text = raw.decode("utf-8", errors="replace")
+    lines = text.splitlines(keepends=True)
+    clean = []
+    for line in lines:
+        if _RE_CORRUPT_LINE.search(line):
+            continue
+        clean.append(line)
+    result = "".join(clean)
+    # Fix trailing commas left by removed lines: ",\n  }" or ",\n  ]"
+    result = re.sub(r',(\s*[}\]])', r'\1', result)
+    return result
+
+
 def _pw_dump_sync() -> list | None:
     """Run ``pw-dump`` synchronously (called from thread pool).
 
     Retries once on JSON parse errors — pw-dump occasionally returns
     truncated JSON when the PipeWire graph is mutating mid-snapshot.
+    On persistent parse errors, applies a sanitizer to strip known
+    PipeWire 1.6.x serialization bugs before parsing.
     """
     import time
 
@@ -57,7 +91,7 @@ def _pw_dump_sync() -> list | None:
                 timeout=30,
             )
             if result.returncode != 0:
-                log.error("pw-dump failed: %s", result.stderr.decode().strip())
+                log.error("pw-dump failed: %s", result.stderr.decode(errors="replace").strip())
                 return None
             return json.loads(result.stdout)
         except subprocess.TimeoutExpired:
@@ -71,8 +105,14 @@ def _pw_dump_sync() -> list | None:
                 log.warning("pw-dump JSON parse error (retrying): %s", exc)
                 time.sleep(0.5)
                 continue
-            log.error("pw-dump JSON parse error (after retry): %s", exc)
-            return None
+            # Retry failed — try sanitizing the output
+            log.warning("pw-dump JSON corrupt, applying sanitizer: %s", exc)
+            try:
+                sanitized = _sanitize_pw_dump(result.stdout)
+                return json.loads(sanitized)
+            except json.JSONDecodeError as exc2:
+                log.error("pw-dump JSON parse error (after sanitizer): %s", exc2)
+                return None
     return None
 
 
