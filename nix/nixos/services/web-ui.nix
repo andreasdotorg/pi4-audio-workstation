@@ -115,6 +115,8 @@ in
 
       serviceConfig = {
         Type = "simple";
+        # pw-dump, pw-cli, pw-metadata called by pw_helpers.py + config_routes.py
+        Environment = "PATH=${pkgs.pipewire}/bin:${pkgs.coreutils}/bin";
         WorkingDirectory = toString cfg.webUiPath;
         ExecStart = lib.concatStringsSep " " ([
           "${webUiPython}/bin/uvicorn"
