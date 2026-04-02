@@ -125,11 +125,9 @@
       # drivers we've removed (r600/radeonsi/nouveau for VDPAU/VA-API)
       # or subsystems unused on the Pi 4 audio workstation.
       mesonFlags = (oldAttrs.mesonFlags or []) ++ [
-        (prev.lib.mesonEnable "gallium-vdpau" false)   # needs r600/radeonsi/nouveau
-        (prev.lib.mesonEnable "gallium-va" false)       # VA-API: no HW video decode needed
-        (prev.lib.mesonBool "gallium-rusticl" false)    # OpenCL: needs LLVM
-        (prev.lib.mesonBool "teflon" false)             # TensorFlow: not needed
-        (prev.lib.mesonEnable "intel-rt" false)         # Intel ray-tracing: not our HW
+        (prev.lib.mesonEnable "gallium-vdpau" false)  # needs r600/radeonsi/nouveau
+        (prev.lib.mesonEnable "gallium-va" false)      # VA-API: no HW video decode needed
+        (prev.lib.mesonEnable "intel-rt" false)        # Intel ray-tracing: not our HW
       ];
     });
 
