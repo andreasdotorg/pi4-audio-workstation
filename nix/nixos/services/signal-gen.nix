@@ -14,7 +14,7 @@ in
     captureTarget = lib.mkOption {
       type = lib.types.str;
       default = "UMIK-1";
-      description = "PipeWire capture target name (measurement mic).";
+      description = "Device name pattern for hot-plug monitoring (maps to --device-watch).";
     };
 
     channels = lib.mkOption {
@@ -49,7 +49,7 @@ in
         ExecStart = lib.concatStringsSep " " [
           "${pi4audio-packages.signal-gen}/bin/pi4audio-signal-gen"
           "--managed"
-          "--capture-target" cfg.captureTarget
+          "--device-watch" cfg.captureTarget
           "--channels" (toString cfg.channels)
           "--listen" cfg.listenAddress
           "--max-level-dbfs=${cfg.maxLevelDbfs}"

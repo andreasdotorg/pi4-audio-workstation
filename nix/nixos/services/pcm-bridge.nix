@@ -44,10 +44,10 @@ let
         description = "PipeWire quantum (buffer size in frames).";
       };
 
-      levelsListen = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
-        default = null;
-        description = "TCP address for level metering (e.g. tcp:127.0.0.1:9100).";
+      managed = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = "Run under GraphManager supervision (--managed flag).";
       };
 
       extraArgs = lib.mkOption {
@@ -85,8 +85,8 @@ in
             "--channels" (toString inst.channels)
             "--rate" (toString inst.rate)
             "--quantum" (toString inst.quantum)
-          ] ++ lib.optionals (inst.levelsListen != null) [
-            "--levels-listen" inst.levelsListen
+          ] ++ lib.optionals inst.managed [
+            "--managed"
           ] ++ inst.extraArgs);
           Restart = "on-failure";
           RestartSec = 2;

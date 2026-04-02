@@ -84,7 +84,7 @@
       channels = 8;
       rate = 48000;
       quantum = 256;
-      levelsListen = "tcp:127.0.0.1:9100";
+      managed = true;
     };
 
     # capture-usb: reads from USBStreamer ALSA input

@@ -12,7 +12,7 @@ in
     enable = lib.mkEnableOption "pi4audio graph manager service";
 
     mode = lib.mkOption {
-      type = lib.types.enum [ "dj" "live" "monitoring" ];
+      type = lib.types.enum [ "standby" "dj" "live" "measurement" ];
       default = "dj";
       description = "Initial operating mode for the graph manager.";
     };
@@ -46,6 +46,9 @@ in
 
       serviceConfig = {
         Type = "simple";
+        # Graph manager spawns pw-dump as a subprocess for gain integrity
+        # checks and xrun monitoring — PipeWire tools must be in PATH.
+        Environment = "PATH=${pkgs.pipewire}/bin";
         ExecStart = "${pi4audio-packages.graph-manager}/bin/pi4audio-graph-manager --mode ${cfg.mode} --log-level ${cfg.logLevel} --speaker-channels ${toString cfg.speakerChannels} --sub-channels ${cfg.subChannels}";
         Restart = "on-failure";
         RestartSec = 3;

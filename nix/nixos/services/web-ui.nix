@@ -79,6 +79,26 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # Generate self-signed TLS certs if configured paths don't exist yet.
+    # Runs as a system-level oneshot (needs to write to /var/lib/pi4audio/certs).
+    systemd.services.pi4audio-generate-certs = lib.mkIf (cfg.sslKeyFile != null && cfg.sslCertFile != null) {
+      description = "Generate self-signed TLS certs for pi4audio web UI";
+      wantedBy = [ "multi-user.target" ];
+      before = [ "multi-user.target" ];
+      unitConfig.ConditionPathExists = "!${toString cfg.sslCertFile}";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = let
+          keyFile = toString cfg.sslKeyFile;
+          certFile = toString cfg.sslCertFile;
+        in "${pkgs.openssl}/bin/openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout ${keyFile} -out ${certFile} -days 3650 -nodes -subj /CN=mugge";
+        ExecStartPost = "${pkgs.coreutils}/bin/chmod 0600 ${toString cfg.sslKeyFile} ${toString cfg.sslCertFile}";
+        User = "ela";
+        Group = "ela";
+      };
+    };
+
     systemd.user.services.pi4-audio-webui = {
       description = "Pi4 Audio Workstation monitoring web UI (D-020)";
       after = [ "pipewire.service" ];
