@@ -42,26 +42,38 @@ CONVOLVER_NODE_NAME = "pi4audio-convolver"
 
 
 def _pw_dump_sync() -> list | None:
-    """Run ``pw-dump`` synchronously (called from thread pool)."""
-    try:
-        result = subprocess.run(
-            ["pw-dump"],
-            capture_output=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            log.error("pw-dump failed: %s", result.stderr.decode().strip())
+    """Run ``pw-dump`` synchronously (called from thread pool).
+
+    Retries once on JSON parse errors — pw-dump occasionally returns
+    truncated JSON when the PipeWire graph is mutating mid-snapshot.
+    """
+    import time
+
+    for attempt in range(2):
+        try:
+            result = subprocess.run(
+                ["pw-dump"],
+                capture_output=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                log.error("pw-dump failed: %s", result.stderr.decode().strip())
+                return None
+            return json.loads(result.stdout)
+        except subprocess.TimeoutExpired:
+            log.error("pw-dump timed out (30s)")
             return None
-        return json.loads(result.stdout)
-    except subprocess.TimeoutExpired:
-        log.error("pw-dump timed out (30s)")
-        return None
-    except FileNotFoundError:
-        log.error("pw-dump not found")
-        return None
-    except json.JSONDecodeError as exc:
-        log.error("pw-dump JSON parse error: %s", exc)
-        return None
+        except FileNotFoundError:
+            log.error("pw-dump not found")
+            return None
+        except json.JSONDecodeError as exc:
+            if attempt == 0:
+                log.warning("pw-dump JSON parse error (retrying): %s", exc)
+                time.sleep(0.5)
+                continue
+            log.error("pw-dump JSON parse error (after retry): %s", exc)
+            return None
+    return None
 
 
 async def pw_dump() -> list | None:
