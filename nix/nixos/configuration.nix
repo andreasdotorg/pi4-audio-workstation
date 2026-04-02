@@ -111,7 +111,7 @@
     # V3D and VC4 have their own compiler backends and do not use LLVM.
     # Restricting to Pi 4 drivers eliminates the LLVM runtime dependency.
     # D-022: hardware V3D GL is the only GPU path.
-    mesa = prev.mesa.override {
+    mesa = (prev.mesa.override {
       galliumDrivers = [
         "v3d"       # Broadcom VC5 — Pi 4 3D rendering
         "vc4"       # Broadcom VC4 — Pi 0-3 compat + display
@@ -120,7 +120,18 @@
         "broadcom"  # V3D Vulkan (Pi 4)
       ];
       vulkanLayers = [];  # no debug layers on dedicated audio workstation
-    };
+    }).overrideAttrs (oldAttrs: {
+      # Disable features that auto-detect from buildInputs but require
+      # drivers we've removed (r600/radeonsi/nouveau for VDPAU/VA-API)
+      # or subsystems unused on the Pi 4 audio workstation.
+      mesonFlags = (oldAttrs.mesonFlags or []) ++ [
+        (prev.lib.mesonEnable "gallium-vdpau" false)   # needs r600/radeonsi/nouveau
+        (prev.lib.mesonEnable "gallium-va" false)       # VA-API: no HW video decode needed
+        (prev.lib.mesonBool "gallium-rusticl" false)    # OpenCL: needs LLVM
+        (prev.lib.mesonBool "teflon" false)             # TensorFlow: not needed
+        (prev.lib.mesonEnable "intel-rt" false)         # Intel ray-tracing: not our HW
+      ];
+    });
 
     # PipeWire: disable Bluetooth audio support.
     # D-019: Bluetooth fully disabled (kernel BT=n, dtoverlay=disable-bt).
