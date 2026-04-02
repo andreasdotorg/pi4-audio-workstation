@@ -95,7 +95,7 @@ in
         in "${pkgs.openssl}/bin/openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout ${keyFile} -out ${certFile} -days 3650 -nodes -subj /CN=mugge";
         ExecStartPost = "${pkgs.coreutils}/bin/chmod 0600 ${toString cfg.sslKeyFile} ${toString cfg.sslCertFile}";
         User = "ela";
-        Group = "ela";
+        Group = "users";
       };
     };
 
