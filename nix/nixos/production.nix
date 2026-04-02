@@ -114,7 +114,7 @@
   # Certs: placed by admin or cert generation script, not managed by Nix.
   # Auth DB: SQLite database for passkey credentials + sessions (US-110).
   systemd.tmpfiles.rules = [
-    "d /var/lib/pi4audio/certs 0700 ela ela - -"
-    "d /var/lib/pi4audio 0700 ela ela - -"
+    "d /var/lib/pi4audio 0700 ela users - -"
+    "d /var/lib/pi4audio/certs 0700 ela users - -"
   ];
 }
