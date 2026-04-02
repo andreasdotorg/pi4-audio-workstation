@@ -155,13 +155,18 @@
       '';
     });
 
-    # PipeWire: disable Bluetooth audio support.
+    # PipeWire: disable Bluetooth and libcamera support.
     # D-019: Bluetooth fully disabled (kernel BT=n, dtoverlay=disable-bt).
     # Default PipeWire pulls bluez + BT audio codecs (SBC, LC3, aptX, LDAC,
     # fdk-aac) adding ~100+ MiB to the closure.
-    pipewire = prev.pipewire.override {
+    # US-119: libcamera not needed (audio workstation, no camera).
+    pipewire = (prev.pipewire.override {
       bluezSupport = false;
-    };
+    }).overrideAttrs (oldAttrs: {
+      mesonFlags = (oldAttrs.mesonFlags or []) ++ [
+        (prev.lib.mesonEnable "libcamera" false)
+      ];
+    });
   })];
 
   # Allow specific unfree packages (Reaper DAW)
