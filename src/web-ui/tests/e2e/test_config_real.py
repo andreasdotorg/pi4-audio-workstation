@@ -76,32 +76,33 @@ class TestConfigEndpointReal:
 
 
 class TestGraphEndpointReal:
-    """Graph info endpoint returns real GM data."""
+    """Graph topology endpoint returns real PW + GM data."""
 
-    def test_graph_info_returns_200(self, api_get):
-        """GET /api/v1/graph/info returns 200."""
-        status, data = api_get("/api/v1/graph/info")
-        assert status == 200, f"Graph info returned {status}: {data}"
+    def test_graph_topology_returns_200(self, api_get):
+        """GET /api/v1/graph/topology returns 200."""
+        status, data = api_get("/api/v1/graph/topology")
+        assert status == 200, f"Graph topology returned {status}: {data}"
 
-    def test_graph_info_has_mode(self, api_get):
-        """Graph info includes the current GM mode."""
-        status, data = api_get("/api/v1/graph/info")
+    def test_graph_topology_has_nodes(self, api_get):
+        """Graph topology includes PipeWire nodes."""
+        status, data = api_get("/api/v1/graph/topology")
         assert status == 200
-        assert "mode" in data, f"Graph info missing 'mode': {data}"
+        assert "nodes" in data, f"Graph topology missing 'nodes': {list(data.keys())}"
 
-    def test_graph_info_has_links(self, api_get):
-        """Graph info includes link topology data."""
-        status, data = api_get("/api/v1/graph/info")
+    def test_graph_topology_has_links(self, api_get):
+        """Graph topology includes link data."""
+        status, data = api_get("/api/v1/graph/topology")
         assert status == 200
-        assert "links" in data or "link_count" in data or "desired" in data, (
-            f"Graph info should have link topology data: {list(data.keys())}"
+        assert "links" in data, (
+            f"Graph topology should have 'links': {list(data.keys())}"
         )
 
 
-class TestSystemEndpointReal:
-    """System status endpoint returns real system data."""
+class TestStatusEndpointReal:
+    """Health-check endpoint returns ok."""
 
-    def test_system_status_returns_200(self, api_get):
-        """GET /api/v1/system/status returns 200."""
-        status, data = api_get("/api/v1/system/status")
-        assert status == 200, f"System status returned {status}: {data}"
+    def test_status_returns_200(self, api_get):
+        """GET /api/v1/status returns 200."""
+        status, data = api_get("/api/v1/status")
+        assert status == 200, f"Status endpoint returned {status}: {data}"
+        assert data.get("status") == "ok", f"Expected status=ok, got {data}"
