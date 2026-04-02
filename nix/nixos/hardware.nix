@@ -28,7 +28,13 @@
   boot.blacklistedKernelModules = [ "brcmfmac" ];
 
   # ── Firmware ───────────────────────────────────────────────────
-  hardware.enableRedistributableFirmware = true;
+  # US-117: Replace enableRedistributableFirmware (pulls full linux-firmware,
+  # ~736 MiB) with Pi-only wireless firmware (~3.5 MiB).
+  # The BCM43455 combo chip needs brcm/ + cypress/ firmware files even when
+  # WiFi is blacklisted (brcmfmac) — the firmware package is tiny and keeps
+  # the option to re-enable WiFi at a venue without rebuilding.
+  hardware.enableRedistributableFirmware = false;
+  hardware.firmware = [ pkgs.raspberrypiWirelessFirmware ];
 
   # ── GPU / display ──────────────────────────────────────────────
   # We want full KMS (vc4-kms-v3d), NOT the legacy fake-KMS overlay.
