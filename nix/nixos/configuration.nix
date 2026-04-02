@@ -102,6 +102,35 @@
   # No LVM or device-mapper on this system.
   boot.initrd.kernelModules = lib.mkForce [];
 
+  # US-119: Trim Mesa and PipeWire closures for the Pi 4B audio workstation.
+  # These overrides remove ~600+ MiB of unused dependencies from the SD image.
+  nixpkgs.overlays = [(final: prev: {
+    # Mesa: build only Pi 4 GPU drivers (V3D + VC4).
+    # The default mesa enables ~17 gallium drivers and ~12 vulkan drivers,
+    # pulling LLVM (~522 MiB) for llvmpipe/radeonsi shader compilation.
+    # V3D and VC4 have their own compiler backends and do not use LLVM.
+    # Restricting to Pi 4 drivers eliminates the LLVM runtime dependency.
+    # D-022: hardware V3D GL is the only GPU path.
+    mesa = prev.mesa.override {
+      galliumDrivers = [
+        "v3d"       # Broadcom VC5 — Pi 4 3D rendering
+        "vc4"       # Broadcom VC4 — Pi 0-3 compat + display
+      ];
+      vulkanDrivers = [
+        "broadcom"  # V3D Vulkan (Pi 4)
+      ];
+      vulkanLayers = [];  # no debug layers on dedicated audio workstation
+    };
+
+    # PipeWire: disable Bluetooth audio support.
+    # D-019: Bluetooth fully disabled (kernel BT=n, dtoverlay=disable-bt).
+    # Default PipeWire pulls bluez + BT audio codecs (SBC, LC3, aptX, LDAC,
+    # fdk-aac) adding ~100+ MiB to the closure.
+    pipewire = prev.pipewire.override {
+      bluezSupport = false;
+    };
+  })];
+
   # Allow specific unfree packages (Reaper DAW)
   nixpkgs.config.allowUnfreePredicate = pkg:
     builtins.elem (lib.getName pkg) [ "reaper" ];
