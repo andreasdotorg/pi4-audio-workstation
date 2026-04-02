@@ -22,6 +22,7 @@ nix run .#test-room-correction  # Room correction DSP tests
 nix run .#test-graph-manager    # GraphManager Rust tests (pure logic)
 nix run .#test-integration-browser  # Playwright browser integration tests
 nix run .#test-integration      # PipeWire integration test (Linux only, US-075)
+nix run .#test-e2e              # Real E2E: full stack + browser (Linux only)
 nix run .#test-all              # All suites sequentially
 nix run .#local-demo            # Local dev stack (PipeWire + GM + web UI, Linux only)
 ```
