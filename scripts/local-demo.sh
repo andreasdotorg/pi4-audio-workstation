@@ -608,8 +608,10 @@ start_services() {
     export PI4AUDIO_RECORDING_PEAK_CEILING_DBFS=20
     export PI4AUDIO_MIC_CLIP_THRESHOLD_DBFS=0
     export PI4AUDIO_RECORDING_DC_CEILING=0.1
-    export PI4AUDIO_TARGET_SPL_DB=90
-    export PI4AUDIO_HARD_LIMIT_SPL_DB=100
+    # Target must be achievable with signal-gen cap (-20 dBFS) through
+    # venue gains (-20 dB).  At -28 dBFS the room-sim yields ~80 dB SPL.
+    export PI4AUDIO_TARGET_SPL_DB=80
+    export PI4AUDIO_HARD_LIMIT_SPL_DB=95
     export PI4AUDIO_FILTER_OUTPUT_DIR="/tmp/pi4audio-demo/filters"
     export PI4AUDIO_SESSION_DIR="/tmp/pi4audio-demo/sessions"
     export PI4AUDIO_PW_CONF_DIR="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d"
