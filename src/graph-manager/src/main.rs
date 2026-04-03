@@ -1142,6 +1142,10 @@ fn build_state_snapshot(
         nodes,
         links,
         devices,
+        gate_open: false,
+        venue_loaded: false,
+        persisted_venue: None,
+        quantum: 0,
     }
 }
 
