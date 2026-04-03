@@ -60,7 +60,8 @@ Production Pi at venue (unreachable).
 | US-124 | draft | First-boot UX | Filed (`b391c98`). Depends US-113. |
 | US-125 | IMPLEMENT (in progress) | Explicit mode arming | Worker-4 verifying existing behavior, may need minimal changes. |
 | US-126 | IMPLEMENT (in progress) | Persistent audio gate banner | Worker-1 implementing banner on all tabs. |
-| US-127 | draft | Runtime coefficient switching (D-053) | Filed (`1b9b7b9`). Destroy-and-recreate only viable approach (C-011). Owner elevated D-053 as critical — blocks venue switching, measurement, boot state. |
+| US-112 | IMPLEMENT (priority) | PipeWire convolver hot-reload patch | **Owner decision: US-112 before US-127.** PW upstream patch for glitch-free coefficient reload. Dedicated worker assigned. If successful, US-127 becomes much simpler (no destroy-and-recreate). |
+| US-127 | draft (deferred) | Runtime coefficient switching (D-053) | Filed (`1b9b7b9`). **Deferred until US-112 complete.** If US-112 succeeds, destroy-and-recreate approach unnecessary. |
 
 
 ### Owner-Blocking Items
@@ -76,7 +77,7 @@ Production Pi at venue (unreachable).
 | US-113 acceptance | Real-stack E2E required (owner directive). Blocked on Phase 1b test infra. Mock E2E 34/34 pass insufficient. |
 | US-090/092-097 re-acceptance | E2E baseline clean (F-249 resolved by US-123). Ready for formal owner re-acceptance. |
 | ~~F-249 prioritization~~ | ~~RESOLVED by US-123 (`6ef8f93`).~~ |
-| US-127 prioritization | D-053 runtime coefficient switching — owner elevated as critical. Blocks venue switching, measurement design/verify, boot state. |
+| US-112 / US-127 sequencing | **Owner decision: US-112 (PW hot-reload patch) before US-127 (destroy-and-recreate).** US-112 in progress. If successful, US-127 simplifies dramatically. |
 | US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
 
