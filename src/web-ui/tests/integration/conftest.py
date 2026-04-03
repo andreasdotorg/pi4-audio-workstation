@@ -47,12 +47,19 @@ def _find_full_chrome() -> str | None:
 
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
-    """Use full chrome on aarch64 to avoid headless_shell <select> crash (F-120)."""
+    """Use full chrome on aarch64 + sandbox/shm flags for Nix containers (F-120)."""
+    args = dict(browser_type_launch_args)
     if platform.machine() == "aarch64":
         chrome = _find_full_chrome()
         if chrome:
-            browser_type_launch_args = {**browser_type_launch_args, "executable_path": chrome}
-    return browser_type_launch_args
+            args["executable_path"] = chrome
+    extra = ["--no-sandbox", "--disable-dev-shm-usage"]
+    existing = list(args.get("args", []))
+    for flag in extra:
+        if flag not in existing:
+            existing.append(flag)
+    args["args"] = existing
+    return args
 
 
 # ── Marker registration ────────────────────────────────────────────

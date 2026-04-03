@@ -20,13 +20,60 @@ Environment variables:
 
 import json
 import os
+import platform
 import socket
 import struct
 import time
 import urllib.request
 import urllib.error
+from pathlib import Path
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Chromium headless_shell crash workaround (F-120)
+# ---------------------------------------------------------------------------
+# Chromium 141's headless_shell crashes on aarch64-linux when rendering
+# <select> elements.  The full chrome binary does not have this bug.
+# Detect aarch64 and override the executable so pytest-playwright uses
+# the full chrome instead of headless_shell.
+# Also add --no-sandbox and --disable-dev-shm-usage for containerized
+# environments where /dev/shm is small (64 MB) and user namespaces may
+# not be available.
+
+def _find_full_chrome() -> str | None:
+    """Return the full chrome binary path from PLAYWRIGHT_BROWSERS_PATH."""
+    browsers = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+    if not browsers:
+        return None
+    browsers_path = Path(browsers)
+    if not browsers_path.is_dir():
+        return None
+    for entry in sorted(browsers_path.iterdir()):
+        if entry.name.startswith("chromium-") and "headless" not in entry.name:
+            chrome = entry / "chrome-linux" / "chrome"
+            if chrome.exists():
+                return str(chrome)
+    return None
+
+
+@pytest.fixture(scope="session")
+def browser_type_launch_args(browser_type_launch_args):
+    """Use full chrome on aarch64 + sandbox/shm flags for Nix containers."""
+    args = dict(browser_type_launch_args)
+    if platform.machine() == "aarch64":
+        chrome = _find_full_chrome()
+        if chrome:
+            args["executable_path"] = chrome
+    # Merge with any existing args list.
+    extra = ["--no-sandbox", "--disable-dev-shm-usage"]
+    existing = list(args.get("args", []))
+    for flag in extra:
+        if flag not in existing:
+            existing.append(flag)
+    args["args"] = existing
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -342,3 +389,31 @@ def _read_pcm_header(port: int, timeout: float = 5.0) -> dict | None:
 def read_pcm_header():
     """Fixture returning a pcm-bridge binary header reader."""
     return _read_pcm_header
+
+
+# ---------------------------------------------------------------------------
+# GM mode switching helper
+# ---------------------------------------------------------------------------
+
+def _switch_gm_mode(mode: str, gm_port: int = GM_PORT, timeout: float = 5.0) -> bool:
+    """Switch GraphManager to the given mode via RPC and wait for reconciliation."""
+    resp = _rpc_call("127.0.0.1", gm_port, {"cmd": "set_mode", "mode": mode}, timeout)
+    if not resp.get("ok"):
+        return False
+    time.sleep(3)  # Allow GM reconciler to settle
+    return True
+
+
+@pytest.fixture(scope="session")
+def ensure_dj_mode(gm_port):
+    """Switch GM to DJ mode once for the entire E2E session.
+
+    Tests that need audio signal (level-bridge, measurement) require
+    the GM to be in DJ mode so that signal-gen and Mixxx links are
+    established through the convolver.
+    """
+    if not _switch_gm_mode("dj", gm_port):
+        pytest.skip("Could not switch GM to DJ mode")
+    yield
+    # Restore standby after all tests
+    _switch_gm_mode("standby", gm_port)
