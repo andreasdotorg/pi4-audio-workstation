@@ -183,8 +183,9 @@ crossover frequency). To measure the true acoustic propagation delay
 
 This differs from transfer function measurement (see
 [realtime-transfer-function.md](realtime-transfer-function.md)), which
-uses a **pre-convolver** reference to capture the complete system response
-including the convolver itself.
+supports both pre-convolver (design mode) and post-convolver (verify
+mode) references depending on the calibration phase. Delay measurement
+always uses post-convolver regardless of TF mode.
 
 In our architecture:
 - **Delay reference**: pcm-bridge-monitor taps the convolver output

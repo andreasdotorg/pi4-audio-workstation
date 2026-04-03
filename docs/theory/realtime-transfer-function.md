@@ -231,12 +231,16 @@ if CPU cost exceeds ~5-10% of one core.
 2. **pcm-bridge**: No changes (both instances already run in production —
    monitor on port 9100, capture on port 9101)
 
-3. **GraphManager**: New link topology for measurement-with-noise mode:
+3. **GraphManager**: New link topology for measurement mode:
    - signal-gen -> convolver input (excitation)
-   - signal-gen output -> pcm-bridge-monitor (TF reference, pre-convolver)
    - USBStreamer capture -> pcm-bridge-capture (measurement)
-   - Note: for delay measurement, pcm-bridge-monitor taps post-convolver
-     instead — see [multichannel-delay-measurement.md](multichannel-delay-measurement.md)
+   - Reference tap (switchable by mode):
+     - **Design mode**: signal-gen output -> pcm-bridge-monitor (pre-convolver)
+     - **Verify mode**: convolver output -> pcm-bridge-monitor (post-convolver)
+   - Delay measurement always uses post-convolver tap — see
+     [multichannel-delay-measurement.md](multichannel-delay-measurement.md)
+   - Design mode also requires GM to load Dirac room correction
+     coefficients into the convolver (crossover slopes retained)
 
 4. **Web UI backend** — new endpoint:
    ```
@@ -269,13 +273,14 @@ if CPU cost exceeds ~5-10% of one core.
 
 9. **Program material as reference**: During live performance, use the
    actual music signal (Mixxx or Reaper output) as the reference instead
-   of noise excitation. The pre-convolver tap captures the program
-   material; the UMIK-1 captures the room response. Coherence naturally
-   indicates which frequencies have sufficient excitation energy at any
-   moment — a psytrance kick provides excellent sub-bass coherence, while
-   a vocal passage gives good mid-range data. Over time, a full-bandwidth
-   picture emerges. This enables continuous drift monitoring during a
-   performance without any audible measurement signal.
+   of noise excitation. Coherence naturally indicates which frequencies
+   have sufficient excitation energy at any moment — a psytrance kick
+   provides excellent sub-bass coherence, while a vocal passage gives
+   good mid-range data. Over time, a full-bandwidth picture emerges.
+   This enables continuous drift monitoring during a performance without
+   any audible measurement signal. Typically used in verify mode
+   (post-convolver reference) to confirm correction is holding during
+   the show.
 
 ---
 
@@ -311,6 +316,28 @@ if CPU cost exceeds ~5-10% of one core.
 **Combined workflow:** sweep/IR for initial calibration -> real-time TF for
 verification and fine-tuning -> real-time TF during soundcheck with
 audience noise present.
+
+### Design-Verify Calibration Cycle
+
+The real-time TF enables an iterative calibration workflow:
+
+1. **Load Dirac room filters** + crossover/HPF into convolver (GM command)
+2. **Design mode measure** (pre-convolver ref) — see raw room x speaker response
+   - Note: since room filters are Dirac, pre-convolver = post-convolver
+3. **Design correction** from the measurement data
+4. **Load correction filters** into convolver (GM command)
+5. **Verify mode measure** (post-convolver ref) — should be flat
+6. **Iterate** if needed — adjust filters, re-verify
+
+This cycle replaces the current batch workflow (sweep → offline compute →
+deploy → hope it's right → re-sweep if not). Each iteration takes seconds
+instead of minutes.
+
+**GraphManager requirement:** A "load Dirac" or "bypass room correction"
+command that replaces the room correction coefficients with identity
+(Dirac delta) while preserving the crossover slopes and sub HPF. This
+is distinct from simply muting or bypassing the convolver — the crossover
+must remain active to protect the drivers.
 
 ---
 
