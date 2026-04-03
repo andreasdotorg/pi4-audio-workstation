@@ -364,7 +364,7 @@
             program = "${pkgs.writeShellScript "test-unit" ''
               export PI_AUDIO_MOCK=1
               cd ${toString ./.}/src/web-ui
-              exec ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ "$@"
+              exec ${testPython}/bin/python -m pytest tests/unit/ -v "$@"
             ''}";
           };
 
