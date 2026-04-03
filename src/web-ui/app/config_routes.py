@@ -84,7 +84,7 @@ _mock_gains: Dict[str, float] = {
     "gain_iem_l": 1.0,
     "gain_iem_r": 1.0,
 }
-_mock_quantum: int = 1024
+_mock_quantum: int = 256
 
 
 # -- Request models ---------------------------------------------------------

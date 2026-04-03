@@ -348,6 +348,18 @@ async def status():
 GM_HOST = os.environ.get("PI4AUDIO_GM_HOST", "127.0.0.1")
 GM_PORT = int(os.environ.get("PI4AUDIO_GM_PORT", "4002"))
 
+# F-230 mock: quantum per mode (matches real GM set_quantum_for_mode in main.rs).
+_MODE_QUANTUM = {"dj": 1024, "standby": 256, "live": 256, "measurement": 256}
+
+
+def _sync_mock_quantum(mode: str) -> None:
+    """Update the mock quantum to match the mode (F-230 mock equivalent)."""
+    mock_mode = os.environ.get("PI_AUDIO_MOCK", "1") == "1"
+    if not mock_mode:
+        return
+    from .. import config_routes as cr
+    cr._mock_quantum = _MODE_QUANTUM.get(mode, 256)
+
 
 @contextlib.contextmanager
 def _gm_client():
@@ -413,10 +425,12 @@ async def ensure_measurement_mode():
         )
 
     if current == "measurement":
+        _sync_mock_quantum("measurement")
         return {"mode": "measurement", "switched": False}
 
     try:
         await asyncio.to_thread(_gm_set_mode, "measurement")
+        _sync_mock_quantum("measurement")
         log.info("F-144: Switched GM to measurement mode (was: %s)", current)
         return {"mode": "measurement", "switched": True, "previous": current}
     except Exception as exc:
@@ -460,10 +474,12 @@ async def restore_mode(request: Request):
         )
 
     if current == target:
+        _sync_mock_quantum(target)
         return {"mode": target, "switched": False}
 
     try:
         await asyncio.to_thread(_gm_set_mode, target)
+        _sync_mock_quantum(target)
         log.info("F-160: Restored GM to %s mode (was: %s)", target, current)
         return {"mode": target, "switched": True}
     except Exception as exc:
