@@ -81,6 +81,11 @@ pub struct StateResponse {
     pub nodes: Vec<NodeInfo>,
     pub links: Vec<LinkInfo>,
     pub devices: HashMap<String, String>,
+    /// US-123 AC #7: boot state fields.
+    pub gate_open: bool,
+    pub venue_loaded: bool,
+    pub persisted_venue: Option<String>,
+    pub quantum: u32,
 }
 
 /// Device query response.
@@ -130,6 +135,11 @@ pub struct StateSnapshot {
     pub nodes: Vec<NodeInfo>,
     pub links: Vec<LinkInfo>,
     pub devices: HashMap<String, String>,
+    /// US-123 AC #7: boot state fields.
+    pub gate_open: bool,
+    pub venue_loaded: bool,
+    pub persisted_venue: Option<String>,
+    pub quantum: u32,
 }
 
 impl StateSnapshot {
@@ -145,6 +155,10 @@ impl StateSnapshot {
             nodes: Vec::new(),
             links: Vec::new(),
             devices,
+            gate_open: false,
+            venue_loaded: false,
+            persisted_venue: None,
+            quantum: 0,
         }
     }
 }
@@ -551,6 +565,10 @@ fn handle_get_state(
             nodes: snap.nodes,
             links: snap.links,
             devices: snap.devices,
+            gate_open: snap.gate_open,
+            venue_loaded: snap.venue_loaded,
+            persisted_venue: snap.persisted_venue,
+            quantum: snap.quantum,
         };
         return HandleResult::ResponseJson(
             serde_json::to_string(&resp).unwrap_or_default(),
@@ -567,6 +585,10 @@ fn handle_get_state(
                 nodes: snap.nodes,
                 links: snap.links,
                 devices: snap.devices,
+                gate_open: snap.gate_open,
+                venue_loaded: snap.venue_loaded,
+                persisted_venue: snap.persisted_venue,
+                quantum: snap.quantum,
             };
             HandleResult::ResponseJson(
                 serde_json::to_string(&resp).unwrap_or_default(),
@@ -586,6 +608,10 @@ fn handle_get_state(
                 nodes: snap.nodes,
                 links: snap.links,
                 devices: snap.devices,
+                gate_open: snap.gate_open,
+                venue_loaded: snap.venue_loaded,
+                persisted_venue: snap.persisted_venue,
+                quantum: snap.quantum,
             };
             HandleResult::ResponseJson(
                 serde_json::to_string(&resp).unwrap_or_default(),

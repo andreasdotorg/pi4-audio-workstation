@@ -104,6 +104,110 @@ pub fn gain_db_to_linear(gain_db: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
+// Venue name persistence (US-123)
+// ---------------------------------------------------------------------------
+
+/// Directory for persistent state that survives reboots.
+const STATE_DIR: &str = "/var/lib/pi4audio";
+
+/// State file for the last-used venue name.
+const LAST_VENUE_FILE: &str = "last-venue";
+
+/// Resolve the state directory path.
+///
+/// Uses `PI4AUDIO_STATE_DIR` env var if set (for testing), otherwise
+/// falls back to `/var/lib/pi4audio`.
+fn state_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("PI4AUDIO_STATE_DIR") {
+        PathBuf::from(dir)
+    } else {
+        PathBuf::from(STATE_DIR)
+    }
+}
+
+/// Persist the venue name to disk via atomic write (US-123 AC #4).
+///
+/// Writes to a temp file, fsyncs, then renames — crash-safe.
+/// Creates a `.bak` backup of the previous file before overwriting.
+/// Errors are logged but not fatal (venue persistence is best-effort).
+pub fn persist_venue_name(name: &str) {
+    let dir = state_dir();
+    let path = dir.join(LAST_VENUE_FILE);
+    let tmp_path = dir.join(format!("{}.tmp", LAST_VENUE_FILE));
+    let bak_path = dir.join(format!("{}.bak", LAST_VENUE_FILE));
+
+    // Create state dir if missing (may not exist on first run).
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        log::warn!("US-123: cannot create state dir {:?}: {}", dir, e);
+        return;
+    }
+
+    // Backup existing file before overwriting.
+    if path.exists() {
+        if let Err(e) = std::fs::copy(&path, &bak_path) {
+            log::warn!("US-123: backup copy failed: {}", e);
+        }
+    }
+
+    // Atomic write: temp file -> fsync -> rename.
+    match std::fs::File::create(&tmp_path) {
+        Ok(mut f) => {
+            use std::io::Write;
+            if let Err(e) = f.write_all(name.as_bytes()) {
+                log::warn!("US-123: write failed: {}", e);
+                return;
+            }
+            if let Err(e) = f.sync_all() {
+                log::warn!("US-123: fsync failed: {}", e);
+                return;
+            }
+        }
+        Err(e) => {
+            log::warn!("US-123: create temp file failed: {}", e);
+            return;
+        }
+    }
+
+    if let Err(e) = std::fs::rename(&tmp_path, &path) {
+        log::warn!("US-123: rename failed: {}", e);
+        return;
+    }
+
+    log::info!("US-123: persisted venue name '{}' to {:?}", name, path);
+}
+
+/// Load the persisted venue name from disk (US-123 AC #5).
+///
+/// Reads the primary file; falls back to `.bak` if missing or corrupt.
+/// Returns None on first boot or if both files are missing/empty.
+pub fn load_persisted_venue() -> Option<String> {
+    let dir = state_dir();
+    let path = dir.join(LAST_VENUE_FILE);
+    let bak_path = dir.join(format!("{}.bak", LAST_VENUE_FILE));
+
+    // Try primary file.
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        let name = content.trim().to_string();
+        if !name.is_empty() {
+            log::info!("US-123: loaded persisted venue '{}' from {:?}", name, path);
+            return Some(name);
+        }
+    }
+
+    // Fallback to backup.
+    if let Ok(content) = std::fs::read_to_string(&bak_path) {
+        let name = content.trim().to_string();
+        if !name.is_empty() {
+            log::warn!("US-123: primary state file missing, loaded venue '{}' from backup", name);
+            return Some(name);
+        }
+    }
+
+    log::info!("US-123: no persisted venue found (first boot)");
+    None
+}
+
+// ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
 
@@ -509,5 +613,65 @@ channels:
     fn channel_names_match_gain_param_names_count() {
         assert_eq!(CHANNEL_NAMES.len(), GAIN_PARAM_NAMES.len());
         assert_eq!(CHANNEL_NAMES.len(), 8);
+    }
+
+    // -----------------------------------------------------------------------
+    // Venue persistence (US-123)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn persist_and_load_venue_name() {
+        let tmp = std::env::temp_dir().join("venue_persist_test");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PI4AUDIO_STATE_DIR", &tmp);
+
+        persist_venue_name("test-venue-1");
+
+        let loaded = load_persisted_venue();
+        assert_eq!(loaded, Some("test-venue-1".to_string()));
+
+        // Overwrite — should create backup.
+        persist_venue_name("test-venue-2");
+        let loaded = load_persisted_venue();
+        assert_eq!(loaded, Some("test-venue-2".to_string()));
+
+        // Backup file should contain old value.
+        let bak = fs::read_to_string(tmp.join("last-venue.bak")).unwrap();
+        assert_eq!(bak.trim(), "test-venue-1");
+
+        let _ = fs::remove_dir_all(&tmp);
+        std::env::remove_var("PI4AUDIO_STATE_DIR");
+    }
+
+    #[test]
+    fn load_persisted_venue_fallback_to_backup() {
+        let tmp = std::env::temp_dir().join("venue_persist_bak_test");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PI4AUDIO_STATE_DIR", &tmp);
+
+        // Write only the backup file.
+        fs::write(tmp.join("last-venue.bak"), "backup-venue").unwrap();
+
+        let loaded = load_persisted_venue();
+        assert_eq!(loaded, Some("backup-venue".to_string()));
+
+        let _ = fs::remove_dir_all(&tmp);
+        std::env::remove_var("PI4AUDIO_STATE_DIR");
+    }
+
+    #[test]
+    fn load_persisted_venue_returns_none_when_empty() {
+        let tmp = std::env::temp_dir().join("venue_persist_empty_test");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("PI4AUDIO_STATE_DIR", &tmp);
+
+        let loaded = load_persisted_venue();
+        assert_eq!(loaded, None);
+
+        let _ = fs::remove_dir_all(&tmp);
+        std::env::remove_var("PI4AUDIO_STATE_DIR");
     }
 }

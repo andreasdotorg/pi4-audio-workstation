@@ -200,7 +200,9 @@ fn run_pipewire(
     info!("Graph info cache initialized");
 
     // Active venue name (US-113: set via set_venue RPC).
-    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    // US-123: Load persisted venue name from disk (does NOT open gate or apply gains).
+    let persisted_venue = venue::load_persisted_venue();
+    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(persisted_venue));
 
     // D-063 audio gate state: all gains start at 0.0, gate closed.
     // Gate must be explicitly opened via `open_gate` RPC after loading a venue.
@@ -229,6 +231,11 @@ fn run_pipewire(
             gate_open.clone(),
         );
     info!("PipeWire registry listener registered (reconciliation + lifecycle + watchdog wired)");
+
+    // US-123 / F-249: Set quantum on startup to match initial mode.
+    // Previously only called during mode transitions, leaving quantum unset
+    // at boot (reported as F-249).
+    set_quantum_for_mode(initial_mode);
 
     // Shutdown timer: poll the AtomicBool every 100ms and quit the PW loop.
     let mainloop_ptr = mainloop.as_raw_ptr();
@@ -484,7 +491,19 @@ fn dispatch_rpc_command(
             let g = graph.borrow();
             let mode = *current_mode.borrow();
             let reg = component_registry.borrow();
-            let snap = build_state_snapshot(&g, mode, &reg);
+            let gi_cache = graph_info_cache.borrow();
+            let is_gate_open = *gate_open.borrow();
+            let venue = active_venue.borrow().clone();
+            let mut snap = build_state_snapshot(&g, mode, &reg);
+            // US-123 AC #7: populate boot state fields.
+            snap.gate_open = is_gate_open;
+            snap.venue_loaded = venue.is_some();
+            snap.persisted_venue = venue;
+            snap.quantum = if gi_cache.force_quantum > 0 {
+                gi_cache.force_quantum
+            } else {
+                gi_cache.quantum
+            };
             let _ = reply.send(snap);
         }
 
@@ -606,6 +625,9 @@ fn dispatch_rpc_command(
             let gains = venue::venue_gains(&profile);
             *pending_gains.borrow_mut() = gains.clone();
             *active_venue.borrow_mut() = Some(name.clone());
+
+            // US-123 AC #4: Persist venue name to disk for crash recovery.
+            venue::persist_venue_name(&name);
 
             // 3. If gate is open, apply gains immediately (hot venue switch).
             // NOTE: Gains are applied in a single loop iteration with no ramp.

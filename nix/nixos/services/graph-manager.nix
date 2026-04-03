@@ -13,7 +13,7 @@ in
 
     mode = lib.mkOption {
       type = lib.types.enum [ "standby" "dj" "live" "measurement" ];
-      default = "dj";
+      default = "standby";
       description = "Initial operating mode for the graph manager.";
     };
 
@@ -37,6 +37,11 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # US-123: Persistent state directory for venue name across reboots.
+    systemd.tmpfiles.rules = [
+      "d /var/lib/pi4audio 0755 ela users -"
+    ];
+
     systemd.user.services.pi4audio-graph-manager = {
       description = "PipeWire Graph Manager — sole session manager for link topology";
       after = [ "pipewire.service" "wireplumber.service" ];
