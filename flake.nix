@@ -637,6 +637,27 @@
             ''}";
           };
 
+          # Pi-loopback tests — real USB audio with patch cables, no speakers.
+          # Runs E2E tests excluding acoustic tests. Requires --loopback-confirmed.
+          test-pi-loopback = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-pi-loopback" ''
+              export PI_AUDIO_BACKEND=pi-loopback
+              cd ${toString ./.}/src/web-ui
+              exec ${e2ePython}/bin/python -m pytest tests/e2e/ -v -m "not needs_acoustic" --loopback-confirmed "$@"
+            ''}";
+          };
+
+          # Pi-full tests — everything, owner present, speakers connected.
+          test-pi-full = {
+            type = "app";
+            program = "${pkgs.writeShellScript "test-pi-full" ''
+              export PI_AUDIO_BACKEND=pi-full
+              cd ${toString ./.}/src/web-ui
+              exec ${e2ePython}/bin/python -m pytest tests/e2e/ -v --owner-confirmed --destructive "$@"
+            ''}";
+          };
+
           # US-077 DoD #2: Capture headless browser screenshots of dashboard
           # with steady-state 1 kHz sine. Starts full local-demo stack, plays
           # sine, uses Playwright to screenshot meters/spectrum, then tears down.
