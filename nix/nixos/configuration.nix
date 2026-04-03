@@ -166,6 +166,13 @@
       mesonFlags = (oldAttrs.mesonFlags or []) ++ [
         (prev.lib.mesonEnable "libcamera" false)
       ];
+      # US-112: Add convolver hot-reload control port (D-053).
+      # Adds a "Reload" boolean control input to the convolver builtin
+      # plugin, enabling runtime FIR coefficient switching without
+      # restarting PipeWire.
+      patches = (oldAttrs.patches or []) ++ [
+        ../patches/pipewire-convolver-reload.patch
+      ];
     });
   })];
 
