@@ -10,7 +10,7 @@ from app.spa_config_parser import (
 )
 
 # Path to the real config file used as fixture
-CONFIG_PATH = pathlib.Path(__file__).resolve().parents[3] / "configs/pipewire/30-filter-chain-convolver.conf"
+CONFIG_PATH = pathlib.Path(__file__).resolve().parents[4] / "configs/pipewire/30-filter-chain-convolver.conf"
 
 
 @pytest.fixture
