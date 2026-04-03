@@ -330,6 +330,7 @@ var PiAudio = (function () {
         setGauge: setGauge,
         splColor: splColor,
         splColorRaw: splColorRaw,
+        switchView: switchView,
         scenario: scenario,
         get pcmChannels() { return pcmChannels; },
     };

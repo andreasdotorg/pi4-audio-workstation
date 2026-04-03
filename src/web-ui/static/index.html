@@ -29,6 +29,12 @@
     </div>
 </nav>
 
+<!-- US-126: Persistent audio gate banner — visible on ALL tabs when gate closed -->
+<div id="gate-banner" class="gate-banner" style="display:none">
+    <span class="gate-banner-text">AUDIO GATE CLOSED — No audio output</span>
+    <a class="gate-banner-link" href="#" onclick="PiAudio.switchView('config'); return false;">Open in Config</a>
+</div>
+
 <!-- Persistent status bar (36px) — visible on ALL tabs -->
 <div class="status-bar" id="status-bar">
     <!-- Audio group: mini meters + DSP state + Clip + Xruns -->
@@ -1282,6 +1288,7 @@
 <script src="/static/js/graph.js?v=49"></script>
 <script src="/static/js/config.js?v=50"></script>
 <script src="/static/js/venue.js?v=50"></script>
+<script src="/static/js/gate-banner.js?v=50"></script>
 <script src="/static/js/speaker-config.js?v=49"></script>
 <script src="/static/js/hardware-config.js?v=49"></script>
 <script src="/static/js/protection.js?v=49"></script>

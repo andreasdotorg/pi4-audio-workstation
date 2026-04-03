@@ -46,6 +46,9 @@ async def ws_system(
                 # F-056: Reflect quantum changes made via Config tab
                 from .config_routes import _mock_quantum as current_q
                 data["pipewire"]["quantum"] = current_q
+                # US-126: Gate state for persistent banner
+                if "gate" not in data:
+                    data["gate"] = {"gate_open": False, "venue": None, "venue_loaded": False}
                 await ws.send_text(json.dumps(data))
                 await asyncio.sleep(1.0)
         except WebSocketDisconnect:
@@ -66,6 +69,18 @@ async def ws_system(
         log.info("System WS disconnected")
     except Exception:
         log.exception("System WS error")
+
+
+def _gate_section(cdsp_col) -> dict:
+    """Build the gate state fragment from FilterChainCollector's GM state."""
+    gm_state = cdsp_col.get_gm_state() if cdsp_col else None
+    if gm_state:
+        return {
+            "gate_open": gm_state.get("gate_open", False),
+            "venue": gm_state.get("persisted_venue"),
+            "venue_loaded": gm_state.get("venue_loaded", False),
+        }
+    return {"gate_open": False, "venue": None, "venue_loaded": False}
 
 
 def _build_system_snapshot(app) -> dict:
@@ -152,4 +167,5 @@ def _build_system_snapshot(app) -> dict:
             "pipewire_cpu": 0.0,
             "labwc_cpu": 0.0,
         }),
+        "gate": _gate_section(cdsp_col),
     }
