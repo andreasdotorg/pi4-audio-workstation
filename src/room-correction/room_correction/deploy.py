@@ -9,10 +9,11 @@ verification (run_all_checks). The deploy function requires explicit
 confirmation that verification passed.
 
 NOTE: ``reload_convolver()`` is the preferred reload mechanism — it
-destroys only the convolver node, PipeWire auto-recreates it, and all
-other clients stay connected (no USBStreamer reset, no transient risk).
-``reload_pipewire()`` is retained for emergencies but should not be used
-for normal filter switching (see F-221).
+triggers the Reload control port on the convolver node (US-112 patch),
+which reloads coefficients in-place without destroying the node.  All
+PW links stay connected, no GM re-linking required, no audio dropout
+beyond the ~10ms crossfade.  ``reload_pipewire()`` is retained for
+emergencies but should not be used for normal filter switching (F-221).
 
 TK-166: Supports versioned (timestamped) filenames for deployment
 traceability. Each deployment uses unique paths so that deployed versions
@@ -357,50 +358,81 @@ def reload_pipewire():
         return False
 
 
+def _find_node_id(node_name: str) -> str | None:
+    """Find the PipeWire object ID for a node by name.
+
+    Parses ``pw-cli list-objects Node`` output for lines like::
+
+        id 42, type PipeWire:Interface:Node/3
+          node.name = "pi4audio-convolver"
+
+    Returns the object ID as a string, or None if not found.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["pw-cli", "list-objects", "Node"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+    current_id = None
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("id ") and "type PipeWire:Interface:Node" in stripped:
+            parts = stripped.split(",", 1)
+            current_id = parts[0].split()[1] if len(parts[0].split()) >= 2 else None
+        elif current_id and f'node.name = "{node_name}"' in stripped:
+            return current_id
+    return None
+
+
 def reload_convolver(node_name: str = "pi4audio-convolver",
                      timeout_s: float = 5.0) -> bool:
-    """Reload convolver by destroying the node — PipeWire auto-recreates it.
+    """Reload convolver coefficients via the Reload control port (US-112).
 
-    This is the NON-DISRUPTIVE reload mechanism: only the convolver node is
-    affected.  All other PW clients (GM, signal-gen, pcm-bridge, Mixxx, etc.)
-    stay connected.  No USBStreamer reset, no transient risk.
+    Sets the ``Reload`` control parameter to 1.0 on the convolver node,
+    triggering an in-place coefficient reload.  The node stays alive, all
+    PipeWire links remain connected, and there is no audio dropout beyond
+    the crossfade window (~10ms).
 
-    PipeWire's filter-chain module re-reads its ``.conf.d/`` drop-ins when
-    the node is destroyed, recreating it with updated coefficients.
-    GraphManager re-links the new node (~1-2 s audio gap).
+    Requires the patched PipeWire with convolver-reload support
+    (``nix/patches/pipewire-convolver-reload.patch``).
 
     Returns
     -------
     bool
-        True if the node was destroyed and reappeared within *timeout_s*.
+        True if the reload was triggered and the node is still alive.
     """
     import subprocess
-    import time
 
-    try:
-        subprocess.run(
-            ["pw-cli", "destroy", node_name],
-            capture_output=True, text=True, timeout=5,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        print(f"  WARNING: pw-cli destroy failed: {exc}")
+    node_id = _find_node_id(node_name)
+    if node_id is None:
+        print(f"  WARNING: Convolver node '{node_name}' not found.")
         return False
 
-    # Wait for PipeWire to recreate the node from .conf.d/.
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        time.sleep(0.5)
-        try:
-            result = subprocess.run(
-                ["pw-cli", "list-objects", "Node"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if node_name in result.stdout:
-                print(f"  Convolver node '{node_name}' recreated.")
-                return True
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass
+    print(f"  Convolver node '{node_name}' has ID {node_id}.")
 
-    print(f"  WARNING: Convolver node '{node_name}' did not reappear "
-          f"within {timeout_s:.0f}s.")
+    try:
+        result = subprocess.run(
+            ["pw-cli", "s", node_id, "Props",
+             '{ params = [ "Reload" 1.0 ] }'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            print(f"  WARNING: pw-cli set Props failed: {result.stderr.strip()}")
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        print(f"  WARNING: pw-cli set Props failed: {exc}")
+        return False
+
+    verified_id = _find_node_id(node_name)
+    if verified_id == node_id:
+        print(f"  Convolver '{node_name}' reloaded (node ID {node_id} preserved).")
+        return True
+
+    print(f"  WARNING: Convolver node ID changed ({node_id} -> {verified_id}) "
+          f"or node disappeared after reload.")
     return False
