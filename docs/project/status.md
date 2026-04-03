@@ -25,15 +25,15 @@ Production Pi at venue (unreachable).
 | US-075 | COMPLETE | Local PW integration test env | Done. 35 E2E production-replica tests committed (`7b43222`). |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | Blocked by F-198 |
-| US-090 | REVIEW (Gate 3) | FIR filter generation web UI | QE E2E passed (session 9). Awaiting owner re-acceptance. |
+| US-090 | REVIEW (Gate 3) | FIR filter generation web UI | Re-verification blocked on Phase 1a/1b test restructuring. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
-| US-092 | REVIEW (Gate 3) | Per-driver thermal/mechanical protection | QE E2E passed (session 9). F-244 (DELETE confirmation) cross-cutting, non-blocking. Awaiting owner re-acceptance. |
-| US-093 | REVIEW (Gate 3) | Amplifier sensitivity calibration | QE E2E passed (session 9). Awaiting owner re-acceptance. |
-| US-094 | REVIEW (Gate 3) | ISO 226 equal loudness compensation | QE E2E passed (session 9). Awaiting owner re-acceptance. |
-| US-095 | REVIEW (Gate 3) | Graph viz — truthful PW topology | QE E2E passed (session 9). Awaiting owner re-acceptance. |
-| US-096 | REVIEW (Gate 3) | UMIK-1 full calibration pipeline | QE E2E passed (session 9). Awaiting owner re-acceptance. |
-| US-097 | REVIEW (Gate 3) | Room compensation web UI workflow | QE E2E passed (session 9). Awaiting owner re-acceptance. |
-| US-098 | TEST | Room correction pipeline verification | P0 done; F-235 RESOLVED — P1/P2 unblocked |
+| US-092 | REVIEW (Gate 3) | Per-driver thermal/mechanical protection | Re-verification blocked on Phase 1a/1b. F-244 (DELETE confirmation) cross-cutting, non-blocking. |
+| US-093 | REVIEW (Gate 3) | Amplifier sensitivity calibration | Re-verification blocked on Phase 1a/1b. |
+| US-094 | REVIEW (Gate 3) | ISO 226 equal loudness compensation | Re-verification blocked on Phase 1a/1b. |
+| US-095 | REVIEW (Gate 3) | Graph viz — truthful PW topology | Re-verification blocked on Phase 1a/1b. |
+| US-096 | REVIEW (Gate 3) | UMIK-1 full calibration pipeline | Re-verification blocked on Phase 1a/1b. |
+| US-097 | REVIEW (Gate 3) | Room compensation web UI workflow | Re-verification blocked on Phase 1a/1b. |
+| US-098 | TEST (P1/P2 verified) | Room correction pipeline verification | P0 done; F-235 RESOLVED. P1/P2 verified: 41/41 pass. |
 | US-077 | TEST 6/9 | Single-clock timestamp arch | DoD #2-3 in progress, #4 Pi perf regression |
 | US-070 | TEST 3/7 | GitHub Actions CI pipeline | Branch protection, QE sign-off |
 | US-044 | IMPLEMENT/TEST | Safety protection suite | AC #3-5 implemented (54 tests), AC #1-2/6-8 need Pi. Local-demo verification in progress. |
@@ -46,13 +46,13 @@ Production Pi at venue (unreachable).
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | BLOCKED (real-stack E2E) | First-boot active config + FoH passthrough | All 5 phases committed (`146a390`, `d6b462e`, `03903c4`, `6653c5f`, `c3b8c7a`). 34/34 mock E2E pass. **Owner directive: acceptance requires real-stack E2E (not mocks).** QE defining requirements (L-QE-002). |
+| US-113 | BLOCKED (real-stack E2E) | First-boot active config + FoH passthrough | All 5 phases committed. 34/34 mock E2E pass. **Owner directive: acceptance requires real-stack E2E (not mocks).** Blocked on Phase 1b test infra (L-QE-002). |
 | US-114 | TEST (Pi validated) | Minimal kernel config for Pi 4B | ~100 overrides committed + session 9 fixes (`7976ee0`, `c791ada`, `4c17ebb`: SND_SOC/DRM_VC4 deps, initrd strip, NVMe disable). Kernel boots on test Pi with all required hardware. Remaining: build time/size docs (AC #6-7), upgrade procedure (AC #9). |
 | US-115 | IMPLEMENT (Phase 0 done) | 8-channel filter-chain convolver (D-063) | Phase 0 complete: 8ch configs, dirac.wav, gain nodes, routing. Critical path — blocks US-113 E2E. |
 | US-116 | ready | Per-channel time delay measurement + compensation | Depends US-115, US-113. 8 AC, 8 tasks. AE-consulted detection improvements. |
 | US-117 | draft | Tier 1 image size: firmware/locale/git/registry trim | ~1.1 GiB savings, zero functional impact. Depends US-072. |
 | US-118 | draft | Tier 2 image size: Reaper closure optimization | ~800 MiB savings. Reaper pulls VLC (1.4 GiB closure). Owner option decision needed. Depends US-072. |
-| US-119 | draft | Tier 3 image size: Mesa without LLVM, PipeWire without bluez | ~500-800 MiB savings. Custom builds required. Depends US-072, US-117. |
+| US-119 | IMPLEMENT (partial) | Tier 3 image size: Mesa without LLVM, PipeWire without bluez | libcamera disable committed (`1f3e865`). Mesa V3D-only + PW no-bluez done earlier. ~500-800 MiB savings. |
 
 
 ### Owner-Blocking Items
@@ -65,8 +65,8 @@ Production Pi at venue (unreachable).
 | US-044 Pi tests (T-044-6/7) | Owner Pi session |
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
-| US-113 acceptance | Real-stack E2E required (owner directive). QE defining requirements (L-QE-002). Mock E2E 34/34 pass insufficient. |
-| US-090/092-097 re-acceptance | QE E2E passed (session 9). Ready for owner re-acceptance (Gate 3). |
+| US-113 acceptance | Real-stack E2E required (owner directive). Blocked on Phase 1b test infra. Mock E2E 34/34 pass insufficient. |
+| US-090/092-097 re-acceptance | Blocked on Phase 1a/1b test restructuring (modular test infra needed for re-verification). |
 | US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
 
@@ -155,7 +155,7 @@ Production Pi at venue (unreachable).
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~240 (15 session 6, 5 session 7, 5 session 8, ~18 session 9) |
+| Git commits | ~247 (15 session 6, 5 session 7, 5 session 8, ~25 session 9) |
 | Total stories filed | 123 (US-117, US-118, US-119 filed session 9) |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
@@ -164,7 +164,7 @@ Production Pi at venue (unreachable).
 | Stories ready | 0 |
 | Open defects (HIGH+) | 5 (F-187, F-037, F-222, F-244, F-245) |
 | Defects resolved session 8 | 1 (F-235) |
-| Session 9 commits | ~18 (11 US-072 HW validation + US-113 Phase 4/5 + US-114 fixes) |
+| Session 9 commits | ~25+ (11 US-072 HW validation, US-113 Phase 4/5, US-114 fixes, US-119, service fixes, CM fix, test infra) |
 | Open defects (Medium) | ~30 (F-234, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
 | Total defects filed | 247 (F-239 through F-247 filed session 7) |
@@ -199,10 +199,16 @@ through D-063). Most significant recent decisions:
 
 ## Session 9 Summary (2026-04-02)
 
-### Commits (~18, 11 pushed to test Pi)
+### Commits (~25+, session ongoing)
 
 | SHA | Description |
 |-----|-------------|
+| 5ca4735 | E2E endpoint path corrections |
+| d669d3f | web UI PATH for pw-dump/pw-cli |
+| 0d7cdee | tmpfiles Group=users |
+| be8d682 | cert service Group=users |
+| 1f3e865 | US-119 libcamera disable |
+| 6297a4f | CM role prompt fix: remove git reset HEAD from commit protocol (L-020) |
 | 308c0b8 | labwc autostart — executable mode + start wayvnc directly |
 | c4d9823 | labwc autostart — activate graphical-session.target for wayvnc |
 | 972ad72 | WLR_LIBINPUT_NO_DEVICES for headless Pi |
@@ -238,6 +244,22 @@ through D-063). Most significant recent decisions:
    module stripping, NVMe disable. Kernel validated on test Pi hardware.
 4. **S8-dup incident documented** — CLAUDE.md updated with session 8 team duplication
    incident (ninth occurrence).
+5. **Gate 2 PASSED** — Full audio workstation stack running on test Pi. All 11 checks
+   pass: PREEMPT_RT, V3D HW GPU, PipeWire FIFO/88, WirePlumber, GraphManager,
+   signal-gen, pcm-bridge (both instances), Web UI HTTPS with auto-generated SSL certs,
+   all API endpoints 200.
+6. **US-119 libcamera disable** committed (`1f3e865`).
+7. **Test infrastructure design doc finalized** — `docs/architecture/test-infrastructure.md`,
+   architect + QE approved.
+8. **US-098 P1/P2 verified** — 41/41 pass.
+9. **Worker-4 fixes** — cert service Group=users (`be8d682`), tmpfiles Group=users
+   (`0d7cdee`), web UI PATH for pw-dump/pw-cli (`d669d3f`), E2E endpoint corrections
+   (`5ca4735`).
+10. **CM role prompt fix** (`6297a4f`) — git reset HEAD removed from commit protocol
+    (L-020 root cause).
+11. **Nix store cleanup** — 45.6 GB freed on builder.
+12. **Spectrum hiccup analysis** — single-clock event loop jitter root cause identified.
+    Owner rejected decimation/batching fix. Approach TBD.
 
 ### Test Pi Validation Results
 
@@ -249,14 +271,35 @@ All components verified on 192.168.178.35:
 - Zero kernel WARNINGs in dmesg
 - Clean boot sequence
 
+### In Progress
+
+- **Worker-1:** Phase 1a test restructuring (22 unit test file moves, conftest cleanup)
+- **Worker-2:** SD card image build running on remote builder (PipeWire currently building)
+
+### Blocked/Pending
+
+- **US-090/092-097 re-verification:** blocked on Phase 1a/1b completion (modular test infra)
+- **US-113 real-stack E2E:** blocked on Phase 1b
+- **Spectrum hiccup fix:** analysis done, approach TBD (owner rejected decimation/batching)
+
 ### Pending Owner Decisions
 
-1. **US-113 acceptance** — all phases committed, QE approved, 3 advisory reviews approved
-2. **US-090/092-097 re-acceptance** — 7 stories at Gate 3, QE E2E passed
+1. **US-113 acceptance** — blocked on real-stack E2E (Phase 1b dependency)
+2. **US-090/092-097 re-acceptance** — blocked on Phase 1a/1b test restructuring
+
+### Team State
+
+- Worker-1: Phase 1a test restructuring (active)
+- Worker-2: SD card image build (active)
+- Worker-3: unresponsive (was doing Pi diagnostics, pinged)
+- Worker-4: idle, all tasks complete
+- Worker-5: shut down per owner directive
+- CM: idle (preserving worker-1's in-progress working tree)
+- Architect, QE, AD, UX, TW: idle
 
 ### Uncommitted
 
-- US-117/118/119 story drafts (image size reduction tiers)
+- Worker-1 in-progress test file moves
 - status.md update (this file)
 
 ## Session 8 Summary (2026-04-01)
