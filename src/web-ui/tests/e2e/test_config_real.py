@@ -28,9 +28,8 @@ class TestConfigEndpointReal:
         """Config response includes a positive quantum value."""
         status, data = api_get("/api/v1/config")
         assert status == 200
-        camilladsp = data.get("camilladsp", {})
-        quantum = camilladsp.get("quantum")
-        assert quantum is not None, "Config missing quantum"
+        quantum = data.get("quantum")
+        assert quantum is not None, f"Config missing quantum. Keys: {list(data.keys())}"
         assert isinstance(quantum, int) and quantum > 0, (
             f"quantum should be positive int, got {quantum}"
         )
@@ -39,21 +38,20 @@ class TestConfigEndpointReal:
         """Config response includes sample rate (expect 48000)."""
         status, data = api_get("/api/v1/config")
         assert status == 200
-        camilladsp = data.get("camilladsp", {})
-        rate = camilladsp.get("sample_rate")
-        assert rate is not None, "Config missing sample_rate"
+        rate = data.get("sample_rate")
+        assert rate is not None, f"Config missing sample_rate. Keys: {list(data.keys())}"
         assert rate == 48000, f"Expected 48000, got {rate}"
 
     def test_config_has_gain_values(self, api_get):
         """Config response includes per-channel gain Mult values."""
         status, data = api_get("/api/v1/config")
         assert status == 200
-        camilladsp = data.get("camilladsp", {})
-        gains = camilladsp.get("channel_gains", {})
+        gains = data.get("gains", {})
         assert len(gains) > 0, (
-            "Config should have channel_gains from real convolver params"
+            f"Config should have gains from real convolver params. Keys: {list(data.keys())}"
         )
-        for name, mult in gains.items():
+        for name, entry in gains.items():
+            mult = entry.get("mult") if isinstance(entry, dict) else entry
             assert isinstance(mult, (int, float)), (
                 f"Gain {name} should be numeric, got {type(mult)}"
             )
@@ -65,10 +63,9 @@ class TestConfigEndpointReal:
         """Config response includes filter-chain convolver metadata."""
         status, data = api_get("/api/v1/config")
         assert status == 200
-        camilladsp = data.get("camilladsp", {})
-        fc = camilladsp.get("filter_chain", {})
+        fc = data.get("filter_chain", {})
         assert fc.get("node_id") is not None, (
-            "filter_chain should have node_id from real convolver"
+            f"filter_chain should have node_id from real convolver. Keys: {list(data.keys())}"
         )
         assert fc.get("node_name") is not None, (
             "filter_chain should have node_name"

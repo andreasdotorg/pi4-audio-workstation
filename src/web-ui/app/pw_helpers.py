@@ -76,14 +76,15 @@ def _sanitize_pw_dump(raw: bytes) -> str:
 def _pw_dump_sync() -> list | None:
     """Run ``pw-dump`` synchronously (called from thread pool).
 
-    Retries once on JSON parse errors — pw-dump occasionally returns
-    truncated JSON when the PipeWire graph is mutating mid-snapshot.
-    On persistent parse errors, applies a sanitizer to strip known
-    PipeWire 1.6.x serialization bugs before parsing.
+    Retries up to 3 times on JSON parse errors — pw-dump occasionally
+    returns truncated or corrupt JSON when the PipeWire graph is mutating
+    mid-snapshot.  On persistent parse errors, applies a sanitizer to
+    strip known PipeWire 1.6.x serialization bugs before parsing.
     """
     import time
 
-    for attempt in range(2):
+    last_stdout = None
+    for attempt in range(3):
         try:
             result = subprocess.run(
                 ["pw-dump"],
@@ -93,6 +94,7 @@ def _pw_dump_sync() -> list | None:
             if result.returncode != 0:
                 log.error("pw-dump failed: %s", result.stderr.decode(errors="replace").strip())
                 return None
+            last_stdout = result.stdout
             return json.loads(result.stdout)
         except subprocess.TimeoutExpired:
             log.error("pw-dump timed out (30s)")
@@ -101,18 +103,17 @@ def _pw_dump_sync() -> list | None:
             log.error("pw-dump not found")
             return None
         except json.JSONDecodeError as exc:
-            if attempt == 0:
-                log.warning("pw-dump JSON parse error (retrying): %s", exc)
-                time.sleep(0.5)
-                continue
-            # Retry failed — try sanitizing the output
-            log.warning("pw-dump JSON corrupt, applying sanitizer: %s", exc)
-            try:
-                sanitized = _sanitize_pw_dump(result.stdout)
-                return json.loads(sanitized)
-            except json.JSONDecodeError as exc2:
-                log.error("pw-dump JSON parse error (after sanitizer): %s", exc2)
-                return None
+            log.warning("pw-dump JSON parse error (attempt %d/3): %s", attempt + 1, exc)
+            time.sleep(0.5)
+
+    # All 3 raw attempts failed — try sanitizing the last output
+    if last_stdout:
+        log.warning("pw-dump JSON corrupt after 3 attempts, applying sanitizer")
+        try:
+            sanitized = _sanitize_pw_dump(last_stdout)
+            return json.loads(sanitized)
+        except json.JSONDecodeError as exc2:
+            log.error("pw-dump JSON parse error (after sanitizer): %s", exc2)
     return None
 
 
