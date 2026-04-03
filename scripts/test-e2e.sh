@@ -20,7 +20,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${LOCAL_DEMO_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
-LOCAL_DEMO="$SCRIPT_DIR/local-demo.sh"
+LOCAL_DEMO="${LOCAL_DEMO_SH:-$REPO_DIR/scripts/local-demo.sh}"
+BASH_BIN="${LOCAL_DEMO_BASH:-bash}"
 PYTHON="${LOCAL_DEMO_PYTHON:-python}"
 E2E_PYTHON="${LOCAL_DEMO_E2E_PYTHON:-$PYTHON}"
 
@@ -36,7 +37,7 @@ cleanup() {
     if $CLEANUP_DONE; then return; fi
     CLEANUP_DONE=true
     log "Tearing down local-demo stack..."
-    "$LOCAL_DEMO" stop 2>/dev/null || true
+    "$BASH_BIN" "$LOCAL_DEMO" stop 2>/dev/null || true
     log "Cleanup complete."
 }
 
@@ -45,13 +46,13 @@ trap cleanup EXIT INT TERM
 # ---- 1. Start local-demo stack ----
 
 log "Starting local-demo stack (PI_AUDIO_MOCK=0)..."
-"$LOCAL_DEMO" start || {
+"$BASH_BIN" "$LOCAL_DEMO" start || {
     log_err "local-demo start failed"
     exit 2
 }
 
 # Source PW env so any pw-cli calls in tests work
-eval "$("$LOCAL_DEMO" env)"
+eval "$("$BASH_BIN" "$LOCAL_DEMO" env)"
 
 # ---- 2. Wait for web UI health ----
 

@@ -629,10 +629,13 @@
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
               export LOCAL_DEMO_E2E_PYTHON="${e2ePython}/bin/python"
+              export LOCAL_DEMO_PW_JACK="${pkgs.pipewire.jack}/bin/pw-jack"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
+              export LOCAL_DEMO_SH="${./scripts/local-demo.sh}"
+              export LOCAL_DEMO_BASH="${pkgs.bash}/bin/bash"
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-              export PATH="${e2ePython}/bin:${testPython}/bin:$PATH"
+              export PATH="${pkgs.curl}/bin:${pkgs.ffmpeg-headless}/bin:${e2ePython}/bin:${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/test-e2e.sh} "$@"
             ''}";
           };
