@@ -1,8 +1,14 @@
-diff --git a/spa/plugins/filter-graph/plugin_builtin.c b/spa/plugins/filter-graph/plugin_builtin.c
-index 3c15673..bceae23 100644
---- a/spa/plugins/filter-graph/plugin_builtin.c
-+++ b/spa/plugins/filter-graph/plugin_builtin.c
-@@ -39,6 +39,8 @@ struct plugin {
+--- a/spa/plugins/filter-graph/builtin_plugin.c	2026-04-03 18:34:14.650090999 +0000
++++ b/spa/plugins/filter-graph/builtin_plugin.c	2026-04-03 18:36:45.044599637 +0000
+@@ -16,6 +16,7 @@
+ #include <spa/utils/result.h>
+ #include <spa/support/cpu.h>
+ #include <spa/support/log.h>
++#include <spa/support/loop.h>
+ #include <spa/plugins/audioconvert/resample.h>
+ 
+ #include "audio-plugin.h"
+@@ -32,6 +33,8 @@
  
  	struct spa_fga_dsp *dsp;
  	struct spa_log *log;
@@ -11,13 +17,12 @@ index 3c15673..bceae23 100644
  };
  
  struct builtin {
-@@ -713,10 +715,23 @@ struct convolver_impl {
+@@ -686,9 +689,21 @@
  	struct spa_log *log;
  	struct spa_fga_dsp *dsp;
  	unsigned long rate;
--	float *port[3];
-+	float *port[4];
- 	float latency;
+-	float *port[2];
++	float *port[3];
  
  	struct convolver *conv;
 +	struct convolver *next;
@@ -32,11 +37,10 @@ index 3c15673..bceae23 100644
 +	int length;
 +	int channel;
 +	int resample_quality;
-+	float latency_conf;
  };
  
- struct finfo {
-@@ -997,6 +1012,8 @@ error:
+ #ifdef HAVE_SNDFILE
+@@ -911,6 +926,8 @@
  #endif
  }
  
@@ -45,9 +49,9 @@ index 3c15673..bceae23 100644
  static void * convolver_instantiate(const struct spa_fga_plugin *plugin, const struct spa_fga_descriptor * Descriptor,
  		unsigned long SampleRate, int index, const char *config)
  {
-@@ -1123,11 +1140,9 @@ static void * convolver_instantiate(const struct spa_fga_plugin *plugin, const s
- 		samples = resample_buffer(pl, samples, &n_samples,
- 				rate, SampleRate, resample_quality);
+@@ -1037,11 +1054,9 @@
+ 		}
+ 	}
  
 -	for (i = 0; i < MAX_RATES; i++)
 -		if (filenames[i])
@@ -59,7 +63,7 @@ index 3c15673..bceae23 100644
  		errno = ENOENT;
  		return NULL;
  	}
-@@ -1149,6 +1164,18 @@ static void * convolver_instantiate(const struct spa_fga_plugin *plugin, const s
+@@ -1063,6 +1078,17 @@
  	impl->dsp = pl->dsp;
  	impl->rate = SampleRate;
  
@@ -73,12 +77,11 @@ index 3c15673..bceae23 100644
 +	impl->length = length;
 +	impl->channel = channel;
 +	impl->resample_quality = resample_quality;
-+	impl->latency_conf = latency;
 +
  	impl->conv = convolver_new(impl->dsp, blocksize, tailsize, samples, n_samples);
  	if (impl->conv == NULL)
  		goto error;
-@@ -1163,7 +1190,12 @@ static void * convolver_instantiate(const struct spa_fga_plugin *plugin, const s
+@@ -1072,7 +1098,12 @@
  	return impl;
  error:
  	free(samples);
@@ -92,7 +95,7 @@ index 3c15673..bceae23 100644
  	return NULL;
  }
  
-@@ -1177,8 +1209,15 @@ static void convolver_connect_port(void * Instance, unsigned long Port,
+@@ -1086,8 +1117,15 @@
  static void convolver_cleanup(void * Instance)
  {
  	struct convolver_impl *impl = Instance;
@@ -108,11 +111,11 @@ index 3c15673..bceae23 100644
  	free(impl);
  }
  
-@@ -1196,8 +1235,85 @@ static struct spa_fga_port convolve_ports[] = {
- 	  .hint = SPA_FGA_HINT_LATENCY,
- 	  .flags = SPA_FGA_PORT_OUTPUT | SPA_FGA_PORT_CONTROL,
+@@ -1100,8 +1138,80 @@
+ 	  .name = "In",
+ 	  .flags = SPA_FGA_PORT_INPUT | SPA_FGA_PORT_AUDIO,
  	},
-+	{ .index = 3,
++	{ .index = 2,
 +	  .name = "Reload",
 +	  .hint = SPA_FGA_HINT_BOOLEAN,
 +	  .flags = SPA_FGA_PORT_INPUT | SPA_FGA_PORT_CONTROL,
@@ -136,7 +139,7 @@ index 3c15673..bceae23 100644
 +	struct convolver_impl *impl = Instance;
 +	struct plugin *pl = impl->plugin;
 +	float *samples;
-+	int n_samples = 0, def_latency;
++	int n_samples = 0;
 +	unsigned long rate;
 +	struct convolver *conv;
 +
@@ -145,17 +148,17 @@ index 3c15673..bceae23 100644
 +		impl->old = NULL;
 +	}
 +
-+	if (impl->port[3] == NULL || impl->port[3][0] == 0.0f)
++	if (impl->port[2] == NULL || impl->port[2][0] == 0.0f)
 +		return;
 +
-+	impl->port[3][0] = 0.0f;
++	impl->port[2][0] = 0.0f;
 +
 +	spa_log_info(impl->log, "convolver: reloading coefficients");
 +
 +	rate = impl->rate;
 +	samples = read_closest(pl, impl->filenames, impl->gain, impl->delay,
 +			impl->offset, impl->length, impl->channel,
-+			&rate, &n_samples, &def_latency);
++			&rate, &n_samples);
 +	if (samples != NULL && rate != impl->rate)
 +		samples = resample_buffer(pl, samples, &n_samples,
 +				rate, impl->rate, impl->resample_quality);
@@ -175,13 +178,8 @@ index 3c15673..bceae23 100644
 +
 +	impl->next = conv;
 +
-+	if (impl->latency_conf < 0.0f)
-+		impl->latency = def_latency;
-+	else
-+		impl->latency = impl->latency_conf * impl->rate;
-+
 +	if (pl->data_loop) {
-+		spa_loop_locked(pl->data_loop, do_convolver_swap, 1, NULL, 0, impl);
++		spa_loop_invoke(pl->data_loop, do_convolver_swap, 1, NULL, 0, true, impl);
 +	} else {
 +		impl->old = impl->conv;
 +		impl->conv = impl->next;
@@ -191,18 +189,24 @@ index 3c15673..bceae23 100644
 +	spa_log_info(impl->log, "convolver: reloaded with n_samples:%d", n_samples);
 +}
 +
- static void convolver_activate(void * Instance)
+ static void convolver_deactivate(void * Instance)
  {
  	struct convolver_impl *impl = Instance;
-@@ -1229,6 +1345,7 @@ static const struct spa_fga_descriptor convolve_desc = {
+@@ -1119,11 +1229,12 @@
+ 	.name = "convolver",
+ 	.flags = SPA_FGA_DESCRIPTOR_SUPPORTS_NULL_DATA,
+ 
+-	.n_ports = 2,
++	.n_ports = 3,
+ 	.ports = convolve_ports,
  
  	.instantiate = convolver_instantiate,
  	.connect_port = convolver_connect_port,
 +	.control_changed = convolver_control_changed,
- 	.activate = convolver_activate,
  	.deactivate = convolver_deactivate,
  	.run = convolve_run,
-@@ -3411,6 +3528,8 @@ impl_init(const struct spa_handle_factory *factory,
+ 	.cleanup = convolver_cleanup,
+@@ -2582,6 +2693,8 @@
  
  	impl->log = spa_support_find(support, n_support, SPA_TYPE_INTERFACE_Log);
  	impl->dsp = spa_support_find(support, n_support, SPA_TYPE_INTERFACE_FILTER_GRAPH_AudioDSP);
