@@ -135,6 +135,10 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "e2e: real-stack end-to-end test")
     config.addinivalue_line("markers", "destructive: tests that modify Pi state")
     config.addinivalue_line("markers", "slow: tests exceeding 10 s")
+    config.addinivalue_line("markers", "needs_usb_audio: requires USB audio device (UMIK-1 loopback)")
+    config.addinivalue_line("markers", "needs_pw: requires PipeWire running")
+    config.addinivalue_line("markers", "needs_acoustic: requires physical speakers (owner-confirmed)")
+    config.addinivalue_line("markers", "audio_producing: produces audio output (owner-confirmed)")
 
 
 def pytest_addoption(parser):

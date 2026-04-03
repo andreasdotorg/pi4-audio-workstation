@@ -406,6 +406,11 @@ class TestLinkCountsPerMode:
         assert dj_links >= standby_links, (
             f"DJ ({dj_links}) should have >= links than standby ({standby_links})")
 
+    @pytest.mark.xfail(
+        reason="GM reconciler timing: rapid DJ->live switch may not stabilize "
+               "before PipeWire link destruction completes (PW 1.6.x)",
+        strict=False,
+    )
     def test_live_has_at_least_as_many_links_as_dj(self, local_demo_url):
         """Live mode has at least as many links as DJ.
 

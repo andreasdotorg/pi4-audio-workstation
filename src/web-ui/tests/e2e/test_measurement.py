@@ -309,6 +309,7 @@ class TestLocalDemoBrowserUI:
 # Phase 3: Full measurement session via API (curl-style)
 # ===========================================================================
 
+@pytest.mark.needs_usb_audio
 class TestLocalDemoMeasurementAPI:
     """Drive a full measurement session via REST API against local-demo.
 
@@ -358,6 +359,7 @@ class TestLocalDemoMeasurementAPI:
 # Phase 4: Full measurement session via browser
 # ===========================================================================
 
+@pytest.mark.needs_usb_audio
 class TestLocalDemoMeasurementBrowser:
     """Drive a full measurement session through the browser UI.
 
@@ -440,6 +442,7 @@ class TestLocalDemoMeasurementBrowser:
 # Phase 5: Post-hoc validation of generated artifacts
 # ===========================================================================
 
+@pytest.mark.needs_usb_audio
 class TestLocalDemoPostHocValidation:
     """Validate that the measurement session produced correct DSP artifacts.
 
