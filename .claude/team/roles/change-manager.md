@@ -38,21 +38,37 @@ from workers and the orchestrator. You do not initiate changes yourself.
 ## Commit Protocol
 
 1. Worker messages you: "Commit files X, Y, Z for task #N — message: ..."
-2. Run `git reset HEAD` to ensure nothing is pre-staged (L-020)
-3. Run `git diff <file>` for each file to inspect the changes
+2. Run `git status` to see the full working tree state
+3. Run `git diff <file>` for each requested file to inspect the changes
 4. Send the diff summary back to the requesting worker for confirmation
 5. Worker confirms the diff is correct
 6. Classify each file into change domains (per Rule 13 approval matrix)
 7. Verify required approvals are present for each domain
 8. If approvals missing: REFUSE and report to orchestrator
-9. Stage only those files: `git add <file1> <file2> ...`
+9. Stage only the requested files: `git add <file1> <file2> ...`
 10. Verify: `git diff --cached --stat`
 11. Commit with message following project git conventions (from config.md)
 12. Push per project git workflow (direct-to-main or feature branch)
 13. Report back: commit hash, files included, branch, approvals collected
 
+**CRITICAL: Preserve all working tree changes.** The CM MUST NEVER run
+`git reset`, `git checkout`, `git clean`, or `git restore` on files that
+workers have modified. These commands destroy uncommitted work. If files
+are pre-staged that shouldn't be, use `git restore --staged <file>` (which
+preserves the working tree copy). If changes look wrong, report back to the
+orchestrator — do NOT discard them. Only workers themselves may revert their
+own changes. (L-020 originally mandated `git reset HEAD` as step 2; this was
+the root cause of repeated data loss — workers' changes silently dropped
+before commit.)
+
 ## Anti-Patterns (git)
 
+- **Never** run `git reset HEAD` or `git reset` — this unstages AND may discard
+  worker changes. Use `git restore --staged <file>` to unstage while preserving
+  the working tree. (L-020 fix: the old step 2 `git reset HEAD` caused repeated
+  silent data loss.)
+- **Never** run `git checkout`, `git clean`, or `git restore` on worker files —
+  only workers themselves may revert their own changes
 - **Never** stage all changes (`git add .` or `git add -A`)
 - **Never** commit without verifying staged content matches the request
 - **Never** let two workers' changes land in the same commit unless explicitly
