@@ -170,6 +170,16 @@
             || pkgs.lib.hasPrefix (toString ./src/signal-gen) (toString path);
         };
 
+        # US-112: PipeWire with convolver hot-reload patch.
+        # Adds a "Reload" boolean control port to the convolver builtin,
+        # enabling runtime FIR coefficient switching without node destruction.
+        # Used by local-demo, tests, and (via NixOS overlay) the Pi deployment.
+        pipewire-patched = pkgs.pipewire.overrideAttrs (oldAttrs: {
+          patches = (oldAttrs.patches or []) ++ [
+            ./nix/patches/pipewire-convolver-reload.patch
+          ];
+        });
+
         # Shared PipeWire build args for Rust crates.
         rustPwBuildArgs = {
           nativeBuildInputs = [ pkgs.pkg-config pkgs.llvmPackages.libclang ];
@@ -226,6 +236,9 @@
           # CamillaDSP with file backend for integration testing (all platforms).
           inherit camilladsp-test;
         } // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          # US-112: PipeWire with convolver reload patch (for local-demo/tests).
+          inherit pipewire-patched;
+
           # Unwrapped Mixxx (for NixOS or debugging)
           mixxx = pkgs.mixxx;
 
@@ -593,8 +606,9 @@
               export LOCAL_DEMO_LB_BIN="${level-bridge}/bin/level-bridge"
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
-              export LOCAL_DEMO_PW_JACK="${pkgs.pipewire.jack}/bin/pw-jack"
+              export LOCAL_DEMO_PW_JACK="${pipewire-patched.jack}/bin/pw-jack"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
+              export PW_STORE="${pipewire-patched}"
               export PATH="${pkgs.ffmpeg-headless}/bin:${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/local-demo.sh} "$@"
             ''}";
@@ -612,6 +626,7 @@
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
+              export PW_STORE="${pipewire-patched}"
               export PATH="${testPython}/bin:$PATH"
               exec ${pkgs.bash}/bin/bash ${./scripts/test-integration.sh} "$@"
             ''}";
@@ -629,10 +644,11 @@
               export LOCAL_DEMO_PCM_BIN="${pcm-bridge}/bin/pcm-bridge"
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
               export LOCAL_DEMO_E2E_PYTHON="${e2ePython}/bin/python"
-              export LOCAL_DEMO_PW_JACK="${pkgs.pipewire.jack}/bin/pw-jack"
+              export LOCAL_DEMO_PW_JACK="${pipewire-patched.jack}/bin/pw-jack"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
               export LOCAL_DEMO_SH="${./scripts/local-demo.sh}"
               export LOCAL_DEMO_BASH="${pkgs.bash}/bin/bash"
+              export PW_STORE="${pipewire-patched}"
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
               export PATH="${pkgs.curl}/bin:${pkgs.ffmpeg-headless}/bin:${e2ePython}/bin:${testPython}/bin:$PATH"
@@ -674,6 +690,7 @@
               export LOCAL_DEMO_PYTHON="${testPython}/bin/python"
               export LOCAL_DEMO_E2E_PYTHON="${e2ePython}/bin/python"
               export LOCAL_DEMO_REPO_DIR="${toString ./.}"
+              export PW_STORE="${pipewire-patched}"
               export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
               export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
               export PATH="${e2ePython}/bin:${testPython}/bin:$PATH"
