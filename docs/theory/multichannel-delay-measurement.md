@@ -175,22 +175,22 @@ transfer function analysis:
 
 ### Reference Tap Point: Post-Convolver
 
-For delay measurement, the reference must be tapped **post-convolver** —
-the signal as it leaves the filter-chain convolver toward the speakers.
-The convolver's FIR processing adds its own group delay (~1-2ms at the
-crossover frequency). To measure the true acoustic propagation delay
-(convolver output to mic), we need the post-convolver signal as reference.
+Both delay measurement and transfer function measurement use the same
+**post-convolver** reference tap — the convolver output, which is what
+the speakers actually play. The convolver's FIR processing adds its own
+group delay (~1-2ms at the crossover frequency), which is part of the
+total delay the system needs to compensate.
 
-This differs from transfer function measurement (see
-[realtime-transfer-function.md](realtime-transfer-function.md)), which
-supports both pre-convolver (design mode) and post-convolver (verify
-mode) references depending on the calibration phase. Delay measurement
-always uses post-convolver regardless of TF mode.
+The design-vs-verify distinction in the TF workflow (see
+[realtime-transfer-function.md](realtime-transfer-function.md)) is
+controlled by which filter coefficients are loaded (Dirac vs correction),
+not by changing the tap point. This means delay measurement and TF
+measurement share the same reference stream from pcm-bridge-monitor.
 
 In our architecture:
-- **Delay reference**: pcm-bridge-monitor taps the convolver output
+- **Reference**: pcm-bridge-monitor taps the convolver output
   (post-convolver, what the speaker actually plays)
-- **Delay measurement**: pcm-bridge-capture reads the UMIK-1
+- **Measurement**: pcm-bridge-capture reads the UMIK-1
 
 ### Unified Workflow
 

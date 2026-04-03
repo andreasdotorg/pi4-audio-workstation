@@ -115,52 +115,31 @@ signal-gen (pink noise) -> speaker -> room -> UMIK-1
 - Coherence shows which frequencies have reliable data
 - Result is live, continuously updating
 
-### Reference Tap Point: Design Mode vs Verify Mode
+### Reference Tap Point: Always Post-Convolver
 
-The reference tap point depends on **what you want to measure**. Both
-pre-convolver and post-convolver references are needed for different
-phases of the calibration workflow:
+The reference signal is always tapped **post-convolver** — the convolver
+output, which is what the speakers actually play. The design-vs-verify
+distinction is controlled by **which filters are loaded**, not by which
+tap point is used.
 
-**Design mode (pre-convolver reference):**
-- Measures: `room x speaker x crossover` — the raw acoustic response
-  with crossover slopes applied but no room correction
-- Reference tapped before the convolver (signal-gen output)
-- Transfer function shows what needs correcting
-- Used when: designing correction filters for a new venue
-- Convolver loads Dirac (identity) room correction coefficients but
-  retains crossover slopes and sub HPF
+This works because the crossover slopes are always baked into the combined
+FIR coefficients:
 
-**Verify mode (post-convolver reference):**
-- Measures: `room x speaker x crossover x correction` — the complete
-  processed response
-- Reference tapped after the convolver (convolver output)
-- Transfer function should be flat if correction is working
-- Used when: verifying that loaded correction filters produce the
-  desired response
-- Standard SMAART practice: tap after the processor to see the result
+- **Design mode**: GM loads Dirac (identity) room correction + crossover.
+  Post-convolver output = `signal x crossover x Dirac` = `signal x crossover`.
+  The TF shows `room x speaker x crossover` — exactly what needs correcting.
+- **Verify mode**: GM loads correction filters + crossover.
+  Post-convolver output = `signal x crossover x correction`.
+  The TF shows `room x speaker x crossover x correction` — should be flat.
 
-The UI should offer a "Design" / "Verify" toggle (or equivalently
-"Pre-convolver" / "Post-convolver" reference). The GraphManager
-reconfigures the pcm-bridge-monitor tap point accordingly.
-
-**Note on Design mode startup:** When the convolver loads Dirac (identity)
-room correction, the crossover slopes and sub HPF are still active — these
-are baked into the combined FIR coefficients. To measure the raw
-`room x speaker` response without crossover, a separate set of Dirac-only
-coefficients (no crossover) would be needed. In practice, measuring
-through the crossover is what you want for room correction design, since
-the correction operates within each band.
-
-This also applies to delay measurement (see
-[multichannel-delay-measurement.md](multichannel-delay-measurement.md)),
-which always uses a **post-convolver** reference because it needs to
-measure the actual acoustic propagation delay of what the speaker
-physically plays.
+A single post-convolver tap handles both modes. No tap-point switching,
+no pre-convolver plumbing, no risk of circular measurement (design mode
+uses Dirac, not existing corrections).
 
 In our architecture:
-- **Design mode**: pcm-bridge-monitor taps signal-gen output (pre-convolver)
-- **Verify mode**: pcm-bridge-monitor taps convolver output (post-convolver)
-- **Both modes**: pcm-bridge-capture reads the UMIK-1 (post-room)
+- **Reference**: pcm-bridge-monitor taps convolver output (post-convolver)
+- **Measurement**: pcm-bridge-capture reads the UMIK-1 (post-room)
+- **Mode switch**: GM loads different filter coefficients, same tap point
 
 ### Time Alignment Requirement
 
@@ -182,7 +161,7 @@ Without time alignment, the phase of Gxy is meaningless and Cxy drops.
 | SMAART component | Our equivalent | Status |
 |---|---|---|
 | Reference signal source | signal-gen (pink/white noise) | READY |
-| Reference channel capture | pcm-bridge (monitor mode, port 9100) — tap point switchable | READY |
+| Reference channel capture | pcm-bridge (monitor mode, port 9100) — post-convolver | READY |
 | Measurement mic | UMIK-1 via USBStreamer ch 1-2 | READY |
 | Measurement capture | pcm-bridge (capture mode, port 9101) | READY |
 | Dual-channel FFT + cross-spectrum | — | NEEDS IMPLEMENTATION |
@@ -233,14 +212,11 @@ if CPU cost exceeds ~5-10% of one core.
 
 3. **GraphManager**: New link topology for measurement mode:
    - signal-gen -> convolver input (excitation)
+   - convolver output -> pcm-bridge-monitor (reference, always post-convolver)
    - USBStreamer capture -> pcm-bridge-capture (measurement)
-   - Reference tap (switchable by mode):
-     - **Design mode**: signal-gen output -> pcm-bridge-monitor (pre-convolver)
-     - **Verify mode**: convolver output -> pcm-bridge-monitor (post-convolver)
-   - Delay measurement always uses post-convolver tap — see
-     [multichannel-delay-measurement.md](multichannel-delay-measurement.md)
-   - Design mode also requires GM to load Dirac room correction
-     coefficients into the convolver (crossover slopes retained)
+   - Design mode: GM loads Dirac room correction coefficients (crossover retained)
+   - Verify mode: GM loads correction filters (crossover retained)
+   - Same topology for both modes — only filter coefficients change
 
 4. **Web UI backend** — new endpoint:
    ```
@@ -273,14 +249,14 @@ if CPU cost exceeds ~5-10% of one core.
 
 9. **Program material as reference**: During live performance, use the
    actual music signal (Mixxx or Reaper output) as the reference instead
-   of noise excitation. Coherence naturally indicates which frequencies
-   have sufficient excitation energy at any moment — a psytrance kick
-   provides excellent sub-bass coherence, while a vocal passage gives
-   good mid-range data. Over time, a full-bandwidth picture emerges.
-   This enables continuous drift monitoring during a performance without
-   any audible measurement signal. Typically used in verify mode
-   (post-convolver reference) to confirm correction is holding during
-   the show.
+   of noise excitation. The post-convolver tap captures the processed
+   program material; the UMIK-1 captures the room response. Coherence
+   naturally indicates which frequencies have sufficient excitation
+   energy at any moment — a psytrance kick provides excellent sub-bass
+   coherence, while a vocal passage gives good mid-range data. Over
+   time, a full-bandwidth picture emerges. This enables continuous
+   drift monitoring during a performance without any audible measurement
+   signal.
 
 ---
 
@@ -319,18 +295,21 @@ audience noise present.
 
 ### Design-Verify Calibration Cycle
 
-The real-time TF enables an iterative calibration workflow:
+The real-time TF enables an iterative calibration workflow. The reference
+tap point never changes — only the loaded filter coefficients differ:
 
-1. **Load Dirac room filters** + crossover/HPF into convolver (GM command)
-2. **Design mode measure** (pre-convolver ref) — see raw room x speaker response
-   - Note: since room filters are Dirac, pre-convolver = post-convolver
+1. **GM loads Dirac room filters** + crossover/HPF into convolver
+2. **Measure** — TF shows `room x speaker x crossover` (what needs correcting)
 3. **Design correction** from the measurement data
-4. **Load correction filters** into convolver (GM command)
-5. **Verify mode measure** (post-convolver ref) — should be flat
+4. **GM loads correction filters** + crossover/HPF into convolver
+5. **Measure** — TF should be flat (correction working)
 6. **Iterate** if needed — adjust filters, re-verify
 
-This cycle replaces the current batch workflow (sweep → offline compute →
-deploy → hope it's right → re-sweep if not). Each iteration takes seconds
+The same post-convolver reference tap is used throughout. No topology
+changes between steps — only a GM command to swap filter coefficients.
+
+This cycle replaces the current batch workflow (sweep -> offline compute ->
+deploy -> hope it's right -> re-sweep if not). Each iteration takes seconds
 instead of minutes.
 
 **GraphManager requirement:** A "load Dirac" or "bypass room correction"
