@@ -25,7 +25,7 @@ Production Pi at venue (unreachable).
 | US-075 | COMPLETE | Local PW integration test env | Done. 35 E2E production-replica tests committed (`7b43222`). |
 | US-088 | REVIEW | Direct WS from Rust (CPU fix) | Owner Pi session for deploy |
 | US-089 | TEST | Speaker config management web UI | Blocked by F-198 |
-| US-090 | REVIEW (Gate 3) | FIR filter generation web UI | E2E baseline clean (60 pass, 4 fail F-249, 12 skip, 1 xfail). Awaiting formal owner re-acceptance. |
+| US-090 | REVIEW (Gate 3) | FIR filter generation web UI | E2E baseline clean (F-249 resolved). Awaiting formal owner re-acceptance. |
 | US-091 | IMPLEMENT | Multi-way crossover support | Core engine done; 4 integration defects open (F-188, F-189, F-190, F-191 — N-way topology) |
 | US-092 | REVIEW (Gate 3) | Per-driver thermal/mechanical protection | E2E baseline clean. Awaiting formal owner re-acceptance. F-244 cross-cutting, non-blocking. |
 | US-093 | REVIEW (Gate 3) | Amplifier sensitivity calibration | E2E baseline clean. Awaiting formal owner re-acceptance. |
@@ -56,6 +56,11 @@ Production Pi at venue (unreachable).
 | US-120 | draft | Real-time transfer function measurement | Theory docs committed. Post-convolver-only per owner directive. |
 | US-121 | draft | Real-time multichannel delay measurement | Theory docs committed. |
 | US-122 | draft | Real-time phase correction analysis | Theory docs committed. Minimum-phase optimal for PA transient fidelity. |
+| US-123 | IMPLEMENT (done) | GM deterministic boot state | Implemented (`6ef8f93`): F-249 fix (quantum on startup), NixOS default standby, venue persistence, enhanced get_state RPC. 277 tests pass. |
+| US-124 | draft | First-boot UX | Filed (`b391c98`). Depends US-113. |
+| US-125 | IMPLEMENT (in progress) | Explicit mode arming | Worker-4 verifying existing behavior, may need minimal changes. |
+| US-126 | IMPLEMENT (in progress) | Persistent audio gate banner | Worker-1 implementing banner on all tabs. |
+| US-127 | draft | Runtime coefficient switching (D-053) | Filed (`1b9b7b9`). Destroy-and-recreate only viable approach (C-011). Owner elevated D-053 as critical — blocks venue switching, measurement, boot state. |
 
 
 ### Owner-Blocking Items
@@ -69,8 +74,9 @@ Production Pi at venue (unreachable).
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
 | US-113 acceptance | Real-stack E2E required (owner directive). Blocked on Phase 1b test infra. Mock E2E 34/34 pass insufficient. |
-| US-090/092-097 re-acceptance | E2E baseline clean (60 pass, 4 fail F-249, 12 skip, 1 xfail). Ready for formal owner re-acceptance. |
-| F-249 prioritization | GM quantum fix — 4 E2E failures. Owner decision on priority. |
+| US-090/092-097 re-acceptance | E2E baseline clean (F-249 resolved by US-123). Ready for formal owner re-acceptance. |
+| ~~F-249 prioritization~~ | ~~RESOLVED by US-123 (`6ef8f93`).~~ |
+| US-127 prioritization | D-053 runtime coefficient switching — owner elevated as critical. Blocks venue switching, measurement design/verify, boot state. |
 | US-089 acceptance | Owner prioritization + Pi deploy |
 | US-099-104 (Tier 13 venue workflow) | Owner prioritization |
 
@@ -127,7 +133,7 @@ Production Pi at venue (unreachable).
 | ~~F-235~~ | ~~High~~ | ~~RESOLVED (`94fbf2a`, `1bb85ec`): pw-record activation without WP linking. 36/36 tests pass.~~ |
 | F-244 | High | All entity DELETE buttons in config tab lack confirmation dialogs. Cross-cutting UX (US-089/US-093). |
 | F-245 | High | Measurement error UI shows raw Python/NumPy exception. Overlaps F-235. |
-| F-249 | Medium | GM quantum not changing on mode switch — 4 E2E failures. Owner prioritization pending. |
+| ~~F-249~~ | ~~Medium~~ | ~~RESOLVED (`6ef8f93`, US-123): GM quantum on startup + mode switch fixed. 277 tests pass.~~ |
 | F-234 | Medium | Only 35/39 DJ links in local-demo (4 missing). Investigation needed. |
 | ~~F-236~~ | ~~Medium~~ | ~~RESOLVED (`a06dd18`): stale 48-byte coefficient stubs. 4 screenshots verify flat response.~~ |
 | F-237 | Medium | Speaker config activation UX unclear / no venue config management (relates to US-113/D-062). |
@@ -160,8 +166,8 @@ Production Pi at venue (unreachable).
 
 | Metric | Value |
 |--------|-------|
-| Git commits | ~262 (15 session 6, 5 session 7, 5 session 8, ~40 session 9) |
-| Total stories filed | 126 (US-120, US-121, US-122 filed session 9) |
+| Git commits | ~267 (15 session 6, 5 session 7, 5 session 8, ~45 session 9) |
+| Total stories filed | 131 (US-120-127 filed session 9: measurement, boot state, D-053) |
 | Stories done | 13 |
 | Stories in TEST | 5 (US-089, US-077, US-070, US-044, US-098) |
 | Stories in REVIEW | 10 (US-088, US-071, US-113, US-090, US-092-097 — 8 awaiting owner acceptance) |
@@ -169,10 +175,10 @@ Production Pi at venue (unreachable).
 | Stories ready | 0 |
 | Open defects (HIGH+) | 5 (F-187, F-037, F-222, F-244, F-245) |
 | Defects resolved session 8 | 1 (F-235) |
-| Session 9 commits | ~40 (11 US-072 HW validation, US-113 Phase 4/5, US-114 fixes, US-119, service fixes, test infra Phase 1a/1b, E2E baseline, theory docs, US-120/121/122) |
+| Session 9 commits | ~45 (US-072 HW validation, US-113 Phase 4/5, US-114 fixes, US-119, service fixes, test infra, E2E baseline, theory docs, US-120-127, US-123 impl) |
 | Open defects (Medium) | ~30 (F-234, F-237 session 6; F-239, F-240, F-241 session 7) |
 | Open defects (Low) | F-242, F-243 (session 7) |
-| Total defects filed | 249 (F-248 spectrum hiccup, F-249 GM quantum — session 9) |
+| Total defects filed | 249 (F-248 spectrum hiccup, F-249 GM quantum — session 9). F-249 RESOLVED. |
 | Test suites | test-all (537), test-integration-browser (229 — 35 new US-075 production-replica tests) |
 | PW convolver CPU (q1024) | 1.70% |
 | PW convolver CPU (q256) | 3.47% |
@@ -204,10 +210,15 @@ through D-063). Most significant recent decisions:
 
 ## Session 9 Summary (2026-04-02)
 
-### Commits (~40, session ongoing)
+### Commits (~45, session ongoing)
 
 | SHA | Description |
 |-----|-------------|
+| 6ef8f93 | US-123: GM deterministic boot state (F-249 fix, venue persistence, enhanced get_state) |
+| 1b9b7b9 | US-127 story: runtime coefficient switching (D-053) |
+| b391c98 | US-123/124/125/126 boot state stories |
+| a168309 | Session 9 progress update |
+| 86d9c26 | US-120/121/122 AE refinements + post-convolver-only design/verify workflow |
 | 68c9654 | Theory: post-convolver-only reference — remove pre-convolver tap per owner directive |
 | 8fbf6ce | Theory: AE review + owner design/verify workflow clarification |
 | b5e49e3 | Theory: incorporate AE review — reference taps, coherence, program material, safety |
@@ -291,8 +302,17 @@ through D-063). Most significant recent decisions:
     delay measurement, phase correction analysis. AE reviewed. 6 commits.
 16. **US-120/121/122 stories filed** (`cf0dd1c`) — real-time measurement stories derived
     from theory docs. Pre-convolver references removed per owner directive (`68c9654`).
-17. **F-249 filed** — GM quantum not changing on mode switch. 4 E2E failures. Mock-mode
-    quantum default fixed (`38ac9e0`).
+17. **F-249 filed and RESOLVED** — GM quantum not changing on mode switch. Fixed by
+    US-123 (`6ef8f93`). 277 tests pass.
+18. **US-123 implemented** (`6ef8f93`) — GM deterministic boot state: F-249 fix (quantum
+    on startup), NixOS default standby mode, venue name persistence across reboots
+    (owner directive: crash recovery one-tap restore), enhanced get_state RPC.
+19. **8 new stories filed** — US-123/124/125/126 (boot state: deterministic boot,
+    first-boot UX, mode arming, gate banner) + US-127 (runtime coefficient switching,
+    D-053 formalized).
+20. **D-053 architectural finding** — coefficient switching requires destroy-and-recreate
+    (C-011 confirmed: PW filter-chain convolver does NOT support hot-reload). Watchdog
+    does NOT auto-unlatch after node recreation. Owner elevated D-053 as critical.
 
 ### Test Pi Validation Results
 
@@ -306,36 +326,36 @@ All components verified on 192.168.178.35:
 
 ### In Progress
 
-- **Worker-2:** SD card image build running on remote builder (PipeWire building)
-- **Worker-3:** Pi diagnostics (checking status)
-- **Worker-4:** NixOS boot fixes (checking status)
-- **Worker-5:** Pi deployment (checking status)
+- **Worker-1:** US-126 (persistent audio gate banner on all tabs)
+- **Worker-2:** SD card image build running on remote builder
+- **Worker-4:** US-125 (explicit mode arming — verifying existing behavior)
 
 ### Blocked/Pending
 
 - **US-113 real-stack E2E:** blocked on Phase 1b test infra completion
+- **US-127 (D-053):** owner elevated as critical, blocks venue switching + measurement. Not yet started.
 - **Spectrum hiccup fix:** analysis done (F-248), approach TBD (owner rejected decimation/batching)
-- **F-249 GM quantum fix:** 4 E2E failures, awaiting owner prioritization
 
 ### Pending Owner Decisions
 
 1. **US-090/092-097 formal re-acceptance** — E2E baseline clean, ready for owner
 2. **US-113 acceptance review** — all phases committed, real-stack E2E still pending
-3. **F-249 GM quantum fix prioritization** — 4 E2E failures on mode switch quantum
+3. **US-127 (D-053) prioritization** — runtime coefficient switching. Owner elevated as critical.
 
 ### Team State
 
-- Worker-1: idle (E2E baseline complete: 60 pass, 4 fail F-249, 12 skip, 1 xfail)
+- Worker-1: US-126 gate banner (active)
 - Worker-2: SD card image build (active)
-- Worker-3: Pi diagnostics (checking status)
-- Worker-4: NixOS boot fixes (checking status)
-- Worker-5: Pi deployment (checking status)
-- CM: committing PO story corrections (US-120/121/122)
+- Worker-4: US-125 mode arming (active)
+- Worker-3, Worker-5: status unknown
+- CM: idle
 - Architect, QE, AD, UX, TW: idle
 
 ### Uncommitted
 
 - status.md update (this file)
+- Worker-1 US-126 in progress
+- Worker-4 US-125 in progress
 
 ## Session 8 Summary (2026-04-01)
 
