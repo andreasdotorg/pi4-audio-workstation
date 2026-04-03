@@ -173,6 +173,24 @@ what was sent, cross-correlate offline.
 The per-channel uncorrelated noise integrates naturally with the dual-FFT
 transfer function analysis:
 
+### Reference Tap Point: Post-Convolver
+
+For delay measurement, the reference must be tapped **post-convolver** —
+the signal as it leaves the filter-chain convolver toward the speakers.
+The convolver's FIR processing adds its own group delay (~1-2ms at the
+crossover frequency). To measure the true acoustic propagation delay
+(convolver output to mic), we need the post-convolver signal as reference.
+
+This differs from transfer function measurement (see
+[realtime-transfer-function.md](realtime-transfer-function.md)), which
+uses a **pre-convolver** reference to capture the complete system response
+including the convolver itself.
+
+In our architecture:
+- **Delay reference**: pcm-bridge-monitor taps the convolver output
+  (post-convolver, what the speaker actually plays)
+- **Delay measurement**: pcm-bridge-capture reads the UMIK-1
+
 ### Unified Workflow
 
 1. Signal-gen plays uncorrelated white noise on all 4 speaker channels
@@ -189,11 +207,32 @@ transfer function analysis:
 - 4 overlaid transfer function traces (L main, R main, sub1, sub2),
   color-coded
 - 4 coherence traces underneath
-- 4 delay values in sidebar
+- 4 delay values in sidebar with confidence indicator (see below)
 - All updating in real time
 
 The operator places the mic, hits "measure all," and immediately sees
 the complete system state for every channel.
+
+### Delay Confidence Indicator
+
+Each delay value should display a confidence level based on the quality
+of the cross-correlation peak relative to the noise floor:
+
+| Confidence | Indicator | Criteria |
+|------------|-----------|----------|
+| **High** | Green | Peak-to-floor ratio > 20 dB, single unambiguous peak |
+| **Medium** | Yellow | Peak-to-floor ratio 10-20 dB, or secondary peak within 6 dB |
+| **Low** | Red | Peak-to-floor ratio < 10 dB, or no clear peak |
+
+The peak-to-floor ratio is computed from the cross-correlation output:
+ratio of the primary peak amplitude to the RMS of the correlation outside
+the peak region. A low ratio indicates insufficient averaging time,
+excessive ambient noise, or a disconnected/muted channel.
+
+The UI should NOT display delay values with "Low" confidence as
+actionable — they should be visually distinguished (grayed out, struck
+through, or flagged) to prevent the operator from trusting unreliable
+measurements.
 
 ---
 
@@ -257,14 +296,46 @@ delay phase becomes interactive instead of batch.
    delay + verification, optional sequential sweep for highest-fidelity
    filter generation.
 
+4. **Temperature-dependent delay drift.** The speed of sound changes
+   ~0.6 m/s per degree Celsius (approximately +0.17% per degree C). For
+   a speaker 10 meters from the mic, a 10C temperature change (common
+   during an outdoor evening gig) shifts the propagation delay by
+   ~0.17 ms — roughly 8 samples at 48kHz. This is well above the
+   sub-sample measurement resolution.
+
+   Mitigation: periodic re-alignment. The real-time delay display
+   already supports continuous updates (section 7, step 5). For long
+   outdoor gigs, the system should re-compute delay values at a
+   configurable interval (default: every 5 minutes) and flag any drift
+   exceeding a threshold (e.g., > 0.1 ms) to the operator. This is a
+   nice-to-have for Phase 2 — indoor venues with stable temperature
+   will not need it.
+
 ---
 
 ## 9. Safety
 
 - signal-gen's -20 dBFS cap applies per-channel (S-2 defense-in-depth)
-- Combined 4-channel level at mic: approximately -14 dBFS (acoustic sum)
-- D-009 gain constraints unchanged
 - All per-channel generators go through the SafetyLimits hard clipper
+- D-009 gain constraints unchanged
+
+### Multi-Channel Combined Level
+
+4 uncorrelated channels at -20 dBFS each produce a combined acoustic
+level approximately 6 dB higher than a single channel at the mic
+position (incoherent power sum: `10*log10(4) = 6 dB`). The measurement
+gain profile must account for this:
+
+- Combined level at mic: approximately **-14 dBFS** (acoustic sum)
+- If the measurement system applies any automatic gain (AGC, mic preamp
+  adjustment), it must be calibrated for the 4-channel combined level,
+  not the single-channel level
+- The `play_multi_noise` RPC command should document the expected
+  combined level in its response so the UI can display a warning
+- For venues where -14 dBFS acoustic level is too loud (small rooms,
+  late night), a `level_dbfs` parameter lower than -20 dBFS can be used
+  per-channel — separation SNR is unchanged since all channels attenuate
+  equally
 
 ---
 

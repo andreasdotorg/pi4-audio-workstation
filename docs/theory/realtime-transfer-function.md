@@ -62,6 +62,24 @@ Gxy_new = alpha * X_k * conj(Y_k) + (1 - alpha) * Gxy_old
 The `alpha` parameter controls how quickly old data fades — adjustable
 "memory" for the display.
 
+### Low-Frequency Resolution Limit
+
+At 48kHz sample rate, a 4096-point FFT gives frequency bins of 11.7 Hz.
+Below ~50 Hz, there are only ~4 bins, and coherence tends to drop not
+because of noise but because of **insufficient frequency resolution** —
+the room's modal behavior changes rapidly within each wide bin, reducing
+the apparent linear relationship.
+
+For sub-bass work (below 50 Hz), use a larger FFT:
+- 8192 points → 5.9 Hz bins (adequate for most sub tuning)
+- 16384 points → 2.9 Hz bins (matches our FIR filter resolution)
+
+The tradeoff is temporal resolution: 16384 points at 48kHz = 341ms per
+block, so the display updates more slowly. A practical compromise is to
+run two parallel FFT engines — 4096-point for mid/high frequencies with
+fast updates, 16384-point for sub-bass with slower but more accurate
+coherence.
+
 ---
 
 ## 2. Dual-FFT Transfer Function Measurement
@@ -97,6 +115,53 @@ signal-gen (pink noise) -> speaker -> room -> UMIK-1
 - Coherence shows which frequencies have reliable data
 - Result is live, continuously updating
 
+### Reference Tap Point: Design Mode vs Verify Mode
+
+The reference tap point depends on **what you want to measure**. Both
+pre-convolver and post-convolver references are needed for different
+phases of the calibration workflow:
+
+**Design mode (pre-convolver reference):**
+- Measures: `room x speaker x crossover` — the raw acoustic response
+  with crossover slopes applied but no room correction
+- Reference tapped before the convolver (signal-gen output)
+- Transfer function shows what needs correcting
+- Used when: designing correction filters for a new venue
+- Convolver loads Dirac (identity) room correction coefficients but
+  retains crossover slopes and sub HPF
+
+**Verify mode (post-convolver reference):**
+- Measures: `room x speaker x crossover x correction` — the complete
+  processed response
+- Reference tapped after the convolver (convolver output)
+- Transfer function should be flat if correction is working
+- Used when: verifying that loaded correction filters produce the
+  desired response
+- Standard SMAART practice: tap after the processor to see the result
+
+The UI should offer a "Design" / "Verify" toggle (or equivalently
+"Pre-convolver" / "Post-convolver" reference). The GraphManager
+reconfigures the pcm-bridge-monitor tap point accordingly.
+
+**Note on Design mode startup:** When the convolver loads Dirac (identity)
+room correction, the crossover slopes and sub HPF are still active — these
+are baked into the combined FIR coefficients. To measure the raw
+`room x speaker` response without crossover, a separate set of Dirac-only
+coefficients (no crossover) would be needed. In practice, measuring
+through the crossover is what you want for room correction design, since
+the correction operates within each band.
+
+This also applies to delay measurement (see
+[multichannel-delay-measurement.md](multichannel-delay-measurement.md)),
+which always uses a **post-convolver** reference because it needs to
+measure the actual acoustic propagation delay of what the speaker
+physically plays.
+
+In our architecture:
+- **Design mode**: pcm-bridge-monitor taps signal-gen output (pre-convolver)
+- **Verify mode**: pcm-bridge-monitor taps convolver output (post-convolver)
+- **Both modes**: pcm-bridge-capture reads the UMIK-1 (post-room)
+
 ### Time Alignment Requirement
 
 The cross-spectrum requires time-aligned reference and measurement signals
@@ -117,7 +182,7 @@ Without time alignment, the phase of Gxy is meaningless and Cxy drops.
 | SMAART component | Our equivalent | Status |
 |---|---|---|
 | Reference signal source | signal-gen (pink/white noise) | READY |
-| Reference channel capture | pcm-bridge (monitor mode, port 9100) | READY |
+| Reference channel capture | pcm-bridge (monitor mode, port 9100) — tap point switchable | READY |
 | Measurement mic | UMIK-1 via USBStreamer ch 1-2 | READY |
 | Measurement capture | pcm-bridge (capture mode, port 9101) | READY |
 | Dual-channel FFT + cross-spectrum | — | NEEDS IMPLEMENTATION |
@@ -168,8 +233,10 @@ if CPU cost exceeds ~5-10% of one core.
 
 3. **GraphManager**: New link topology for measurement-with-noise mode:
    - signal-gen -> convolver input (excitation)
-   - convolver output -> pcm-bridge-monitor (reference)
+   - signal-gen output -> pcm-bridge-monitor (TF reference, pre-convolver)
    - USBStreamer capture -> pcm-bridge-capture (measurement)
+   - Note: for delay measurement, pcm-bridge-monitor taps post-convolver
+     instead — see [multichannel-delay-measurement.md](multichannel-delay-measurement.md)
 
 4. **Web UI backend** — new endpoint:
    ```
@@ -199,6 +266,16 @@ if CPU cost exceeds ~5-10% of one core.
 
 8. **Coherence-weighted correction**: Only correct where Cxy > threshold.
    Naturally avoids correcting noise-contaminated frequencies.
+
+9. **Program material as reference**: During live performance, use the
+   actual music signal (Mixxx or Reaper output) as the reference instead
+   of noise excitation. The pre-convolver tap captures the program
+   material; the UMIK-1 captures the room response. Coherence naturally
+   indicates which frequencies have sufficient excitation energy at any
+   moment — a psytrance kick provides excellent sub-bass coherence, while
+   a vocal passage gives good mid-range data. Over time, a full-bandwidth
+   picture emerges. This enables continuous drift monitoring during a
+   performance without any audible measurement signal.
 
 ---
 
