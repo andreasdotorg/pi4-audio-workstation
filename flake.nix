@@ -1,6 +1,11 @@
 {
   description = "Pi 4B audio workstation — development environment and NixOS deployment";
 
+  nixConfig = {
+    extra-substituters = [ "https://mugge.cachix.org" ];
+    extra-trusted-public-keys = [ "mugge.cachix.org-1:5p6UsgwD9LPWgJJaTGrRp5qahNcaq86Ew7Oro9HTevc=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils/11707dc2f618dd54ca8739b309ec4fc024de578b";
