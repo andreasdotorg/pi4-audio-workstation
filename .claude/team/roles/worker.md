@@ -204,23 +204,17 @@ or procedural changes.
 
 **You MUST run tests before opening a PR.** This is non-negotiable.
 
-**Tests must pass locally before every push.** CI is a verification gate,
-not a debugging tool. Run the commands below locally and confirm they pass
-before pushing to your branch or opening a PR. The pattern of push -> wait
-for CI failure -> fix -> push -> wait again is explicitly prohibited. If
-you cannot run tests locally, resolve that blocker before proceeding.
+**Commits and pushes have no test gate.** Commit and push whenever you have
+a meaningful quantum of work done. CI runs on PRs, not on every push.
 
-**Before every push (T0+T1) — ALL of these must pass:**
+**Before opening a PR (T0+T1+T2) — ALL of these must pass locally:**
 ```
 nix eval .#nixosConfigurations.mugge.config.system.build.toplevel.drvPath
 nix run .#test-all
 nix run .#test-pcm-bridge
 nix run .#test-signal-gen
+nix run .#test-level-bridge
 nix run .#test-integration-browser
-```
-
-**Before opening a PR (T2) — in addition to T0+T1:**
-```
 nix run .#test-e2e
 ```
 
@@ -241,9 +235,7 @@ tests is not done. See `docs/project/testing-process.md` for the full process.
    NOT ready. The branch stays in development until resolved.
 
 3. **Capture full output.** Include the exact command and complete
-   stdout/stderr in your report. If certain test suites cannot run in the
-   commit gate (e.g., E2E tests requiring a browser), your test output is
-   the only evidence — include it.
+   stdout/stderr in your report.
 
 4. **Write tests for new functionality.** New features require new tests.
    Bug fixes require a regression test that would have caught the bug.
