@@ -199,9 +199,13 @@ fn run_pipewire(
     let graph_info_cache = Rc::new(RefCell::new(rpc::GraphInfoSnapshot::empty()));
     info!("Graph info cache initialized");
 
+    // Resolve directory paths once at startup (F-256: avoid per-call env reads).
+    let resolved_state_dir = venue::state_dir();
+    let resolved_venues_dir = venue::venues_dir();
+
     // Active venue name (US-113: set via set_venue RPC).
     // US-123: Load persisted venue name from disk (does NOT open gate or apply gains).
-    let persisted_venue = venue::load_persisted_venue();
+    let persisted_venue = venue::load_persisted_venue(&resolved_state_dir);
     let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(persisted_venue));
 
     // D-063 audio gate state: all gains start at 0.0, gate closed.
@@ -313,6 +317,8 @@ fn run_pipewire(
                     &active_venue,
                     &gate_open,
                     &pending_gains,
+                    &resolved_state_dir,
+                    &resolved_venues_dir,
                 );
             }
         }
@@ -419,6 +425,8 @@ fn dispatch_rpc_command(
     active_venue: &std::rc::Rc<std::cell::RefCell<Option<String>>>,
     gate_open: &std::rc::Rc<std::cell::RefCell<bool>>,
     pending_gains: &std::rc::Rc<std::cell::RefCell<Vec<(String, f64)>>>,
+    resolved_state_dir: &std::path::Path,
+    resolved_venues_dir: &std::path::Path,
 ) {
     use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
@@ -598,8 +606,7 @@ fn dispatch_rpc_command(
         }
 
         rpc::RpcCommand::ListVenues { reply } => {
-            let dir = venue::venues_dir();
-            let venues = venue::list_venues(&dir);
+            let venues = venue::list_venues(&resolved_venues_dir);
             let _ = reply.send(venues);
         }
 
@@ -612,8 +619,7 @@ fn dispatch_rpc_command(
             use rpc::RpcResult;
 
             // 1. Load and validate the venue profile.
-            let dir = venue::venues_dir();
-            let profile = match venue::find_venue(&dir, &name) {
+            let profile = match venue::find_venue(&resolved_venues_dir, &name) {
                 Ok(p) => p,
                 Err(e) => {
                     let _ = reply.send(RpcResult::Error(e));
@@ -627,7 +633,7 @@ fn dispatch_rpc_command(
             *active_venue.borrow_mut() = Some(name.clone());
 
             // US-123 AC #4: Persist venue name to disk for crash recovery.
-            venue::persist_venue_name(&name);
+            venue::persist_venue_name(&name, &resolved_state_dir);
 
             // 3. If gate is open, apply gains immediately (hot venue switch).
             // NOTE: Gains are applied in a single loop iteration with no ramp.

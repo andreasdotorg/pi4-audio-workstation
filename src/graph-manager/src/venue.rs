@@ -115,9 +115,9 @@ const LAST_VENUE_FILE: &str = "last-venue";
 
 /// Resolve the state directory path.
 ///
-/// Uses `PI4AUDIO_STATE_DIR` env var if set (for testing), otherwise
-/// falls back to `/var/lib/pi4audio`.
-fn state_dir() -> PathBuf {
+/// Uses `PI4AUDIO_STATE_DIR` env var if set, otherwise falls back to
+/// `/var/lib/pi4audio`. Call once at startup and pass the result through.
+pub fn state_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("PI4AUDIO_STATE_DIR") {
         PathBuf::from(dir)
     } else {
@@ -130,8 +130,7 @@ fn state_dir() -> PathBuf {
 /// Writes to a temp file, fsyncs, then renames — crash-safe.
 /// Creates a `.bak` backup of the previous file before overwriting.
 /// Errors are logged but not fatal (venue persistence is best-effort).
-pub fn persist_venue_name(name: &str) {
-    let dir = state_dir();
+pub fn persist_venue_name(name: &str, dir: &Path) {
     let path = dir.join(LAST_VENUE_FILE);
     let tmp_path = dir.join(format!("{}.tmp", LAST_VENUE_FILE));
     let bak_path = dir.join(format!("{}.bak", LAST_VENUE_FILE));
@@ -180,8 +179,7 @@ pub fn persist_venue_name(name: &str) {
 ///
 /// Reads the primary file; falls back to `.bak` if missing or corrupt.
 /// Returns None on first boot or if both files are missing/empty.
-pub fn load_persisted_venue() -> Option<String> {
-    let dir = state_dir();
+pub fn load_persisted_venue(dir: &Path) -> Option<String> {
     let path = dir.join(LAST_VENUE_FILE);
     let bak_path = dir.join(format!("{}.bak", LAST_VENUE_FILE));
 
@@ -620,21 +618,19 @@ channels:
     // -----------------------------------------------------------------------
 
     #[test]
-    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn persist_and_load_venue_name() {
         let tmp = std::env::temp_dir().join("venue_persist_test");
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        std::env::set_var("PI4AUDIO_STATE_DIR", &tmp);
 
-        persist_venue_name("test-venue-1");
+        persist_venue_name("test-venue-1", &tmp);
 
-        let loaded = load_persisted_venue();
+        let loaded = load_persisted_venue(&tmp);
         assert_eq!(loaded, Some("test-venue-1".to_string()));
 
         // Overwrite — should create backup.
-        persist_venue_name("test-venue-2");
-        let loaded = load_persisted_venue();
+        persist_venue_name("test-venue-2", &tmp);
+        let loaded = load_persisted_venue(&tmp);
         assert_eq!(loaded, Some("test-venue-2".to_string()));
 
         // Backup file should contain old value.
@@ -642,39 +638,32 @@ channels:
         assert_eq!(bak.trim(), "test-venue-1");
 
         let _ = fs::remove_dir_all(&tmp);
-        std::env::remove_var("PI4AUDIO_STATE_DIR");
     }
 
     #[test]
-    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn load_persisted_venue_fallback_to_backup() {
         let tmp = std::env::temp_dir().join("venue_persist_bak_test");
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        std::env::set_var("PI4AUDIO_STATE_DIR", &tmp);
 
         // Write only the backup file.
         fs::write(tmp.join("last-venue.bak"), "backup-venue").unwrap();
 
-        let loaded = load_persisted_venue();
+        let loaded = load_persisted_venue(&tmp);
         assert_eq!(loaded, Some("backup-venue".to_string()));
 
         let _ = fs::remove_dir_all(&tmp);
-        std::env::remove_var("PI4AUDIO_STATE_DIR");
     }
 
     #[test]
-    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn load_persisted_venue_returns_none_when_empty() {
         let tmp = std::env::temp_dir().join("venue_persist_empty_test");
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        std::env::set_var("PI4AUDIO_STATE_DIR", &tmp);
 
-        let loaded = load_persisted_venue();
+        let loaded = load_persisted_venue(&tmp);
         assert_eq!(loaded, None);
 
         let _ = fs::remove_dir_all(&tmp);
-        std::env::remove_var("PI4AUDIO_STATE_DIR");
     }
 }
