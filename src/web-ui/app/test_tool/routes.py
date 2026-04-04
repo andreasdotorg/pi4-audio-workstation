@@ -392,6 +392,39 @@ def _gm_set_mode(mode: str) -> str:
         return mode
 
 
+def _ensure_gate_open() -> dict:
+    """Ensure the D-063 audio gate is open, loading a venue if needed.
+
+    F-265: The test tab switches GM to measurement mode but the convolver
+    starts with all Mult=0.0 (D-063 gate closed).  Without opening the
+    gate, signal-gen output is multiplied by zero — silence through the
+    entire chain.  This loads the first available venue and opens the gate
+    so signal flows through convolver -> room-sim -> UMIK-1.
+
+    Returns a dict with gate_open, venue, and action taken.
+    """
+    with _gm_client() as client:
+        gate = client.get_gate()
+        if gate.get("gate_open"):
+            return {"gate_open": True, "action": "already_open",
+                    "venue": gate.get("venue")}
+
+        # No venue loaded yet — pick the first available.
+        if not gate.get("has_pending_gains"):
+            from .venue import list_venues as local_list
+            venues = local_list()
+            if not venues:
+                return {"gate_open": False, "action": "no_venues_available"}
+            venue_name = venues[0]["name"]
+            client.set_venue(venue_name)
+            log.info("F-265: Auto-loaded venue '%s' for measurement mode",
+                     venue_name)
+
+        client.open_gate()
+        log.info("F-265: Opened D-063 gate for measurement mode")
+        return {"gate_open": True, "action": "opened"}
+
+
 @router.get("/current-mode")
 async def current_mode():
     """Return the current GraphManager routing mode (F-144)."""
@@ -408,12 +441,13 @@ async def current_mode():
 
 @router.post("/ensure-measurement-mode")
 async def ensure_measurement_mode():
-    """Switch GraphManager to measurement mode if not already there (F-144).
+    """Switch GM to measurement mode and open the D-063 gate (F-144, F-265).
 
-    Signal-gen needs measurement routing to have PipeWire links.  This
-    endpoint is called by the test page before playing test tones.
+    Signal-gen needs measurement routing to have PipeWire links, and the
+    convolver gate must be open for signal to flow through.  This endpoint
+    is called by the test page before playing test tones.
 
-    Returns {"mode": "measurement", "switched": true/false}.
+    Returns {"mode": "measurement", "switched": true/false, "gate": {...}}.
     """
     try:
         current = await asyncio.to_thread(_gm_get_mode)
@@ -424,21 +458,34 @@ async def ensure_measurement_mode():
             content={"error": "gm_unavailable", "detail": str(exc)},
         )
 
-    if current == "measurement":
-        _sync_mock_quantum("measurement")
-        return {"mode": "measurement", "switched": False}
+    switched = False
+    if current != "measurement":
+        try:
+            await asyncio.to_thread(_gm_set_mode, "measurement")
+            log.info("F-144: Switched GM to measurement mode (was: %s)", current)
+            switched = True
+        except Exception as exc:
+            log.error("Failed to switch GM to measurement mode: %s", exc)
+            return JSONResponse(
+                status_code=502,
+                content={"error": "gm_mode_switch_failed", "detail": str(exc)},
+            )
 
+    _sync_mock_quantum("measurement")
+
+    # F-265: Ensure the D-063 gate is open so signal flows through the
+    # convolver.  Without this, all Mult values are 0.0 and the convolver
+    # output is silence.
     try:
-        await asyncio.to_thread(_gm_set_mode, "measurement")
-        _sync_mock_quantum("measurement")
-        log.info("F-144: Switched GM to measurement mode (was: %s)", current)
-        return {"mode": "measurement", "switched": True, "previous": current}
+        gate_result = await asyncio.to_thread(_ensure_gate_open)
     except Exception as exc:
-        log.error("Failed to switch GM to measurement mode: %s", exc)
-        return JSONResponse(
-            status_code=502,
-            content={"error": "gm_mode_switch_failed", "detail": str(exc)},
-        )
+        log.warning("F-265: Failed to open gate: %s", exc)
+        gate_result = {"gate_open": False, "error": str(exc)}
+
+    result = {"mode": "measurement", "switched": switched, "gate": gate_result}
+    if switched:
+        result["previous"] = current
+    return result
 
 
 @router.post("/restore-mode")
