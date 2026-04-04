@@ -11,7 +11,7 @@
 # pi4audio-packages is passed via specialArgs from flake.nix — it contains
 # the Nix-built packages for our custom Rust services (graph-manager,
 # level-bridge, pcm-bridge, signal-gen).
-{ config, lib, pkgs, pi4audio-packages, ... }:
+{ config, lib, pkgs, pi4audio-packages, pwUnstablePkg, ... }:
 
 {
   imports = [
@@ -155,22 +155,24 @@
       '';
     });
 
-    # PipeWire: disable Bluetooth and libcamera support.
+    # PipeWire: upgrade to 1.6.2 (US-128), disable Bluetooth + libcamera.
+    # Source + nixpkgs patches from nixpkgs-unstable (pwUnstablePkg);
+    # build deps from nixos-25.11.  Adds US-112 convolver-reload patch.
     # D-019: Bluetooth fully disabled (kernel BT=n, dtoverlay=disable-bt).
-    # Default PipeWire pulls bluez + BT audio codecs (SBC, LC3, aptX, LDAC,
-    # fdk-aac) adding ~100+ MiB to the closure.
     # US-119: libcamera not needed (audio workstation, no camera).
     pipewire = (prev.pipewire.override {
       bluezSupport = false;
     }).overrideAttrs (oldAttrs: {
-      mesonFlags = (oldAttrs.mesonFlags or []) ++ [
+      version = pwUnstablePkg.version;
+      src = pwUnstablePkg.src;
+      # Replace mesonFlags entirely — nixos-25.11 passes -Dsystemd=enabled
+      # which doesn't exist in PW 1.6.2 (renamed to -Dlibsystemd=enabled).
+      mesonFlags = pwUnstablePkg.mesonFlags ++ [
         (prev.lib.mesonEnable "libcamera" false)
       ];
-      # US-112: Add convolver hot-reload control port (D-053).
-      # Adds a "Reload" boolean control input to the convolver builtin
-      # plugin, enabling runtime FIR coefficient switching without
-      # restarting PipeWire.
-      patches = (oldAttrs.patches or []) ++ [
+      # Replace nixos-25.11 PW patches with nixpkgs-unstable versions
+      # (written for 1.6.2), plus US-112 convolver-reload patch.
+      patches = pwUnstablePkg.patches ++ [
         ../patches/pipewire-convolver-reload.patch
       ];
     });

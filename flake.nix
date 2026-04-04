@@ -8,6 +8,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    # US-128: PipeWire 1.6.2 source — nixos-25.11 ships 1.4.9.
+    # Only PW is imported from this input; everything else stays on nixos-25.11.
+    nixpkgs-pw.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils/11707dc2f618dd54ca8739b309ec4fc024de578b";
     nixos-hardware.url = "github:NixOS/nixos-hardware";
     nixgl = {
@@ -21,7 +24,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, nixos-hardware, nixgl, disko }:
+  outputs = { self, nixpkgs, nixpkgs-pw, flake-utils, nixos-hardware, nixgl, disko }:
     (flake-utils.lib.eachSystem [
       "x86_64-darwin"   # macOS Intel dev
       "aarch64-darwin"  # macOS Apple Silicon dev
@@ -175,12 +178,23 @@
             || pkgs.lib.hasPrefix (toString ./src/signal-gen) (toString path);
         };
 
-        # US-112: PipeWire with convolver hot-reload patch.
-        # Adds a "Reload" boolean control port to the convolver builtin,
-        # enabling runtime FIR coefficient switching without node destruction.
-        # Used by local-demo, tests, and (via NixOS overlay) the Pi deployment.
+        # US-128: PipeWire 1.6.2 from nixpkgs-unstable with US-112 reload patch.
+        # nixos-25.11 ships PW 1.4.9; we upgrade source + nixpkgs patches from
+        # nixpkgs-unstable while keeping all build deps from nixos-25.11.
+        # The convolver-reload patch (1.6.2 version) uses the clean API:
+        # plugin_builtin.c, spa_loop_locked, control_changed callback.
+        pwUnstable = ((import nixpkgs-pw { inherit system; }).pipewire.override {
+          # Disable Bluetooth codecs — build deps from nixos-25.11 may lack
+          # ldacbt-dec and other BT libraries present in nixpkgs-unstable.
+          bluezSupport = false;
+        });
         pipewire-patched = pkgs.pipewire.overrideAttrs (oldAttrs: {
-          patches = (oldAttrs.patches or []) ++ [
+          version = pwUnstable.version;
+          src = pwUnstable.src;
+          # Replace mesonFlags entirely — nixos-25.11 passes -Dsystemd=enabled
+          # which doesn't exist in PW 1.6.2 (renamed to -Dlibsystemd=enabled).
+          mesonFlags = pwUnstable.mesonFlags;
+          patches = pwUnstable.patches ++ [
             ./nix/patches/pipewire-convolver-reload.patch
           ];
         });
@@ -738,8 +752,16 @@
               || pkgs.lib.hasPrefix (toString ./src/signal-gen) (toString path);
           };
 
+          # US-128: PipeWire 1.6.2 from nixpkgs-unstable for NixOS overlay.
+          # Apply bluezSupport=false here so mesonFlags already have bluez
+          # disabled — the NixOS overlay inherits these flags directly.
+          pwUnstablePkg = ((import nixpkgs-pw { inherit system; }).pipewire.override {
+            bluezSupport = false;
+          });
+
           # Shared specialArgs for both NixOS configurations.
           sharedSpecialArgs = {
+            inherit pwUnstablePkg;
             pi4audio-packages = {
               graph-manager = pkgs.rustPlatform.buildRustPackage (rustPwArgs // {
                 pname = "pi4audio-graph-manager";

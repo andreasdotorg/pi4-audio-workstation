@@ -110,6 +110,9 @@ jobs:
       - name: Run signal-gen tests
         run: cachix watch-exec mugge -- nix run .#test-signal-gen
 
+      - name: Run level-bridge tests
+        run: cachix watch-exec mugge -- nix run .#test-level-bridge
+
       - name: Run browser integration tests
         run: cachix watch-exec mugge -- nix run .#test-integration-browser
 

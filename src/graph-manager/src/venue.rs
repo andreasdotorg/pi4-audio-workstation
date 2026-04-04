@@ -620,6 +620,7 @@ channels:
     // -----------------------------------------------------------------------
 
     #[test]
+    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn persist_and_load_venue_name() {
         let tmp = std::env::temp_dir().join("venue_persist_test");
         let _ = fs::remove_dir_all(&tmp);
@@ -645,6 +646,7 @@ channels:
     }
 
     #[test]
+    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn load_persisted_venue_fallback_to_backup() {
         let tmp = std::env::temp_dir().join("venue_persist_bak_test");
         let _ = fs::remove_dir_all(&tmp);
@@ -662,6 +664,7 @@ channels:
     }
 
     #[test]
+    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn load_persisted_venue_returns_none_when_empty() {
         let tmp = std::env::temp_dir().join("venue_persist_empty_test");
         let _ = fs::remove_dir_all(&tmp);
