@@ -8,15 +8,18 @@
 #   nixos-eval → test-and-build
 #
 # Steps within test-and-build:
-#   T1  — Unit + Rust + browser tests (every push)
-#   T2  — E2E tests (main/PRs/dispatch only)
-#   T3  — aarch64 SD card image build (main/PRs/dispatch only)
+#   T1  — Unit + Rust + browser tests
+#   T2  — E2E tests
+#   T3  — aarch64 SD card image build
 #
 # Triggers:
-#   push to any branch   — nixos-eval → T1
-#   push to main          — nixos-eval → T1 → T2 → T3
 #   PR targeting main     — nixos-eval → T1 → T2 → T3
 #   workflow_dispatch      — T2 and/or T3 on any branch (manual)
+#
+# No push trigger — CI runs on PRs only.  Workers run T0+T1 locally
+# before every push (see docs/guide/howto/development.md).  This avoids
+# wasting CI minutes on feature-branch pushes and prevents double runs
+# when a PR is open (push + pull_request would both fire).
 #
 # Flaky test policy: If a test is flaky, fix it or skip it with a filed
 # defect (@pytest.mark.skip with defect ID). Do not add retry logic.
@@ -26,8 +29,6 @@
 name: CI
 
 on:
-  push:
-    branches: ['**']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -42,7 +43,7 @@ on:
         default: true
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -82,8 +83,7 @@ jobs:
   # -----------------------------------------------------------
   # T1 + T2 + T3 — Tests and SD image build (single ARM runner)
   # One Nix/Cachix setup, shared Nix store across all steps.
-  # T1 steps run on every push. T2/T3 steps only on main, PRs,
-  # or manual dispatch (controlled by per-step if conditions).
+  # All steps run on PRs. T2/T3 gated on manual dispatch inputs.
   # -----------------------------------------------------------
   test-and-build:
     runs-on: ubuntu-24.04-arm
@@ -99,7 +99,7 @@ jobs:
           name: mugge
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
-      # -- T1: Unit + Rust + browser tests (every push) ----------
+      # -- T1: Unit + Rust + browser tests (every PR) -------------
 
       - name: Run unit + Rust tests
         run: cachix watch-exec mugge -- nix run .#test-all
@@ -113,30 +113,27 @@ jobs:
       - name: Run browser integration tests
         run: cachix watch-exec mugge -- nix run .#test-integration-browser
 
-      # -- T2: E2E tests (main/PRs/dispatch only) ----------------
+      # -- T2: E2E tests (PRs + manual dispatch) ------------------
 
       - name: Run E2E tests with local-demo stack
         if: >-
-          github.ref == 'refs/heads/main'
-          || github.event_name == 'pull_request'
+          github.event_name == 'pull_request'
           || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
         env:
           E2E_STACK_TIMEOUT: '60'
         run: cachix watch-exec mugge -- nix run .#test-e2e
 
-      # -- T3: aarch64 SD card image build (main/PRs/dispatch) ---
+      # -- T3: aarch64 SD card image build (PRs + manual dispatch) -
 
       - name: Build aarch64 SD card image
         if: >-
-          github.ref == 'refs/heads/main'
-          || github.event_name == 'pull_request'
+          github.event_name == 'pull_request'
           || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
         run: cachix watch-exec mugge -- nix build .#images.sd-card --print-build-logs
 
       - name: Report image size
         if: >-
-          github.ref == 'refs/heads/main'
-          || github.event_name == 'pull_request'
+          github.event_name == 'pull_request'
           || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
         run: |
           img=$(find result/ -name '*.img.zst' -o -name '*.img' 2>/dev/null | head -1)
