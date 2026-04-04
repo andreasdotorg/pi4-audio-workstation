@@ -83,8 +83,6 @@ class TestReloadViaControlPort:
         node_id = _find_node_id(NODE_NAME)
         assert node_id is not None, f"Convolver node '{NODE_NAME}' not found"
 
-        links_before = _get_links()
-
         result = subprocess.run(
             ["pw-cli", "s", node_id, "Props",
              '{ params = [ "Reload" 1.0 ] }'],
@@ -128,6 +126,7 @@ class TestReloadViaControlPort:
 
 
 @pytest.mark.needs_pw
+@pytest.mark.destructive
 class TestReloadFailurePreservesOld:
     """Test 2: Bad coefficient file — old coefficients preserved."""
 
@@ -180,7 +179,13 @@ class TestReloadTiming:
     """Test 3: Reload completes within 100ms wall-clock time."""
 
     def test_reload_under_100ms(self):
-        """Measure wall-clock time of Reload trigger."""
+        """Measure wall-clock time of Reload trigger.
+
+        NOTE: This measures the pw-cli IPC round-trip (set Props + return),
+        not the end-to-end audio coefficient swap time.  The actual pointer
+        swap inside PipeWire is near-instantaneous; we are testing that the
+        control-port path completes within 100ms wall-clock including IPC.
+        """
         node_id = _find_node_id(NODE_NAME)
         assert node_id is not None, f"Convolver node '{NODE_NAME}' not found"
 
@@ -209,26 +214,30 @@ class TestDeployReloadUsesControlPort:
     """Test 4: Python reload_convolver() uses Reload control port."""
 
     def test_python_reload_preserves_node_id(self):
-        """Call reload_convolver() and verify node ID is unchanged."""
-        import sys
-        # Add room-correction to path
-        rc_dir = os.path.join(
-            os.environ.get("LOCAL_DEMO_REPO_DIR", ""),
-            "src", "room-correction",
+        """Call reload_convolver() and verify node ID + links unchanged."""
+        deploy_mod = pytest.importorskip(
+            "room_correction.deploy",
+            reason="room_correction package not on sys.path",
         )
-        if rc_dir not in sys.path:
-            sys.path.insert(0, rc_dir)
-
-        from room_correction.deploy import reload_convolver, _find_node_id as deploy_find
 
         node_id_before = _find_node_id(NODE_NAME)
         assert node_id_before is not None, f"Convolver node '{NODE_NAME}' not found"
 
-        success = reload_convolver(node_name=NODE_NAME)
+        links_before = _get_links()
+        link_ids_before = sorted(obj.get("id") for obj in links_before)
+
+        success = deploy_mod.reload_convolver(node_name=NODE_NAME)
         assert success, "reload_convolver() returned False"
 
         node_id_after = _find_node_id(NODE_NAME)
         assert node_id_after == node_id_before, (
             f"Node ID changed: {node_id_before} -> {node_id_after} — "
             f"reload_convolver() may still be using destroy-and-recreate"
+        )
+
+        links_after = _get_links()
+        link_ids_after = sorted(obj.get("id") for obj in links_after)
+        assert link_ids_before == link_ids_after, (
+            f"Links changed after reload_convolver(): "
+            f"before={link_ids_before}, after={link_ids_after}"
         )

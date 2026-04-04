@@ -11,8 +11,8 @@ confirmation that verification passed.
 NOTE: ``reload_convolver()`` is the preferred reload mechanism — it
 triggers the Reload control port on the convolver node (US-112 patch),
 which reloads coefficients in-place without destroying the node.  All
-PW links stay connected, no GM re-linking required, no audio dropout
-beyond the ~10ms crossfade.  ``reload_pipewire()`` is retained for
+PW links stay connected, no GM re-linking required, instantaneous
+pointer swap with no audio dropout.  ``reload_pipewire()`` is retained for
 emergencies but should not be used for normal filter switching (F-221).
 
 TK-166: Supports versioned (timestamped) filenames for deployment
@@ -395,8 +395,8 @@ def reload_convolver(node_name: str = "pi4audio-convolver",
 
     Sets the ``Reload`` control parameter to 1.0 on the convolver node,
     triggering an in-place coefficient reload.  The node stays alive, all
-    PipeWire links remain connected, and there is no audio dropout beyond
-    the crossfade window (~10ms).
+    PipeWire links remain connected, and coefficients are swapped via an
+    instantaneous pointer swap with no audio dropout.
 
     Requires the patched PipeWire with convolver-reload support
     (``nix/patches/pipewire-convolver-reload.patch``).
