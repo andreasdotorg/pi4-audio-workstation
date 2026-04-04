@@ -94,57 +94,46 @@ maintains the team's institutional memory so knowledge is never lost.
 
 ## Git Worktrees for Parallel Development
 
-Workers performing file edits that may conflict with other workers SHOULD use
-git worktrees for isolation. Each worktree is a separate working tree with its
-own branch, sharing the same `.git` object store as the main repo.
+Workers MUST use git worktrees for all feature branch work. Each worktree is
+a separate working tree with its own branch, sharing the same `.git` object
+store as the main repo. The main repository (`/home/ela/mugge`) MUST stay on
+`main` at all times.
 
-### Creating a worktree
+### Worktree creation is the CM's job
 
-**Preferred: use the `EnterWorktree` tool.** It creates the worktree in
-`.claude/worktrees/` and switches your session into it automatically.
+The Change Manager creates worktrees as part of branch assignment. When a
+worker requests a branch, the CM:
+1. Creates the branch
+2. Creates the worktree under `.claude/worktrees/`
+3. Verifies the flake evaluates in the worktree
+4. Responds with the **absolute worktree path**
 
-```
-EnterWorktree { name: "us-128-pw-upgrade" }
-```
-
-**Manual alternative** (if the tool is unavailable or you need control):
-
-```bash
-cd /home/ela/mugge
-git worktree add .claude/worktrees/<name> -b <branch-name> HEAD
-```
+Workers MUST NOT create worktrees themselves. Workers MUST NOT use
+`EnterWorktree`, `git worktree add`, or any other worktree creation method.
+If the CM's worktree creation fails, STOP and report the failure to the
+orchestrator.
 
 **Naming conventions:**
-- Worktree name: story ID or short description, e.g., `us-128-pw-upgrade`
-- Branch name: same as worktree name, e.g., `us-128-pw-upgrade`
+- Worktree directory: `.claude/worktrees/us-nnn-short-description`
+- Branch name: `story/US-NNN-short-description`
 - All worktrees live under `.claude/worktrees/` (gitignored)
-
-### Verify the flake works
-
-After creating the worktree, verify the flake evaluates:
-
-```bash
-cd /home/ela/mugge/.claude/worktrees/<name>
-nix eval .#packages.x86_64-linux.graph-manager.name --raw
-```
-
-If this returns the package name (e.g., `pi4audio-graph-manager-0.1.0`), the
-worktree is fully functional.
 
 ### Rules
 
-1. **Use absolute paths.** Agent cwd resets between bash calls. Always use
-   `/home/ela/mugge/.claude/worktrees/<name>/...` in commands.
-2. **Do NOT modify main repo files from a worktree.** Each worktree has its
-   own copy of all tracked files. Edit only within your worktree path.
-3. **Do NOT run `git` commands against the main repo while in a worktree.**
+1. **MUST use absolute paths.** Agent cwd resets between bash calls. Always
+   use `/home/ela/mugge/.claude/worktrees/<name>/...` in commands.
+2. **MUST NOT modify main repo files from a worktree.** Each worktree has
+   its own copy of all tracked files. Edit only within your worktree path.
+3. **MUST NOT run `git checkout`, `git switch`, or any branch-changing
+   command in the main repository (`/home/ela/mugge/`).** The main tree
+   stays on `main` at all times. Your branch lives in the worktree the CM
+   provided.
+4. **MUST NOT run `git` commands against the main repo while in a worktree.**
    The worktree has its own HEAD and index. Use `git` normally inside the
-   worktree -- it operates on the worktree's branch.
-4. **Commit your work in the worktree.** When done, commit on your branch.
+   worktree — it operates on the worktree's branch.
+5. **Commit your work in the worktree.** When done, commit on your branch.
    The CM merges it into main via the normal process.
-5. **One worker per worktree.** Do not share worktrees between agents.
-6. **Do not create worktrees on existing branch names.** If branch `foo`
-   exists, `git worktree add ... -b foo` will fail. Use unique names.
+6. **One worker per worktree.** Do NOT share worktrees between agents.
 
 ### `.venv` and build artifacts
 
@@ -157,37 +146,24 @@ The `result` symlink (from `nix build`) is per-directory and harmless.
 
 ### Cleaning up
 
-**Preferred: use the `ExitWorktree` tool** if you used `EnterWorktree`:
-
-```
-ExitWorktree { action: "remove" }
-```
-
-**Manual cleanup:**
+The CM owns worktree cleanup. Workers MUST NOT remove worktrees. The CM
+cleans up after PR merge or branch abandonment:
 
 ```bash
 cd /home/ela/mugge
-git worktree remove .claude/worktrees/<name>      # fails if untracked files
-git worktree remove --force .claude/worktrees/<name>  # force if needed
-git branch -d <branch-name>                        # delete the branch
-```
-
-Always delete the branch after removing the worktree. Verify cleanup:
-
-```bash
-git worktree list   # should show only /home/ela/mugge
+git worktree remove .claude/worktrees/<name>
+git branch -d <branch-name>
+git worktree list   # verify only /home/ela/mugge remains
 ```
 
 ### Gotchas
 
 - **L-015/L-052: Do NOT use `isolation: "worktree"` when spawning agents.**
-  The Agent tool's worktree parameter is broken and silently fails. Workers
-  must call `EnterWorktree` or run `git worktree add` themselves.
+  The Agent tool's worktree parameter is broken and silently fails.
 - **Worktree removal fails with untracked files.** Use `--force` or clean
   up first. Always confirm the worktree has no uncommitted work before
   force-removing.
 - **Flakes work inside worktrees.** The `flake.nix` and `flake.lock` are
   copied into the worktree. Nix evaluates them normally.
 - **`.claude/worktrees/` is gitignored.** Worktrees do not pollute the
-  main repo's `git status` (only the directory itself shows as untracked
-  if the gitignore entry is missing).
+  main repo's `git status`.

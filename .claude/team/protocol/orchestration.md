@@ -412,6 +412,8 @@ are made by workers via the Task tool.
 - Debug implementation problems
 - Provide technical guidance — connect workers to the right advisor instead
 - Access the deployment target at any tier (not even read-only)
+- Run `git checkout <feature-branch>` in the main tree — workers use worktrees;
+  the main tree (`/home/ela/mugge`) stays on `main` at all times
 - **Do cognitive work that belongs to other roles.** This includes:
   analyzing build failures or technical problems (worker/architect work),
   synthesizing advisor reviews into summary tables (PM work), reading
@@ -515,11 +517,13 @@ controls branch assignment, PR merges to main, and Pi deployment sessions.
 **Branch workflow:**
 1. Story is assigned to worker
 2. Worker requests a branch from CM: `story/US-NNN-short-description`
-3. CM registers the branch (1:1:1 mapping: one worker, one branch, one story)
-4. Worker implements on their branch, committing freely
-5. CI runs T0+T1 on every push to the branch
-6. Worker opens PR to main when ready (PR = Rule 13 review + CI + owner acceptance)
-7. CM verifies all approvals, CI green, owner acceptance, story scope — then merges
+3. CM creates the branch AND a worktree, responds with the absolute worktree path
+4. Worker implements in their worktree, committing freely
+5. Workers MUST use the worktree path provided by CM for all file operations
+6. Workers MUST NOT run `git checkout` or `git switch` in the main repository
+7. CI runs T0+T1 on every push to the branch
+8. Worker opens PR to main when ready (PR = Rule 13 review + CI + owner acceptance)
+9. CM verifies all approvals, CI green, owner acceptance, story scope — then merges
 
 **Branch rules:**
 - One worker per branch, one branch per story (1:1:1)
@@ -530,7 +534,7 @@ controls branch assignment, PR merges to main, and Pi deployment sessions.
 
 **CM responsibilities (git):**
 - Maintain branch registry (worker:branch:story assignments)
-- Create branches on request or authorize worker to create
+- Create branches AND worktrees on request (worker MUST NOT create their own)
 - Verify story scope at PR time (reject out-of-scope changes before review)
 - Verify all Rule 13 approvals are present before merging
 - Verify CI green (T1+T2+T3) before merging
@@ -543,6 +547,9 @@ controls branch assignment, PR merges to main, and Pi deployment sessions.
 - Push to another worker's branch
 - Merge their own PR
 - Deploy to the Pi without a CM session
+- Run `git checkout` or `git switch` in the main repository (`/home/ela/mugge`) —
+  the main tree stays on `main` at all times; workers use worktrees
+- Create their own worktrees — CM creates worktrees during branch assignment
 
 **Branch freedom != Pi freedom.** Committing to a feature branch and deploying
 to the Pi are fundamentally different operations. Branch commits are free.

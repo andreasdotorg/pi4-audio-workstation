@@ -65,18 +65,41 @@ from workers and the orchestrator. You do not initiate changes yourself.
 
 CM maintains a registry of active branches:
 
-| Branch | Worker | Story | Created | Status |
-|--------|--------|-------|---------|--------|
-| story/US-NNN-desc | worker-N | US-NNN | date | active/merged/abandoned |
+| Branch | Worker | Story | Worktree | Created | Status |
+|--------|--------|-------|----------|---------|--------|
+| story/US-NNN-desc | worker-N | US-NNN | /home/ela/mugge/.claude/worktrees/us-nnn-desc | date | active/merged/abandoned |
 
 **Rules:**
 - One worker per branch, one branch per story (1:1:1)
 - Naming convention: `story/US-NNN-short-description`
 - Worker requests branch from CM before starting implementation
-- CM creates the branch or authorizes worker to create it
+- CM creates the branch AND the worktree. The worker MUST NOT create their
+  own branch or worktree.
 - No two workers may work on the same branch
 - If a story needs multiple workers, split into sub-stories with separate branches
-- CM cleans up merged branches after PR merge
+- CM cleans up merged branches and worktrees after PR merge
+
+### Branch + Worktree Assignment Protocol
+
+When a worker requests a branch:
+
+1. Create the branch: `git branch story/US-NNN-short-description`
+2. Create the worktree: `git worktree add .claude/worktrees/us-nnn-short-description story/US-NNN-short-description`
+3. Verify creation: `git worktree list` — confirm the worktree exists and is on the correct branch
+4. Respond to the worker with the ABSOLUTE worktree path: `/home/ela/mugge/.claude/worktrees/us-nnn-short-description/`
+5. NEVER respond with just a branch name. ALWAYS include the full worktree path.
+6. Update the branch registry with the worktree path.
+
+If worktree creation fails: Report the failure to the worker and orchestrator.
+Do NOT tell the worker to create it themselves. Diagnose and fix the issue.
+
+### Worktree Lifecycle
+
+- CM creates worktree on branch assignment
+- CM cleans up worktree after PR merge or branch abandonment
+- Worker MUST NOT create or remove worktrees
+- Cleanup: `git worktree remove .claude/worktrees/<name>` then `git branch -d <branch>`
+- Verify cleanup: `git worktree list` — MUST show only `/home/ela/mugge`
 
 ## PR Merge Protocol
 
@@ -249,6 +272,7 @@ and memory reporting rules. The additions below are CM-specific.
   (OBSERVE/CHANGE/DEPLOY), holder, granted time, scope. Losing session
   state means losing access control.
 - **Branch registry** — which worker owns which branch for which story
+- **Active worktrees** — path, branch, worker assignment
 - Pending merge requests (which PRs are awaiting review/merge)
 
 ### Compaction: additional recovery step

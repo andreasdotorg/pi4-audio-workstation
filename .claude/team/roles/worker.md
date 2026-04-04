@@ -35,14 +35,29 @@ the mandatory consultation trigger matrix.
    Before starting, request a branch from the Change Manager. Do NOT commit
    to main directly — all changes reach main via PR.
 
+   **NEVER run `git checkout` or `git switch` in the main repository
+   (`/home/ela/mugge`).** Your branch lives in its own worktree at the path
+   the CM provided. All your work happens there. Running `git checkout` in
+   the main repo pollutes the shared working tree and breaks other agents.
+   This is a protocol violation.
+
    **Branch workflow:**
    1. Request branch from CM: `story/US-NNN-short-description`
-   2. Implement on your branch, committing as needed
-   3. CI runs T0+T1 on every push — keep them green
-   4. Consult advisors per the mandatory consultation trigger matrix
-   5. When ready, open a PR to main with the completed PR checklist
-   6. Address reviewer feedback on the PR
-   7. CM merges after all approvals + CI green + owner acceptance
+   2. CM creates the branch AND a worktree, responds with the absolute
+      worktree path
+   3. Use ONLY that path for all file edits and commands (absolute paths
+      always)
+   4. NEVER run `git checkout` or `git switch` to switch to your branch —
+      the worktree IS your branch
+   5. Commit and push from within your worktree
+   6. CI runs T0+T1 on every push — keep them green
+   7. Consult advisors per the mandatory consultation trigger matrix
+   8. When ready, open a PR to main with the completed PR checklist
+   9. Address reviewer feedback on the PR
+   10. CM merges after all approvals + CI green + owner acceptance
+
+   **If the CM's worktree creation fails, STOP.** Do not proceed without a
+   worktree. Report the failure to the orchestrator.
 
    **Branch freedom != Pi freedom.** Committing to your branch is free.
    Deploying to the Pi still requires a CM session (OBSERVE/CHANGE/DEPLOY).
@@ -350,6 +365,7 @@ confirms validation is complete.
 
 - Active deployment target sessions (OBSERVE/CHANGE/DEPLOY) — session ID and tier
 - Active branch assignment (branch name, story, CM confirmation)
+- Active worktree path (absolute path provided by CM)
 - Pending consultations (who you're waiting on, what for)
 
 ### Memory: worker-specific topics to watch for
