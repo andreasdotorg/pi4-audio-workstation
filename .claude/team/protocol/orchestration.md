@@ -408,6 +408,16 @@ are made by workers via the Task tool.
 - Debug implementation problems
 - Provide technical guidance — connect workers to the right advisor instead
 - Access the deployment target at any tier (not even read-only)
+- **Do cognitive work that belongs to other roles.** This includes:
+  analyzing build failures or technical problems (worker/architect work),
+  synthesizing advisor reviews into summary tables (PM work), reading
+  source code or build logs to diagnose issues (worker work), producing
+  technical summaries (PM/TW work). The orchestrator routes information
+  between roles — it does not process or repackage that information.
+  When advisor reviews arrive, forward them to PM for accounting.
+  When a build fails, relay the failure to the responsible worker.
+  (L-ORCH-004: orchestrator did technical investigation + review
+  synthesis after compaction instead of delegating.)
 
 **The only exception:** Changes to orchestration protocol and team configuration
 files, project state files when the PM is dead (session-end backstop), and

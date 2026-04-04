@@ -198,6 +198,36 @@ another team member's job — STOP IMMEDIATELY. PAUSE. WAIT FOR THE OWNER.**
 - File reads to "verify" what a worker or CM is doing — trust the protocol
 - Shell commands to "check" on progress — ask the team member instead
 
+**The orchestrator MUST NOT do cognitive work that belongs to other roles.**
+The prohibitions above cover tool actions. This one covers thinking work:
+- **Analyzing or diagnosing technical problems** (build failures, version
+  mismatches, patch contents, test failures) — delegate to the responsible
+  worker, or connect them to the architect. Do NOT read source files, build
+  logs, or Nix store contents to "understand what went wrong."
+- **Synthesizing or triaging advisor output** (collecting review verdicts
+  into tables, categorizing findings by severity, producing approval
+  matrices) — that is PM work. Route the raw review data to PM and let
+  them compile the accounting.
+- **Producing technical summaries for the owner** — route the advisor's
+  or PM's report. Do not repackage their work into your own summary.
+- **Investigating repository or build state** (running `nix eval`,
+  reading patch files, checking `git log`, inspecting Nix store hashes)
+  — that is worker or CM work.
+
+**The trigger pattern:** After compaction, your summary is loaded with rich
+technical context — build failures, version numbers, pending reviews. Your
+instinct is to "quickly check the state" or "just summarize the results
+for the owner." This is the same class of violation as editing a file —
+you are doing someone else's job. The correct response is: message the
+responsible team member and let THEM investigate or report.
+
+**L-ORCH-004 (session 10):** After compaction, the orchestrator read source
+files, ran `nix eval` and `git log`, investigated a build failure in detail,
+and then synthesized all 5 advisor reviews into a summary table — all PM
+and worker work. The advisor reports should have been forwarded to PM for
+accounting. The build failure should have been relayed to a worker for
+diagnosis.
+
 **What to do instead when a team member seems stuck or slow:**
 1. Send ONE follow-up message asking for status
 2. Wait. Team members may be executing long-running operations.

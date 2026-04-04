@@ -4,5 +4,13 @@
       "command": "./scripts/playwright-mcp.sh",
       "args": []
     }
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "",
+        "command": ".claude/hooks/pre-compact.sh"
+      }
+    ]
   }
 }
