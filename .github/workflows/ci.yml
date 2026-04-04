@@ -1,8 +1,16 @@
-# CI Pipeline for mugge (US-070, D-044)
+# CI Pipeline for mugge
 #
-# Two parallel jobs on GitHub-hosted ubuntu-latest runners with Nix:
-#   test-all                  — unit, integration, room-correction, graph-manager, pcm-bridge, signal-gen
-#   test-integration-browser  — Playwright browser tests (separated for parallel execution)
+# Tiers:
+#   T0  — NixOS config validation (nix eval, fast, catches Nix syntax/option errors)
+#   T1  — Unit + Rust + browser tests (Python pytest, Rust cargo, Playwright)
+#   T2  — E2E tests (full local-demo PipeWire stack, Linux-only, x86_64)
+#   T3  — aarch64 SD card image build (proves the full NixOS closure builds)
+#
+# Triggers:
+#   push to any branch   — T0 + T1
+#   push to main          — T0 + T1 + T2 + T3
+#   PR targeting main     — T0 + T1 + T2 + T3
+#   workflow_dispatch      — T2 and/or T3 on any branch (manual)
 #
 # Flaky test policy: If a test is flaky, fix it or skip it with a filed
 # defect (@pytest.mark.skip with defect ID). Do not add retry logic.
@@ -16,32 +24,91 @@ on:
     branches: ['**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Run E2E tests (T2)'
+        type: boolean
+        default: true
+      run_sd_image:
+        description: 'Build aarch64 SD card image (T3)'
+        type: boolean
+        default: true
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-all:
+  # -----------------------------------------------------------
+  # T0 — NixOS configuration validation
+  # Fast check that the NixOS config evaluates without errors.
+  # Catches option renames, type mismatches, missing modules.
+  # Uses QEMU user-mode to evaluate aarch64 Nix expressions.
+  # -----------------------------------------------------------
+  nixos-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU user-mode for aarch64
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user-static binfmt-support
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-platforms = aarch64-linux
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: mugge
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Evaluate NixOS configuration
+        run: |
+          drv=$(nix eval .#nixosConfigurations.mugge.config.system.build.toplevel.drvPath)
+          echo "NixOS toplevel derivation: $drv"
+
+  # -----------------------------------------------------------
+  # T1a — Python unit + Rust tests
+  # web-ui unit, room-correction, midi, drivers, audio-common,
+  # graph-manager (Rust).
+  # -----------------------------------------------------------
+  test-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
-      - uses: nix-community/cache-nix-action@v6
+      - uses: cachix/cachix-action@v17
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
+          name: mugge
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
-      - name: Run all unit and integration tests
+      - name: Run unit + Rust tests
         run: nix run .#test-all
 
-      - name: Run graph-manager tests
-        run: nix run .#test-graph-manager
+  # -----------------------------------------------------------
+  # T1b — PipeWire Rust crate tests (Linux-only)
+  # pcm-bridge, signal-gen — require libpipewire headers.
+  # -----------------------------------------------------------
+  test-rust-pw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: mugge
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
       - name: Run pcm-bridge tests
         run: nix run .#test-pcm-bridge
@@ -49,20 +116,88 @@ jobs:
       - name: Run signal-gen tests
         run: nix run .#test-signal-gen
 
-  test-integration-browser:
+  # -----------------------------------------------------------
+  # T1c — Browser integration tests (Playwright)
+  # -----------------------------------------------------------
+  test-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
       - uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
-      - uses: nix-community/cache-nix-action@v6
+      - uses: cachix/cachix-action@v17
         with:
-          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-
+          name: mugge
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
       - name: Run browser integration tests
         run: nix run .#test-integration-browser
+
+  # -----------------------------------------------------------
+  # T2 — E2E tests (full local-demo PipeWire stack)
+  # Starts headless PipeWire + GM + signal-gen + pcm-bridge +
+  # level-bridge + web-ui, runs Playwright E2E suite.
+  # Runs on: push to main, PRs targeting main, or manual dispatch.
+  # -----------------------------------------------------------
+  test-e2e:
+    if: >-
+      github.ref == 'refs/heads/main'
+      || github.event_name == 'pull_request'
+      || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [nixos-eval, test-unit, test-rust-pw, test-browser]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: mugge
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Run E2E tests with local-demo stack
+        env:
+          E2E_STACK_TIMEOUT: '60'
+        run: nix run .#test-e2e
+
+  # -----------------------------------------------------------
+  # T3 — aarch64 SD card image build
+  # Builds the full NixOS SD image for Raspberry Pi 4B.
+  # Proves the entire closure (kernel, PipeWire, services) builds.
+  # Runs on: push to main, PRs targeting main, or manual dispatch.
+  # Uses native aarch64 runner — no QEMU overhead for full build.
+  # -----------------------------------------------------------
+  build-sd-image:
+    if: >-
+      github.ref == 'refs/heads/main'
+      || github.event_name == 'pull_request'
+      || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    needs: [nixos-eval]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v31
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: mugge
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Build aarch64 SD card image
+        run: nix build .#images.sd-card --print-build-logs
+
+      - name: Report image size
+        run: |
+          img=$(find result/ -name '*.img.zst' -o -name '*.img' 2>/dev/null | head -1)
+          if [ -n "$img" ]; then
+            echo "SD image: $img ($(du -h "$img" | cut -f1))"
+          else
+            echo "SD image built successfully"
+            ls -lh result/
+          fi
