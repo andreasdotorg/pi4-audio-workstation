@@ -31,6 +31,10 @@ Workers MUST consult you on (in addition to standard topics):
 - Any real-time performance constraint or CPU budget decision
 - Any memory allocation strategy or buffer sizing
 - Any systemd service configuration (jointly with Security Specialist)
+- Any NixOS module or configuration change (4 historical failures: F-020,
+  cert Group, web UI PATH, tmpfiles Group)
+- Any RT/performance change: quantum, buffer sizes, CPU scheduling, SCHED_FIFO,
+  new filter-chain nodes
 
 ## Shared Rules
 

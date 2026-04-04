@@ -277,10 +277,12 @@ jira backend is active.
 - **Skip if:** single-file change with obvious implementation
 
 **Phase 3: Implement** (workers)
-- Workers execute their plans, following project conventions (CLAUDE.md)
-- All git operations through Change Manager (Rule 9)
-- Workers consult advisors when encountering questions not covered by the plan
-- Output: code committed per project git workflow
+- Workers implement on their assigned feature branches, committing freely
+- Workers consult advisors per the mandatory consultation trigger matrix
+  during development (see consultation-matrix.md)
+- CI runs T0+T1 on every push to the branch
+- Workers open a PR to main when implementation is complete
+- Output: PR opened with completed checklist
 
 **Phase 4: Test** (quality engineer + workers)
 - Quality Engineer writes a test plan covering pre-merge/pre-deploy validation
@@ -318,11 +320,13 @@ jira backend is active.
 - Same worker from Deploy executes post-deploy verification
 - Output: post-deploy verification report with evidence
 
-**Phase 7: Review** (advisory team)
-- This IS the quality gate / in-review status
-- Advisors review the **delivered result**
-- Each advisor reviews within their jurisdiction and records sign-off or
-  blocking findings
+**Phase 7: Review** (advisory team — on the PR)
+- The PR is the review vehicle. Advisors review the complete PR diff.
+- All seven reviewers (AE, SecSpec, TW, UX, QE, Architect, AD) review every PR
+- Each specialist decides relevance to their domain — no external triage
+- AE and SecSpec have veto power (owner override only)
+- CI must be green (T1+T2+T3)
+- PR = owner acceptance vehicle — no separate acceptance step
 - **Specification compliance check (mandatory):** If the story is governed by
   a specification (identified in Phase 1), every advisor with jurisdiction
   MUST verify their domain against the governing specification — not just
@@ -330,15 +334,14 @@ jira backend is active.
   "Have you validated against the full specification scope? Show evidence."
   Jurisdiction ambiguity is not an excuse — if no advisor claims a
   specification requirement, the AD escalates. (L-024)
-- Findings are filed as defects (severity per defect format)
-- Critical/high defects must be resolved before owner acceptance
-- PM compiles the review summary for the project owner
+- Findings filed as defects; critical/high must be resolved before merge
+- PM compiles the review summary on the PR for the owner
 
 **Phase transitions:** The orchestrator coordinates phase transitions based
 on output from the responsible party:
 - Decompose -> Plan: Architect sends task breakdown to orchestrator
 - Plan -> Implement: worker's plan is ready (or skipped)
-- Implement -> Test: worker reports code committed, notifies orchestrator
+- Implement -> Test: worker opens PR, notifies orchestrator
 - Test -> Deploy: QE's test report shows all pass (if deploy-verify enabled)
 - Test -> Review: QE's test report shows all pass (if deploy-verify NOT enabled)
 - Deploy -> Verify: worker reports deployment evidence to orchestrator
@@ -375,7 +378,8 @@ The PM tracks this sequence and ensures no step is skipped.
 | draft | Story exists but AC not yet confirmed | No | PM creates |
 | ready | AC confirmed, dependencies met, available for selection | No — awaiting selection | PM updates |
 | **selected** | **Project owner has approved this story for implementation** | **Yes** | **Project owner only** |
-| in-progress | Implementation started (tracked in status) | Yes (continue) | PM updates when work begins |
+| assigned | Worker assigned, CM assigns branch (`story/US-NNN-desc`) | Yes (begin) | PM updates when worker + branch assigned |
+| in-progress | Implementation started on feature branch | Yes (continue) | PM updates when work begins |
 | in-review | Delivered and verified, awaiting team sign-off + owner acceptance | No (changes frozen) | PM updates |
 | done | All DoD items pass, team signed off, owner accepted | No | PM updates after owner acceptance |
 | deferred | Explicitly postponed (with rationale) | No | Project owner only |
@@ -503,27 +507,46 @@ MUST be included in the session summary / continuation prompt so they survive:
 9. **Validate project status is current.** Check if PM is alive.
    If not, update status yourself before proceeding.
 
-### Rule 9: Git operations through Change Manager only
+### Rule 9: Branch-based development with CM merge control
 
-Workers NEVER commit, push, or manage branches directly. All git operations go
-through the Change Manager agent. This prevents cross-contamination when parallel
-workers edit files in the same working directory.
+Workers own their feature branches and commit freely. The Change Manager
+controls branch assignment, PR merges to main, and Pi deployment sessions.
 
-**Worker workflow:**
-1. Worker finishes editing files for a task
-2. Worker messages Change Manager: "Commit files X, Y, Z for task #N — message: ..."
-3. Change Manager runs `git diff <file>` and sends the diff summary back to the
-   requesting worker for confirmation before committing
-4. Worker confirms the diff is correct (catches stale/mixed working tree state)
-5. Change Manager classifies each file into change domains and verifies
-   required approvals per Rule 13
-6. Change Manager stages only those files, commits, pushes
-7. Change Manager reports commit hash back to worker
+**Branch workflow:**
+1. Story is assigned to worker
+2. Worker requests a branch from CM: `story/US-NNN-short-description`
+3. CM registers the branch (1:1:1 mapping: one worker, one branch, one story)
+4. Worker implements on their branch, committing freely
+5. CI runs T0+T1 on every push to the branch
+6. Worker opens PR to main when ready (PR = Rule 13 review + CI + owner acceptance)
+7. CM verifies all approvals, CI green, owner acceptance, story scope — then merges
 
-**Critical:** Workers must NEVER run `git add`, `git commit`, or any git
-staging commands. Workers only edit files and tell the change-manager which
-files to commit. The change-manager must run `git status` after `git reset HEAD`
-(unstaging) to verify NOTHING is staged before adding specific files (L-020).
+**Branch rules:**
+- One worker per branch, one branch per story (1:1:1)
+- Naming convention: `story/US-NNN-short-description`
+- Workers MUST NOT commit to main directly — all changes reach main via PR
+- Workers MUST NOT push to another worker's branch
+- Stay within story scope — adjacent bugs -> file a separate defect
+
+**CM responsibilities (git):**
+- Maintain branch registry (worker:branch:story assignments)
+- Create branches on request or authorize worker to create
+- Verify story scope at PR time (reject out-of-scope changes before review)
+- Verify all Rule 13 approvals are present before merging
+- Verify CI green (T1+T2+T3) before merging
+- Verify owner acceptance before merging
+- Execute the merge to main
+- Pi deployment sessions (unchanged — OBSERVE/CHANGE/DEPLOY protocol)
+
+**Workers MUST NOT:**
+- Push to main
+- Push to another worker's branch
+- Merge their own PR
+- Deploy to the Pi without a CM session
+
+**Branch freedom != Pi freedom.** Committing to a feature branch and deploying
+to the Pi are fundamentally different operations. Branch commits are free.
+Pi access requires a CM session with the same rigor as before.
 
 **The only exception:** The orchestrator may commit changes to team configuration
 files (meta-process) directly, since these are not implementation code.
@@ -561,52 +584,71 @@ If the question has an answer in the orchestration protocol, stories, decisions
 log, or DoD criteria, the orchestrator answers it. The project owner is consulted
 only for genuinely novel decisions — things not covered by existing documentation.
 
-### Rule 13: Change-manager requires stakeholder approval before commit
+### Rule 13: Stakeholder approval before PR merge
 
-The change-manager must collect active approval from all relevant domain
-stakeholders before committing — not just the requesting worker.
+The Change Manager must collect active approval from all required reviewers
+before merging any PR to main. This replaces the former per-commit approval
+model — review now happens once per story at PR time.
 
-**Approval matrix by change domain:**
+**ALL reviewers are mandatory on EVERY PR:**
 
-| Change domain | Required approval from |
-|---------------|-----------------------|
-| All code changes | Quality Engineer (test adequacy) |
-| All code changes | Architect (code quality + design) |
-| All code changes | Audio Engineer (audio safety + signal path) |
-| All code changes | Security Specialist (security implications + attack surface) |
-| All code changes | UX Specialist (user-facing behavior) |
-| All code changes | Advocatus Diaboli (failure modes + challenge) |
-| Documentation / tracking changes | Project Manager |
-| Multi-domain changes | All relevant approvals above |
+| Reviewer | Reviews for | Authority |
+|----------|-------------|-----------|
+| Audio Engineer | Audio safety, signal path, gain values | **Veto power** (owner override only) |
+| Security Specialist | Security implications, attack surface | **Veto power** (owner override only) |
+| Technical Writer | Documentation completeness and quality | Blocking |
+| UX Specialist | User-facing behavior, interaction design | Blocking |
+| Quality Engineer | Test adequacy (unit, integration, E2E), no mock theater | Blocking |
+| Architect | Code quality, design correctness, performance | Blocking |
+| Advocatus Diaboli | Failure modes, edge cases, contradictions | Blocking |
 
-**ALL SIX reviewers (QE, Architect, AE, SecSpec, UX, AD) must approve every
-code commit.** This is not optional. Only the Security Specialist can determine
-whether a change has security implications — making this review mandatory, not
-conditional. The orchestrator must collect all six sign-offs before instructing
-the CM to commit. The CM must independently verify all six are present.
-L-ORCH-003: Session 9 shipped 9 commits with zero gate passes — this rule
-exists to prevent that from ever happening again.
+**Only the specialist can decide relevance.** Each reviewer reviews every PR
+and decides whether the PR is relevant to their domain. Nobody else triages
+for them. A reviewer may approve with "no concerns in my domain" — but they
+must explicitly approve. There is no conditional review tier.
 
-**QE test adequacy approval (L-042, owner directive):** The QE reviews
-both the test results (did they pass?) and the tests themselves (are they
-meaningful?). The QE rejects commits where: tests were not run, new code
-has no corresponding tests, tests are mock theater (verify mocks rather
-than behavior), or test failures were dismissed without tracked defects.
+**CI requirements:** T1 + T2 + T3 must be green before merge.
+
+**Owner acceptance:** The PR is the vehicle for owner acceptance. The owner
+reviews the PR and approves before CM merges.
+
+**Veto power:** AE and SecSpec can block any merge. Their rejection is
+overridable only by the project owner — not by the orchestrator, not by
+consensus. All other advisor rejections are resolved through debate/escalation.
+
+**The sequence is:** implement on branch -> test -> open PR -> all reviewers
+approve -> CI green -> owner accepts -> CM merges. Never: implement -> merge
+-> review -> fix -> merge again.
+
+**QE test adequacy approval (L-042, owner directive):** QE reviews the
+complete PR diff for test adequacy: unit, integration, E2E coverage.
+No mock theater — appropriate mocking for each test level. CI green
+(T1+T2+T3) is a prerequisite for QE approval. CI is QE's deputy.
 
 **Architect code quality approval (owner directive):** The Architect uses
 the 11-item review checklist in `docs/project/testing-process.md` Section
 4.8. Auto-reject criteria: Mult > 1.0 or D-009 violation (safety),
 subprocess on safety path, non-loopback binding or unsanitized subprocess
 input (security), pure-logic modules with I/O imports (architecture). The
-Architect rejects commits where code quality feedback has not been addressed.
+Architect rejects PRs where code quality feedback has not been addressed.
 
 See `docs/project/testing-process.md` for the full testing and code quality
 governance process.
 
-The change-manager MUST independently verify the approval matrix before
-committing. The orchestrator is not exempt from Rule 13. The change-manager
-refuses to commit when the matrix is not satisfied, even if the orchestrator
+The Change Manager MUST independently verify the approval matrix before
+merging. The orchestrator is not exempt from Rule 13. The Change Manager
+refuses to merge when the matrix is not satisfied, even if the orchestrator
 overrides (L-019).
+
+**Reviewer timeout escalation (AD-WF-001):** If a mandatory reviewer has
+not responded after the orchestrator's initial request and one follow-up,
+escalate to the project owner. The owner can override (approve without that
+reviewer), reassign the review to another qualified agent, or decide to
+wait. The orchestrator does NOT skip reviewers on its own authority.
+
+L-ORCH-003: Session 9 shipped 9 commits with zero gate passes — Rule 13
+exists to prevent that from ever happening again. The per-PR model
+preserves the same safety guarantee while eliminating per-commit overhead.
 
 ### Rule 14: Work item references use document IDs only (L-049)
 

@@ -22,6 +22,8 @@ with blocking authority.
 - Identify hidden assumptions that could break under different conditions
 - File findings as defects using project severity ratings
   (critical/high/medium/low)
+- **PR challenge:** Review every PR diff for failure modes, edge cases, hidden
+  assumptions, and contradiction with existing decisions/documentation.
 
 ## Workers SHOULD consult you on
 
@@ -55,6 +57,14 @@ Report to the technical-writer when you encounter:
 - Contradictions found (inconsistencies between code, docs, decisions)
 - Assumptions that broke (Pi hardware, PipeWire behavior assumptions)
 - Decision rationale gaps (important decisions where the "why" isn't captured)
+
+## Disagreement Escalation
+
+When a worker disagrees with an advisor during consultation and escalates to
+the orchestrator, the orchestrator may involve you to challenge both positions.
+The escalation path is: worker + advisor discuss → unresolved → orchestrator
+decides (may consult AD) → owner for safety-critical items. Workers MUST NOT
+proceed past unresolved disagreements.
 
 ## Protocol Enforcement
 

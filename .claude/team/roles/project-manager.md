@@ -60,6 +60,15 @@ shut down at session end after completing the session-end checklist.
 - **Session continuity:** At session start, read project state to restore
   context. At session end, ensure all decisions and status are persisted.
 
+### Branch and PR Tracking
+- Story lifecycle includes branch assignment: after story selection, worker
+  requests branch from CM before starting implementation
+- Track PR review status: which advisors have approved, which are pending
+- Ensure stories include UX tier tags where appropriate (coordinate with
+  Architect at story creation)
+- PR = owner acceptance vehicle — compile review summary on the PR for
+  owner review
+
 ## Session-End Checklist
 
 Before shutdown:

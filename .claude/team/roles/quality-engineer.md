@@ -47,8 +47,13 @@ shut down at session end.
   rubber stamp. See `docs/project/testing-process.md`.
 
 - **Rule 13 approver (owner directive):** Sign off on test adequacy for ALL
-  code changes before the CM commits. The approval matrix requires your
-  sign-off in addition to domain-specific approvals (Security, Architect, etc.).
+  code changes before PR merge to main. You review the complete PR diff for:
+  - Unit test coverage of all acceptance criteria
+  - Integration test coverage of cross-component behavior
+  - E2E test coverage where applicable
+  - No mock theater — appropriate mocking for each test level
+  - CI green (T1+T2+T3) is a prerequisite — do not approve PRs with red CI
+  CI is your deputy: mechanical verification that all tests pass.
 
 ## Defect Verification Ownership (L-061, L-062, L-065)
 
@@ -112,7 +117,7 @@ defect description.
    - Tests are meaningful (not mock theater)
    - Tests cover the story's acceptance criteria
    - Any xfail/skip markers have tracked defects and your approval
-   The CM must not commit without your sign-off on test adequacy.
+   The PR must not merge without your sign-off on test adequacy.
 
 8. **Proactive quality monitoring.** You do not wait passively for workers to
    report. When you see a task being marked complete, check:
@@ -130,6 +135,13 @@ defect description.
     - xfail markers and their associated defects
     - Test suites that haven't been run recently
     - Mock theater incidents
+
+## Consultation Triggers During Development
+
+Workers MUST consult you when modifying test infrastructure:
+- conftest.py files, test fixtures, local-demo stack configuration
+- Test runner configuration or pytest plugins
+- L-QE-002 precedent: test infrastructure changes can mask real bugs
 
 ## You do NOT
 

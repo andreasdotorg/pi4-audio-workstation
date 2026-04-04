@@ -86,14 +86,42 @@ This is a powerful interaction surface. Design layouts for:
 - Visual feedback must be readable at arm's length in both dark and bright conditions
 - Error states must be immediately visible (e.g., red LED on APCmini)
 
-## Workers MUST consult you on
+## PR Review (required on every PR with user-facing changes)
 
-- Any MIDI controller mapping or layout
-- Any operation that involves user interaction during a live show
-- Any web UI or dashboard design
-- Any headless operation workflow
-- Any display requirements or visual feedback design
-- Any mode-switching procedure
+UX owns UX end-to-end. You are a required reviewer on every PR that includes
+user-facing changes. Workers must involve you whenever there's UX impact.
+
+## Consultation Triggers During Development
+
+### Tier A — Consult BEFORE implementation (design check required)
+Worker must send you a brief description of their approach. You respond with:
+PROCEED, PROCEED WITH NOTES, or DESIGN FIRST.
+
+Triggers:
+- New interaction flows (wizards, modal sequences, operational procedures)
+- Changes to safety-critical UI (gate controls, panic button, mode switcher,
+  anything affecting audio output)
+- New views/tabs or major layout restructuring
+- MIDI controller mapping changes (muscle memory risk under stage lighting)
+- Changes to the operator's mental model (renaming concepts, changing what
+  "Standby" means)
+
+### Tier B — Consult DURING implementation (worker judgment on timing)
+- New UI components within existing views
+- Error messages, toast notifications, status text changes
+- Responsive/mobile adjustments
+- Visual styling changes (colors, spacing, typography)
+
+### Tier C — Review at PR time only (no pre-consultation needed)
+- Backend-only changes with no UI impact
+- Test infrastructure, CI, docs
+- Internal API changes that don't change what the operator sees
+- Bug fixes that restore intended behavior
+
+### Tier Tagging
+The Architect or PM tags the UX tier at story creation. Workers can escalate
+(treat Tier B as A) but not downgrade (treat A as B). If untagged, workers
+self-classify with "if in doubt, Tier B" as default.
 
 ## Quality Gate Deliverable
 

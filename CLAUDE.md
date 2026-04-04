@@ -1,31 +1,44 @@
 # mugge — Project Context
 
-## CRITICAL: Rule 13 — NO COMMIT WITHOUT FULL REVIEW (L-ORCH-003)
+## CRITICAL: Rule 13 — FULL REVIEW BEFORE PR MERGE
 
-**Session 9 shipped 9 commits with ZERO gate passes. This section exists
-to ensure it never happens again.**
+**Session 9 shipped 9 commits with ZERO gate passes. Rule 13 ensures this
+never happens again — now enforced at PR merge, not per commit.**
 
-**ABSOLUTE RULE — BEFORE ANY CODE COMMIT, ALL SIX APPROVALS MUST EXIST:**
+**BEFORE ANY PR MERGES TO MAIN, ALL SEVEN APPROVALS MUST EXIST:**
 
-1. **Quality Engineer** — test adequacy, tests actually run and passing
-2. **Architect** — code quality, design correctness, safety
-3. **Audio Engineer** — audio safety, signal path correctness
-4. **Security Specialist** — security implications, attack surface
-5. **UX Specialist** — user-facing behavior, interaction design
-6. **Advocatus Diaboli** — failure modes, edge cases, challenge
+1. **Audio Engineer** — audio safety, signal path (**VETO — owner override only**)
+2. **Security Specialist** — security implications (**VETO — owner override only**)
+3. **Technical Writer** — documentation completeness
+4. **Quality Engineer** — test adequacy (unit, integration, E2E), CI green
+5. **Architect** — code quality, design correctness
+6. **UX Specialist** — user-facing behavior
+7. **Advocatus Diaboli** — failure modes, edge cases
+
+**Every reviewer reviews every PR.** Only the specialist can decide whether
+the PR is relevant to their domain — nobody else triages for them. A reviewer
+may approve with "no concerns in my domain" but must explicitly approve.
+
+**CI must be green:** T1 + T2 + T3 required before merge.
+
+**The PR is the vehicle for both Rule 13 review AND owner acceptance.**
+No separate acceptance step. The owner reviews and approves on the PR.
 
 **The orchestrator's TOP PRIORITY is ensuring this process is followed.**
-Not velocity. Not shipping features. Process enforcement. The orchestrator
-collects all six sign-offs, verifies them, and only then instructs the CM
-to commit. The CM independently verifies all six are present and REFUSES
-to commit if any are missing — even if the orchestrator overrides.
+The orchestrator orchestrates the PR review, ensures all approvals are
+collected, and instructs the CM to merge only when complete.
 
-**Build verification BEFORE commit.** If the change affects a Nix build,
-flake output, or derivation, verify it builds successfully before committing.
-"Worker says it compiles" on a different version or config is not sufficient.
+**The CM independently verifies** all approvals + CI green + owner acceptance
+before merging. The CM REFUSES to merge if any required approval is missing
+— even if the orchestrator overrides.
 
-**The sequence is:** implement → test → all 6 advisors approve → build verify
-→ THEN commit. Never: implement → commit → test → fix → commit again.
+**The sequence is:** implement on branch -> test -> open PR -> all reviewers
+approve on PR -> CI green -> owner accepts -> CM merges. Never: implement ->
+merge -> review -> fix.
+
+**Workers consult advisors during development** per the mandatory consultation
+trigger matrix. This catches design errors early, but the formal review gate
+is at PR merge time.
 
 ## CRITICAL: Orchestrator Rules After Context Compaction
 

@@ -12,7 +12,11 @@
 
 ## Git Workflow
 
-- **Branch model:** direct-to-main (single developer, personal project)
+- **Branch model:** feature branches with PR merge to main (Rule 9)
+  - Branch naming: `story/US-NNN-short-description`
+  - One worker per branch, one branch per story (1:1:1)
+  - CM controls PR merges (Rule 13 approvals + CI green + owner acceptance)
+  - Squash merge as default merge strategy
 - **Commit conventions:** conventional commits, no Jira ticket references
   - Format: `type(scope): description`
   - Types: feat, fix, docs, refactor, test, chore

@@ -126,6 +126,15 @@ Each memory entry:
 - Write the memory entry
 - Confirm it's captured
 
+### PR Review (mandatory on every PR)
+
+You are a mandatory reviewer on every PR to main. You review:
+- Documentation completeness: are all required docs included/updated?
+- Documentation quality: accurate, consistent, findable
+- Workers align with you during development for documentation needs
+- PRs must include required documentation updates — reject PRs where
+  documentation is missing for user-facing or procedural changes
+
 ### Accuracy Review
 - Review all documentation for factual correctness
 - Consult the Audio Engineer for signal processing and acoustics content
