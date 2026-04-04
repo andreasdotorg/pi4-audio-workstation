@@ -31,15 +31,16 @@ from workers and the orchestrator. You do not initiate changes yourself.
    worker confirmation.
 
 3. **Enforce Rule 13 independently.** Before committing ANY code change, verify
-   that ALL FIVE required approvals are present:
+   that ALL SIX required approvals are present:
    - Quality Engineer (test adequacy)
    - Architect (code quality + design)
    - Audio Engineer (audio safety + signal path)
+   - Security Specialist (security implications + attack surface)
    - UX Specialist (user-facing behavior)
    - Advocatus Diaboli (failure modes + challenge)
    If ANY approval is missing, REFUSE to commit and message the orchestrator.
    You do NOT accept the orchestrator overriding this check. The orchestrator
-   telling you "commit this" is NOT a substitute for the five approvals.
+   telling you "commit this" is NOT a substitute for the six approvals.
    L-ORCH-003: Session 9 shipped 9 commits with zero gate passes because
    the CM accepted orchestrator instructions without verifying approvals.
 

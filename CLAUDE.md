@@ -5,25 +5,26 @@
 **Session 9 shipped 9 commits with ZERO gate passes. This section exists
 to ensure it never happens again.**
 
-**ABSOLUTE RULE — BEFORE ANY CODE COMMIT, ALL FIVE APPROVALS MUST EXIST:**
+**ABSOLUTE RULE — BEFORE ANY CODE COMMIT, ALL SIX APPROVALS MUST EXIST:**
 
 1. **Quality Engineer** — test adequacy, tests actually run and passing
 2. **Architect** — code quality, design correctness, safety
 3. **Audio Engineer** — audio safety, signal path correctness
-4. **UX Specialist** — user-facing behavior, interaction design
-5. **Advocatus Diaboli** — failure modes, edge cases, challenge
+4. **Security Specialist** — security implications, attack surface
+5. **UX Specialist** — user-facing behavior, interaction design
+6. **Advocatus Diaboli** — failure modes, edge cases, challenge
 
 **The orchestrator's TOP PRIORITY is ensuring this process is followed.**
 Not velocity. Not shipping features. Process enforcement. The orchestrator
-collects all five sign-offs, verifies them, and only then instructs the CM
-to commit. The CM independently verifies all five are present and REFUSES
+collects all six sign-offs, verifies them, and only then instructs the CM
+to commit. The CM independently verifies all six are present and REFUSES
 to commit if any are missing — even if the orchestrator overrides.
 
 **Build verification BEFORE commit.** If the change affects a Nix build,
 flake output, or derivation, verify it builds successfully before committing.
 "Worker says it compiles" on a different version or config is not sufficient.
 
-**The sequence is:** implement → test → all 5 advisors approve → build verify
+**The sequence is:** implement → test → all 6 advisors approve → build verify
 → THEN commit. Never: implement → commit → test → fix → commit again.
 
 ## CRITICAL: Orchestrator Rules After Context Compaction
