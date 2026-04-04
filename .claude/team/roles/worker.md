@@ -216,6 +216,7 @@ nix eval .#nixosConfigurations.mugge.config.system.build.toplevel.drvPath
 nix run .#test-all
 nix run .#test-pcm-bridge
 nix run .#test-signal-gen
+nix run .#test-level-bridge
 nix run .#test-integration-browser
 ```
 
