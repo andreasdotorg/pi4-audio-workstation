@@ -1,15 +1,18 @@
 # CI Pipeline for mugge
 #
-# Tiers:
+# Jobs:
 #   T0  — NixOS config validation (nix eval, fast, catches Nix syntax/option errors)
-#   T1  — Unit + Rust + browser tests (single job: build closures, then run sequentially)
+#   T1  — Unit + Rust + browser tests (single job, sequential suites)
 #   T2  — E2E tests (full local-demo PipeWire stack, Linux-only, x86_64)
 #   T3  — aarch64 SD card image build (proves the full NixOS closure builds)
 #
+# Dependency graph (fully serial):
+#   T0 → T1 → T2 → T3
+#
 # Triggers:
-#   push to any branch   — T0 + T1
-#   push to main          — T0 + T1 + T2 + T3
-#   PR targeting main     — T0 + T1 + T2 + T3
+#   push to any branch   — T0 → T1
+#   push to main          — T0 → T1 → T2 → T3
+#   PR targeting main     — T0 → T1 → T2 → T3
 #   workflow_dispatch      — T2 and/or T3 on any branch (manual)
 #
 # Flaky test policy: If a test is flaky, fix it or skip it with a filed
@@ -45,6 +48,7 @@ jobs:
   # Fast check that the NixOS config evaluates without errors.
   # Catches option renames, type mismatches, missing modules.
   # Uses QEMU user-mode to evaluate aarch64 Nix expressions.
+  # Gates the rest of the pipeline — T1 depends on T0.
   # -----------------------------------------------------------
   nixos-eval:
     runs-on: ubuntu-latest
@@ -80,6 +84,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    needs: [nixos-eval]
     steps:
       - uses: actions/checkout@v6
 
@@ -115,7 +120,7 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [nixos-eval, test]
+    needs: [test]
     steps:
       - uses: actions/checkout@v6
 
@@ -145,7 +150,7 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
-    needs: [nixos-eval]
+    needs: [test-e2e]
     steps:
       - uses: actions/checkout@v6
 
