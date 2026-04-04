@@ -189,17 +189,38 @@ or procedural changes.
 
 **You MUST run tests before opening a PR.** This is non-negotiable.
 
+**Tests must pass locally before every push.** CI is a verification gate,
+not a debugging tool. Run the commands below locally and confirm they pass
+before pushing to your branch or opening a PR. The pattern of push -> wait
+for CI failure -> fix -> push -> wait again is explicitly prohibited. If
+you cannot run tests locally, resolve that blocker before proceeding.
+
+**Before every push (T0+T1) — ALL of these must pass:**
+```
+nix eval .#nixosConfigurations.mugge.config.system.build.toplevel.drvPath
+nix run .#test-all
+nix run .#test-pcm-bridge
+nix run .#test-signal-gen
+nix run .#test-integration-browser
+```
+
+**Before opening a PR (T2) — in addition to T0+T1:**
+```
+nix run .#test-e2e
+```
+
+**T3 (`nix build .#images.sd-card`) is NOT required locally.** CI handles
+the full aarch64 SD card image build on ARM runners.
+
 **Tests are mandatory in the Definition of Done.** Every story requires:
 relevant tests exist, pass, and have been reviewed by QE. A story without
 tests is not done. See `docs/project/testing-process.md` for the full process.
 
 ### Before opening a PR:
 
-1. **Run the relevant `nix run .#test-*` suite(s)** based on what you changed.
-   The project's `config.md` defines which suites to run for each source area.
-   `nix run` is THE QA gate for workers. `nix develop` is acceptable only for
-   ad-hoc exploratory testing during development. When multiple areas are
-   affected, run ALL relevant suites.
+1. **Run ALL commands listed above (T0+T1+T2).** `nix run` is THE QA gate
+   for workers. `nix develop` is acceptable only for ad-hoc exploratory
+   testing during development.
 
 2. **All tests must pass (exit code 0).** If any test fails, your PR is
    NOT ready. The branch stays in development until resolved.

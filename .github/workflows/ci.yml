@@ -1,18 +1,21 @@
 # CI Pipeline for mugge
 #
-# Jobs:
-#   T0  — NixOS config validation (nix eval, fast, catches Nix syntax/option errors)
-#   T1  — Unit + Rust + browser tests (single job, sequential suites)
-#   T2  — E2E tests (full local-demo PipeWire stack, Linux-only, x86_64)
-#   T3  — aarch64 SD card image build (proves the full NixOS closure builds)
+# Jobs (2 jobs, single ARM runner for tests + build):
+#   nixos-eval     — NixOS config validation (nix eval, x86_64, fast)
+#   test-and-build — All tests + SD image build (aarch64, one Nix store)
 #
-# Dependency graph (fully serial):
-#   T0 → T1 → T2 → T3
+# Pipeline:
+#   nixos-eval → test-and-build
+#
+# Steps within test-and-build:
+#   T1  — Unit + Rust + browser tests (every push)
+#   T2  — E2E tests (main/PRs/dispatch only)
+#   T3  — aarch64 SD card image build (main/PRs/dispatch only)
 #
 # Triggers:
-#   push to any branch   — T0 → T1
-#   push to main          — T0 → T1 → T2 → T3
-#   PR targeting main     — T0 → T1 → T2 → T3
+#   push to any branch   — nixos-eval → T1
+#   push to main          — nixos-eval → T1 → T2 → T3
+#   PR targeting main     — nixos-eval → T1 → T2 → T3
 #   workflow_dispatch      — T2 and/or T3 on any branch (manual)
 #
 # Flaky test policy: If a test is flaky, fix it or skip it with a filed
@@ -48,7 +51,7 @@ jobs:
   # Fast check that the NixOS config evaluates without errors.
   # Catches option renames, type mismatches, missing modules.
   # Uses QEMU user-mode to evaluate aarch64 Nix expressions.
-  # Gates the rest of the pipeline — T1 depends on T0.
+  # Gates test-and-build.
   # -----------------------------------------------------------
   nixos-eval:
     runs-on: ubuntu-latest
@@ -77,13 +80,14 @@ jobs:
           echo "NixOS toplevel derivation: $drv"
 
   # -----------------------------------------------------------
-  # T1 — All tests (unit + Rust + browser)
-  # Single job: one Nix/Cachix setup, then run each test suite
-  # sequentially. Shared Nix store means later suites reuse deps.
+  # T1 + T2 + T3 — Tests and SD image build (single ARM runner)
+  # One Nix/Cachix setup, shared Nix store across all steps.
+  # T1 steps run on every push. T2/T3 steps only on main, PRs,
+  # or manual dispatch (controlled by per-step if conditions).
   # -----------------------------------------------------------
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+  test-and-build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
     needs: [nixos-eval]
     steps:
       - uses: actions/checkout@v6
@@ -95,76 +99,45 @@ jobs:
           name: mugge
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
+      # -- T1: Unit + Rust + browser tests (every push) ----------
+
       - name: Run unit + Rust tests
-        run: nix run .#test-all
+        run: cachix watch-exec mugge -- nix run .#test-all
 
       - name: Run pcm-bridge tests
-        run: nix run .#test-pcm-bridge
+        run: cachix watch-exec mugge -- nix run .#test-pcm-bridge
 
       - name: Run signal-gen tests
-        run: nix run .#test-signal-gen
+        run: cachix watch-exec mugge -- nix run .#test-signal-gen
 
       - name: Run browser integration tests
-        run: nix run .#test-integration-browser
+        run: cachix watch-exec mugge -- nix run .#test-integration-browser
 
-  # -----------------------------------------------------------
-  # T2 — E2E tests (full local-demo PipeWire stack)
-  # Starts headless PipeWire + GM + signal-gen + pcm-bridge +
-  # level-bridge + web-ui, runs Playwright E2E suite.
-  # Runs on: push to main, PRs targeting main, or manual dispatch.
-  # -----------------------------------------------------------
-  test-e2e:
-    if: >-
-      github.ref == 'refs/heads/main'
-      || github.event_name == 'pull_request'
-      || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: [test]
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: cachix/install-nix-action@v31
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mugge
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      # -- T2: E2E tests (main/PRs/dispatch only) ----------------
 
       - name: Run E2E tests with local-demo stack
+        if: >-
+          github.ref == 'refs/heads/main'
+          || github.event_name == 'pull_request'
+          || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
         env:
           E2E_STACK_TIMEOUT: '60'
-        run: nix run .#test-e2e
+        run: cachix watch-exec mugge -- nix run .#test-e2e
 
-  # -----------------------------------------------------------
-  # T3 — aarch64 SD card image build
-  # Builds the full NixOS SD image for Raspberry Pi 4B.
-  # Proves the entire closure (kernel, PipeWire, services) builds.
-  # Runs on: push to main, PRs targeting main, or manual dispatch.
-  # Uses native aarch64 runner — no QEMU overhead for full build.
-  # -----------------------------------------------------------
-  build-sd-image:
-    if: >-
-      github.ref == 'refs/heads/main'
-      || github.event_name == 'pull_request'
-      || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
-    needs: [test-e2e]
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: cachix/install-nix-action@v31
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mugge
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+      # -- T3: aarch64 SD card image build (main/PRs/dispatch) ---
 
       - name: Build aarch64 SD card image
-        run: nix build .#images.sd-card --print-build-logs
+        if: >-
+          github.ref == 'refs/heads/main'
+          || github.event_name == 'pull_request'
+          || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
+        run: cachix watch-exec mugge -- nix build .#images.sd-card --print-build-logs
 
       - name: Report image size
+        if: >-
+          github.ref == 'refs/heads/main'
+          || github.event_name == 'pull_request'
+          || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
         run: |
           img=$(find result/ -name '*.img.zst' -o -name '*.img' 2>/dev/null | head -1)
           if [ -n "$img" ]; then
