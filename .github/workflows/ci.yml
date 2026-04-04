@@ -2,7 +2,7 @@
 #
 # Tiers:
 #   T0  — NixOS config validation (nix eval, fast, catches Nix syntax/option errors)
-#   T1  — Unit + Rust + browser tests (Python pytest, Rust cargo, Playwright)
+#   T1  — Unit + Rust + browser tests (single job: build closures, then run sequentially)
 #   T2  — E2E tests (full local-demo PipeWire stack, Linux-only, x86_64)
 #   T3  — aarch64 SD card image build (proves the full NixOS closure builds)
 #
@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install QEMU user-mode for aarch64
         run: |
@@ -73,15 +73,15 @@ jobs:
           echo "NixOS toplevel derivation: $drv"
 
   # -----------------------------------------------------------
-  # T1a — Python unit + Rust tests
-  # web-ui unit, room-correction, midi, drivers, audio-common,
-  # graph-manager (Rust).
+  # T1 — All tests (unit + Rust + browser)
+  # Single job: one Nix/Cachix setup, build all test closures
+  # up front, then run each test suite sequentially.
   # -----------------------------------------------------------
-  test-unit:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: cachix/install-nix-action@v31
 
@@ -89,48 +89,23 @@ jobs:
         with:
           name: mugge
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Build all test closures
+        run: |
+          nix build --no-link \
+            .#test-all \
+            .#test-pcm-bridge \
+            .#test-signal-gen \
+            .#test-integration-browser
 
       - name: Run unit + Rust tests
         run: nix run .#test-all
-
-  # -----------------------------------------------------------
-  # T1b — PipeWire Rust crate tests (Linux-only)
-  # pcm-bridge, signal-gen — require libpipewire headers.
-  # -----------------------------------------------------------
-  test-rust-pw:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: cachix/install-nix-action@v31
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mugge
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
       - name: Run pcm-bridge tests
         run: nix run .#test-pcm-bridge
 
       - name: Run signal-gen tests
         run: nix run .#test-signal-gen
-
-  # -----------------------------------------------------------
-  # T1c — Browser integration tests (Playwright)
-  # -----------------------------------------------------------
-  test-browser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: cachix/install-nix-action@v31
-
-      - uses: cachix/cachix-action@v17
-        with:
-          name: mugge
-          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
       - name: Run browser integration tests
         run: nix run .#test-integration-browser
@@ -148,9 +123,9 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [nixos-eval, test-unit, test-rust-pw, test-browser]
+    needs: [nixos-eval, test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: cachix/install-nix-action@v31
 
@@ -180,7 +155,7 @@ jobs:
     timeout-minutes: 120
     needs: [nixos-eval]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: cachix/install-nix-action@v31
 
