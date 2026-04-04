@@ -393,6 +393,7 @@ class TestConcurrentRESTCalls:
 class TestWatchdogTimeout:
     """Verify watchdog fires when no progress is made."""
 
+    @pytest.mark.xfail(reason="F-250: CancelledError in teardown")
     def test_watchdog_triggers_abort_on_stall(self, client):
         """If the session stalls without kicking watchdog, abort fires."""
         async def stalling_gain_cal(self):

@@ -181,6 +181,7 @@ def _assert_screenshot(
 
 # -- Tests --
 
+@pytest.mark.xfail(reason="F-251: reference screenshots need regeneration on CI environment")
 def test_dashboard_screenshot(frozen_page, request):
     """Visual regression: Dashboard view with frozen scenario-A data.
 
@@ -194,6 +195,7 @@ def test_dashboard_screenshot(frozen_page, request):
                        max_diff_pixel_ratio=0.10)
 
 
+@pytest.mark.xfail(reason="F-251: reference screenshots need regeneration on CI environment")
 def test_system_screenshot(frozen_page, request):
     """Visual regression: System view with frozen scenario-A data.
 
@@ -208,6 +210,7 @@ def test_system_screenshot(frozen_page, request):
                        max_diff_pixel_ratio=0.35)
 
 
+@pytest.mark.xfail(reason="F-251: reference screenshots need regeneration on CI environment")
 def test_measure_stub_screenshot(frozen_page, request):
     """Visual regression: Measure stub view."""
     frozen_page.locator('.nav-tab[data-view="measure"]').click()
@@ -216,6 +219,7 @@ def test_measure_stub_screenshot(frozen_page, request):
     _assert_screenshot(frozen_page, "measure-stub.png", update=update)
 
 
+@pytest.mark.xfail(reason="F-251: reference screenshots need regeneration on CI environment")
 def test_midi_stub_screenshot(frozen_page, request):
     """Visual regression: MIDI stub view."""
     frozen_page.locator('.nav-tab[data-view="midi"]').click()

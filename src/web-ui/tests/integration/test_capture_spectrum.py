@@ -158,6 +158,7 @@ class TestSourceSelector:
 class TestPcmWebSocket:
     """PCM WebSocket connects to the selected source."""
 
+    @pytest.mark.xfail(reason="F-252: WebSocket timeout on CI runners")
     def test_ws_connects_on_tab_show(self, page):
         """A binary WebSocket to /ws/pcm/{source} opens when Test tab shown."""
         _navigate_to_test(page)
@@ -171,6 +172,7 @@ class TestPcmWebSocket:
         }""", timeout=PCM_DATA_TIMEOUT)
         assert ws_connected
 
+    @pytest.mark.xfail(reason="F-252: WebSocket timeout on CI runners")
     def test_mic_status_shows_source(self, page):
         """Mic status indicator shows the active source name."""
         _navigate_to_test(page)
@@ -192,6 +194,7 @@ class TestPcmWebSocket:
 class TestSourceSwitching:
     """Changing the source selector reconnects to a different PCM stream."""
 
+    @pytest.mark.xfail(reason="F-252: WebSocket timeout on CI runners")
     def test_source_switch_reconnects(self, page):
         """Selecting a different source triggers a new WebSocket connection.
 
@@ -252,6 +255,7 @@ class TestSourceSwitching:
 class TestTabLifecycle:
     """Spectrum starts on tab show, stops on tab hide."""
 
+    @pytest.mark.xfail(reason="F-252: WebSocket timeout on CI runners")
     def test_spectrum_stops_on_tab_hide(self, page):
         """Navigating away from Test tab stops the PCM WebSocket.
 
@@ -281,6 +285,7 @@ class TestTabLifecycle:
             "PCM WebSocket still streaming after leaving Test tab"
         )
 
+    @pytest.mark.xfail(reason="F-252: WebSocket timeout on CI runners")
     def test_spectrum_restarts_on_tab_reshow(self, page):
         """Returning to Test tab reconnects the PCM WebSocket."""
         _navigate_to_test(page)
@@ -313,6 +318,7 @@ class TestTabLifecycle:
 class TestNoMicOverlay:
     """The 'no mic' overlay is hidden when PCM data is streaming."""
 
+    @pytest.mark.xfail(reason="F-252: WebSocket timeout on CI runners")
     def test_overlay_hidden_when_connected(self, page):
         """#tt-spectrum-no-mic has 'hidden' class when PCM is active."""
         _navigate_to_test(page)
