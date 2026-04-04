@@ -124,19 +124,20 @@ before the hard clip.
 **Source:** Audio Engineer safety review of D-040 measurement pipeline.
 **Tags:** d031, d040, signal-gen, subsonic, hpf, measurement, safety, pink-noise, driver-protection
 
-## Topic: C-011 — PW filter-chain convolver cannot hot-reload coefficients (2026-03-30)
+## Topic: C-011 — PW filter-chain convolver hot-reload — PARTIALLY RESOLVED by US-112 (2026-04-04)
 
-**Context:** Session 5 investigation of filter deploy panel behavior (F-221) revealed
-that PipeWire's filter-chain convolver has no runtime coefficient reload mechanism.
-Owner filed this as constraint C-011 and decision D-061 (GM manages PW lifecycle).
-**Learning:** `config.filename` in the PW filter-chain convolver builtin is a static
-load-time property — read once at node creation, never re-read. No PW API exists to
-update it (`pw-cli set-param` only works for Props like Mult/Add, not config properties).
-The ONLY way to swap FIR coefficients is destroy-and-recreate: `pw-cli destroy <node>`,
-PW re-reads `.conf.d/` and recreates with new filenames. All links are lost — GM must
-re-link (~1-2s audio gap). This is a D-040 tradeoff: CamillaDSP had glitch-free
-hot-reload via websocket API; PW filter-chain does not. US-112 (deferred) proposes an
-upstream PW patch to add runtime filename property. D-061 amends D-058 so GM manages
-PW/WP lifecycle for coordinated restart/reload sequences.
-**Source:** Owner session 5 investigation, C-011 constraint document, D-061 decision.
-**Tags:** c011, d040, d061, convolver, hot-reload, coefficients, filter-chain, pw-cli-destroy, architectural-constraint
+**Context:** Session 5 identified C-011 (no hot-reload). Session 9 implemented US-112:
+a local patch adding a `Reload` boolean control port to the convolver builtin.
+**Learning:** US-112 adds `Reload` control port — trigger via `pw-cli s <id> Props
+'{ params = [ "Reload" 1.0 ] }'`. Convolver re-reads WAV from stored filename path,
+creates new convolver on main thread, does RT-safe pointer swap via spa_loop_locked
+(1.7.0) or spa_loop_invoke (1.4.9 backport). Zero audio gap, all links preserved.
+deploy.py updated to use Reload instead of pw-cli destroy.
+**IMPORTANT:** Patch was developed against PW 1.7.0 (`spa/plugins/filter-graph/
+plugin_builtin.c`). PW 1.4.9 has different path (`spa/plugins/filter-chain/
+builtin_plugin.c`), different API (`spa_loop_invoke` not `spa_loop_locked`), and
+different port layout (no latency port). A 1.4.9-compatible backport was generated
+(`d09cba9`). US-128 will upgrade PW to 1.6.2, after which the clean 1.7.0 patch
+can be used directly.
+**Source:** Session 9 implementation, architect analysis of PW 1.4.9→1.7.0 changes.
+**Tags:** c011, us-112, us-128, convolver, hot-reload, version-mismatch, spa-loop-locked

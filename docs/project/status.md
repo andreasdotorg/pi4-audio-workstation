@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-04-02 (session 9). Individual
+Last updated: 2026-04-04 (session 9). Individual
 story/defect/decision details now in `stories/`, `defects/`, `decisions/`
 directories with corresponding index files.
 
@@ -59,9 +59,10 @@ Production Pi at venue (unreachable).
 | US-123 | IMPLEMENT (done) | GM deterministic boot state | Implemented (`6ef8f93`): F-249 fix (quantum on startup), NixOS default standby, venue persistence, enhanced get_state RPC. 277 tests pass. |
 | US-124 | draft | First-boot UX | Filed (`b391c98`). Depends US-113. |
 | US-125 | IMPLEMENT (in progress) | Explicit mode arming | Worker-4 verifying existing behavior, may need minimal changes. |
-| US-126 | IMPLEMENT (in progress) | Persistent audio gate banner | Worker-1 implementing banner on all tabs. |
-| US-112 | IMPLEMENT (priority) | PipeWire convolver hot-reload patch | **Owner decision: US-112 before US-127.** PW upstream patch for glitch-free coefficient reload. Dedicated worker assigned. If successful, US-127 becomes much simpler (no destroy-and-recreate). |
+| US-112 | REVIEW (Rule 13 PASSED) | PipeWire convolver hot-reload patch | **Rule 13 passed retroactively** — all 5 advisors approved. 2 AD findings need fix: AD-R13-003 (atomic write in deploy_filters), AD-R13-004 (double-Reload leak). NixOS build needs patch regen for PW 1.6.2 (US-128). |
+| US-126 | IMPLEMENT (Rule 13 conditional) | Persistent audio gate banner | QE CONDITIONAL — needs `_gate_section()` unit test, mock gate key, banner integration test. Architect/UX/AD/AE approved. |
 | US-127 | draft (deferred) | Runtime coefficient switching (D-053) | Filed (`1b9b7b9`). **Deferred until US-112 complete.** If US-112 succeeds, destroy-and-recreate approach unnecessary. |
+| US-128 | draft | Upgrade PipeWire to 1.6.2 | nixpkgs already ships 1.6.2. Regenerate US-112 patch for new API. Investigate F-020 RT self-promotion. ~2.25 worker days. |
 
 
 ### Owner-Blocking Items
