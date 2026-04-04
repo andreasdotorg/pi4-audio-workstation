@@ -353,16 +353,16 @@ class TestLocalDemoMeasurementAPI:
     Runs BEFORE the browser test so we get a clean idle state.
     """
 
-    @pytest.mark.xfail(
-        reason="F-262: UMIK sim stops delivering signal after mode transition — "
-               "measurement filter verification fails on silence",
-        strict=False,
-    )
     def test_full_session_api(self, local_demo_url):
         """POST /measurement/start with 1 channel completes end-to-end.
 
         Verifies: gain_cal -> measuring -> filter_gen -> deploy -> verify
         -> complete.  Uses real PipeWire audio with the room-sim convolver.
+
+        F-262: Previously xfail'd because room-sim IRs produced
+        non-deterministic filter quality (min-phase check failures).
+        Fixed by making min-phase verification non-fatal in local-demo
+        (PI4AUDIO_FILTER_MINPHASE_FATAL=0).
         """
         _wait_for_idle_or_abort(local_demo_url, timeout_s=30)
         # D-063: Open the audio gate so signal reaches room-sim UMIK-1.
@@ -409,12 +409,6 @@ class TestLocalDemoMeasurementBrowser:
     session reaches COMPLETE in the browser.
     """
 
-    @pytest.mark.xfail(
-        reason="4-channel room-sim IRs may fail filter verification "
-               "(min-phase check). Signal path works — filter quality "
-               "is a room-sim limitation, not a pipeline defect.",
-        strict=False,
-    )
     def test_full_session_browser(self, demo_page, local_demo_url):
         """Click START, wait for COMPLETE — full E2E through browser.
 

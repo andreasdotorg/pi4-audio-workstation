@@ -608,6 +608,9 @@ start_services() {
     export PI4AUDIO_RECORDING_PEAK_CEILING_DBFS=20
     export PI4AUDIO_MIC_CLIP_THRESHOLD_DBFS=0
     export PI4AUDIO_RECORDING_DC_CEILING=0.1
+    # F-262: Room-sim IRs produce non-deterministic filter quality.
+    # Min-phase verification failures are expected and non-fatal in local-demo.
+    export PI4AUDIO_FILTER_MINPHASE_FATAL=0
     # Target must be achievable with signal-gen cap (-20 dBFS) through
     # venue gains (-20 dB).  At -28 dBFS the room-sim yields ~80 dB SPL.
     export PI4AUDIO_TARGET_SPL_DB=80

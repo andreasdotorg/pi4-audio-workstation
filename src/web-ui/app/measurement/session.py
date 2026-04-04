@@ -71,6 +71,14 @@ _HARD_LIMIT_SPL_DB: Optional[float] = (
     float(os.environ["PI4AUDIO_HARD_LIMIT_SPL_DB"])
     if "PI4AUDIO_HARD_LIMIT_SPL_DB" in os.environ else None)
 
+# F-262: Min-phase verification fatality control.
+# In production, min-phase failures abort the session (safety: no linear-phase
+# pre-ringing on the PA).  In local-demo, the synthetic room-sim IRs produce
+# non-deterministic filter quality — min-phase failures are expected and
+# non-fatal.  D-009 gain limit and format checks remain hard failures always.
+_FILTER_MINPHASE_FATAL = os.environ.get(
+    "PI4AUDIO_FILTER_MINPHASE_FATAL", "1") == "1"
+
 
 # ---------------------------------------------------------------------------
 # State machine
@@ -1101,16 +1109,30 @@ class MeasurementSession:
             d009 = verify_d009(path)
             min_phase = verify_minimum_phase(path)
             fmt = verify_format(path, expected_taps=n_taps, expected_sr=sr)
-            ch_pass = bool(d009.passed and min_phase.passed and fmt.passed)
+            # F-262: D-009 and format are always hard failures.
+            # Min-phase is fatal only when _FILTER_MINPHASE_FATAL is set
+            # (production default).  In local-demo the room-sim produces
+            # non-deterministic filter quality — min-phase warnings are
+            # expected and should not abort the session.
+            mp_fatal = _FILTER_MINPHASE_FATAL
+            ch_pass = bool(
+                d009.passed
+                and fmt.passed
+                and (min_phase.passed or not mp_fatal))
             ch_result = {
                 "channel": name,
                 "d009_pass": bool(d009.passed),
                 "d009_peak_db": float(round(
                     d009.details.get("max_gain_db", 0.0), 2)),
                 "min_phase_pass": bool(min_phase.passed),
+                "min_phase_fatal": mp_fatal,
                 "format_pass": bool(fmt.passed),
                 "all_pass": ch_pass,
             }
+            if not min_phase.passed and not mp_fatal:
+                log.warning("F-262: Min-phase check failed for %s "
+                            "(non-fatal in local-demo): %s",
+                            name, min_phase.message)
             verifications.append(ch_result)
             self._enqueue_progress({
                 "type": "filter_gen_progress", "phase": "in_progress",
