@@ -561,11 +561,19 @@ stakeholders before committing — not just the requesting worker.
 | Change domain | Required approval from |
 |---------------|-----------------------|
 | All code changes | Quality Engineer (test adequacy) |
-| All code changes | Architect (code quality) |
+| All code changes | Architect (code quality + design) |
+| All code changes | Audio Engineer (audio safety + signal path) |
+| All code changes | UX Specialist (user-facing behavior) |
+| All code changes | Advocatus Diaboli (failure modes + challenge) |
 | Security-sensitive changes | Security Specialist |
-| Operational changes | Domain Specialist (if present) |
 | Documentation / tracking changes | Project Manager |
 | Multi-domain changes | All relevant approvals above |
+
+**ALL FIVE reviewers (QE, Architect, AE, UX, AD) must approve every code
+commit.** This is not optional. The orchestrator must collect all five
+sign-offs before instructing the CM to commit. The CM must independently
+verify all five are present. L-ORCH-003: Session 9 shipped 9 commits with
+zero gate passes — this rule exists to prevent that from ever happening again.
 
 **QE test adequacy approval (L-042, owner directive):** The QE reviews
 both the test results (did they pass?) and the tests themselves (are they
