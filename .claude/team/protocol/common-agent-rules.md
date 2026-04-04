@@ -24,6 +24,46 @@ are busy, not dead or ignoring you.
 6. **Close the loop before going idle.** If someone asked you to do something,
    message them with the outcome (success, failure, blocked) before you stop
    working. An idle notification is NOT a status report.
+7. **Escalate infrastructure failures BEFORE applying workarounds.** When you
+   encounter an infrastructure failure that changes how work is performed —
+   build strategy, tool version, network path — you MUST report to the
+   orchestrator BEFORE applying any workaround. The orchestrator escalates
+   to the owner, who decides whether the workaround is acceptable or whether
+   to fix the infrastructure first.
+
+   **What to report:** (a) what failed and the exact error, (b) what you
+   believe is wrong (root cause diagnosis), (c) what you already tried to
+   fix it, (d) suggested repair steps the owner can take, (e) what
+   workaround you propose if repair is not immediate, (f) the impact of
+   the workaround (e.g., "local builds use dev machine CPU and are
+   slower"). The agent has the technical context; the owner needs it to act.
+
+   **If the owner is unavailable:** The affected work is put on hold — not
+   silently worked around, not blocked indefinitely. The orchestrator asks
+   the PM to track the blocked work item with the infrastructure issue as
+   the blocker, then redirects the worker to other available tasks. The
+   infrastructure issue stays reported and unresolved until the owner
+   addresses it.
+
+   **What counts as infrastructure failure:**
+   - Remote builder unreachable or returning errors
+   - Nix store corruption (missing paths, hash mismatches)
+   - SSH failures to build infrastructure (NOT the deployment target — Pi
+     SSH failures are covered by `deployment-target-access.md`)
+   - Network timeouts, DNS failures, disk space exhaustion
+   - Service unavailability (CI runners, package caches, registries)
+
+   **Boundary with deployment-target-access.md:** Infrastructure is the
+   build toolchain — remote builders, Nix store, flake inputs, CI runners,
+   network connectivity to nixpkgs/GitHub. The deployment target (Pi at
+   192.168.178.185) is covered by the deployment-target-access protocol.
+   SSH failure to the builder → this rule. SSH failure to the Pi → CM protocol.
+
+   **What does NOT require escalation:**
+   - Transient errors that resolve on a single retry (e.g., a dropped
+     connection that reconnects immediately)
+   - Expected build failures from code errors (patch doesn't apply, compile
+     error) — these are normal development, not infrastructure failures
 
 ## Context Compaction Recovery
 
