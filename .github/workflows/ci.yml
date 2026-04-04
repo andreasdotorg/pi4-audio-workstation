@@ -74,8 +74,8 @@ jobs:
 
   # -----------------------------------------------------------
   # T1 — All tests (unit + Rust + browser)
-  # Single job: one Nix/Cachix setup, build all test closures
-  # up front, then run each test suite sequentially.
+  # Single job: one Nix/Cachix setup, then run each test suite
+  # sequentially. Shared Nix store means later suites reuse deps.
   # -----------------------------------------------------------
   test:
     runs-on: ubuntu-latest
@@ -89,14 +89,6 @@ jobs:
         with:
           name: mugge
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
-      - name: Build all test closures
-        run: |
-          nix build --no-link \
-            .#test-all \
-            .#test-pcm-bridge \
-            .#test-signal-gen \
-            .#test-integration-browser
 
       - name: Run unit + Rust tests
         run: nix run .#test-all
