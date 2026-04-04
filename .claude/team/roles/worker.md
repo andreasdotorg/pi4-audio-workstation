@@ -283,7 +283,14 @@ rules and examples.
    - Opening a PR with known failing tests
    - Writing mock theater (tests that verify mocks, not behavior)
 
-5. **Pre-existing failures are still your responsibility to report.** If a
+5. **All xfail/skip/ignore markers MUST include the defect ID** at the
+   start of the reason string. An xfail without a defect ID is a protocol
+   violation — every suppressed failure must be tracked. Examples:
+   - Python: `@pytest.mark.xfail(reason="F-262: description...")`
+   - Python: `@pytest.mark.skip(reason="F-251: description...")`
+   - Rust: `#[ignore = "F-256: description..."]`
+
+6. **Pre-existing failures are still your responsibility to report.** If a
    test was already failing before your changes, report it. Do not assume it
    is someone else's problem.
 
