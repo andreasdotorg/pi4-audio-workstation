@@ -2202,6 +2202,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn list_venues_stub_response_format() {
         // Point PI4AUDIO_VENUES_DIR to the real configs/venues directory.
         let venues_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -2273,6 +2274,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn set_venue_not_found_returns_error() {
         // Point PI4AUDIO_VENUES_DIR to the real configs/venues directory.
         let venues_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
