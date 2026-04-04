@@ -24,6 +24,18 @@
 { config, lib, pkgs, ... }:
 
 {
+  # F-266: Mark /boot/firmware as needed for boot so that switch-to-configuration
+  # does not try to restart the mount unit during `nixos-rebuild switch`.
+  # The firmware partition genuinely IS needed for boot (VideoCore firmware,
+  # U-Boot, config.txt, DTBs).  Without this, systemd attempts to restart
+  # boot-firmware.mount during a live switch, which fails because the
+  # partition is already mounted.
+  #
+  # NOTE: Pi partition labels (by-partlabel/disk-main-firmware) were NOT
+  # verified on the live Pi (offline at time of fix).  Verify on next deploy
+  # with: lsblk -o NAME,PARTLABEL /dev/mmcblk0
+  fileSystems."/boot/firmware".neededForBoot = true;
+
   disko.devices.disk.main = {
     type = "disk";
     # On Pi 4B, the SD card is /dev/mmcblk0.
