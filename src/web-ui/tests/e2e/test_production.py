@@ -468,10 +468,10 @@ class TestLinkCountsPerMode:
 
 
 class TestQuantumOnModeSwitch:
-    """Quantum changes correctly when switching modes (F-230).
+    """Quantum changes correctly when switching modes (F-230, F-249).
 
     DJ mode: clock.force-quantum=1024
-    All other modes: clock.force-quantum=0 (reverts to config default 256)
+    All other modes: clock.force-quantum=256 (GM is authoritative for all modes)
     """
 
     @pytest.mark.xfail(
