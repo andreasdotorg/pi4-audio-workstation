@@ -435,10 +435,8 @@ fn dispatch_rpc_command(
             *current_mode.borrow_mut() = mode;
             info!("Mode transition: {} -> {}", old_mode, mode);
 
-            // 1b. Set quantum for the new mode (F-230).
-            // DJ needs quantum 1024 for efficient convolution; all other modes
-            // clear the force-quantum so PipeWire falls back to the config
-            // default (256, set in 10-audio-settings.conf).
+            // 1b. Set quantum for the new mode (F-230, F-249).
+            // DJ: force-quantum=1024; all other modes: force-quantum=256.
             set_quantum_for_mode(mode);
 
             // 2. Run reconciliation.
@@ -941,11 +939,16 @@ fn parse_pw_dump_xruns(json_str: &str) -> Result<(u64, String), String> {
     Ok((total_xruns, driver_node_name))
 }
 
-/// Set PipeWire quantum for the given mode (F-230).
+/// Set PipeWire quantum for the given mode (F-230, F-249).
 ///
-/// DJ mode needs quantum 1024 for efficient convolution (saves CPU for Mixxx).
-/// All other modes clear force-quantum (set to 0), so PipeWire falls back to
-/// the config default (quantum 256, set in `10-audio-settings.conf`).
+/// GM is the single authority for quantum in all modes:
+/// - DJ: 1024 (~21ms PA path, efficient convolution for Mixxx)
+/// - Live/Standby/Measurement: 256 (~5.3ms PA path, below slapback threshold)
+///
+/// F-249: Previously non-DJ modes cleared force-quantum to 0, relying on PW
+/// config defaults. PipeWire may negotiate a higher quantum (e.g. 1024) when
+/// force-quantum is 0, depending on the graph topology. Explicit 256 ensures
+/// deterministic behavior regardless of PW negotiation.
 ///
 /// Uses `pw-metadata -n settings 0 clock.force-quantum <value>`.
 /// Errors are logged but not fatal — quantum mismatch is a performance issue,
@@ -956,8 +959,8 @@ fn set_quantum_for_mode(mode: Mode) {
 
     let quantum = match mode {
         Mode::Dj => 1024,
-        // Live (256), Standby, Measurement: clear force-quantum → config default.
-        _ => 0,
+        // F-249: Explicitly set 256 instead of clearing to 0.
+        _ => 256,
     };
 
     let quantum_str = quantum.to_string();
@@ -966,11 +969,7 @@ fn set_quantum_for_mode(mode: Mode) {
         .output()
     {
         Ok(output) if output.status.success() => {
-            if quantum > 0 {
-                info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
-            } else {
-                info!("F-230: Cleared clock.force-quantum for {} mode (using config default)", mode);
-            }
+            info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
