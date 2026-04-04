@@ -221,6 +221,13 @@ nix run .#test-e2e
 **T3 (`nix build .#images.sd-card`) is NOT required locally.** CI handles
 the full aarch64 SD card image build on ARM runners.
 
+**T2 (`nix run .#test-e2e`) requires an exclusive local-demo slot.** The
+E2E tests start a full PipeWire + GraphManager + local-demo stack. Only
+one worker can run T2 at a time — two concurrent runs will fight over
+PipeWire, ports, and `/tmp` state. Before running T2, request a local-demo
+slot from the CM. Wait if another worker holds the slot. Report T2
+complete to the CM when done so the slot is released.
+
 **Tests are mandatory in the Definition of Done.** Every story requires:
 relevant tests exist, pass, and have been reviewed by QE. A story without
 tests is not done. See `docs/project/testing-process.md` for the full process.
