@@ -19,6 +19,9 @@ result
 result-*
 camilladsp-src/
 
+# Git worktrees (parallel agent development)
+.claude/worktrees/
+
 # IDE
 .idea/
 .vscode/
