@@ -95,6 +95,11 @@ class TestLevelBridge:
     convolver to the level bridges.
     """
 
+    @pytest.mark.xfail(
+        reason="F-262: UMIK sim stops delivering signal after mode transition — "
+               "level-bridge reports silence in measurement mode",
+        strict=False,
+    )
     def test_level_bridge_sw_has_signal(self, ensure_dj_mode, read_levels):
         """level-bridge-sw (port 9100) reports non-zero peak levels."""
         lines = read_levels(9100, count=1)
