@@ -322,6 +322,73 @@ class TestCalibrationUpload:
         )
 
 
+class TestCalibrationMeasurementIntegration:
+    """Verify measurement session stores calibration_file reference.
+
+    POST /api/v1/measurement/start accepts a calibration_file parameter.
+    In local-demo mock mode the session starts and stores the cal file
+    reference in its config. The status endpoint reflects this back.
+    """
+
+    def test_measurement_start_accepts_cal_file(self, api_post, api_get):
+        """Start a measurement with calibration_file, verify status shows it."""
+        cal_file = "e2e-test-calibration.txt"
+
+        # Start a measurement session with calibration_file set.
+        # Minimal channel config required by StartRequest.
+        start_status, start_body = api_post(
+            "/api/v1/measurement/start",
+            {
+                "channels": [
+                    {
+                        "index": 0,
+                        "name": "E2E Test Channel",
+                        "target_spl_db": 75.0,
+                        "thermal_ceiling_dbfs": -20.0,
+                    }
+                ],
+                "calibration_file": cal_file,
+                "positions": 1,
+                "sweep_duration_s": 1.0,
+                "sweep_level_dbfs": -40.0,
+            },
+            timeout=15.0,
+        )
+
+        # Session may start (200) or conflict if one is already running (409).
+        # Also 503 if signal-gen is unavailable.
+        if start_status == 409:
+            pytest.skip("Measurement session already running (409)")
+        if start_status == 503:
+            pytest.skip("Signal generator unavailable (503)")
+
+        assert start_status == 200, (
+            f"Expected 200 from measurement/start, got {start_status}: "
+            f"{start_body}"
+        )
+        assert start_body.get("status") == "started"
+
+        try:
+            # Check that the status endpoint reflects the calibration_file.
+            status_code, status_body = api_get(
+                "/api/v1/measurement/status"
+            )
+            assert status_code == 200, (
+                f"Expected 200 from measurement/status, got {status_code}: "
+                f"{status_body}"
+            )
+
+            # calibration info is nested under "calibration.file"
+            cal_info = status_body.get("calibration", {})
+            assert cal_info.get("file") == cal_file, (
+                f"Expected calibration.file={cal_file!r}, "
+                f"got {cal_info.get('file')!r} in status: {status_body}"
+            )
+        finally:
+            # Always abort the session to clean up, regardless of assertions.
+            api_post("/api/v1/measurement/abort", timeout=10.0)
+
+
 class TestCalibrationVerifyGraceful:
     """POST /api/v1/test-tool/calibration/verify handles missing hardware.
 
