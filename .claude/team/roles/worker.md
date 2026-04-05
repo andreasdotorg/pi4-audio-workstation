@@ -221,6 +221,13 @@ nix run .#test-e2e
 **T3 (`nix build .#images.sd-card`) is NOT required locally.** CI handles
 the full aarch64 SD card image build on ARM runners.
 
+**T2 (`nix run .#test-e2e`) requires an exclusive local-demo slot.** The
+E2E tests start a full PipeWire + GraphManager + local-demo stack. Only
+one worker can run T2 at a time — two concurrent runs will fight over
+PipeWire, ports, and `/tmp` state. Before running T2, request a local-demo
+slot from the CM. Wait if another worker holds the slot. Report T2
+complete to the CM when done so the slot is released.
+
 **Tests are mandatory in the Definition of Done.** Every story requires:
 relevant tests exist, pass, and have been reviewed by QE. A story without
 tests is not done. See `docs/project/testing-process.md` for the full process.
@@ -283,7 +290,14 @@ rules and examples.
    - Opening a PR with known failing tests
    - Writing mock theater (tests that verify mocks, not behavior)
 
-5. **Pre-existing failures are still your responsibility to report.** If a
+5. **All xfail/skip/ignore markers MUST include the defect ID** at the
+   start of the reason string. An xfail without a defect ID is a protocol
+   violation — every suppressed failure must be tracked. Examples:
+   - Python: `@pytest.mark.xfail(reason="F-262: description...")`
+   - Python: `@pytest.mark.skip(reason="F-251: description...")`
+   - Rust: `#[ignore = "F-256: description..."]`
+
+6. **Pre-existing failures are still your responsibility to report.** If a
    test was already failing before your changes, report it. Do not assume it
    is someone else's problem.
 

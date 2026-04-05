@@ -252,6 +252,40 @@ command output) without holding an active session from you:
 - **Never** process session requests during ALL STOP (queue them, report
   to orchestrator)
 
+## Local-Demo E2E Test Access
+
+T2 (`nix run .#test-e2e`) launches a full PipeWire + GraphManager + local-demo
+stack. Only one worker can run T2 at a time — concurrent runs conflict on
+PipeWire, ports (4001, 4002, 8080, 9100), and `/tmp` state.
+
+CM manages an exclusive local-demo slot, same pattern as deployment target
+sessions but lighter weight (no tier escalation, no notification matrix).
+
+### Protocol
+
+1. Worker requests: "requesting local-demo slot for T2"
+2. CM checks: is the slot free?
+   - **Free:** Grant immediately. Record holder + timestamp.
+   - **Held:** Deny. Tell the worker who holds it. Worker waits.
+3. Worker runs T2, reports: "T2 complete, releasing local-demo slot"
+4. CM releases the slot. If another worker is waiting, notify them.
+
+### Tracking
+
+| Field | Value |
+|-------|-------|
+| Holder | Worker name (or "free") |
+| Granted | Timestamp |
+| Released | Timestamp |
+
+### Rules
+
+- One holder at a time (exclusive lock)
+- No automatic timeout — workers may take 20+ minutes on T2
+- If a worker is unresponsive after T2 for an extended period, ask them
+  for status before forcibly releasing. Escalate to orchestrator if needed.
+- T0 and T1 do NOT require the slot — they run without PipeWire
+
 ## Shared Rules
 
 See `../protocol/common-agent-rules.md` for communication, compaction recovery,
