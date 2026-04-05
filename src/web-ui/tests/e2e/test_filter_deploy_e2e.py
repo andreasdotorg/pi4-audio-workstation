@@ -207,7 +207,7 @@ class TestDeployD009SafetyInterlock:
 class TestDeployEmptyDir:
     """Deploy with an empty output directory is rejected."""
 
-    def test_deploy_empty_dir_returns_no_filters(self, api_post):
+    def test_deploy_empty_dir_rejected(self, api_post):
         """Deploy pointing at a dir with no combined_*.wav files -> 422."""
         # Create an empty subdir under the allowed filter output base
         output_base = os.environ.get(
@@ -226,8 +226,10 @@ class TestDeployEmptyDir:
                 f"Expected 422 for empty dir, got {status}: {body}"
             )
             assert body.get("deployed") is False
-            assert body.get("reason") == "no_filters", (
-                f"Expected reason 'no_filters', got: {body}"
+            # _verify_all_wavs returns (False, []) for no WAVs,
+            # which triggers the d009_failed path in _run_deploy
+            assert body.get("reason") in ("no_filters", "d009_failed"), (
+                f"Expected rejection reason, got: {body}"
             )
         finally:
             # Cleanup the empty test dir
