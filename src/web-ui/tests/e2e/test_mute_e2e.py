@@ -26,10 +26,14 @@ import pytest
 pytestmark = pytest.mark.e2e
 
 # Thresholds (dBFS).  level-bridge reports peak in dB.
-# -100 dB is the existing "has signal" boundary (test_audio_flow.py).
-# After mute, all peaks should be well below that.
-SILENCE_THRESHOLD_DB = -90.0
-SIGNAL_THRESHOLD_DB = -100.0
+# -100 dBFS is the established signal/silence boundary (test_audio_flow.py).
+# In local-demo with a null sink, the noise floor is ~-120 dBFS (float32
+# quantization).  -100 dBFS gives 20 dB margin above the noise floor.
+# -60 dBFS is a "signal is healthy" threshold — signal-gen in DJ mode
+# typically reads -20 to -40 dBFS through the convolver, so -60 dBFS
+# gives 20-40 dB headroom while being clearly distinct from silence.
+SILENCE_THRESHOLD_DB = -100.0
+SIGNAL_THRESHOLD_DB = -60.0
 
 # Settle time after mute/unmute for PipeWire to propagate gain changes.
 GAIN_SETTLE_S = 2
