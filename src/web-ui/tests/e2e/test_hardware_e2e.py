@@ -51,18 +51,6 @@ VALID_DAC = {
 }
 
 
-def _cleanup_test_profiles(api_post, api_get):
-    """Delete test profiles if they exist (best-effort cleanup)."""
-    for name in (TEST_AMP_SLUG,):
-        status, _ = api_get(f"/api/v1/hardware/amplifiers/{name}")
-        if status == 200:
-            api_post_delete(api_post, f"/api/v1/hardware/amplifiers/{name}")
-    for name in (TEST_DAC_SLUG,):
-        status, _ = api_get(f"/api/v1/hardware/dacs/{name}")
-        if status == 200:
-            api_post_delete(api_post, f"/api/v1/hardware/dacs/{name}")
-
-
 def _api_put(base_url, path, body, timeout=10.0):
     """PUT helper for update operations."""
     import json
