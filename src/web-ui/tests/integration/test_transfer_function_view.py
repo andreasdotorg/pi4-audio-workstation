@@ -20,7 +20,7 @@ def test_tf_tab_visible(page):
     """TF nav tab is present in the navigation bar."""
     tab = page.locator('.nav-tab[data-view="tf"]')
     expect(tab).to_be_attached()
-    expect(tab).to_have_text("TF")
+    expect(tab).to_have_text("Transfer Fn")
 
 
 def test_tf_view_opens(page):

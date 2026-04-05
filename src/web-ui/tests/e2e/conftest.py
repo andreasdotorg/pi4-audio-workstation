@@ -89,6 +89,7 @@ SIGGEN_PORT = int(os.environ.get("SIGGEN_PORT", "4001"))
 LEVEL_SW_PORT = int(os.environ.get("LEVEL_SW_PORT", "9100"))
 LEVEL_HW_OUT_PORT = int(os.environ.get("LEVEL_HW_OUT_PORT", "9101"))
 PCM_PORT = int(os.environ.get("PCM_PORT", "9090"))
+PCM_CAPTURE_PORT = int(os.environ.get("PCM_CAPTURE_PORT", "9091"))
 
 
 # ---------------------------------------------------------------------------
