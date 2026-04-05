@@ -749,7 +749,7 @@ manifest = {
         'pcm': $PORT_PCM,
         'webui': $PORT_WEBUI,
     },
-    'pids': [${PIDS[*]}],
+    'pids': [$(IFS=,; echo "${PIDS[*]}")],
     'pw_pid_file': '$PW_PIDFILE',
     'wp_pid_file': '$WP_PIDFILE',
     'pw_runtime_dir': '$PW_RUNTIME_DIR',
