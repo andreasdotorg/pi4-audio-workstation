@@ -1197,7 +1197,7 @@ pub fn parse_line(line: &str) -> Result<RpcRequest, String> {
 /// Processes `RpcCommand` messages from the RPC thread, returning default
 /// stub responses. Production code uses `dispatch_rpc_command` in main.rs.
 #[cfg(test)]
-pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
+pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>, venues_dir: &std::path::Path) {
     match cmd {
         RpcCommand::SetMode { mode, reply } => {
             if let Ok(mut m) = current_mode.lock() {
@@ -1247,8 +1247,7 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
             let _ = reply.send(GraphInfoSnapshot::empty());
         }
         RpcCommand::ListVenues { reply } => {
-            let dir = crate::venue::venues_dir();
-            let venues = crate::venue::list_venues(&dir);
+            let venues = crate::venue::list_venues(venues_dir);
             let _ = reply.send(venues);
         }
         RpcCommand::GetVenue { reply } => {
@@ -1257,8 +1256,7 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>) {
         }
         RpcCommand::SetVenue { name, reply } => {
             // Stub: validate the venue exists but don't apply gains.
-            let dir = crate::venue::venues_dir();
-            match crate::venue::find_venue(&dir, &name) {
+            match crate::venue::find_venue(venues_dir, &name) {
                 Ok(_) => {
                     let _ = reply.send(RpcResult::Ok);
                 }
@@ -1496,6 +1494,16 @@ fn handle_client(
 mod tests {
     use super::*;
 
+    /// Resolve the venues directory for tests without env vars.
+    fn test_venues_dir() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues")
+    }
+
     // -----------------------------------------------------------------------
     // JSON parsing: valid commands
     // -----------------------------------------------------------------------
@@ -1622,7 +1630,7 @@ mod tests {
         // Spawn stub handler so the channel doesn't hang.
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &Mutex::new("standby".to_string()));
+                handle_pw_command(cmd, &Mutex::new("standby".to_string()), &test_venues_dir());
             }
         });
 
@@ -1644,7 +1652,7 @@ mod tests {
 
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &Mutex::new("standby".to_string()));
+                handle_pw_command(cmd, &Mutex::new("standby".to_string()), &test_venues_dir());
             }
         });
 
@@ -1669,7 +1677,7 @@ mod tests {
             let mode = mode_for_handler.clone();
             move || {
                 while let Ok(cmd) = cmd_rx.recv() {
-                    handle_pw_command(cmd, &mode);
+                    handle_pw_command(cmd, &mode, &test_venues_dir());
                 }
             }
         });
@@ -1911,7 +1919,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 
@@ -1944,7 +1952,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 
@@ -1975,7 +1983,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("dj".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 
@@ -2017,7 +2025,7 @@ mod tests {
             let mode = Arc::new(Mutex::new(initial_mode.to_string()));
             move || {
                 while let Ok(cmd) = cmd_rx.recv() {
-                    handle_pw_command(cmd, &mode);
+                    handle_pw_command(cmd, &mode, &test_venues_dir());
                 }
             }
         });
@@ -2186,7 +2194,7 @@ mod tests {
 
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &Mutex::new("standby".to_string()));
+                handle_pw_command(cmd, &Mutex::new("standby".to_string()), &test_venues_dir());
             }
         });
 
@@ -2202,27 +2210,17 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn list_venues_stub_response_format() {
-        // Point PI4AUDIO_VENUES_DIR to the real configs/venues directory.
-        let venues_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("configs/venues");
-
-        if venues_dir.exists() {
-            std::env::set_var("PI4AUDIO_VENUES_DIR", &venues_dir);
-        }
+        let venues_dir = test_venues_dir();
 
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let stored_mode = Mutex::new("standby".to_string());
 
+        let vd = venues_dir.clone();
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &vd);
             }
         });
 
@@ -2242,8 +2240,6 @@ mod tests {
             }
             _ => panic!("Expected ResponseJson for list_venues"),
         }
-
-        std::env::remove_var("PI4AUDIO_VENUES_DIR");
     }
 
     #[test]
@@ -2254,7 +2250,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 
@@ -2274,29 +2270,22 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "F-256: thread-unsafe env var mutation — cargo test runs venue tests in parallel"]
     fn set_venue_not_found_returns_error() {
-        // Point PI4AUDIO_VENUES_DIR to the real configs/venues directory.
-        let venues_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("configs/venues");
+        let venues_dir = test_venues_dir();
 
         if !venues_dir.exists() {
             // Skip if not running from project root.
             return;
         }
-        std::env::set_var("PI4AUDIO_VENUES_DIR", &venues_dir);
 
         let (cmd_tx, cmd_rx) = mpsc::channel();
         let stored_mode = Mutex::new("standby".to_string());
 
+        let vd = venues_dir.clone();
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &vd);
             }
         });
 
@@ -2309,9 +2298,6 @@ mod tests {
             }
             _ => panic!("Expected error for nonexistent venue"),
         }
-
-        // Clean up env var to not affect other tests.
-        std::env::remove_var("PI4AUDIO_VENUES_DIR");
     }
 
     // -----------------------------------------------------------------------
@@ -2347,7 +2333,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 
@@ -2370,7 +2356,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 
@@ -2387,7 +2373,7 @@ mod tests {
         let mode = Arc::new(Mutex::new("standby".to_string()));
         thread::spawn(move || {
             while let Ok(cmd) = cmd_rx.recv() {
-                handle_pw_command(cmd, &mode);
+                handle_pw_command(cmd, &mode, &test_venues_dir());
             }
         });
 

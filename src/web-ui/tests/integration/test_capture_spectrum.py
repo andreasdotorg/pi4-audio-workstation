@@ -46,9 +46,9 @@ def _navigate_to_test(page):
     ``onShow`` lifecycle hook in test.js still fires and connects the PCM
     WebSocket + starts the FFT render loop.
 
-    Uses ``dispatch_event("click")`` instead of ``.click()`` because
-    Playwright's click waits for network quiescence, which never arrives
-    when the PCM WebSocket streams continuously.
+    Calls ``App.switchView('test')`` directly instead of dispatching a
+    click event, because ``dispatch_event("click")`` does not reliably
+    trigger ``addEventListener`` handlers on headless Chromium ARM64 CI.
     """
     page.evaluate("""() => {
         document.getElementById('view-test').innerHTML =
@@ -60,7 +60,7 @@ def _navigate_to_test(page):
             '<div id="tt-spectrum-no-mic" class="hidden">Microphone not connected.</div>' +
             '<div id="tt-mic-status">Mic: <span id="tt-mic-state">checking...</span></div>';
     }""")
-    page.locator('.nav-tab[data-view="test"]').dispatch_event("click")
+    page.evaluate("PiAudio.switchView('test')")
     expect(page.locator("#view-test")).to_have_class(re.compile(r".*\bactive\b.*"))
 
 
