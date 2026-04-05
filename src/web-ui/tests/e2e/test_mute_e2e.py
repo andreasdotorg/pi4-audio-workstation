@@ -122,6 +122,32 @@ class TestUnmuteRestoresSignal:
         )
 
 
+class TestMuteIdempotency:
+    """Double-mute and double-unmute are safe no-ops."""
+
+    def test_double_mute_is_idempotent(self, ensure_dj_mode, api_post, api_get):
+        """Muting twice returns ok with 'already muted' detail."""
+        # First mute
+        s1, b1 = api_post("/api/v1/audio/mute")
+        assert s1 == 200 and b1.get("ok"), f"First mute failed: {b1}"
+
+        # Second mute — should succeed with "already muted"
+        s2, b2 = api_post("/api/v1/audio/mute")
+        assert s2 == 200, f"Double mute failed: {s2} {b2}"
+        assert b2.get("ok") is True
+        assert "already" in b2.get("detail", "").lower(), (
+            f"Expected 'already muted' detail, got: {b2}"
+        )
+
+        # Status should still show muted
+        _, status_body = api_get("/api/v1/audio/mute-status")
+        assert status_body.get("is_muted") is True
+
+        # Cleanup
+        api_post("/api/v1/audio/unmute")
+        time.sleep(0.5)
+
+
 class TestMuteStatusEndpoint:
     """GET /api/v1/audio/mute-status reflects correct state."""
 

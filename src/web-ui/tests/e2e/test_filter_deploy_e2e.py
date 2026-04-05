@@ -204,6 +204,37 @@ class TestDeployD009SafetyInterlock:
         assert body.get("error") == "invalid_output_dir"
 
 
+class TestDeployEmptyDir:
+    """Deploy with an empty output directory is rejected."""
+
+    def test_deploy_empty_dir_returns_no_filters(self, api_post):
+        """Deploy pointing at a dir with no combined_*.wav files -> 422."""
+        # Create an empty subdir under the allowed filter output base
+        output_base = os.environ.get(
+            "PI4AUDIO_FILTER_OUTPUT_DIR", "/tmp/pi4audio-demo/filters"
+        )
+        empty_dir = os.path.join(output_base, "empty-test-dir")
+        os.makedirs(empty_dir, exist_ok=True)
+
+        try:
+            status, body = api_post(
+                "/api/v1/filters/deploy",
+                {"output_dir": empty_dir},
+                timeout=10.0,
+            )
+            assert status == 422, (
+                f"Expected 422 for empty dir, got {status}: {body}"
+            )
+            assert body.get("deployed") is False
+            assert body.get("reason") == "no_filters", (
+                f"Expected reason 'no_filters', got: {body}"
+            )
+        finally:
+            # Cleanup the empty test dir
+            if os.path.isdir(empty_dir):
+                os.rmdir(empty_dir)
+
+
 class TestFilterVersionsAndRollback:
     """Generate v1 -> deploy -> generate v2 -> deploy -> rollback to v1."""
 
