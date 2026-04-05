@@ -1,20 +1,30 @@
 # CI Pipeline for mugge
 #
-# Jobs (2 jobs, single ARM runner for tests + build):
-#   nixos-eval     — NixOS config validation (nix eval, x86_64, fast)
-#   test-and-build — All tests + SD image build (aarch64, one Nix store)
+# Jobs (4 jobs):
+#   changes        — Detect which paths changed (docs-only vs code)
+#   nixos-eval     — NixOS config validation (nix eval, x86_64, fast, always runs)
+#   test-and-build — All tests (aarch64, skipped for docs-only PRs)
+#   ci-gate        — Final status gate (always runs, required by branch protection)
 #
 # Pipeline:
-#   nixos-eval → test-and-build
+#   changes ─┬─> nixos-eval ─┬─> test-and-build (if code changed) ─┬─> ci-gate
+#            └────────────────┘                                      │
+#                             └──────────────────────────────────────┘
 #
 # Steps within test-and-build:
 #   T1  — Unit + Rust + browser tests
 #   T2  — E2E tests
-#   T3  — aarch64 SD card image build
+#
+# T3 (SD card image build) removed from PR CI. Moved to separate
+# tag-triggered release workflow.
 #
 # Triggers:
-#   PR targeting main     — nixos-eval → T1 → T2 → T3
-#   workflow_dispatch      — T2 and/or T3 on any branch (manual)
+#   PR targeting main     — changes → nixos-eval → test-and-build (if code) → ci-gate
+#   workflow_dispatch      — T1 and/or T2 on any branch (manual, always runs tests)
+#
+# Docs-only PRs (only docs/**, *.md, .claude/**, CLAUDE.md changed):
+#   nixos-eval runs (cheap, catches config errors), test-and-build is skipped,
+#   ci-gate passes. This allows docs-only PRs to merge without ARM runner time.
 #
 # No push trigger — CI runs on PRs only.  Workers run T0+T1 locally
 # before every push (see docs/guide/howto/development.md).  This avoids
@@ -37,10 +47,6 @@ on:
         description: 'Run E2E tests (T2)'
         type: boolean
         default: true
-      run_sd_image:
-        description: 'Build aarch64 SD card image (T3)'
-        type: boolean
-        default: true
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
@@ -48,11 +54,38 @@ concurrency:
 
 jobs:
   # -----------------------------------------------------------
+  # Path change detection
+  # Determines whether code paths changed (requiring tests) or
+  # only docs/config paths changed (tests can be skipped).
+  # -----------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'nix/**'
+              - 'configs/**'
+              - 'scripts/**'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/**'
+              - 'tests/**'
+
+  # -----------------------------------------------------------
   # T0 — NixOS configuration validation
   # Fast check that the NixOS config evaluates without errors.
   # Catches option renames, type mismatches, missing modules.
   # Uses QEMU user-mode to evaluate aarch64 Nix expressions.
-  # Gates test-and-build.
+  # Always runs — even for docs-only PRs.
   # -----------------------------------------------------------
   nixos-eval:
     runs-on: ubuntu-latest
@@ -81,14 +114,17 @@ jobs:
           echo "NixOS toplevel derivation: $drv"
 
   # -----------------------------------------------------------
-  # T1 + T2 + T3 — Tests and SD image build (single ARM runner)
+  # T1 + T2 — Tests (single ARM runner)
   # One Nix/Cachix setup, shared Nix store across all steps.
-  # All steps run on PRs. T2/T3 gated on manual dispatch inputs.
+  # Skipped for docs-only PRs. Always runs on workflow_dispatch.
   # -----------------------------------------------------------
   test-and-build:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
-    needs: [nixos-eval]
+    needs: [changes, nixos-eval]
+    if: >-
+      needs.changes.outputs.code == 'true'
+      || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v6
 
@@ -126,23 +162,36 @@ jobs:
           E2E_STACK_TIMEOUT: '60'
         run: cachix watch-exec mugge -- nix run .#test-e2e
 
-      # -- T3: aarch64 SD card image build (PRs + manual dispatch) -
-
-      - name: Build aarch64 SD card image
-        if: >-
-          github.event_name == 'pull_request'
-          || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
-        run: cachix watch-exec mugge -- nix build .#images.sd-card --print-build-logs
-
-      - name: Report image size
-        if: >-
-          github.event_name == 'pull_request'
-          || (github.event_name == 'workflow_dispatch' && inputs.run_sd_image)
+  # -----------------------------------------------------------
+  # CI Gate — Final merge-readiness check
+  # Always runs. Required by branch protection instead of
+  # test-and-build (which may be skipped for docs-only PRs).
+  # Fails if any upstream job failed.
+  # -----------------------------------------------------------
+  ci-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    needs: [nixos-eval, test-and-build]
+    steps:
+      - name: Check job results
         run: |
-          img=$(find result/ -name '*.img.zst' -o -name '*.img' 2>/dev/null | head -1)
-          if [ -n "$img" ]; then
-            echo "SD image: $img ($(du -h "$img" | cut -f1))"
-          else
-            echo "SD image built successfully"
-            ls -lh result/
+          echo "nixos-eval: ${{ needs.nixos-eval.result }}"
+          echo "test-and-build: ${{ needs.test-and-build.result }}"
+
+          if [[ "${{ needs.nixos-eval.result }}" != "success" ]]; then
+            echo "FAIL: nixos-eval did not succeed"
+            exit 1
           fi
+
+          # test-and-build is "skipped" only when changes.outputs.code == 'false'
+          # (docs-only PR). In that case nixos-eval (checked above) is the sole
+          # quality gate. Any other non-success state (failure, cancelled) is a
+          # real problem and must block the merge.
+          if [[ "${{ needs.test-and-build.result }}" != "success" \
+             && "${{ needs.test-and-build.result }}" != "skipped" ]]; then
+            echo "FAIL: test-and-build did not succeed or skip cleanly"
+            exit 1
+          fi
+
+          echo "All checks passed"

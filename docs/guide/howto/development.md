@@ -399,7 +399,7 @@ mugge/
 ```
 
 
-## 7. Continuous Integration (US-070)
+## 7. Continuous Integration
 
 The project uses GitHub Actions for CI. The workflow is defined in
 `.github/workflows/ci.yml`.
@@ -408,8 +408,12 @@ The project uses GitHub Actions for CI. The workflow is defined in
 
 | Event | Scope | Behavior |
 |-------|-------|----------|
-| `push` | Any branch (`**`) | Runs on every push to any branch |
 | `pull_request` | `main` branch | Runs on PR creation and each subsequent push |
+| `workflow_dispatch` | Any branch | Manual trigger with optional T2 (E2E) toggle |
+
+There is **no push trigger**. CI runs on PRs only. Workers run T0+T1 locally
+before every push. This avoids wasting CI minutes on feature-branch pushes and
+prevents double runs when a PR is open (push + pull\_request would both fire).
 
 A concurrency group (`ci-<ref>`) cancels in-progress runs when a newer commit
 is pushed to the same branch, so you do not waste CI minutes on superseded
@@ -417,17 +421,29 @@ commits.
 
 ### 7.2 CI Jobs
 
-CI runs two parallel jobs on `ubuntu-latest` (GitHub-hosted) runners:
+CI runs four jobs:
 
-| Job | What it runs | Typical duration |
-|-----|-------------|-----------------|
-| **`test-all`** | `nix run .#test-all` (web-ui unit, room-correction, midi, drivers, graph-manager via cargo), then individual Rust targets: `test-graph-manager`, `test-pcm-bridge`, `test-signal-gen` | 5-15 min |
-| **`test-integration-browser`** | `nix run .#test-integration-browser` (Playwright browser tests against mock server) | 7-20 min |
+| Job | Runner | What it does | When |
+|-----|--------|-------------|------|
+| **`changes`** | `ubuntu-latest` | Detects whether code paths changed (`dorny/paths-filter@v3`). Outputs `code: true/false`. | Always |
+| **`nixos-eval`** (T0) | `ubuntu-latest` | NixOS configuration validation (`nix eval`). Uses QEMU user-mode for aarch64. | Always |
+| **`test-and-build`** (T1+T2) | `ubuntu-24.04-arm` | Unit tests, Rust tests, browser integration tests (T1), E2E tests (T2). | Only when code paths changed |
+| **`ci-gate`** | `ubuntu-latest` | Checks upstream job results. Passes when `nixos-eval` succeeded and `test-and-build` either succeeded or was cleanly skipped. | Always |
 
-Both jobs install Nix via `cachix/install-nix-action` and cache the Nix store
-via `nix-community/cache-nix-action` (keyed on `flake.lock` hash). The first
-run after a cache miss is slow (full Nix build); subsequent runs use cached
-store paths.
+**Code paths** that trigger `test-and-build`: `src/**`, `nix/**`, `configs/**`,
+`scripts/**`, `flake.nix`, `flake.lock`, `.github/**`, `tests/**`.
+
+**Docs-only PRs** (changes only in `docs/**`, `*.md`, `.claude/**`, etc.) skip
+`test-and-build` entirely. Only `nixos-eval` and `ci-gate` run, saving ARM
+runner time.
+
+T1 steps: `test-all`, `test-pcm-bridge`, `test-signal-gen`, `test-level-bridge`,
+`test-integration-browser`. T2 step: `test-e2e` (full local-demo stack).
+
+T3 (aarch64 SD card image build) has been removed from PR CI and will move to
+a separate tag-triggered release workflow.
+
+Nix store caching uses `cachix/cachix-action@v17` with the `mugge` cache.
 
 ### 7.3 Reading CI Results
 
@@ -436,16 +452,22 @@ store paths.
 - **Failed step:** Expand the failed step to see pytest or cargo test output.
   The test name and assertion message are usually sufficient to identify the
   failure.
+- **Docs-only PRs:** `test-and-build` will show as "skipped" — this is
+  expected. Check `ci-gate` for the final pass/fail verdict.
 
 ### 7.4 Branch Protection
 
-Branch protection on `main` requires both `test-all` and `test-integration-browser` to pass
-before a PR can be merged. Force-push to `main` is disabled. Squash merge is
-the default merge strategy (clean main history).
+Branch protection on `main` requires the `ci-gate` status check to pass before
+a PR can be merged. Force-push to `main` is disabled.
+
+`ci-gate` is the sole required check because `test-and-build` may be
+legitimately skipped for docs-only PRs. The `ci-gate` job verifies that all
+upstream jobs either succeeded or were intentionally skipped.
 
 Workers create feature branches for their work (naming convention:
-`<story-id>/<short-description>`, e.g., `us-064/graph-rework`), open PRs
-against `main`, and merge only after CI passes.
+`story/<ID>-<short-description>`, e.g., `story/US-128-pipewire-1.6.2`), open
+PRs against `main`, and merge only after CI passes and all Rule 13 approvals
+are collected.
 
 ### 7.5 Flaky Test Policy
 
@@ -456,3 +478,68 @@ A flaky test is a bug, not an inconvenience:
   defect ID) until fixed.
 - CI failure on a flaky test blocks the PR until the test is fixed or properly
   quarantined.
+
+
+## 8. Releases (US-132)
+
+The project uses a tag-triggered release workflow to build SD card images and
+publish them as GitHub Releases. The workflow is defined in
+`.github/workflows/release.yml`.
+
+### 8.1 Creating a Release
+
+To create a release, push a `v*` tag to a commit on `main` that has passing CI:
+
+```sh
+git tag v2026.04.05
+git push origin v2026.04.05
+```
+
+This triggers the release workflow, which:
+1. Verifies the tagged commit has passing CI status (via GitHub API)
+2. Builds the aarch64 SD card image (`nix build .#images.sd-card`)
+3. Computes the SHA-256 checksum of the compressed image
+4. Creates a GitHub Release with the image attached as a downloadable artifact
+
+The release body includes the image filename, compressed size, SHA-256 checksum,
+tag name, and commit SHA.
+
+### 8.2 Tag Naming Convention
+
+Tags must match the `v*` pattern. Two conventions are acceptable:
+
+| Style | Example | When to use |
+|-------|---------|-------------|
+| Date-based | `v2026.04.05` | Regular releases tied to a session or date |
+| Semantic | `v0.1.0`, `v1.0.0` | Milestone releases with clear versioning |
+
+Tags must only be pushed to commits that have passed CI (T0+T1+T2+T3 green).
+The release workflow checks CI status as a safety net, but the primary gate is
+the PR merge process (Rule 13 + CI green).
+
+### 8.3 Release vs CI
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| **CI** (`ci.yml`) | PR to `main`, manual dispatch | Runs tests (T0+T1+T2) and builds SD image (T3) to verify correctness |
+| **Release** (`release.yml`) | `v*` tag push, manual dispatch | Builds SD image and publishes it as a GitHub Release artifact |
+
+The release workflow does **not** re-run tests. It trusts that CI already
+validated the tagged commit during the PR process.
+
+### 8.4 Manual Dispatch (Testing)
+
+The release workflow supports `workflow_dispatch` for manual triggering on any
+branch. This is useful for testing the build without creating a tag or release.
+
+Manual dispatch builds the SD image and uploads it as a **workflow artifact**
+(available for 7 days from the Actions tab) instead of creating a GitHub Release.
+
+To trigger manually: Actions tab > Release > Run workflow > select branch.
+
+### 8.5 Where Artifacts Appear
+
+| Trigger | Where to find the image |
+|---------|------------------------|
+| Tag push (`v*`) | GitHub Releases page — download from the release assets |
+| Manual dispatch | GitHub Actions > workflow run > Artifacts section (7-day retention) |
