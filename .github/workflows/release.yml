@@ -10,6 +10,14 @@
 # The SD image build is identical to CI T3 — same runner, same Nix
 # expression, same Cachix cache.  The release step adds artifact
 # upload and checksum generation.
+#
+# IMPORTANT: Tags MUST only be pushed to commits that have passing CI
+# (T0+T1+T2+T3 green on the PR that merged the commit).  This workflow
+# does NOT re-run tests — it trusts that CI already validated the
+# tagged commit.  Pushing a tag to an untested commit will produce an
+# image from unverified code.  The verify-ci job below is a safety net
+# that checks the commit's CI status, but the primary gate is the PR
+# merge process (Rule 13 + CI green).
 
 name: Release
 
@@ -24,9 +32,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  # -----------------------------------------------------------
+  # Pre-flight: verify the tagged commit has passing CI
+  # Fast check via GitHub API — fails the release if CI never
+  # ran or failed on this commit.  Only runs for tag pushes.
+  # -----------------------------------------------------------
+  verify-ci:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check CI status on tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="${{ github.sha }}"
+          echo "Checking CI status for commit $sha"
+
+          # Query combined commit status + check runs
+          state=$(gh api "repos/${{ github.repository }}/commits/$sha/status" \
+            --jq '.state')
+          echo "Combined commit status: $state"
+
+          if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+            echo "::error::Tagged commit $sha has failing CI status: $state"
+            echo "Tags must only be pushed to commits with passing CI."
+            exit 1
+          fi
+
+          if [ "$state" = "pending" ]; then
+            echo "::warning::CI status is pending for $sha — CI may not have completed yet."
+            echo "Proceeding, but verify CI passed before distributing the image."
+          fi
+
+          echo "CI status: $state"
+
+  # -----------------------------------------------------------
+  # Build SD image and create release / upload artifact
+  # -----------------------------------------------------------
+  build-and-release:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
+    needs: [verify-ci]
+    if: ${{ !cancelled() && (needs.verify-ci.result == 'success' || needs.verify-ci.result == 'skipped') }}
     permissions:
       contents: write
     steps:
@@ -45,13 +93,26 @@ jobs:
       - name: Prepare release artifacts
         id: artifacts
         run: |
-          img=$(find result/ -name '*.img.zst' -o -name '*.img' 2>/dev/null | head -1)
-          if [ -z "$img" ]; then
+          mapfile -t images < <(find result/ -name '*.img.zst' 2>/dev/null)
+
+          if [ "${#images[@]}" -eq 0 ]; then
+            # Fall back to uncompressed .img
+            mapfile -t images < <(find result/ -name '*.img' 2>/dev/null)
+          fi
+
+          if [ "${#images[@]}" -eq 0 ]; then
             echo "::error::No image file found in result/"
             ls -lhR result/
             exit 1
           fi
 
+          if [ "${#images[@]}" -gt 1 ]; then
+            echo "::error::Expected exactly one image file, found ${#images[@]}:"
+            printf '  %s\n' "${images[@]}"
+            exit 1
+          fi
+
+          img="${images[0]}"
           filename=$(basename "$img")
           size=$(du -h "$img" | cut -f1)
           sha256=$(sha256sum "$img" | cut -d' ' -f1)
@@ -92,3 +153,11 @@ jobs:
             zstd -d ${{ steps.artifacts.outputs.filename }} -o mugge.img
             sudo dd if=mugge.img of=/dev/sdX bs=4M status=progress
             ```
+
+      - name: Upload image as workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sd-card-image
+          path: ${{ steps.artifacts.outputs.img }}
+          retention-days: 7
