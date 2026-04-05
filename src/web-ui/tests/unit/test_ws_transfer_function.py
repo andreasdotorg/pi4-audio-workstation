@@ -15,11 +15,11 @@ import os
 import numpy as np
 import pytest
 
-from app.ws_transfer_function import (
-    PcmStreamReader,
-    _get_pcm_source,
-    _V2_HEADER,
-)
+from app.collectors.pcm_reader import PcmStreamReader, V2_HEADER_SIZE
+from app.transfer_function_routes import _get_pcm_source
+
+# Alias for backward compat in tests.
+_V2_HEADER = V2_HEADER_SIZE
 
 
 # -- PCM source lookup tests --

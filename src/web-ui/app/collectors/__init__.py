@@ -14,12 +14,14 @@ On macOS (development), collectors return fallback/mock data.
 
 from .filterchain_collector import FilterChainCollector
 from .levels_collector import LevelsCollector
+from .pcm_reader import PcmStreamReader
 from .pipewire_collector import PipeWireCollector
 from .system_collector import SystemCollector
 
 __all__ = [
     "FilterChainCollector",
     "LevelsCollector",
+    "PcmStreamReader",
     "PipeWireCollector",
     "SystemCollector",
 ]

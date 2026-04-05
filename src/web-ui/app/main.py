@@ -55,7 +55,7 @@ from .test_tool.routes import router as test_tool_router
 from .thermal_limiter import ThermalGainLimiter
 from .ws_monitoring import ws_monitoring
 from .ws_system import ws_system
-from .ws_transfer_function import ws_transfer_function
+from .transfer_function_routes import ws_transfer_function
 
 logging.basicConfig(
     level=logging.INFO,
