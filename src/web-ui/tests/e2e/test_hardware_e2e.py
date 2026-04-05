@@ -20,7 +20,7 @@ Usage:
 import pytest
 
 
-pytestmark = [pytest.mark.e2e]
+pytestmark = [pytest.mark.e2e, pytest.mark.destructive]
 
 # Seed data from local-demo (copied from configs/hardware/).
 SEED_AMP = "mcgrey-pa4504"

@@ -320,3 +320,37 @@ class TestCalibrationUpload:
         assert status == 400, (
             f"Expected 400 for empty filename, got {status}: {body}"
         )
+
+
+class TestCalibrationVerifyGraceful:
+    """POST /api/v1/test-tool/calibration/verify handles missing hardware.
+
+    In local-demo without a real UMIK-1, the verify endpoint should fail
+    gracefully rather than crash with a 500. This tests the hardware-absent
+    code path.
+
+    The /calibration/verify endpoint requires PI4AUDIO_SIGGEN=1 (set in
+    local-demo). Without real UMIK-1 hardware, it should return a structured
+    error (measurement_failed or siggen_error), not a server crash.
+    """
+
+    def test_verify_without_hardware_returns_error(self, api_post):
+        """Calibration verify without UMIK-1 returns structured error."""
+        status, body = api_post(
+            "/api/v1/test-tool/calibration/verify",
+            timeout=15.0,
+        )
+        # In local-demo with signal-gen but no UMIK-1:
+        # - 200 with passed=false and error details, OR
+        # - 502 if signal-gen play fails, OR
+        # - 404/501 if the endpoint is not enabled
+        # The key assertion: NOT a 500 server crash.
+        assert status != 500, (
+            f"Calibration verify crashed (500): {body}"
+        )
+        if status == 200:
+            # Should report measurement failure, not success.
+            if body.get("passed") is False:
+                assert "error" in body or "detail" in body, (
+                    f"Expected error details in failed verify: {body}"
+                )
