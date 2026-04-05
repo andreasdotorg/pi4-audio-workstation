@@ -315,13 +315,17 @@ async def ws_transfer_function(
 
     ref_addr = _get_pcm_source(ref_source)
     meas_addr = _get_pcm_source(meas_source)
-    if ref_addr is None:
-        await ws.close(code=4004,
-                       reason=f"Unknown ref PCM source: {ref_source!r}")
-        return
-    if meas_addr is None:
-        await ws.close(code=4004,
-                       reason=f"Unknown meas PCM source: {meas_source!r}")
+    if ref_addr is None or meas_addr is None:
+        missing = []
+        if ref_addr is None:
+            missing.append(f"ref={ref_source!r}")
+        if meas_addr is None:
+            missing.append(f"meas={meas_source!r}")
+        log.warning(
+            "TF PCM source(s) not configured (%s) — falling back to "
+            "mock mode (synthetic data)", ", ".join(missing))
+        await _mock_transfer_function(ws, fft_size, alpha,
+                                      mock_fallback=True)
         return
 
     log.info("Transfer function WS connected: ref=%s[%d] meas=%s[%d] "
@@ -408,10 +412,15 @@ async def _mock_transfer_function(
     ws: WebSocket,
     fft_size: int = 4096,
     alpha: float = 0.125,
+    mock_fallback: bool = False,
 ) -> None:
     """Mock mode: generate synthetic transfer function data for UI development.
 
     Simulates a room with a gentle high-frequency rolloff and some resonances.
+
+    When *mock_fallback* is True, the server was in real mode but fell back
+    because required PCM sources are not configured.  Each frame includes
+    ``"mock_fallback": true`` so the UI can show a degraded-mode indicator.
     """
     cfg = TransferFunctionConfig(fft_size=fft_size, alpha=alpha)
     engine = TransferFunctionEngine(cfg)
@@ -437,6 +446,7 @@ async def _mock_transfer_function(
             frame["delay_confidence"] = 15.0
             frame["ref_connected"] = True
             frame["meas_connected"] = True
+            frame["mock_fallback"] = mock_fallback
             await ws.send_text(json.dumps(frame))
             await asyncio.sleep(_PUSH_INTERVAL)
 

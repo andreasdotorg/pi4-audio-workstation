@@ -21,7 +21,7 @@
         <button class="nav-tab" data-view="graph" title="PipeWire node topology — live link map">Graph</button>
         <button class="nav-tab" data-view="config" title="Gains, quantum, filters, speakers, hardware">Config</button>
         <button class="nav-tab" data-view="measure" title="Room measurement wizard — sweep, correct, deploy">Measure</button>
-        <button class="nav-tab" data-view="tf" title="Real-time transfer function — magnitude, phase, coherence">TF</button>
+        <button class="nav-tab" data-view="tf" title="Real-time transfer function — magnitude, phase, coherence">Transfer Fn</button>
         <button class="nav-tab" data-view="test" title="Signal generator + spectrum analyzer with UMIK-1">Test</button>
         <button class="nav-tab" data-view="midi" title="MIDI controller mapping (Stage 2)">MIDI</button>
     </div>
@@ -1099,6 +1099,11 @@
 
 <!-- VIEW: Transfer Function — US-120 real-time dual-FFT analysis -->
 <div class="view" id="view-tf">
+    <div class="tf-mock-fallback-banner" id="tf-mock-fallback-banner" style="display:none;
+        background:#7f6000; color:#fff; padding:6px 12px; text-align:center; font-size:13px;
+        border-bottom:2px solid #cc9900;">
+        PCM source not configured — showing synthetic data (not real measurements)
+    </div>
     <div class="tf-layout">
         <!-- Left column: controls -->
         <div class="tf-controls">

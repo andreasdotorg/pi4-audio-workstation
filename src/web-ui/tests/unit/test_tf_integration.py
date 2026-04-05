@@ -5,11 +5,16 @@ against the live FastAPI app in mock mode (PI_AUDIO_MOCK=1).
 
 Uses the shared ``client`` fixture from conftest.py which runs the full app
 lifespan (startup + shutdown).
+
+F-270: Added TestTfMockFallback to exercise the real-mode code path when
+PCM sources are missing.
 """
 
 import json
 
 import pytest
+
+import app.transfer_function_routes as tf_routes
 
 
 class TestTfModeEndpoints:
@@ -202,3 +207,47 @@ class TestTfWebSocket:
             assert len(frame["coherence"]) == n
             # phase_deg may have None values (coherence-gated), but same length.
             assert len(frame["phase_deg"]) == n
+
+
+class TestTfMockFallback:
+    """F-270: Test the real-mode code path when PCM sources are missing.
+
+    Monkeypatches MOCK_MODE to False so the WebSocket handler takes the
+    real code path.  Without PI4AUDIO_PCM_SOURCES configured, the
+    'capture-usb' source is missing — the handler must gracefully fall
+    back to mock mode with ``mock_fallback=true`` in the JSON frames
+    instead of closing the WebSocket with code 4004.
+    """
+
+    def test_ws_falls_back_when_pcm_source_missing(self, client, monkeypatch):
+        """WS handler falls back to mock when capture-usb is unavailable."""
+        monkeypatch.setattr(tf_routes, "MOCK_MODE", False)
+        monkeypatch.delenv("PI4AUDIO_PCM_SOURCES", raising=False)
+
+        with client.websocket_connect("/ws/transfer-function") as ws:
+            raw = ws.receive_text()
+            frame = json.loads(raw)
+            # Must receive valid spectral data, not a close frame.
+            assert "magnitude_db" in frame
+            assert "freq_axis" in frame
+            assert len(frame["magnitude_db"]) > 0
+            # The fallback must be visible — not silent.
+            assert frame.get("mock_fallback") is True
+
+    def test_ws_fallback_frame_has_all_fields(self, client, monkeypatch):
+        """Fallback frames have the same fields as normal mock frames."""
+        monkeypatch.setattr(tf_routes, "MOCK_MODE", False)
+        monkeypatch.delenv("PI4AUDIO_PCM_SOURCES", raising=False)
+
+        with client.websocket_connect("/ws/transfer-function") as ws:
+            frame = json.loads(ws.receive_text())
+            for field in ("magnitude_db", "phase_deg", "coherence",
+                          "freq_axis", "blocks_accumulated", "warming_up",
+                          "delay_ms", "ref_connected", "meas_connected"):
+                assert field in frame, f"Missing field in fallback: {field}"
+
+    def test_ws_no_fallback_in_normal_mock(self, client):
+        """Normal mock mode (PI_AUDIO_MOCK=1) does NOT set mock_fallback."""
+        with client.websocket_connect("/ws/transfer-function") as ws:
+            frame = json.loads(ws.receive_text())
+            assert frame.get("mock_fallback") is False

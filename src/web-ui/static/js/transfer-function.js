@@ -456,6 +456,12 @@
             measEl.textContent = frame.meas_connected ? "connected" : "disconnected";
             measEl.className = frame.meas_connected ? "c-safe" : "c-danger";
         }
+
+        // Degraded-mode banner when server fell back to synthetic data.
+        var banner = $("tf-mock-fallback-banner");
+        if (banner) {
+            banner.style.display = frame.mock_fallback ? "block" : "none";
+        }
     }
 
     // -- Render loop --
