@@ -399,7 +399,7 @@ mugge/
 ```
 
 
-## 7. Continuous Integration (US-070)
+## 7. Continuous Integration
 
 The project uses GitHub Actions for CI. The workflow is defined in
 `.github/workflows/ci.yml`.
@@ -408,8 +408,12 @@ The project uses GitHub Actions for CI. The workflow is defined in
 
 | Event | Scope | Behavior |
 |-------|-------|----------|
-| `push` | Any branch (`**`) | Runs on every push to any branch |
 | `pull_request` | `main` branch | Runs on PR creation and each subsequent push |
+| `workflow_dispatch` | Any branch | Manual trigger with optional T2 (E2E) toggle |
+
+There is **no push trigger**. CI runs on PRs only. Workers run T0+T1 locally
+before every push. This avoids wasting CI minutes on feature-branch pushes and
+prevents double runs when a PR is open (push + pull\_request would both fire).
 
 A concurrency group (`ci-<ref>`) cancels in-progress runs when a newer commit
 is pushed to the same branch, so you do not waste CI minutes on superseded
@@ -417,17 +421,29 @@ commits.
 
 ### 7.2 CI Jobs
 
-CI runs two parallel jobs on `ubuntu-latest` (GitHub-hosted) runners:
+CI runs four jobs:
 
-| Job | What it runs | Typical duration |
-|-----|-------------|-----------------|
-| **`test-all`** | `nix run .#test-all` (web-ui unit, room-correction, midi, drivers, graph-manager via cargo), then individual Rust targets: `test-graph-manager`, `test-pcm-bridge`, `test-signal-gen` | 5-15 min |
-| **`test-integration-browser`** | `nix run .#test-integration-browser` (Playwright browser tests against mock server) | 7-20 min |
+| Job | Runner | What it does | When |
+|-----|--------|-------------|------|
+| **`changes`** | `ubuntu-latest` | Detects whether code paths changed (`dorny/paths-filter@v3`). Outputs `code: true/false`. | Always |
+| **`nixos-eval`** (T0) | `ubuntu-latest` | NixOS configuration validation (`nix eval`). Uses QEMU user-mode for aarch64. | Always |
+| **`test-and-build`** (T1+T2) | `ubuntu-24.04-arm` | Unit tests, Rust tests, browser integration tests (T1), E2E tests (T2). | Only when code paths changed |
+| **`ci-gate`** | `ubuntu-latest` | Checks upstream job results. Passes when `nixos-eval` succeeded and `test-and-build` either succeeded or was cleanly skipped. | Always |
 
-Both jobs install Nix via `cachix/install-nix-action` and cache the Nix store
-via `nix-community/cache-nix-action` (keyed on `flake.lock` hash). The first
-run after a cache miss is slow (full Nix build); subsequent runs use cached
-store paths.
+**Code paths** that trigger `test-and-build`: `src/**`, `nix/**`, `configs/**`,
+`scripts/**`, `flake.nix`, `flake.lock`, `.github/**`, `tests/**`.
+
+**Docs-only PRs** (changes only in `docs/**`, `*.md`, `.claude/**`, etc.) skip
+`test-and-build` entirely. Only `nixos-eval` and `ci-gate` run, saving ARM
+runner time.
+
+T1 steps: `test-all`, `test-pcm-bridge`, `test-signal-gen`, `test-level-bridge`,
+`test-integration-browser`. T2 step: `test-e2e` (full local-demo stack).
+
+T3 (aarch64 SD card image build) has been removed from PR CI and will move to
+a separate tag-triggered release workflow.
+
+Nix store caching uses `cachix/cachix-action@v17` with the `mugge` cache.
 
 ### 7.3 Reading CI Results
 
@@ -436,16 +452,22 @@ store paths.
 - **Failed step:** Expand the failed step to see pytest or cargo test output.
   The test name and assertion message are usually sufficient to identify the
   failure.
+- **Docs-only PRs:** `test-and-build` will show as "skipped" — this is
+  expected. Check `ci-gate` for the final pass/fail verdict.
 
 ### 7.4 Branch Protection
 
-Branch protection on `main` requires both `test-all` and `test-integration-browser` to pass
-before a PR can be merged. Force-push to `main` is disabled. Squash merge is
-the default merge strategy (clean main history).
+Branch protection on `main` requires the `ci-gate` status check to pass before
+a PR can be merged. Force-push to `main` is disabled.
+
+`ci-gate` is the sole required check because `test-and-build` may be
+legitimately skipped for docs-only PRs. The `ci-gate` job verifies that all
+upstream jobs either succeeded or were intentionally skipped.
 
 Workers create feature branches for their work (naming convention:
-`<story-id>/<short-description>`, e.g., `us-064/graph-rework`), open PRs
-against `main`, and merge only after CI passes.
+`story/<ID>-<short-description>`, e.g., `story/US-128-pipewire-1.6.2`), open
+PRs against `main`, and merge only after CI passes and all Rule 13 approvals
+are collected.
 
 ### 7.5 Flaky Test Policy
 
