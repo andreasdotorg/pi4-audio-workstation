@@ -55,6 +55,7 @@ from .test_tool.routes import router as test_tool_router
 from .thermal_limiter import ThermalGainLimiter
 from .ws_monitoring import ws_monitoring
 from .ws_system import ws_system
+from .ws_transfer_function import ws_transfer_function
 
 logging.basicConfig(
     level=logging.INFO,
@@ -428,6 +429,7 @@ async def audio_mute_status(request: Request):
 app.websocket("/ws/monitoring")(ws_monitoring)
 app.websocket("/ws/system")(ws_system)
 app.websocket("/ws/measurement")(ws_measurement)
+app.websocket("/ws/transfer-function")(ws_transfer_function)
 
 
 # -- PCM source mapping (PCM-MODE-2) --
