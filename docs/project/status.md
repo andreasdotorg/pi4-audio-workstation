@@ -53,7 +53,7 @@ Production Pi at venue (unreachable).
 | US-117 | draft | Tier 1 image size: firmware/locale/git/registry trim | ~1.1 GiB savings, zero functional impact. Depends US-072. |
 | US-118 | draft | Tier 2 image size: Reaper closure optimization | ~800 MiB savings. Reaper pulls VLC (1.4 GiB closure). Owner option decision needed. Depends US-072. |
 | US-119 | IMPLEMENT (partial) | Tier 3 image size: Mesa without LLVM, PipeWire without bluez | libcamera disable committed (`1f3e865`). Mesa V3D-only + PW no-bluez done earlier. ~500-800 MiB savings. |
-| US-120 | draft | Real-time transfer function measurement | Theory docs committed. Post-convolver-only per owner directive. |
+| US-120 | IMPLEMENT (complete) | Real-time transfer function measurement | All 7 tasks done (T-120-01 through T-120-07). Dual-FFT engine, delay finder, WS endpoint, design/verify mode, TF view, 11 Playwright + 19 integration tests. Awaiting Rule 13 review. |
 | US-121 | draft | Real-time multichannel delay measurement | Theory docs committed. |
 | US-122 | draft | Real-time phase correction analysis | Theory docs committed. Minimum-phase optimal for PA transient fidelity. |
 | US-123 | IMPLEMENT (done) | GM deterministic boot state | Implemented (`6ef8f93`): F-249 fix (quantum on startup), NixOS default standby, venue persistence, enhanced get_state RPC. 277 tests pass. |

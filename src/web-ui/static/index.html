@@ -21,6 +21,7 @@
         <button class="nav-tab" data-view="graph" title="PipeWire node topology — live link map">Graph</button>
         <button class="nav-tab" data-view="config" title="Gains, quantum, filters, speakers, hardware">Config</button>
         <button class="nav-tab" data-view="measure" title="Room measurement wizard — sweep, correct, deploy">Measure</button>
+        <button class="nav-tab" data-view="tf" title="Real-time transfer function — magnitude, phase, coherence">TF</button>
         <button class="nav-tab" data-view="test" title="Signal generator + spectrum analyzer with UMIK-1">Test</button>
         <button class="nav-tab" data-view="midi" title="MIDI controller mapping (Stage 2)">MIDI</button>
     </div>
@@ -1096,6 +1097,82 @@
     </div>
 </div>
 
+<!-- VIEW: Transfer Function — US-120 real-time dual-FFT analysis -->
+<div class="view" id="view-tf">
+    <div class="tf-layout">
+        <!-- Left column: controls -->
+        <div class="tf-controls">
+            <div class="tf-section">
+                <div class="tf-section-title">MODE (AC #4)</div>
+                <div class="tf-mode-toggle">
+                    <button class="tf-mode-btn active" id="tf-mode-design" data-mode="design"
+                            title="Dirac — identity room correction, shows raw room response">DESIGN</button>
+                    <button class="tf-mode-btn" id="tf-mode-verify" data-mode="verify"
+                            title="Correction — real room correction filters, shows corrected response">VERIFY</button>
+                </div>
+                <div class="tf-mode-indicator" id="tf-mode-indicator">Dirac (raw room)</div>
+            </div>
+
+            <div class="tf-section">
+                <div class="tf-section-title">CHANNEL</div>
+                <select class="tf-select" id="tf-channel" title="Input channel for reference and measurement">
+                    <option value="0">Ch 1 — Left</option>
+                    <option value="1">Ch 2 — Right</option>
+                </select>
+            </div>
+
+            <div class="tf-section">
+                <div class="tf-section-title">AVERAGING</div>
+                <div class="tf-slider-row">
+                    <input type="range" class="tf-slider" id="tf-alpha-slider"
+                           min="0.02" max="0.5" step="0.005" value="0.125"
+                           title="Exponential averaging alpha — lower = more averaging (smoother)">
+                    <span class="tf-slider-value" id="tf-alpha-value">0.125</span>
+                </div>
+                <div class="tf-alpha-labels">
+                    <span class="tf-alpha-label-slow">smooth</span>
+                    <span class="tf-alpha-label-fast">fast</span>
+                </div>
+            </div>
+
+            <div class="tf-section">
+                <button class="tf-reset-btn" id="tf-reset-btn" title="Reset averaging — clear accumulated data">RESET</button>
+            </div>
+
+            <div class="tf-section tf-status-section">
+                <div class="tf-section-title">STATUS</div>
+                <div class="tf-status-grid">
+                    <span class="tf-status-label">Stream</span>
+                    <span class="tf-status-value" id="tf-ws-status">disconnected</span>
+                    <span class="tf-status-label">Reference</span>
+                    <span class="tf-status-value" id="tf-ref-status">--</span>
+                    <span class="tf-status-label">Measurement</span>
+                    <span class="tf-status-value" id="tf-meas-status">--</span>
+                    <span class="tf-status-label">Delay</span>
+                    <span class="tf-status-value" id="tf-delay">--</span>
+                    <span class="tf-status-label">Confidence</span>
+                    <span class="tf-status-value" id="tf-delay-conf">--</span>
+                    <span class="tf-status-label">Blocks</span>
+                    <span class="tf-status-value" id="tf-blocks">--</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right column: three stacked canvases -->
+        <div class="tf-plots">
+            <div class="tf-plot-container tf-plot-mag">
+                <canvas class="tf-canvas" id="tf-mag-canvas"></canvas>
+            </div>
+            <div class="tf-plot-container tf-plot-phase">
+                <canvas class="tf-canvas" id="tf-phase-canvas"></canvas>
+            </div>
+            <div class="tf-plot-container tf-plot-coh">
+                <canvas class="tf-canvas" id="tf-coh-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- VIEW: Test — Manual signal generation and spectrum analysis -->
 <div class="view" id="view-test">
     <div class="tt-layout">
@@ -1294,6 +1371,7 @@
 <script src="/static/js/protection.js?v=49"></script>
 <script src="/static/js/filter-gen.js?v=49"></script>
 <script src="/static/js/filter-versions.js?v=49"></script>
+<script src="/static/js/transfer-function.js?v=50"></script>
 <script src="/static/js/measure.js?v=50"></script>
 <script src="/static/js/rc-wizard.js?v=50"></script>
 <script src="/static/js/test.js?v=50"></script>
