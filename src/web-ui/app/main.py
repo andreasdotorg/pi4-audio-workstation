@@ -10,6 +10,7 @@ WebSocket endpoints:
     /ws/pcm/{source} — Parameterized binary PCM stream (PCM-MODE-2)
     /ws/measurement  — Real-time measurement progress feed (WP-E)
     /ws/siggen       — Signal generator status proxy (SG-11, PI4AUDIO_SIGGEN=1)
+    /ws/transfer-function — Real-time dual-FFT transfer function + coherence (US-120)
 
 PCM sources (PI4AUDIO_PCM_SOURCES env var, JSON):
     Maps source names to pcm-bridge TCP addresses.  Each pcm-bridge instance
@@ -55,6 +56,8 @@ from .test_tool.routes import router as test_tool_router
 from .thermal_limiter import ThermalGainLimiter
 from .ws_monitoring import ws_monitoring
 from .ws_system import ws_system
+from .transfer_function_routes import ws_transfer_function
+from .transfer_function_mode import router as tf_mode_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -310,6 +313,7 @@ else:
 
 app.include_router(measurement_router)
 app.include_router(test_tool_router)
+app.include_router(tf_mode_router)
 app.include_router(config_router)
 app.include_router(graph_router)
 
@@ -428,6 +432,7 @@ async def audio_mute_status(request: Request):
 app.websocket("/ws/monitoring")(ws_monitoring)
 app.websocket("/ws/system")(ws_system)
 app.websocket("/ws/measurement")(ws_measurement)
+app.websocket("/ws/transfer-function")(ws_transfer_function)
 
 
 # -- PCM source mapping (PCM-MODE-2) --

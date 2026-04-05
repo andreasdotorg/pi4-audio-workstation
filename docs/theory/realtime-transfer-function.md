@@ -164,10 +164,17 @@ Without time alignment, the phase of Gxy is meaningless and Cxy drops.
 | Reference channel capture | pcm-bridge (monitor mode, port 9100) — post-convolver | READY |
 | Measurement mic | UMIK-1 via USBStreamer ch 1-2 | READY |
 | Measurement capture | pcm-bridge (capture mode, port 9101) | READY |
-| Dual-channel FFT + cross-spectrum | — | NEEDS IMPLEMENTATION |
-| Coherence computation | — | NEEDS IMPLEMENTATION |
-| Transfer function display | Web UI spectrum.js (partial) | NEEDS EXTENSION |
-| Time alignment (delay finder) | — | NEEDS IMPLEMENTATION |
+| Dual-channel FFT + cross-spectrum | `transfer_function.py` (Welch's method, exponential averaging) | DONE (T-120-01) |
+| Coherence computation | `transfer_function.py` (MSC per frequency bin) | DONE (T-120-01) |
+| Transfer function display | `transfer-function.js` (magnitude/phase/coherence view) | DONE (T-120-05) |
+| Time alignment (delay finder) | `transfer_function.py` (cross-correlation, periodic re-compute) | DONE (T-120-02) |
+
+**v1 known limitation (F-AD-012):** Propagation delay is computed by the
+delay finder and reported in the UI, but is not applied as phase compensation
+to the displayed transfer function. The phase plot shows uncompensated
+propagation delay (linear phase slope). The delay readout is provided
+separately for the operator. Phase compensation may be added in a future
+iteration.
 
 signal-gen already has `PinkNoiseGenerator` (Voss-McCartney, +/-0.5 dB
 slope accuracy) and `WhiteNoiseGenerator` (Xoshiro256++). Both are RT-safe
