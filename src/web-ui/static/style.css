@@ -5338,6 +5338,43 @@ body.gate-banner-visible .view {
     margin-top: 2px;
 }
 
+.tf-mode-toggle {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.tf-mode-btn {
+    flex: 1;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 6px 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg-bar);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tf-mode-btn:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+}
+
+.tf-mode-btn.active {
+    background: rgba(179, 157, 219, 0.20);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.tf-mode-indicator {
+    font-size: 9px;
+    color: var(--text-dim);
+    text-align: center;
+}
+
 .tf-reset-btn {
     width: 100%;
     font-family: inherit;

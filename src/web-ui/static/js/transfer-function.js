@@ -561,6 +561,77 @@
         }
     }
 
+    // -- Mode toggle (AC #4: design/verify) --
+
+    var currentFilterMode = "design";
+
+    function initModeToggle() {
+        var designBtn = $("tf-mode-design");
+        var verifyBtn = $("tf-mode-verify");
+        if (!designBtn || !verifyBtn) return;
+
+        designBtn.addEventListener("click", function () {
+            setFilterMode("design");
+        });
+        verifyBtn.addEventListener("click", function () {
+            setFilterMode("verify");
+        });
+    }
+
+    function setFilterMode(mode) {
+        if (mode === currentFilterMode) return;
+        currentFilterMode = mode;
+
+        var designBtn = $("tf-mode-design");
+        var verifyBtn = $("tf-mode-verify");
+        var indicator = $("tf-mode-indicator");
+
+        if (designBtn) designBtn.classList.toggle("active", mode === "design");
+        if (verifyBtn) verifyBtn.classList.toggle("active", mode === "verify");
+        if (indicator) {
+            indicator.textContent = mode === "design"
+                ? "Dirac (raw room)"
+                : "Correction (verify)";
+        }
+
+        // Notify backend of mode change.
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/v1/tf/mode", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify({ filter_mode: mode }));
+
+        // Reset averaging when switching modes so old data doesn't mix.
+        sendCmd({ cmd: "reset" });
+        lastFrame = null;
+    }
+
+    function fetchTfMode() {
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "/api/v1/tf/mode", true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== 4 || xhr.status !== 200) return;
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (data.filter_mode) {
+                    currentFilterMode = data.filter_mode;
+                    var designBtn = $("tf-mode-design");
+                    var verifyBtn = $("tf-mode-verify");
+                    var indicator = $("tf-mode-indicator");
+                    if (designBtn) designBtn.classList.toggle("active",
+                        data.filter_mode === "design");
+                    if (verifyBtn) verifyBtn.classList.toggle("active",
+                        data.filter_mode === "verify");
+                    if (indicator) {
+                        indicator.textContent = data.filter_mode === "design"
+                            ? "Dirac (raw room)"
+                            : "Correction (verify)";
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        };
+        xhr.send();
+    }
+
     // -- Controls --
 
     function initAlphaSlider() {
@@ -605,6 +676,7 @@
     // -- View lifecycle --
 
     function initView() {
+        initModeToggle();
         initAlphaSlider();
         initChannelSelect();
         initResetButton();
@@ -625,6 +697,7 @@
         phaseW = 0; phaseH = 0;
         cohW = 0; cohH = 0;
 
+        fetchTfMode();
         connectWs();
         animFrame = requestAnimationFrame(renderLoop);
     }

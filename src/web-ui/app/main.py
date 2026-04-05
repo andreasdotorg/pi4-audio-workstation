@@ -56,6 +56,7 @@ from .thermal_limiter import ThermalGainLimiter
 from .ws_monitoring import ws_monitoring
 from .ws_system import ws_system
 from .transfer_function_routes import ws_transfer_function
+from .transfer_function_mode import router as tf_mode_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -311,6 +312,7 @@ else:
 
 app.include_router(measurement_router)
 app.include_router(test_tool_router)
+app.include_router(tf_mode_router)
 app.include_router(config_router)
 app.include_router(graph_router)
 
