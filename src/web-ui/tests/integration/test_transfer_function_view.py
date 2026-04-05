@@ -8,6 +8,8 @@ Validates the TF view in local-demo (mock) mode:
 - Design/verify mode toggle works and resets averaging
 """
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
@@ -72,7 +74,7 @@ def test_tf_mode_design_active_by_default(page):
     page.locator('.nav-tab[data-view="tf"]').click()
 
     design = page.locator("#tf-mode-design")
-    expect(design).to_have_class(/active/)
+    expect(design).to_have_class(re.compile("active"))
 
 
 def test_tf_mode_indicator_shows_design(page):
