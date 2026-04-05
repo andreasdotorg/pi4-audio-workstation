@@ -53,7 +53,7 @@ Production Pi at venue (unreachable).
 | US-117 | draft | Tier 1 image size: firmware/locale/git/registry trim | ~1.1 GiB savings, zero functional impact. Depends US-072. |
 | US-118 | draft | Tier 2 image size: Reaper closure optimization | ~800 MiB savings. Reaper pulls VLC (1.4 GiB closure). Owner option decision needed. Depends US-072. |
 | US-119 | IMPLEMENT (partial) | Tier 3 image size: Mesa without LLVM, PipeWire without bluez | libcamera disable committed (`1f3e865`). Mesa V3D-only + PW no-bluez done earlier. ~500-800 MiB savings. |
-| US-120 | draft | Real-time transfer function measurement | Theory docs committed. Post-convolver-only per owner directive. |
+| US-120 | IMPLEMENT (complete) | Real-time transfer function measurement | All 7 tasks done (T-120-01 through T-120-07). Dual-FFT engine, delay finder, WS endpoint, design/verify mode, TF view, 11 Playwright + 19 integration tests. Awaiting Rule 13 review. |
 | US-121 | draft | Real-time multichannel delay measurement | Theory docs committed. |
 | US-122 | draft | Real-time phase correction analysis | Theory docs committed. Minimum-phase optimal for PA transient fidelity. |
 | US-123 | IMPLEMENT (done) | GM deterministic boot state | Implemented (`6ef8f93`): F-249 fix (quantum on startup), NixOS default standby, venue persistence, enhanced get_state RPC. 277 tests pass. |
@@ -63,6 +63,7 @@ Production Pi at venue (unreachable).
 | US-126 | IMPLEMENT (Rule 13 conditional) | Persistent audio gate banner | QE CONDITIONAL — needs `_gate_section()` unit test, mock gate key, banner integration test. Architect/UX/AD/AE approved. |
 | US-127 | draft (deferred) | Runtime coefficient switching (D-053) | Filed (`1b9b7b9`). **Deferred until US-112 complete.** If US-112 succeeds, destroy-and-recreate approach unnecessary. |
 | US-128 | draft | Upgrade PipeWire to 1.6.2 | nixpkgs already ships 1.6.2. Regenerate US-112 patch for new API. Investigate F-020 RT self-promotion. ~2.25 worker days. |
+| US-131 | REVIEW (PR #13) | Parallel local-demo instances | Instance ID isolation (0-9), port offset scheme (base + id*100), JSON manifest, PID-scoped cleanup. All T0+T1+T2+E2E pass. |
 
 
 ### Owner-Blocking Items
