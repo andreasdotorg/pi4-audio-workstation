@@ -359,10 +359,9 @@ class TestLocalDemoMeasurementAPI:
         Verifies: gain_cal -> measuring -> filter_gen -> deploy -> verify
         -> complete.  Uses real PipeWire audio with the room-sim convolver.
 
-        F-262: Previously xfail'd because room-sim IRs produced
-        non-deterministic filter quality (min-phase check failures).
-        Fixed by making min-phase verification non-fatal in local-demo
-        (PI4AUDIO_FILTER_MINPHASE_FATAL=0).
+        F-262: Min-phase verification is always enforced (no env var bypass).
+        If this test fails on min-phase, it indicates a real computational
+        bug that must be investigated, not masked.
         """
         _wait_for_idle_or_abort(local_demo_url, timeout_s=30)
         # D-063: Open the audio gate so signal reaches room-sim UMIK-1.

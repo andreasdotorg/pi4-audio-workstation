@@ -412,36 +412,40 @@ def _notify_cdsp_mode(request: Request, mode: str) -> None:
 
 
 def _ensure_gate_open() -> dict:
-    """Ensure the D-063 audio gate is open, loading a venue if needed.
+    """Ensure the D-063 audio gate is open for measurement mode.
 
     F-265: The test tab switches GM to measurement mode but the convolver
     starts with all Mult=0.0 (D-063 gate closed).  Without opening the
     gate, signal-gen output is multiplied by zero — silence through the
-    entire chain.  This loads the first available venue and opens the gate
-    so signal flows through convolver -> room-sim -> UMIK-1.
+    entire chain.
+
+    Logic (owner-specified, F-265 rework):
+    1. If venue set AND gate open -> already_open (no-op)
+    2. If venue set AND gate closed -> re-open gate with same venue
+    3. If no venue -> error (user must select a venue first)
+
+    Never auto-loads a venue.  The user must explicitly select one via
+    the venue tab or API before using the test tab.
 
     Returns a dict with gate_open, venue, and action taken.
     """
     with _gm_client() as client:
         gate = client.get_gate()
-        if gate.get("gate_open"):
+        venue = gate.get("venue")
+
+        if venue and gate.get("gate_open"):
             return {"gate_open": True, "action": "already_open",
-                    "venue": gate.get("venue")}
+                    "venue": venue}
 
-        # No venue loaded yet — pick the first available.
-        if not gate.get("has_pending_gains"):
-            from .venue import list_venues as local_list
-            venues = local_list()
-            if not venues:
-                return {"gate_open": False, "action": "no_venues_available"}
-            venue_name = venues[0]["name"]
-            client.set_venue(venue_name)
-            log.info("F-265: Auto-loaded venue '%s' for measurement mode",
-                     venue_name)
+        if venue and not gate.get("gate_open"):
+            client.open_gate()
+            log.info("F-265: Re-opened D-063 gate for venue '%s'", venue)
+            return {"gate_open": True, "action": "reopened", "venue": venue}
 
-        client.open_gate()
-        log.info("F-265: Opened D-063 gate for measurement mode")
-        return {"gate_open": True, "action": "opened"}
+        # No venue loaded — user must select one first.
+        return {"gate_open": False, "action": "no_venue_selected",
+                "error": "No venue selected. Please select a venue "
+                         "before using the test tab."}
 
 
 @router.get("/current-mode")
