@@ -48,6 +48,9 @@ class TestMuteSilencesOutput:
         assert status == 200, f"Mute failed: {status} {body}"
         assert body.get("ok") is True, f"Mute not ok: {body}"
 
+        # Cleanup: unmute so subsequent tests start clean
+        api_post("/api/v1/audio/unmute")
+
     def test_mute_silences_level_bridge(self, ensure_dj_mode, api_post,
                                         read_levels):
         """After mute, level-bridge-sw reports silence on all channels."""
@@ -151,8 +154,12 @@ class TestMuteIdempotency:
 class TestMuteStatusEndpoint:
     """GET /api/v1/audio/mute-status reflects correct state."""
 
-    def test_initial_not_muted(self, api_get):
-        """Before any mute call, status shows not muted."""
+    def test_initial_not_muted(self, api_post, api_get):
+        """After unmute, status shows not muted."""
+        # Ensure clean state — prior tests may have left system muted
+        api_post("/api/v1/audio/unmute")
+        time.sleep(0.5)
+
         status, body = api_get("/api/v1/audio/mute-status")
         assert status == 200
         assert body.get("is_muted") is False, f"Expected not muted: {body}"
