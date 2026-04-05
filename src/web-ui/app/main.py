@@ -10,6 +10,7 @@ WebSocket endpoints:
     /ws/pcm/{source} — Parameterized binary PCM stream (PCM-MODE-2)
     /ws/measurement  — Real-time measurement progress feed (WP-E)
     /ws/siggen       — Signal generator status proxy (SG-11, PI4AUDIO_SIGGEN=1)
+    /ws/transfer-function — Real-time dual-FFT transfer function + coherence (US-120)
 
 PCM sources (PI4AUDIO_PCM_SOURCES env var, JSON):
     Maps source names to pcm-bridge TCP addresses.  Each pcm-bridge instance
