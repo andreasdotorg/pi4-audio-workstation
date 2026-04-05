@@ -456,3 +456,68 @@ A flaky test is a bug, not an inconvenience:
   defect ID) until fixed.
 - CI failure on a flaky test blocks the PR until the test is fixed or properly
   quarantined.
+
+
+## 8. Releases (US-132)
+
+The project uses a tag-triggered release workflow to build SD card images and
+publish them as GitHub Releases. The workflow is defined in
+`.github/workflows/release.yml`.
+
+### 8.1 Creating a Release
+
+To create a release, push a `v*` tag to a commit on `main` that has passing CI:
+
+```sh
+git tag v2026.04.05
+git push origin v2026.04.05
+```
+
+This triggers the release workflow, which:
+1. Verifies the tagged commit has passing CI status (via GitHub API)
+2. Builds the aarch64 SD card image (`nix build .#images.sd-card`)
+3. Computes the SHA-256 checksum of the compressed image
+4. Creates a GitHub Release with the image attached as a downloadable artifact
+
+The release body includes the image filename, compressed size, SHA-256 checksum,
+tag name, and commit SHA.
+
+### 8.2 Tag Naming Convention
+
+Tags must match the `v*` pattern. Two conventions are acceptable:
+
+| Style | Example | When to use |
+|-------|---------|-------------|
+| Date-based | `v2026.04.05` | Regular releases tied to a session or date |
+| Semantic | `v0.1.0`, `v1.0.0` | Milestone releases with clear versioning |
+
+Tags must only be pushed to commits that have passed CI (T0+T1+T2+T3 green).
+The release workflow checks CI status as a safety net, but the primary gate is
+the PR merge process (Rule 13 + CI green).
+
+### 8.3 Release vs CI
+
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| **CI** (`ci.yml`) | PR to `main`, manual dispatch | Runs tests (T0+T1+T2) and builds SD image (T3) to verify correctness |
+| **Release** (`release.yml`) | `v*` tag push, manual dispatch | Builds SD image and publishes it as a GitHub Release artifact |
+
+The release workflow does **not** re-run tests. It trusts that CI already
+validated the tagged commit during the PR process.
+
+### 8.4 Manual Dispatch (Testing)
+
+The release workflow supports `workflow_dispatch` for manual triggering on any
+branch. This is useful for testing the build without creating a tag or release.
+
+Manual dispatch builds the SD image and uploads it as a **workflow artifact**
+(available for 7 days from the Actions tab) instead of creating a GitHub Release.
+
+To trigger manually: Actions tab > Release > Run workflow > select branch.
+
+### 8.5 Where Artifacts Appear
+
+| Trigger | Where to find the image |
+|---------|------------------------|
+| Tag push (`v*`) | GitHub Releases page — download from the release assets |
+| Manual dispatch | GitHub Actions > workflow run > Artifacts section (7-day retention) |
