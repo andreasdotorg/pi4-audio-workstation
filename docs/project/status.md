@@ -63,6 +63,7 @@ Production Pi at venue (unreachable).
 | US-126 | IMPLEMENT (Rule 13 conditional) | Persistent audio gate banner | QE CONDITIONAL — needs `_gate_section()` unit test, mock gate key, banner integration test. Architect/UX/AD/AE approved. |
 | US-127 | draft (deferred) | Runtime coefficient switching (D-053) | Filed (`1b9b7b9`). **Deferred until US-112 complete.** If US-112 succeeds, destroy-and-recreate approach unnecessary. |
 | US-128 | draft | Upgrade PipeWire to 1.6.2 | nixpkgs already ships 1.6.2. Regenerate US-112 patch for new API. Investigate F-020 RT self-promotion. ~2.25 worker days. |
+| US-131 | REVIEW (PR #13) | Parallel local-demo instances | Instance ID isolation (0-9), port offset scheme (base + id*100), JSON manifest, PID-scoped cleanup. All T0+T1+T2+E2E pass. |
 
 
 ### Owner-Blocking Items
