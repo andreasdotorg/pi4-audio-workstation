@@ -117,6 +117,13 @@ defect description.
    - Tests are meaningful (not mock theater)
    - Tests cover the story's acceptance criteria
    - Any xfail/skip markers have tracked defects and your approval
+   - Mock mode coverage: for features with MOCK_MODE conditional, at least one
+     test exercises the non-mock path (see Rule 11)
+   - Local-demo compatibility: features with runtime service dependencies are
+     tested in the local-demo environment configuration (see Rule 12)
+   - E2E tier presence: features with I/O dependencies have E2E tests (see Rule 13)
+   - User-observable outcomes: E2E tests assert on what the user sees, not just
+     infrastructure plumbing (see Rule 14)
    The PR must not merge without your sign-off on test adequacy.
 
 8. **Proactive quality monitoring.** You do not wait passively for workers to
@@ -135,6 +142,56 @@ defect description.
     - xfail markers and their associated defects
     - Test suites that haven't been run recently
     - Mock theater incidents
+
+11. **Mock mode branch coverage (L-US120, mandatory).** For any feature with a
+    `MOCK_MODE` / `PI_AUDIO_MOCK` conditional that creates an early-return branch,
+    QE MUST verify at least one test exercises the non-mock code path. Mock-mode-only
+    test coverage for a feature with real-mode code is a **blocking finding**.
+    Specifically:
+    - Search the test files for `MOCK_MODE=False`, `PI_AUDIO_MOCK=0`, or equivalent.
+      If zero hits: the real code path is untested. Block the PR.
+    - If the feature gracefully degrades when a dependency is missing (e.g., silent
+      fallback to mock), there MUST be a test that verifies the degradation is
+      detectable — not silent. Silent fallback without test coverage masks broken
+      features.
+    - The correct mock boundary is the external I/O (TCP socket, hardware device),
+      not the application-level mock mode flag. Tests should mock the socket and let
+      the real coordinator/reader/engine run.
+
+12. **Local-demo environment cross-check (L-US120, mandatory).** For features that
+    depend on runtime services (WebSocket, TCP, pcm-bridge, GraphManager RPC), QE
+    MUST verify:
+    - The environment variables the feature reads are actually set by `local-demo.sh`
+    - The services the feature connects to are actually started by local-demo
+    - If local-demo lacks a required service or env var, the feature's behavior in
+      that environment is explicitly tested (error path, not silent success)
+    This prevents features that pass all tests but fail when an operator runs
+    `local-demo.sh`.
+
+13. **E2E tier coverage question (L-US120, mandatory).** For every PR, QE MUST
+    explicitly ask: "Does this feature have an E2E test in `tests/e2e/` that runs
+    against the real local-demo stack?" Acceptable answers:
+    - **Yes:** E2E test exists and exercises the feature against real PipeWire +
+      services (not mock mode)
+    - **Not applicable:** Pure computation, no I/O dependencies, no service
+      connections (document why)
+    - **No:** The PR is not ready for merge if the feature has WebSocket, TCP,
+      or service dependencies. Block until E2E coverage exists.
+
+14. **User-observable outcome verification (owner directive, mandatory).** E2E tests
+    must assert on **user-observable outcomes**, not just infrastructure plumbing. For
+    every E2E test, QE MUST ask: "Would this test fail if the feature were broken from
+    the user's perspective?" If the answer is no, the test is insufficient.
+    - **BAD:** "WebSocket connects and receives a frame" — tests plumbing, not
+      functionality
+    - **GOOD:** "TF tab shows non-zero frequency response data in the graph after
+      connecting" — tests what the user sees
+    - **BAD:** "Filter deploy returns 200" — tests API, not outcome
+    - **GOOD:** "After filter deploy, active filters endpoint shows the new filter
+      and convolver node is running" — tests the result
+    E2E tests that only verify infrastructure health (connection established, status
+    code 200, element exists in DOM) without checking the feature's actual output are
+    a **blocking finding**, on par with mock theater.
 
 ## Consultation Triggers During Development
 

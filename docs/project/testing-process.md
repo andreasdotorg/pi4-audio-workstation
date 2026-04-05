@@ -245,6 +245,84 @@ from production reality without anyone noticing.
 test fixtures, eliminating manual mock drift. Tracked as a future
 improvement, not a current requirement.
 
+### 3.8 Mock-Mode Branch Coverage (L-US120)
+
+**Production code with `MOCK_MODE` early returns creates invisible dead
+branches.** A handler structured as:
+
+    if MOCK_MODE:
+        return simplified_response()
+    # Real implementation below...
+
+is functionally equivalent to mocking the entire real implementation. Every
+test that runs in mock mode (the default for unit and integration tests)
+exercises ONLY the simplified path. The real implementation — which is the
+code that ships to the Pi and serves actual users — has zero test coverage.
+
+**This is the most dangerous form of mock theater** because:
+1. Tests pass (they test the mock path, which works)
+2. CI is green (CI runs in mock mode)
+3. All 7 reviewers can approve (the mock-mode tests look correct)
+4. The feature is broken in production (no one tested the real path)
+
+**Rule: Every `MOCK_MODE` / `PI_AUDIO_MOCK` branch point in production code
+must have test coverage on BOTH sides of the branch:**
+
+| Branch | How to test |
+|--------|------------|
+| Mock-mode path | Unit tests, integration tests (default CI environment) |
+| Real-mode path | E2E tests against local-demo (`nix run .#test-e2e`), or integration tests with `PI_AUDIO_MOCK=0` and appropriate fixtures |
+
+**The worker is responsible for writing both.** The QE is responsible for
+verifying both exist during Rule 13 review. The Architect checks for
+untested branches during code quality review.
+
+**Evidence required:** When opening a PR that introduces or modifies a
+`MOCK_MODE` branch, the worker must explicitly list which tests cover the
+real-mode path in the PR description.
+
+#### Functional Outcome Assertions (Owner Directive)
+
+**E2E tests must assert on user-observable outcomes, not infrastructure
+plumbing.** The test adequacy question is not "does an E2E test exist?"
+but "does the E2E test verify the functionality the user actually wants?"
+
+A test that verifies "WebSocket connects" without verifying "data flows
+and renders correctly" would not have caught the US-120 bug even if it
+ran against the real local-demo stack. The WebSocket connection would
+succeed (pcm-bridge TCP relay established), but the FFT pipeline would
+produce no visible output because the pcm-bridge data format was wrong.
+
+**The assertion hierarchy for E2E tests (all levels required):**
+
+1. **Infrastructure connects** — service starts, WebSocket opens, API
+   responds. Necessary but NOT sufficient.
+2. **Data flows** — real data arrives at the endpoint, has expected
+   structure and non-trivial content. Catches format mismatches,
+   empty responses, silent failures.
+3. **User-observable outcome** — the feature does what the user expects.
+   For a spectrum display: canvas renders visible data. For a mute
+   button: audio level drops to silence. For filter deploy: convolver
+   loads new coefficients.
+
+Level 3 is the actual test. Levels 1-2 are preconditions. A test that
+stops at level 1 or 2 creates false confidence — it proves the pipes are
+connected but not that anything useful flows through them.
+
+**Examples:**
+
+| Feature | Level 1 (plumbing) | Level 2 (data flow) | Level 3 (outcome) |
+|---------|-------------------|--------------------|--------------------|
+| TF display | WS connects to /ws/pcm | Binary frames arrive with v2 header | Magnitude plot has non-zero data points above noise floor |
+| Mute | POST /api/v1/audio/mute returns 200 | Gain nodes report Mult=0.0 | level-bridge peaks drop below -100 dBFS |
+| Filter deploy | POST /api/v1/filters/deploy returns 200 | Active filter files exist on disk | Convolver node loaded, version matches deployed timestamp |
+| Mode switch | POST /api/v1/mode/dj returns 200 | GM reports mode=dj | Quantum reads 1024 via pw-metadata |
+
+**L-US120:** If the TF E2E test had asserted at level 3 ("magnitude plot
+has data"), it would have caught the broken real-mode path regardless of
+any other process failure. Functional outcome assertions are the last
+line of defense when process fails.
+
 ---
 
 ## 4. Code Quality Standards (Owner Directive)
@@ -402,6 +480,8 @@ The **Architect** reviews code quality during Rule 13 approval (see Section 6).
 - [ ] Tests cover failure/empty/edge cases
 - [ ] File sizes within convention (justify exceptions)
 - [ ] No hardcoded node names outside constants module
+- [ ] Mock-mode branches have real-mode test coverage (no untested
+      `if MOCK_MODE` / `if PI_AUDIO_MOCK` dead branches)
 
 Workers who receive code quality feedback must address it before the task
 can be marked complete. Code quality review is not optional and cannot be
@@ -901,3 +981,4 @@ This process was created in response to L-042. Key failure modes it prevents:
 | Stories accepted without owner hands-on testing | Gate 3: owner acceptance is mandatory sub-step of REVIEW (Sec 8) |
 | Too many stories waiting for owner | WIP limit of 3 at Gate 3; PM tracks queue (Sec 8) |
 | Worker claims tests passed but committed code differs | Future CI (Gate 1b) will test committed code automatically (Sec 8.4) |
+| Mock-mode early return hides untested real code (L-US120) | Mock-mode branch audit in QE review + Architect checklist item (Sec 3.8, 4.8, QE Rule 11) |

@@ -264,6 +264,12 @@ told to return.** Specifically:
 - Integration tests must exercise real code paths, not mock-wrapped stubs
 - The QE reviews tests for mock theater during Rule 13 approval — mock
   theater will be rejected
+- **`MOCK_MODE` early returns ARE mocks (L-US120).** A production handler
+  that starts with `if MOCK_MODE: <simplified path>; return` is functionally
+  identical to mocking internal logic. If your handler has a mock-mode branch,
+  you MUST have tests that exercise the real-mode branch. 100% mock-mode-only
+  test coverage = zero real coverage. See `docs/project/testing-process.md`
+  Section 3.8 for the full rule.
 
 See `docs/project/testing-process.md` Section 3 for the full mock theater
 rules and examples.
