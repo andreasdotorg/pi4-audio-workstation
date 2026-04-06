@@ -133,6 +133,11 @@ class TestTfDataFlow:
                 f"This is the F-270 regression: WS fails to connect."
             )
 
+    @pytest.mark.xfail(
+        reason="F-270: blocks_accumulated requires active audio stimulus; "
+        "local-demo has no source playing by default",
+        strict=False,
+    )
     def test_blocks_counter_increments(self, tf_page):
         """The blocks-accumulated counter shows a positive number.
 
