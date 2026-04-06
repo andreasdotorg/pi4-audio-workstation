@@ -173,7 +173,7 @@ new system achieves ~5.3ms at the same quantum.
 
 | Device | Role |
 |--------|------|
-| [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) | Main compute (Raspberry Pi OS Trixie, Debian 13) |
+| [Raspberry Pi 4B](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/) | Main compute (NixOS, flake-based SD card image) |
 | [minidsp USBStreamer B](https://www.minidsp.com/products/usb-audio-interface/usbstreamer) | 8-channel USB-to-ADAT audio interface |
 | [Behringer ADA8200](https://www.behringer.com/behringer/product?modelCode=0800-AAB) | ADAT-to-analog converter, 8 channels |
 | 4-channel Class D amp (4x450W) | Amplification for speakers |

@@ -638,9 +638,10 @@ start_services() {
     export PI4AUDIO_SESSION_DIR="$DEMO_BASE_DIR/sessions"
     export PI4AUDIO_PW_CONF_DIR="$XDG_CONFIG_HOME/pipewire/pipewire.conf.d"
     export PI4AUDIO_COEFFS_DIR="$DEMO_BASE_DIR/coeffs"
+    export PI4AUDIO_CAL_DIR="$DEMO_BASE_DIR/calibration"
     export PI4AUDIO_SPEAKERS_DIR="$DEMO_BASE_DIR/speakers"
     export PI4AUDIO_HARDWARE_DIR="$DEMO_BASE_DIR/hardware"
-    mkdir -p "$PI4AUDIO_FILTER_OUTPUT_DIR" "$PI4AUDIO_SESSION_DIR"
+    mkdir -p "$PI4AUDIO_FILTER_OUTPUT_DIR" "$PI4AUDIO_SESSION_DIR" "$PI4AUDIO_CAL_DIR"
     mkdir -p "$PI4AUDIO_SPEAKERS_DIR/profiles" "$PI4AUDIO_SPEAKERS_DIR/identities"
     mkdir -p "$PI4AUDIO_HARDWARE_DIR/amplifiers" "$PI4AUDIO_HARDWARE_DIR/dacs"
     cp -n "$REPO_DIR"/configs/speakers/profiles/*.yml "$PI4AUDIO_SPEAKERS_DIR/profiles/" 2>/dev/null || true

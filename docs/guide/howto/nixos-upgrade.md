@@ -33,7 +33,7 @@ Ensure amplifiers are OFF before proceeding. See `docs/operations/safety.md`.
 # From the project root on the build host:
 nix run github:nix-community/nixos-anywhere -- \
     --flake .#mugge-deploy \
-    root@192.168.178.35
+    root@<target-host>
 ```
 
 What nixos-anywhere does:
@@ -46,8 +46,8 @@ What nixos-anywhere does:
 After installation, run the smoke test to verify:
 
 ```sh
-scp scripts/nixos-smoke-test.sh ela@192.168.178.35:/tmp/
-ssh ela@192.168.178.35 sudo bash /tmp/nixos-smoke-test.sh
+scp scripts/nixos-smoke-test.sh ela@<target-host>:/tmp/
+ssh ela@<target-host> sudo bash /tmp/nixos-smoke-test.sh
 ```
 
 
@@ -59,13 +59,13 @@ switches to it, and runs activation scripts. No repartitioning, no data loss.
 
 ```sh
 # From the project root on the build host:
-nixos-rebuild switch \
+nix run nixpkgs#nixos-rebuild -- switch \
     --flake .#mugge-deploy \
-    --target-host ela@192.168.178.35 \
-    --use-remote-sudo
+    --target-host ela@<target-host> \
+    --sudo
 ```
 
-The `--use-remote-sudo` flag runs activation commands via `sudo` on the
+The `--sudo` flag runs activation commands via `sudo` on the
 target. This works because user `ela` has passwordless sudo configured
 in the NixOS config (`security.sudo.wheelNeedsPassword = false`). Root
 SSH login is disabled for security (`PermitRootLogin = "no"`).
