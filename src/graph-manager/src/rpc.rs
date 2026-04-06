@@ -2038,7 +2038,7 @@ mod tests {
             }
         });
 
-        start_rpc_thread(addr, initial_mode, cmd_tx, event_rx, shutdown)
+        start_rpc_thread(addr, initial_mode, cmd_tx, event_rx, shutdown, None)
     }
 
     #[test]
