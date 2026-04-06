@@ -35,7 +35,8 @@ pytestmark = [pytest.mark.browser, pytest.mark.e2e]
 
 LOCAL_DEMO_URL = os.environ.get("LOCAL_DEMO_URL", "http://localhost:8080")
 # How long to wait for WebSocket data to arrive and canvases to render.
-DATA_TIMEOUT_MS = 10_000
+# CI may be slower than local — pcm-bridge capture needs room-sim fully loaded.
+DATA_TIMEOUT_MS = 30_000
 
 
 def _probe_server(url: str) -> bool:

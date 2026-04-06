@@ -75,8 +75,16 @@ async def _collect_frames(url: str, count: int, timeout: float) -> list[dict]:
 
 
 def _collect_frames_sync(url: str, count: int = 1, timeout: float = WS_CONNECT_TIMEOUT) -> list[dict]:
-    """Synchronous wrapper around the async frame collector."""
-    return asyncio.run(_collect_frames(url, count, timeout))
+    """Synchronous wrapper around the async frame collector.
+
+    Uses a fresh event loop to avoid 'asyncio.run() cannot be called from a
+    running event loop' when pytest or Playwright already have a loop active.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_collect_frames(url, count, timeout))
+    finally:
+        loop.close()
 
 
 # ---------------------------------------------------------------------------
