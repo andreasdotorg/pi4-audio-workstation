@@ -77,6 +77,7 @@ PORT_LEVEL_SW="${LOCAL_DEMO_LEVEL_SW_PORT:-0}"
 PORT_LEVEL_HW_OUT="${LOCAL_DEMO_LEVEL_HW_OUT_PORT:-0}"
 PORT_LEVEL_HW_IN="${LOCAL_DEMO_LEVEL_HW_IN_PORT:-0}"
 PORT_PCM="${LOCAL_DEMO_PCM_PORT:-0}"
+PORT_PCM_CAPTURE="${LOCAL_DEMO_PCM_CAPTURE_PORT:-0}"
 # Uvicorn: pre-allocate via Python socket bind(0) if no override.
 if [ -n "${LOCAL_DEMO_WEBUI_PORT:-}" ]; then
     PORT_WEBUI="$LOCAL_DEMO_WEBUI_PORT"
@@ -581,6 +582,30 @@ start_services() {
     fi
     echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]}, port $PORT_PCM)"
 
+    # ---- pcm-bridge capture-usb (F-270: provides capture-usb source for TF tab) ----
+    # Reads from the UMIK-1 room-sim source node (mono).  In production this
+    # reads from the real UMIK-1 ALSA input; in local-demo the room-sim
+    # convolver creates a simulated UMIK-1 source with the same node name.
+    echo ""
+    echo "[local-demo] Starting pcm-bridge capture-usb (managed mode)..."
+    "$PCM_BIN" \
+        --managed \
+        --mode capture \
+        --node-name alsa_input.usb-miniDSP_Umik-1 \
+        --listen "tcp:0.0.0.0:${PORT_PCM_CAPTURE}" \
+        --channels 1 \
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/pcm_capture" &
+    PIDS+=($!)
+    maybe_disown $!
+    PORT_PCM_CAPTURE=$(_wait_port_file "$PORT_FILE_DIR/pcm_capture") || exit 1
+
+    if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
+        echo "[local-demo] ERROR: pcm-bridge capture-usb failed to start" >&2
+        exit 1
+    fi
+    echo "[local-demo] pcm-bridge capture-usb running (PID ${PIDS[-1]}, port $PORT_PCM_CAPTURE)"
+
     # ---- Mixxx substitute (US-075 Bug #3) ----
     # JACK client named "Mixxx" with 8 output ports (out_0..out_7) matching
     # GM's routing table. Plays stereo mp3/wav on ch 1-2, silence on ch 3-8.
@@ -625,6 +650,7 @@ start_services() {
     export PI4AUDIO_SKIP_GM_RECOVERY=1
     export PI4AUDIO_AUTH_DISABLED=1
     export PI4AUDIO_SIGGEN=1
+    export PI4AUDIO_PCM_SOURCES="{\"monitor\":\"tcp:127.0.0.1:${PORT_PCM}\",\"capture-usb\":\"tcp:127.0.0.1:${PORT_PCM_CAPTURE}\"}"
     export PI4AUDIO_PCM_CHANNELS=8
     export PI4AUDIO_MEASUREMENT_ATTENUATION_DB=-20
     export PI4AUDIO_RECORDING_PEAK_CEILING_DBFS=20
@@ -677,6 +703,7 @@ manifest = {
         'level_hw_out': $PORT_LEVEL_HW_OUT,
         'level_hw_in': $PORT_LEVEL_HW_IN,
         'pcm': $PORT_PCM,
+        'pcm_capture': $PORT_PCM_CAPTURE,
         'webui': $PORT_WEBUI,
     },
     'pids': [$(IFS=,; echo "${PIDS[*]}")],
@@ -705,7 +732,8 @@ print_summary() {
     echo "  level-bridge-sw:     tcp://127.0.0.1:$PORT_LEVEL_SW (levels, app output tap)"
     echo "  level-bridge-hw-out: tcp://127.0.0.1:$PORT_LEVEL_HW_OUT (levels, USBStreamer monitor)"
     echo "  level-bridge-hw-in:  tcp://127.0.0.1:$PORT_LEVEL_HW_IN (levels, ADA8200 capture)"
-    echo "  pcm-bridge:          tcp://127.0.0.1:$PORT_PCM (PCM, managed mode)"
+    echo "  pcm-bridge (monitor): tcp://127.0.0.1:$PORT_PCM (PCM, convolver output tap)"
+    echo "  pcm-bridge (capture): tcp://127.0.0.1:$PORT_PCM_CAPTURE (PCM, UMIK-1 source tap)"
     echo ""
     echo "  Manifest:     $MANIFEST_FILE"
     echo "  PW nodes:     alsa_output.usb-MiniDSP_USBStreamer-local-demo (room-sim sink, 8ch)"
@@ -821,6 +849,7 @@ cmd_stop() {
             "level-bridge.*tcp:0.0.0.0:${m_level_hw_out}"
             "level-bridge.*tcp:0.0.0.0:${m_level_hw_in}"
             "pcm-bridge.*tcp:0.0.0.0:${m_pcm}"
+            "mixxx-substitute"
             "uvicorn app.main:app.*${m_webui}"
         )
         for pattern in "${fallback_patterns[@]}"; do

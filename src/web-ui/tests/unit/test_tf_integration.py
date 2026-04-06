@@ -5,11 +5,16 @@ against the live FastAPI app in mock mode (PI_AUDIO_MOCK=1).
 
 Uses the shared ``client`` fixture from conftest.py which runs the full app
 lifespan (startup + shutdown).
+
+F-270: Added TestTfRealModePcmMissing to verify the handler closes with
+4004 when PCM sources are not configured (real mode).
 """
 
 import json
 
 import pytest
+
+import app.transfer_function_routes as tf_routes
 
 
 class TestTfModeEndpoints:
@@ -202,3 +207,70 @@ class TestTfWebSocket:
             assert len(frame["coherence"]) == n
             # phase_deg may have None values (coherence-gated), but same length.
             assert len(frame["phase_deg"]) == n
+
+
+class TestTfRealModePcmMissing:
+    """F-270: Test the real-mode code path when PCM sources are missing.
+
+    Monkeypatches MOCK_MODE to False so the WebSocket handler takes the
+    real code path.  Without PI4AUDIO_PCM_SOURCES configured, the
+    'capture-usb' source is missing — the handler must close the WS
+    with code 4004 (not silently fall back to synthetic data).
+    """
+
+    def test_ws_closes_4004_when_meas_source_missing(self, client, monkeypatch):
+        """WS handler closes with 4004 when capture-usb is not configured."""
+        from starlette.websockets import WebSocketDisconnect
+
+        monkeypatch.setattr(tf_routes, "MOCK_MODE", False)
+        monkeypatch.delenv("PI4AUDIO_PCM_SOURCES", raising=False)
+
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect("/ws/transfer-function") as ws:
+                ws.receive_text()
+        assert exc_info.value.code == 4004
+
+    def test_ws_closes_4004_when_ref_source_missing(self, client, monkeypatch):
+        """WS handler closes with 4004 when the ref source is not configured."""
+        from starlette.websockets import WebSocketDisconnect
+
+        monkeypatch.setattr(tf_routes, "MOCK_MODE", False)
+        # Set PCM_SOURCES with capture-usb but NOT monitor.
+        monkeypatch.setenv(
+            "PI4AUDIO_PCM_SOURCES",
+            json.dumps({"capture-usb": "tcp:127.0.0.1:9091"}),
+        )
+
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect("/ws/transfer-function") as ws:
+                ws.receive_text()
+        assert exc_info.value.code == 4004
+
+    def test_ws_connects_when_both_sources_configured(self, client, monkeypatch):
+        """WS handler does NOT close 4004 when both sources are configured.
+
+        Note: it will still fail to connect to the TCP endpoints (no
+        pcm-bridge running), but the source lookup itself succeeds and
+        the handler proceeds past the 4004 checks.
+        """
+        from starlette.websockets import WebSocketDisconnect
+
+        monkeypatch.setattr(tf_routes, "MOCK_MODE", False)
+        monkeypatch.setenv(
+            "PI4AUDIO_PCM_SOURCES",
+            json.dumps({
+                "monitor": "tcp:127.0.0.1:9090",
+                "capture-usb": "tcp:127.0.0.1:9091",
+            }),
+        )
+
+        # The handler should NOT close with 4004.  It will likely fail
+        # later (no pcm-bridge), but we verify it gets past source lookup.
+        # We accept either a data frame or a non-4004 error.
+        try:
+            with client.websocket_connect("/ws/transfer-function") as ws:
+                ws.receive_text()
+        except WebSocketDisconnect as exc:
+            assert exc.code != 4004, (
+                f"Got 4004 despite both sources configured: {exc}"
+            )
