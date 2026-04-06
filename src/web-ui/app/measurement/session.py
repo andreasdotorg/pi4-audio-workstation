@@ -1105,7 +1105,8 @@ class MeasurementSession:
             d009 = verify_d009(path)
             min_phase = verify_minimum_phase(path)
             fmt = verify_format(path, expected_taps=n_taps, expected_sr=sr)
-            ch_pass = bool(d009.passed and min_phase.passed and fmt.passed)
+            ch_pass = bool(
+                d009.passed and fmt.passed and min_phase.passed)
             ch_result = {
                 "channel": name,
                 "d009_pass": bool(d009.passed),

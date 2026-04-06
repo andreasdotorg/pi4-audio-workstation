@@ -354,10 +354,8 @@ class TestLocalDemoMeasurementAPI:
     """
 
     @pytest.mark.xfail(
-        reason="F-262: E2E silence on CI — GM reconciler not linking. "
-               "4-channel room-sim IRs may fail filter verification "
-               "(min-phase check). Signal path works — filter quality "
-               "is a room-sim limitation, not a pipeline defect.",
+        reason="F-285: measurement session E2E — 503 on /measurement/start "
+               "(signal-gen not reachable in local-demo stack).",
         strict=False,
     )
     def test_full_session_api(self, local_demo_url):
@@ -365,6 +363,10 @@ class TestLocalDemoMeasurementAPI:
 
         Verifies: gain_cal -> measuring -> filter_gen -> deploy -> verify
         -> complete.  Uses real PipeWire audio with the room-sim convolver.
+
+        F-262: Min-phase verification is always enforced (no env var bypass).
+        If this test fails on min-phase, it indicates a real computational
+        bug that must be investigated, not masked.
         """
         _wait_for_idle_or_abort(local_demo_url, timeout_s=30)
         # D-063: Open the audio gate so signal reaches room-sim UMIK-1.
@@ -412,10 +414,9 @@ class TestLocalDemoMeasurementBrowser:
     """
 
     @pytest.mark.xfail(
-        reason="F-262: E2E silence on CI — GM reconciler not linking. "
-               "4-channel room-sim IRs may fail filter verification "
-               "(min-phase check). Signal path works — filter quality "
-               "is a room-sim limitation, not a pipeline defect.",
+        reason="F-285: measurement session E2E — browser START does not "
+               "transition from IDLE (signal-gen not reachable in "
+               "local-demo stack).",
         strict=False,
     )
     def test_full_session_browser(self, demo_page, local_demo_url):
@@ -486,8 +487,8 @@ class TestLocalDemoMeasurementBrowser:
     def test_session_api_confirms_complete(self, local_demo_url):
         """After a measurement session, API reports a terminal state.
 
-        Accepts 'idle' as valid — the browser test that starts the session
-        is xfailed (F-262), so the session may never have been started.
+        Accepts 'idle' as valid — the session may have already been
+        cleared by the browser test's fixture teardown.
         """
         data = _poll_session_done(local_demo_url, timeout_s=30)
         assert data["state"] in ("complete", "error", "idle"), (
