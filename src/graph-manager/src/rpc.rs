@@ -55,6 +55,12 @@ pub struct RpcRequest {
     pub mode: Option<String>,
     #[serde(default)]
     pub venue: Option<String>,
+    /// US-140: epoch to wait for (await_settled).
+    #[serde(default)]
+    pub since_epoch: Option<u64>,
+    /// US-140: timeout in milliseconds (await_settled).
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +292,28 @@ pub struct LinkDetail {
     pub status: String,
 }
 
+/// US-140: Result of an `await_settled` request.
+#[derive(Debug, Clone)]
+pub struct SettlementResult {
+    pub ok: bool,
+    pub settled_epoch: u64,
+    pub desired: usize,
+    pub actual: usize,
+    pub missing: usize,
+    /// Set to "timeout" when the wait expires before settlement.
+    pub reason: Option<String>,
+}
+
+/// US-140: A pending settlement waiter on the PW main loop thread.
+///
+/// Stored in a Vec checked by the settlement timer. When
+/// `settled_epoch >= since_epoch`, the reply is sent and the waiter removed.
+pub struct PendingSettlementWaiter {
+    pub since_epoch: u64,
+    pub deadline: std::time::Instant,
+    pub reply: mpsc::Sender<SettlementResult>,
+}
+
 // ---------------------------------------------------------------------------
 // Cross-thread command enum (RPC thread → PW main loop thread)
 // ---------------------------------------------------------------------------
@@ -294,6 +322,8 @@ pub struct LinkDetail {
 #[derive(Debug)]
 pub enum RpcResult {
     Ok,
+    /// US-140: Success with epoch counter (used by set_mode).
+    OkWithEpoch { epoch: u64 },
     Error(String),
 }
 
@@ -369,6 +399,13 @@ pub enum RpcCommand {
     /// Query the current gate state.
     GetGate {
         reply: mpsc::Sender<GateStatus>,
+    },
+
+    /// US-140: Wait for reconciler settlement.
+    AwaitSettled {
+        since_epoch: u64,
+        timeout_ms: u64,
+        reply: mpsc::Sender<SettlementResult>,
     },
 }
 
@@ -487,6 +524,7 @@ pub fn handle_request(
         "open_gate" => handle_open_gate(cmd_tx),
         "close_gate" => handle_close_gate(cmd_tx),
         "get_gate" => handle_get_gate(cmd_tx),
+        "await_settled" => handle_await_settled(req, cmd_tx),
         other => HandleResult::Error(
             other.to_string(),
             format!("unknown command: \"{}\"", other),
@@ -536,6 +574,19 @@ fn handle_set_mode(
                 *m = mode.to_string();
             }
             HandleResult::Ack("set_mode".to_string())
+        }
+        Ok(RpcResult::OkWithEpoch { epoch }) => {
+            // US-140: Update stored mode and return epoch in response.
+            if let Ok(mut m) = stored_mode.lock() {
+                *m = mode.to_string();
+            }
+            let json = serde_json::json!({
+                "type": "response",
+                "cmd": "set_mode",
+                "ok": true,
+                "epoch": epoch,
+            });
+            HandleResult::ResponseJson(json.to_string())
         }
         Ok(RpcResult::Error(e)) => HandleResult::Error("set_mode".to_string(), e),
         Err(_) => HandleResult::Error(
@@ -790,7 +841,7 @@ fn handle_watchdog_unlatch(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
     }
 
     match reply_rx.recv() {
-        Ok(RpcResult::Ok) => HandleResult::Ack("watchdog_unlatch".to_string()),
+        Ok(RpcResult::Ok | RpcResult::OkWithEpoch { .. }) => HandleResult::Ack("watchdog_unlatch".to_string()),
         Ok(RpcResult::Error(e)) => HandleResult::Error("watchdog_unlatch".to_string(), e),
         Err(_) => HandleResult::Error(
             "watchdog_unlatch".to_string(),
@@ -1018,7 +1069,7 @@ fn handle_set_venue(
     }
 
     match reply_rx.recv() {
-        Ok(RpcResult::Ok) => HandleResult::Ack("set_venue".to_string()),
+        Ok(RpcResult::Ok | RpcResult::OkWithEpoch { .. }) => HandleResult::Ack("set_venue".to_string()),
         Ok(RpcResult::Error(e)) => HandleResult::Error("set_venue".to_string(), e),
         Err(_) => HandleResult::Error(
             "set_venue".to_string(),
@@ -1044,7 +1095,7 @@ fn handle_open_gate(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
     }
 
     match reply_rx.recv() {
-        Ok(RpcResult::Ok) => HandleResult::Ack("open_gate".to_string()),
+        Ok(RpcResult::Ok | RpcResult::OkWithEpoch { .. }) => HandleResult::Ack("open_gate".to_string()),
         Ok(RpcResult::Error(e)) => HandleResult::Error("open_gate".to_string(), e),
         Err(_) => HandleResult::Error(
             "open_gate".to_string(),
@@ -1066,7 +1117,7 @@ fn handle_close_gate(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
     }
 
     match reply_rx.recv() {
-        Ok(RpcResult::Ok) => HandleResult::Ack("close_gate".to_string()),
+        Ok(RpcResult::Ok | RpcResult::OkWithEpoch { .. }) => HandleResult::Ack("close_gate".to_string()),
         Ok(RpcResult::Error(e)) => HandleResult::Error("close_gate".to_string(), e),
         Err(_) => HandleResult::Error(
             "close_gate".to_string(),
@@ -1116,6 +1167,65 @@ fn handle_get_gate(cmd_tx: &mpsc::Sender<RpcCommand>) -> HandleResult {
                 "venue": null,
             }))
             .unwrap_or_default(),
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// US-140: await_settled handler
+// ---------------------------------------------------------------------------
+
+fn handle_await_settled(
+    req: &RpcRequest,
+    cmd_tx: &mpsc::Sender<RpcCommand>,
+) -> HandleResult {
+    let since_epoch = match req.since_epoch {
+        Some(e) => e,
+        None => {
+            return HandleResult::Error(
+                "await_settled".to_string(),
+                "missing \"since_epoch\" field".to_string(),
+            )
+        }
+    };
+    let timeout_ms = req.timeout_ms.unwrap_or(10000);
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    if cmd_tx
+        .send(RpcCommand::AwaitSettled {
+            since_epoch,
+            timeout_ms,
+            reply: reply_tx,
+        })
+        .is_err()
+    {
+        return HandleResult::Error(
+            "await_settled".to_string(),
+            "internal: PW thread not responding".to_string(),
+        );
+    }
+
+    // Block until settlement or timeout. The PW thread will send the reply
+    // when settled_epoch >= since_epoch or the timeout expires.
+    match reply_rx.recv() {
+        Ok(result) => {
+            let mut json = serde_json::json!({
+                "type": "response",
+                "cmd": "await_settled",
+                "ok": result.ok,
+                "settled_epoch": result.settled_epoch,
+                "desired": result.desired,
+                "actual": result.actual,
+                "missing": result.missing,
+            });
+            if let Some(reason) = &result.reason {
+                json["reason"] = serde_json::Value::String(reason.clone());
+            }
+            HandleResult::ResponseJson(json.to_string())
+        }
+        Err(_) => HandleResult::Error(
+            "await_settled".to_string(),
+            "internal: PW thread dropped reply channel".to_string(),
         ),
     }
 }
@@ -1203,7 +1313,8 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>, venues_d
             if let Ok(mut m) = current_mode.lock() {
                 *m = mode.to_string();
             }
-            let _ = reply.send(RpcResult::Ok);
+            // US-140: Test stub returns epoch 0 (no actual reconciliation).
+            let _ = reply.send(RpcResult::OkWithEpoch { epoch: 0 });
         }
         RpcCommand::GetState { reply } => {
             let mode = current_mode
@@ -1277,6 +1388,17 @@ pub fn handle_pw_command(cmd: RpcCommand, current_mode: &Mutex<String>, venues_d
                 gate_open: false,
                 has_pending_gains: false,
                 venue: None,
+            });
+        }
+        RpcCommand::AwaitSettled { reply, .. } => {
+            // Test stub: immediately settled (epoch 0).
+            let _ = reply.send(SettlementResult {
+                ok: true,
+                settled_epoch: 0,
+                desired: 0,
+                actual: 0,
+                missing: 0,
+                reason: None,
             });
         }
     }
@@ -1684,7 +1806,8 @@ mod tests {
 
         let req = parse_line(r#"{"cmd":"set_mode","mode":"dj"}"#).unwrap();
         let result = handle_request(&req, &cmd_tx, &stored_mode);
-        assert!(matches!(result, HandleResult::Ack(ref c) if c == "set_mode"));
+        // US-140: set_mode now returns ResponseJson with epoch field.
+        assert!(matches!(result, HandleResult::ResponseJson(ref s) if s.contains("\"epoch\"")));
         assert_eq!(*stored_mode.lock().unwrap(), "dj");
     }
 

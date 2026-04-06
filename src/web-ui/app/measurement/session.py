@@ -474,14 +474,18 @@ class MeasurementSession:
             self._pre_measurement_gm_mode = "standby"
 
         try:
-            await asyncio.to_thread(self._gm_client.enter_measurement_mode)
-            # Verify the mode was actually set.
-            mode = await asyncio.to_thread(self._gm_client.get_mode)
-            if mode != "measurement":
+            # US-140: Use set_mode + await_settled for deterministic settlement.
+            resp = await asyncio.to_thread(
+                self._gm_client.set_mode, "measurement")
+            epoch = resp.get("epoch", 0)
+            settled = await asyncio.to_thread(
+                self._gm_client.await_settled,
+                since_epoch=epoch, timeout_ms=10000)
+            if not settled.get("ok", False):
                 raise RuntimeError(
-                    f"GraphManager did not enter measurement mode "
-                    f"(current mode: {mode}). Aborting for safety.")
-            log.info("GraphManager switched to measurement mode")
+                    f"GraphManager settlement failed after switching to "
+                    f"measurement mode: {settled}")
+            log.info("GraphManager switched to measurement mode (settled)")
         except Exception:
             # On failure, try to restore the previous mode.
             try:
@@ -1506,8 +1510,13 @@ class MeasurementSession:
             return
         target = self._pre_measurement_gm_mode or "standby"
         try:
-            await asyncio.to_thread(self._gm_client.set_mode, target)
-            log.info("F-160: Restored GraphManager to %s mode", target)
+            resp = await asyncio.to_thread(self._gm_client.set_mode, target)
+            # US-140: Wait for settlement after mode restore.
+            epoch = resp.get("epoch", 0)
+            await asyncio.to_thread(
+                self._gm_client.await_settled,
+                since_epoch=epoch, timeout_ms=10000)
+            log.info("F-160: Restored GraphManager to %s mode (settled)", target)
         except Exception as exc:
             log.error("Failed to restore GM to %s mode: %s", target, exc)
 

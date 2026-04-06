@@ -386,9 +386,12 @@ def _gm_get_mode() -> str:
 
 
 def _gm_set_mode(mode: str) -> str:
-    """Set GM routing mode via TCP RPC and return the new mode."""
+    """Set GM routing mode via TCP RPC, wait for settlement, return mode."""
     with _gm_client() as client:
-        client.set_mode(mode)
+        resp = client.set_mode(mode)
+        # US-140: Wait for reconciler settlement instead of caller sleeping.
+        epoch = resp.get("epoch", 0)
+        client.await_settled(since_epoch=epoch, timeout_ms=10000)
         return mode
 
 
