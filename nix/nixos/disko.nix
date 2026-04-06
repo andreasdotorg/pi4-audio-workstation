@@ -17,10 +17,10 @@
 # every subsequent nixos-rebuild switch.
 #
 # T-072-18: nixos-anywhere fresh install
-# Usage: nixos-anywhere --flake .#mugge-deploy root@192.168.178.185
+# Usage: nixos-anywhere --flake .#mugge-deploy root@<target-host>
 #
 # T-072-19: Incremental upgrade (after initial install)
-# Usage: nix run nixpkgs#nixos-rebuild -- switch --flake .#mugge-deploy --target-host ela@192.168.178.185 --sudo
+# Usage: nix run nixpkgs#nixos-rebuild -- switch --flake .#mugge-deploy --target-host ela@<target-host> --sudo
 { config, lib, pkgs, ... }:
 
 {
