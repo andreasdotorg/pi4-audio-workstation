@@ -168,15 +168,29 @@ defect description.
     This prevents features that pass all tests but fail when an operator runs
     `local-demo.sh`.
 
-13. **E2E tier coverage question (L-US120, mandatory).** For every PR, QE MUST
-    explicitly ask: "Does this feature have an E2E test in `tests/e2e/` that runs
-    against the real local-demo stack?" Acceptable answers:
-    - **Yes:** E2E test exists and exercises the feature against real PipeWire +
-      services (not mock mode)
-    - **Not applicable:** Pure computation, no I/O dependencies, no service
-      connections (document why)
-    - **No:** The PR is not ready for merge if the feature has WebSocket, TCP,
-      or service dependencies. Block until E2E coverage exists.
+13. **E2E tier coverage and classification (L-US120, L-E2E-AUDIT, mandatory).**
+    For every PR, QE MUST verify two things:
+
+    **a) E2E coverage exists for UI features.** Ask: "Does this feature have a
+    Playwright browser test in `tests/e2e/` that exercises the full user path
+    (browser -> web UI -> backend -> services)?" Acceptable answers:
+    - **Yes:** Browser E2E test exists using `page` fixture against real
+      local-demo stack
+    - **Not applicable:** Pure computation, no UI component, no user-facing
+      behavior (document why)
+    - **No:** Block the PR if the feature has a UI component. Service
+      integration tests (direct API/WebSocket/TCP) do NOT satisfy E2E coverage.
+
+    **b) Test tier classification is correct.** Reject any PR that:
+    - Places a non-browser test in `tests/e2e/` (no `page` fixture = not E2E)
+    - Claims E2E coverage with a test that connects directly to backend
+      TCP/RPC, WebSocket, or HTTP API without a browser
+    - Has a `test_*_e2e.py` file that contains no Playwright browser usage
+
+    Service integration tests (direct backend connections, no browser) belong
+    in `tests/service-integration/`. These are valuable but they are NOT E2E.
+    See `docs/project/testing-process.md` Section 3.9 for the binding
+    definition and directory structure.
 
 14. **User-observable outcome verification (owner directive, mandatory).** E2E tests
     must assert on **user-observable outcomes**, not just infrastructure plumbing. For

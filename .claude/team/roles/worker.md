@@ -274,6 +274,35 @@ told to return.** Specifically:
 See `docs/project/testing-process.md` Section 3 for the full mock theater
 rules and examples.
 
+### E2E means browser (L-E2E-AUDIT):
+
+**An E2E test exercises the full user path: browser -> web UI -> backend ->
+services.** If it does not go through the browser, it is NOT an E2E test.
+
+- E2E tests MUST use Playwright (`page` fixture) and run against the real
+  local-demo stack (PipeWire, GM, signal-gen, pcm-bridge, level-bridge, web-ui)
+- Tests that connect directly to backend TCP/RPC, WebSocket, or HTTP API
+  without a browser are **service integration tests**, not E2E
+- Service integration tests belong in `tests/service-integration/`, not
+  `tests/e2e/`
+- A test file in `tests/e2e/` that contains no `page` fixture usage is
+  miscategorized and will be rejected by the QE
+
+**Directory placement is binding:**
+
+| Directory | Tier | Browser? | Real stack? |
+|-----------|------|----------|-------------|
+| `src/web-ui/tests/unit/` | Unit | No | No |
+| `src/web-ui/tests/integration/` | Browser integration | Yes | No (mocked) |
+| `tests/service-integration/` | Service integration | No | Yes |
+| `src/web-ui/tests/e2e/` | E2E | Yes | Yes |
+
+When writing tests for a UI feature: write the E2E test first (browser
+through the full stack), then service integration tests for protocol details.
+
+See `docs/project/testing-process.md` Section 3.9 for the full definition,
+rationale, and audit findings.
+
 ### When tests fail:
 
 1. **Do NOT dismiss, skip, delete, or weaken any test** without following
