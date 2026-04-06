@@ -550,7 +550,7 @@ fn dispatch_rpc_command(
                 log::warn!("Required link endpoint missing (will retry): {}", endpoint);
             }
 
-            // US-140: Update epoch counters before applying actions.
+            // US-140: Update epoch counters after reconcile, before applying link actions.
             if result.actions.is_empty() {
                 settled_epoch.set(reconcile_epoch.get());
             } else {
@@ -1153,8 +1153,8 @@ fn parse_pw_dump_xruns(json_str: &str) -> Result<(u64, String), String> {
 /// Set PipeWire quantum for the given mode (F-230).
 ///
 /// DJ mode needs quantum 1024 for efficient convolution (saves CPU for Mixxx).
-/// All other modes clear force-quantum (set to 0), so PipeWire falls back to
-/// the config default (quantum 256, set in `10-audio-settings.conf`).
+/// All other modes explicitly set quantum 256 (F-249: clearing to 0 left
+/// quantum at the PW-negotiated value, often 1024, breaking latency targets).
 ///
 /// Uses `pw-metadata -n settings 0 clock.force-quantum <value>`.
 /// Errors are logged but not fatal — quantum mismatch is a performance issue,
@@ -1165,8 +1165,10 @@ fn set_quantum_for_mode(mode: Mode) {
 
     let quantum = match mode {
         Mode::Dj => 1024,
-        // Live (256), Standby, Measurement: clear force-quantum → config default.
-        _ => 0,
+        // F-249: Explicitly set 256 instead of clearing to 0.
+        // Clearing to 0 leaves quantum at whatever PW negotiated (often 1024),
+        // which breaks live-mode latency requirements.
+        _ => 256,
     };
 
     let quantum_str = quantum.to_string();
@@ -1175,11 +1177,7 @@ fn set_quantum_for_mode(mode: Mode) {
         .output()
     {
         Ok(output) if output.status.success() => {
-            if quantum > 0 {
-                info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
-            } else {
-                info!("F-230: Cleared clock.force-quantum for {} mode (using config default)", mode);
-            }
+            info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);

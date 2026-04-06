@@ -1566,17 +1566,29 @@ class MeasurementSession:
             self._gm_client = None
 
     async def _cleanup(self) -> None:
-        await self._watchdog.stop()
-        if self._pump_task and not self._pump_task.done():
-            self._pump_task.cancel()
-            try:
-                await self._pump_task
-            except asyncio.CancelledError:
-                pass
-        # D-040: Restore production mode before disconnecting.
-        await self._restore_production_mode()
-        await self._disconnect_gm()
-        log.info("Session cleanup complete")
+        # Shield cleanup from CancelledError (F-250): when the TestClient
+        # or app shutdown cancels the session task, the finally block calls
+        # _cleanup() but any await here can re-raise CancelledError.  We
+        # uncancel the current task so cleanup awaits complete normally.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling() > 0:
+            task.uncancel()
+        try:
+            await self._watchdog.stop()
+            if self._pump_task and not self._pump_task.done():
+                self._pump_task.cancel()
+                try:
+                    await self._pump_task
+                except asyncio.CancelledError:
+                    pass
+            # D-040: Restore production mode before disconnecting.
+            await self._restore_production_mode()
+            await self._disconnect_gm()
+            log.info("Session cleanup complete")
+        except asyncio.CancelledError:
+            log.warning("Session cleanup interrupted by cancellation")
+        except Exception as exc:
+            log.warning("Session cleanup error: %s", exc)
 
     def _on_watchdog_timeout(self) -> None:
         self.request_abort("watchdog timeout")
