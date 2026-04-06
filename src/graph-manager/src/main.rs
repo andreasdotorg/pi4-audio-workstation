@@ -86,6 +86,11 @@ struct Args {
     /// Comma-separated list of 1-based sub channel numbers (e.g. "3,4" or "1,2").
     #[arg(long, default_value = "3,4")]
     sub_channels: String,
+
+    /// Write the actual bound port to this file after binding.
+    /// Used by orchestration scripts when --listen uses port 0.
+    #[arg(long)]
+    port_file: Option<String>,
 }
 
 
@@ -1221,6 +1226,7 @@ fn main() {
         cmd_tx,
         event_rx,
         shutdown.clone(),
+        args.port_file,
     );
 
     // Run PipeWire main loop (blocks until shutdown). The PW thread

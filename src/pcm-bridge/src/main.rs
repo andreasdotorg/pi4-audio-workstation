@@ -99,6 +99,11 @@ struct Args {
     /// Frames per quantum (chunk size sent to clients).
     #[arg(long, default_value_t = 256)]
     quantum: u32,
+
+    /// Write the actual bound port to this file after binding.
+    /// Used by orchestration scripts when --listen uses port 0.
+    #[arg(long)]
+    port_file: Option<String>,
 }
 
 /// Parse listen address into (kind, address) tuple.
@@ -165,6 +170,7 @@ fn main() {
     let server_pcm_notifier = pcm_notifier.clone();
     let quantum = args.quantum as usize;
     let channels = args.channels as usize;
+    let port_file_for_server = args.port_file;
     let server_thread = std::thread::Builder::new()
         .name("pcm-server".into())
         .spawn(move || {
@@ -176,6 +182,7 @@ fn main() {
                 server_pcm_notifier,
                 quantum,
                 channels,
+                port_file_for_server.as_deref(),
             );
         })
         .expect("Failed to spawn server thread");
