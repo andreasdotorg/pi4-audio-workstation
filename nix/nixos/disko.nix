@@ -4,8 +4,9 @@
 # Used by nixos-anywhere for fresh installs on a Pi reachable via SSH.
 #
 # Layout (GPT):
-#   Partition 1: 256 MiB FAT32 (EFI System) — VideoCore firmware, U-Boot,
-#                config.txt, DTBs. Pi 4B EEPROM bootloader supports GPT since
+#   Partition 1: 256 MiB FAT32 — VideoCore firmware, U-Boot, config.txt,
+#                DTBs. NOT ESP — U-Boot tries EFI boot from ESP partitions,
+#                bypassing extlinux.conf. Pi 4B EEPROM supports GPT since
 #                late 2020.
 #   Partition 2: rest of disk ext4 — NixOS root filesystem
 #
@@ -58,9 +59,12 @@
 
       partitions = {
         # Firmware partition: VideoCore blobs, U-Boot, config.txt
+        # NOT EF00 (ESP) — U-Boot on Pi 4 tries EFI boot from an ESP,
+        # bypassing extlinux.conf. VideoCore reads the first FAT
+        # partition regardless of GPT type.
         firmware = {
           size = "256M";
-          type = "EF00";  # EFI System Partition
+          type = "0700";  # Microsoft Basic Data (plain FAT32)
           content = {
             type = "filesystem";
             format = "vfat";

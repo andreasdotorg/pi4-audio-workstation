@@ -4,7 +4,7 @@
 #   nix build .#images.sd-card
 #
 # Uses systemd-repart to build a GPT image with:
-#   Partition 1: 256 MiB FAT32 (ESP) — VideoCore firmware, U-Boot, config.txt, DTBs
+#   Partition 1: 256 MiB FAT32 — VideoCore firmware, U-Boot, config.txt, DTBs
 #   Partition 2: rest of disk ext4 — NixOS root filesystem
 #
 # F-273: Replaces sd-image.nix (MBR) so that both image builds and
@@ -82,7 +82,11 @@ in
             "/start_x.elf".source = "${fw}/start_x.elf";
           };
         repartConfig = {
-          Type = "esp";
+          # NOT "esp" — U-Boot on Pi 4 would try EFI boot from an ESP,
+          # bypassing extlinux.conf on the root partition. The VideoCore
+          # bootloader reads the first FAT partition regardless of GPT
+          # type, so a plain Microsoft Basic Data GUID is correct here.
+          Type = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7";
           Format = "vfat";
           Label = "firmware";   # GPT partition label
           SizeMinBytes = "256M";
