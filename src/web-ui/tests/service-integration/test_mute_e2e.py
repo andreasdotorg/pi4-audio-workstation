@@ -87,7 +87,8 @@ class TestUnmuteRestoresSignal:
     """Mute -> unmute -> level-bridge reports signal returns."""
 
     @pytest.mark.xfail(
-        reason="F-272: reconciler race — no deterministic settlement signal",
+        reason="F-270: unmute path still uses sleep-based wait, "
+               "no audio stimulus in local-demo (not a reconciler race)",
         strict=False,
     )
     def test_unmute_restores_levels(self, ensure_dj_mode, api_post,
