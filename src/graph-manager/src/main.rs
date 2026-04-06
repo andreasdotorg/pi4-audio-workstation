@@ -203,15 +203,50 @@ fn run_pipewire(
     let resolved_state_dir = venue::state_dir();
     let resolved_venues_dir = venue::venues_dir();
 
-    // Active venue name (US-113: set via set_venue RPC).
+    // Active venue name.
     // US-123: Load persisted venue name from disk (does NOT open gate or apply gains).
+    // US-113: If no persisted venue (first boot), load the default venue.
     let persisted_venue = venue::load_persisted_venue(&resolved_state_dir);
-    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(persisted_venue));
+    let (initial_venue, initial_pending_gains) = match persisted_venue {
+        Some(name) => {
+            // Normal boot: venue name restored from disk.
+            // Load the profile to populate pending_gains (gate stays closed).
+            let gains = match venue::find_venue(&resolved_venues_dir, &name) {
+                Ok(profile) => venue::venue_gains(&profile),
+                Err(e) => {
+                    log::warn!("US-123: persisted venue '{}' not found: {} — starting with no venue", name, e);
+                    Vec::new()
+                }
+            };
+            (Some(name), gains)
+        }
+        None => {
+            // First boot (US-113): load default venue, persist it, populate
+            // pending_gains. Gate stays CLOSED per D-063 safety invariant.
+            match venue::load_default_venue(&resolved_venues_dir, &resolved_state_dir) {
+                Ok(name) => {
+                    let gains = match venue::find_venue(&resolved_venues_dir, &name) {
+                        Ok(profile) => venue::venue_gains(&profile),
+                        Err(e) => {
+                            log::warn!("US-113: default venue '{}' profile error: {}", name, e);
+                            Vec::new()
+                        }
+                    };
+                    (Some(name), gains)
+                }
+                Err(e) => {
+                    log::warn!("US-113: failed to load default venue: {} — starting with no venue", e);
+                    (None, Vec::new())
+                }
+            }
+        }
+    };
+    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(initial_venue));
 
     // D-063 audio gate state: all gains start at 0.0, gate closed.
     // Gate must be explicitly opened via `open_gate` RPC after loading a venue.
     let gate_open: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-    let pending_gains: Rc<RefCell<Vec<(String, f64)>>> = Rc::new(RefCell::new(Vec::new()));
+    let pending_gains: Rc<RefCell<Vec<(String, f64)>>> = Rc::new(RefCell::new(initial_pending_gains));
 
     // Created link proxies — must be kept alive for links to persist.
     // Keyed by (output_port_id, input_port_id).
