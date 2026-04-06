@@ -72,7 +72,6 @@
           fs-type = "fat32";
           start = "8MiB";
           end = "264MiB";
-          bootable = true;
           content = {
             type = "filesystem";
             format = "vfat";
@@ -84,11 +83,15 @@
         }
 
         # Partition 2: Root filesystem — NixOS
+        # Bootable flag on root (matching repart-image.nix) tells U-Boot
+        # where to find extlinux.conf. Pi 4 ignores this flag but both
+        # deployment paths should be consistent.
         {
           name = "NIXOS_SD";
           fs-type = "ext4";
           start = "264MiB";
           end = "100%";
+          bootable = true;
           content = {
             type = "filesystem";
             format = "ext4";
