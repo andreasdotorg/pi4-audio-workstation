@@ -425,6 +425,10 @@ pre-flight checklists, and PREEMPT_RT as a safety requirement (D-013).
 
 ## Key Documents
 
+- `docs/project/testing-principles.md` — **READ BEFORE writing any test, reviewing any
+  PR, or modifying local-demo.** Five foundational principles: mock boundary (D-057),
+  E2E = browser, no mock theater, artifact must exist, reviews are collaborative.
+  Everything in `testing-process.md` derives from these.
 - `SETUP-MANUAL.md` — The comprehensive setup manual (2200 lines). This is the primary
   deliverable so far. Covers everything from OS setup through CamillaDSP configuration,
   Mixxx, Reaper, MIDI controllers, headless operation, and troubleshooting.

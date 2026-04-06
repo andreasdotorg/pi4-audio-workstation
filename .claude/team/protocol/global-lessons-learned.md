@@ -524,3 +524,88 @@ until the writer confirms integration is complete and no follow-up questions
 remain. Research and writing are a feedback loop, not a pipeline. The correct
 shutdown order: writer confirms done → orchestrator shuts down researchers →
 orchestrator shuts down writer.
+
+### L-F273-BUILD: Worker declared done without building; all 7 reviewers approved unbuilt code
+
+**What happened:** A worker was assigned to rewrite the SD card image builder
+(F-273). The worker completed the Nix code, ran `nix eval` (T0), and declared
+done. The orchestrator then requested Rule 13 reviews from all 7 advisors.
+All 7 approved. When the owner asked about the image, the worker attempted
+`nix build .#images.sd-card` for the first time — it failed with permission
+errors. The custom image builder had never been built.
+
+**Who failed and how:**
+
+1. **Worker:** Declared "done" without building the artifact. For a custom
+   image builder, the build IS the deliverable. `nix eval` only proves the
+   expression evaluates — lazy evaluation means most errors only surface at
+   build time. The worker treated T0 as sufficient evidence.
+
+2. **Orchestrator:** Sent review requests with a summary of the changes and
+   relayed "T0 passes" as evidence. Reviewers reviewed the orchestrator's
+   summary, not the actual code or build output. The orchestrator acted as a
+   filter between the work and the reviewers, pre-digesting the changes
+   instead of pointing reviewers at the branch.
+
+3. **All 7 reviewers:** Approved without asking "has this been built?" They
+   reviewed Nix expressions on paper. For boot infrastructure, reviewing
+   code without build evidence is like reviewing a recipe without cooking
+   the dish. The QE noted "T3 hardware test pending" but approved
+   conditionally instead of blocking. No reviewer communicated with any
+   other reviewer during the process — each sent an isolated verdict.
+
+4. **AD specifically:** Failed to challenge "has this actually been run?"
+   This is the AD's core function — finding gaps and hidden assumptions.
+   The biggest hidden assumption was "this code builds."
+
+**Why (root causes):**
+
+1. **No "artifact must exist" rule in worker prompt.** The testing
+   requirements covered T0+T1+T2 but said nothing about building the
+   actual artifact for infrastructure/build work.
+
+2. **Orchestrator summarized changes for reviewers.** Reviewers received
+   the orchestrator's interpretation of the work, not the work itself.
+   This turned review into a game of telephone.
+
+3. **Orchestrator relayed test status.** By saying "T0 passes," the
+   orchestrator characterized the testing state for reviewers instead of
+   letting them examine evidence directly.
+
+4. **Reviews ran in isolation.** Each reviewer sent a verdict to the
+   orchestrator. No cross-reviewer discussion. Nobody could say "wait,
+   has anyone actually tried building this?" because there was no forum.
+
+5. **Conditional approvals treated as approvals.** QE approved with
+   "conditional on T3 hardware test" — a condition that was never
+   enforced. A conditional approval is not an approval.
+
+**Severity:** Critical process failure. The build failure was discovered
+only because the owner asked. Without the owner's intervention, the PR
+would have been merged with broken code.
+
+**Prevention (protocol changes applied):**
+
+1. **Worker prompt: "Artifact Verification" section added.** Workers must
+   build the artifact, inspect the output, and include build evidence in
+   their completion report before declaring done.
+
+2. **Orchestration protocol Phase 7: three new rules.**
+   - Build artifact evidence is mandatory before reviews begin.
+   - Orchestrator must not summarize changes or relay test status —
+     connect reviewers to the branch/PR and the worker directly.
+   - Cross-reviewer communication is expected during review.
+
+3. **Orchestration protocol Rule 2: new prohibition.** The orchestrator
+   must not summarize, characterize, or relay worker output to reviewers.
+
+4. **QE prompt: Rule 10a added.** Demand build evidence for
+   artifact-producing PRs. Block if absent.
+
+5. **AD prompt: two new responsibilities.** Challenge "has this been
+   built?" for artifact-producing PRs. Challenge other reviewers during
+   review — "have you verified build evidence before approving?"
+
+6. **Common agent rules: "Review Conduct" section added.** All reviewers
+   must read the code themselves, demand build evidence, talk to each
+   other, and never rubber-stamp.
