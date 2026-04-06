@@ -120,9 +120,9 @@ in
 
       # Expand root partition to fill the disk
       rootPart=$(${pkgs.util-linux}/bin/findmnt -n -o SOURCE /)
-      bootDevice=$(lsblk -npo PKNAME $rootPart)
-      partNum=$(lsblk -npo MAJ:MIN $rootPart | ${pkgs.gawk}/bin/awk -F: '{print $2}')
-      echo ",+," | sfdisk -N$partNum --no-reread $bootDevice
+      bootDevice=$(${pkgs.util-linux}/bin/lsblk -npo PKNAME $rootPart)
+      partNum=$(${pkgs.util-linux}/bin/lsblk -npo MAJ:MIN $rootPart | ${pkgs.gawk}/bin/awk -F: '{print $2}')
+      echo ",+," | ${pkgs.util-linux}/bin/sfdisk -N$partNum --no-reread $bootDevice
       ${pkgs.parted}/bin/partprobe
       ${pkgs.e2fsprogs}/bin/resize2fs $rootPart
 
