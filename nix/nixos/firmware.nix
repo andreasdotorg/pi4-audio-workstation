@@ -77,7 +77,7 @@ let
   '';
 in
 {
-  # Export firmwareFiles so sd-image.nix can reference it.
+  # Export firmwareFiles so repart-image.nix can reference it.
   options.pi4audio.firmwareFiles = lib.mkOption {
     type = lib.types.package;
     default = firmwareFiles;
