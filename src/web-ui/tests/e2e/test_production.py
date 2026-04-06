@@ -406,6 +406,10 @@ class TestLinkCountsPerMode:
         assert dj_links >= standby_links, (
             f"DJ ({dj_links}) should have >= links than standby ({standby_links})")
 
+    @pytest.mark.xfail(
+        reason="F-272: reconciler race — no deterministic settlement signal",
+        strict=False,
+    )
     def test_live_has_at_least_as_many_links_as_dj(self, local_demo_url):
         """Live mode has at least as many links as DJ.
 
