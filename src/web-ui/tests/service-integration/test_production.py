@@ -217,8 +217,8 @@ class TestLinkCountsPerMode:
             f"DJ ({dj_links}) should have >= links than standby ({standby_links})")
 
     @pytest.mark.xfail(
-        reason="F-290: await_settled reports settled before live mode "
-               "links are fully created — live=25 vs dj=43",
+        reason="F-290: assertion incorrect — DJ has more links than live "
+               "due to Mixxx 8ch routing",
         strict=False,
     )
     def test_live_has_at_least_as_many_links_as_dj(self, local_demo_url):
