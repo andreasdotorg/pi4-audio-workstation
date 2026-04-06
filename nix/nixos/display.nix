@@ -2,7 +2,7 @@
 #
 # labwc as Wayland compositor, auto-launched via greetd (no lightdm).
 # wayvnc provides remote access with password authentication.
-# Hardware V3D GL via vc4-kms-v3d (config.txt in sd-image.nix).
+# Hardware V3D GL via vc4-kms-v3d (config.txt in firmware.nix).
 #
 # D-022: PREEMPT_RT + hardware V3D GL confirmed working.
 # No pixman override, no llvmpipe, no LIBGL_ALWAYS_SOFTWARE.
@@ -13,7 +13,7 @@
   hardware.graphics = {
     enable = true;
     # V3D GL drivers for the Pi 4's VideoCore VI GPU.
-    # vc4-kms-v3d dtoverlay is set in sd-image.nix config.txt.
+    # vc4-kms-v3d dtoverlay is set in firmware.nix config.txt.
   };
 
   # ── Disable lightdm ────────────────────────────────────────────

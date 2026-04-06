@@ -93,11 +93,11 @@ jobs:
       - name: Prepare release artifacts
         id: artifacts
         run: |
-          mapfile -t images < <(find result/ -name '*.img.zst' 2>/dev/null)
+          mapfile -t images < <(find result/ -name '*.raw.zst' 2>/dev/null)
 
           if [ "${#images[@]}" -eq 0 ]; then
-            # Fall back to uncompressed .img
-            mapfile -t images < <(find result/ -name '*.img' 2>/dev/null)
+            # Fall back to uncompressed .raw
+            mapfile -t images < <(find result/ -name '*.raw' 2>/dev/null)
           fi
 
           if [ "${#images[@]}" -eq 0 ]; then

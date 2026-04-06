@@ -805,11 +805,14 @@
         {
           # SD card image configuration (T-072-17).
           # Usage: nix build .#images.sd-card
+          # F-273: Custom MBR image builder. Produces a flashable .raw.zst
+          # with MBR partition table matching the proven sd-image.nix layout.
+          # Both image builds and nixos-anywhere use matching filesystem labels.
           mugge = nixpkgs.lib.nixosSystem {
             inherit system;
             specialArgs = sharedSpecialArgs;
             modules = sharedModules ++ [
-              ./nix/nixos/sd-image.nix
+              ./nix/nixos/repart-image.nix
             ];
           };
 
@@ -829,7 +832,8 @@
 
       # T-072-17: SD card image output.
       # Usage: nix build .#images.sd-card
-      # Produces a compressed .img.zst flashable onto an SD card for Pi 4B.
-      images.sd-card = self.nixosConfigurations.mugge.config.system.build.sdImage;
+      # Produces a compressed .raw.zst MBR image flashable onto an SD card for Pi 4B.
+      # F-273: Custom MBR image builder (sfdisk + mkfs, not systemd-repart).
+      images.sd-card = self.nixosConfigurations.mugge.config.system.build.image;
     };
 }

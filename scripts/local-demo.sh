@@ -650,6 +650,8 @@ start_services() {
     export PI4AUDIO_SKIP_GM_RECOVERY=1
     export PI4AUDIO_AUTH_DISABLED=1
     export PI4AUDIO_SIGGEN=1
+    export PI4AUDIO_SIGGEN_HOST=127.0.0.1
+    export PI4AUDIO_SIGGEN_PORT="$PORT_SIGGEN"
     export PI4AUDIO_PCM_SOURCES="{\"monitor\":\"tcp:127.0.0.1:${PORT_PCM}\",\"capture-usb\":\"tcp:127.0.0.1:${PORT_PCM_CAPTURE}\"}"
     export PI4AUDIO_PCM_CHANNELS=8
     export PI4AUDIO_MEASUREMENT_ATTENUATION_DB=-20
