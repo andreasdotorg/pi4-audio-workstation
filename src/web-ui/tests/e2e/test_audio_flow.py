@@ -96,8 +96,8 @@ class TestLevelBridge:
     """
 
     @pytest.mark.xfail(
-        reason="F-262: UMIK sim stops delivering signal after mode transition — "
-               "level-bridge reports silence in measurement mode",
+        reason="F-272: reconciler race — no deterministic settlement signal "
+               "(also F-262: UMIK sim signal loss after mode transition)",
         strict=False,
     )
     def test_level_bridge_sw_has_signal(self, ensure_dj_mode, read_levels):

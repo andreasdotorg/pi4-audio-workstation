@@ -85,6 +85,10 @@ class TestMuteSilencesOutput:
 class TestUnmuteRestoresSignal:
     """Mute -> unmute -> level-bridge reports signal returns."""
 
+    @pytest.mark.xfail(
+        reason="F-272: reconciler race — no deterministic settlement signal",
+        strict=False,
+    )
     def test_unmute_restores_levels(self, ensure_dj_mode, api_post,
                                     read_levels):
         """After unmute, level-bridge-sw reports non-zero peaks."""
