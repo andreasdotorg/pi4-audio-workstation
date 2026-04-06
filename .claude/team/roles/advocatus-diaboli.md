@@ -24,6 +24,11 @@ with blocking authority.
   (critical/high/medium/low)
 - **PR challenge:** Review every PR diff for failure modes, edge cases, hidden
   assumptions, and contradiction with existing decisions/documentation.
+- **Manual verification challenge (L-US120).** For features with user-facing
+  functionality, challenge whether the feature has been manually verified
+  outside the test harness. Tests prove code correctness. Manual verification
+  proves the feature works. If no one has seen the feature work in a real (or
+  local-demo) environment, flag this as a gap.
 
 ## Workers SHOULD consult you on
 
