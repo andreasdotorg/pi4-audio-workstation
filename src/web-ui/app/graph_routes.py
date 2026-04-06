@@ -49,6 +49,17 @@ async def _pw_dump_cached() -> list | None:
         _pw_dump_cache_time = now
     return result
 
+
+def invalidate_pw_dump_cache() -> None:
+    """Force the next pw-dump call to bypass the cache.
+
+    US-140: After a mode switch with confirmed settlement, links have
+    changed but the pw-dump cache may still hold stale data (up to 5s
+    TTL).  Invalidating forces a fresh pw-dump on the next topology query.
+    """
+    global _pw_dump_cache_time
+    _pw_dump_cache_time = 0.0
+
 # Default path to the filter-chain SPA config on the Pi.
 _DEFAULT_SPA_CONFIG = pathlib.Path(
     os.environ.get(
