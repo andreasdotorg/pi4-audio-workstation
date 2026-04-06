@@ -45,10 +45,11 @@ in
     # These are global per filesystem type — safe because we have exactly
     # one vfat and one ext4 partition.
     #
-    # -O ^orphan_file: e2fsprogs >= 1.47 enables the orphan_file feature
-    # by default. This is an ext4 INCOMPAT feature (0x20000) that U-Boot
-    # 2025.10 does not recognise, causing it to fail reading the root
-    # partition and never finding extlinux.conf.
+    # -O ^orphan_file: U-Boot 2025.10 ext4 driver doesn't support the
+    # orphan_file INCOMPAT feature (0x20000), enabled by default in
+    # e2fsprogs >= 1.47.3. Without this flag, U-Boot can't read the root
+    # partition to find extlinux.conf. Safe to disable — falls back to
+    # linked-list orphan tracking with negligible performance difference.
     mkfsOptions = {
       vfat = [ "-n" "FIRMWARE" ];
       ext4 = [ "-L" "NIXOS_SD" "-O" "^orphan_file" ];
