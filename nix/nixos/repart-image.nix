@@ -19,19 +19,6 @@
 { config, lib, pkgs, modulesPath, ... }:
 
 let
-  # Build extlinux boot directory from the system toplevel.
-  # This creates /boot/extlinux/extlinux.conf pointing to kernel, initrd, DTBs.
-  extlinuxDir = pkgs.runCommand "pi4audio-extlinux" { } ''
-    mkdir -p $out/boot
-    ${config.boot.loader.generic-extlinux-compatible.populateCmd} \
-      -c ${config.system.build.toplevel} -d $out/boot
-  '';
-
-  # Nix path registration for the initial store DB load on first boot.
-  closureInfo = pkgs.closureInfo {
-    rootPaths = [ config.system.build.toplevel ];
-  };
-
   # Root filesystem image: ext4 with the NixOS closure.
   # Uses the same make-ext4-fs.nix that the upstream sd-image module uses.
   rootfsImage = pkgs.callPackage "${modulesPath}/../lib/make-ext4-fs.nix" {
@@ -42,14 +29,7 @@ let
       mkdir -p ./files/boot
       ${config.boot.loader.generic-extlinux-compatible.populateCmd} \
         -c ${config.system.build.toplevel} -d ./files/boot
-      cp ${closureInfo}/registration ./files/nix-path-registration
     '';
-    # -O ^orphan_file: U-Boot 2025.10 ext4 driver doesn't support the
-    # orphan_file INCOMPAT feature (0x20000), enabled by default in
-    # e2fsprogs >= 1.47.3. Without this flag, U-Boot can't read the root
-    # partition to find extlinux.conf. Safe to disable — falls back to
-    # linked-list orphan tracking with negligible performance difference.
-    extraArgs = [ "-O" "^orphan_file" ];
   };
 
   firmwareSize = 256; # MiB
@@ -77,6 +57,14 @@ let
       root_fs=./root-fs.img
       echo "Decompressing rootfs image"
       zstd -d --no-progress "${rootfsImage}" -o $root_fs
+      chmod u+w $root_fs
+
+      # Disable orphan_file INCOMPAT feature. U-Boot 2025.10 ext4 driver
+      # doesn't support orphan_file (0x20000), enabled by default in
+      # e2fsprogs >= 1.47.3. Without this, U-Boot can't read the root
+      # partition to find extlinux.conf. Safe to disable — falls back to
+      # linked-list orphan tracking with negligible performance difference.
+      tune2fs -O ^orphan_file $root_fs
 
       # Calculate image size
       rootSizeBlocks=$(du -B 512 --apparent-size $root_fs | awk '{ print $1 }')
