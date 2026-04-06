@@ -354,9 +354,8 @@ class TestLocalDemoMeasurementAPI:
     """
 
     @pytest.mark.xfail(
-        reason="F-262: measurement session E2E — 503 on /measurement/start "
-               "in local-demo stack. Gate-open and cepstral re-clip fixes "
-               "landed; session startup issue is a separate defect.",
+        reason="F-285: measurement session E2E — 503 on /measurement/start "
+               "(signal-gen not reachable in local-demo stack).",
         strict=False,
     )
     def test_full_session_api(self, local_demo_url):
@@ -415,10 +414,9 @@ class TestLocalDemoMeasurementBrowser:
     """
 
     @pytest.mark.xfail(
-        reason="F-262: measurement session E2E — browser START click does "
-               "not transition state from IDLE in local-demo stack. "
-               "Gate-open and cepstral re-clip fixes landed; session "
-               "startup issue is a separate defect.",
+        reason="F-285: measurement session E2E — browser START does not "
+               "transition from IDLE (signal-gen not reachable in "
+               "local-demo stack).",
         strict=False,
     )
     def test_full_session_browser(self, demo_page, local_demo_url):
