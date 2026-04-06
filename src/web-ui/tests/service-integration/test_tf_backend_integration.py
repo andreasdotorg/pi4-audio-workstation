@@ -16,7 +16,7 @@ and verify:
 These tests require the local-demo stack to be running:
     nix run .#local-demo   # in another terminal
     cd src/web-ui
-    python -m pytest tests/e2e/test_tf_backend_integration.py -v
+    python -m pytest tests/service-integration/test_tf_backend_integration.py -v
 
 Usage from the test-e2e wrapper:
     nix run .#test-e2e
@@ -30,7 +30,7 @@ import threading
 
 import pytest
 
-pytestmark = [pytest.mark.e2e]
+pytestmark = [pytest.mark.service_integration]
 
 LOCAL_DEMO_URL = os.environ.get("LOCAL_DEMO_URL", "http://localhost:8080")
 # Timeout for initial WebSocket data (pcm-bridge connection + first TF frame).
