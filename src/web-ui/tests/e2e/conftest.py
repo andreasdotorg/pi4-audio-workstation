@@ -236,7 +236,8 @@ def _api_get(base_url: str, path: str, timeout: float = 10.0):
         resp = urllib.request.urlopen(f"{base_url}{path}", timeout=timeout)
         return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read()) if exc.read() else {}
+        body = exc.read()
+        return exc.code, json.loads(body) if body else {}
 
 
 def _api_post(base_url: str, path: str, body: dict | None = None, timeout: float = 10.0):
@@ -252,7 +253,8 @@ def _api_post(base_url: str, path: str, body: dict | None = None, timeout: float
         resp = urllib.request.urlopen(req, timeout=timeout)
         return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read()) if exc.read() else {}
+        body = exc.read()
+        return exc.code, json.loads(body) if body else {}
 
 
 @pytest.fixture(scope="session")
