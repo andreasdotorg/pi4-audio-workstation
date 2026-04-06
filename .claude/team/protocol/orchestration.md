@@ -173,9 +173,13 @@ Orchestrator (this is you)
   to create new ones. They accumulate context across all work in the session.
   Shutting them down and respawning loses that context — which is exactly how
   mistakes get repeated (L-002, L-004).
-- **Workers rotate.** Spawn workers for specific tasks. When a task completes,
-  the worker can take the next task or be shut down. Multiple workers can run
-  in parallel on independent tasks.
+- **One worker, one mission, cradle to grave (L-ORCH-005).** Each worker is
+  spawned fresh for a specific mission (one or more related stories/defects).
+  That worker owns the mission from start to acceptance. No task reassignment,
+  no "shift priority," no reuse for unrelated work. When the mission is
+  accepted, the worker is shut down. If a new mission arrives, spawn a new
+  worker — do NOT reassign an existing one.
+  Multiple workers can run in parallel on independent missions.
 - **WARNING: `isolation: "worktree"` is BROKEN (L-039).** The Task tool's
   worktree isolation silently falls back to the main working directory without
   creating a worktree. Do NOT use it. For parallel workers writing files:
@@ -183,9 +187,10 @@ Orchestrator (this is you)
   disjoint file sets before spawning parallel workers on the same branch.
   Workers that commit directly (bypassing CM) are a protocol violation
   regardless of isolation mode.
-- **Story transitions are task changes, not team changes.** If the current
-  story finishes and the owner selects the next one, create new tasks and
-  assign them to existing or new workers. Do NOT recreate the team.
+- **Story transitions spawn new workers.** When a mission is accepted and
+  the owner selects the next story, spawn a fresh worker for it. Do NOT
+  reassign the old worker. Do NOT recreate the core team — only workers
+  rotate.
 
 ### Session end -> tidy up -> team down
 
@@ -444,18 +449,31 @@ The orchestrator resolves the situation (respawn the specialist, reassign the
 consultation, or — only as a last resort — explicitly authorize the worker
 to proceed with documented justification).
 
-### Rule 5: Workers only execute assigned tasks
+### Rule 5: One worker, one mission (L-ORCH-005)
 
-Workers MUST NOT self-assign work, start tasks on their own initiative, or
-act on problems they observe without orchestrator direction. If a worker
-identifies something that needs doing, they report it to the orchestrator
-and wait for assignment. The orchestrator decides what to do, when to do it,
-and who does it.
+Each worker is spawned fresh with a specific mission (one or more related
+stories/defects). That worker owns the mission exclusively — from first
+commit to owner acceptance. The worker does nothing else. When done, the
+worker is shut down. A new mission gets a new worker.
+
+**Workers MUST NOT:**
+- Self-assign work or start tasks on their own initiative
+- Accept reassignment to a different mission mid-flight
+- Work on "quick side tasks" between mission steps
+
+If a worker identifies something that needs doing outside their mission,
+they report it to the orchestrator and continue their own mission.
+
+**The orchestrator MUST NOT:**
+- Reassign a worker to a different mission (Rule 16)
+- Pile additional tasks onto a busy worker
+- Reuse a completed worker for unrelated work — spawn a fresh one
+- Send "shift priority" messages to a worker mid-task
 
 **The orchestrator enforces this by:**
-- Only spawning workers with specific task assignments
-- Including "do not start other work" in every worker task prompt
-- Rejecting unsolicited commits or changes from workers
+- Spawning each worker with a complete mission description
+- Never sending task changes to a worker after initial assignment
+- Spawning a new worker when a new mission arrives
 
 ### Rule 6: Continuous improvement
 
@@ -726,40 +744,7 @@ These do NOT apply to the orchestrator, which only communicates and waits.**
 - Acknowledge received messages promptly
 - One message to other agents, then wait
 
-### Rule 16: Assignment Stability (L-ORCH-005)
-
-**Once a worker is assigned a task, they OWN it until they report back.**
-The orchestrator MUST NOT reassign, redirect, or give the same work to
-another worker mid-flight. This rule is absolute — no exceptions for
-urgency, impatience, or "the other worker is faster."
-
-**What this means:**
-1. An assigned task belongs to the assigned worker until they deliver
-   their report (completion, blocker, or failure).
-2. If a higher-priority task comes in, assign it to a DIFFERENT worker.
-   If no other worker is available, WAIT for the assigned worker to finish.
-3. Never message a busy worker to "shift priority" — they won't see it
-   until they finish anyway (Rule 15), and when they do, they've already
-   done the old work. The message just creates confusion.
-4. Never assign a second worker to investigate or "help with" another
-   worker's branch or task. Two workers on the same branch = git
-   conflicts. Two workers on the same task = duplicated work.
-5. If a worker is taking too long, the orchestrator's only options are:
-   (a) wait, or (b) report to the owner and ask for guidance.
-
-**The pattern to watch for:** "Worker X is busy with task A → urgent
-task B arrives → give task B to Worker X (they'll 'shift priority') →
-also give task B to Worker Y 'just in case' → Worker X finishes task A,
-sees conflicting messages, Worker Y is already on task B → mess."
-
-**Violated in session 2026-04-06:** Worker-4 was assigned Pi investigation.
-PR #20 CI failures came in. Orchestrator messaged worker-4 to "shift
-priority" (they were busy, didn't see it), then assigned worker-2 to the
-same PR #20 branch, causing ownership confusion. The correct action was:
-assign PR #20 to worker-2 on their own worktree from the start, OR wait
-for worker-4 to finish.
-
-### Rule 17: Instruction Cancellation (L-019)
+### Rule 16: Instruction Cancellation (L-019)
 
 When new instructions supersede or contradict previous instructions:
 
