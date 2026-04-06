@@ -204,8 +204,10 @@ or procedural changes.
 
 **You MUST run tests before opening a PR.** This is non-negotiable.
 
-**Commits and pushes have no test gate.** Commit and push whenever you have
-a meaningful quantum of work done. CI runs on PRs, not on every push.
+**Commits are free, pushes are not.** Commit locally whenever you have a
+meaningful quantum of work done. But before pushing to the remote, you MUST
+run E2E tests locally and confirm they pass. Every push triggers CI — do
+not waste shared CI runner time on code you have not tested.
 
 **Before opening a PR (T0+T1+T2) — ALL of these must pass locally:**
 ```
@@ -306,6 +308,23 @@ rules and examples.
 6. **Pre-existing failures are still your responsibility to report.** If a
    test was already failing before your changes, report it. Do not assume it
    is someone else's problem.
+
+7. **Every test must pass before pushing.** Run the E2E tests that exercise
+   your changes locally BEFORE pushing to the remote. At minimum, run the
+   specific E2E tests relevant to your change. "It's an unrelated failure"
+   is NOT an acceptable excuse — if it fails on your branch, you must
+   either fix it or get an xfail approved before pushing. CI runners are a
+   shared resource; pushing untested code wastes wall clock time and
+   machine hours for the entire team.
+
+   **The standard:** If `main` passes a test and your branch does not, the
+   failure is YOUR problem regardless of whether your code "caused" it.
+   Investigate, fix, or get QE approval for an xfail — then push.
+
+   **What "tested locally" means:** You ran `nix run .#test-e2e` (or the
+   relevant subset) in your worktree and it exited 0, or all failures have
+   approved xfail markers. A local run that you did not complete, that you
+   interrupted, or that you "forgot to check the output of" does not count.
 
 ## Code Quality Standards (Owner Directive)
 
