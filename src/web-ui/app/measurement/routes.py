@@ -81,6 +81,9 @@ class StatusResponse(BaseModel):
     positions: Optional[int] = None
     sweep_duration_s: Optional[float] = None
     recovery_warning: Optional[str] = None
+    calibration: Optional[dict] = None
+    filter_gen_result: Optional[dict] = None
+    deploy_result: Optional[dict] = None
 
 
 class ErrorResponse(BaseModel):
