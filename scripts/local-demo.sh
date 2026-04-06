@@ -77,6 +77,7 @@ PORT_LEVEL_SW="${LOCAL_DEMO_LEVEL_SW_PORT:-0}"
 PORT_LEVEL_HW_OUT="${LOCAL_DEMO_LEVEL_HW_OUT_PORT:-0}"
 PORT_LEVEL_HW_IN="${LOCAL_DEMO_LEVEL_HW_IN_PORT:-0}"
 PORT_PCM="${LOCAL_DEMO_PCM_PORT:-0}"
+PORT_PCM_CAPTURE="${LOCAL_DEMO_PCM_CAPTURE_PORT:-0}"
 # Uvicorn: pre-allocate via Python socket bind(0) if no override.
 if [ -n "${LOCAL_DEMO_WEBUI_PORT:-}" ]; then
     PORT_WEBUI="$LOCAL_DEMO_WEBUI_PORT"
@@ -586,23 +587,24 @@ start_services() {
     # reads from the real UMIK-1 ALSA input; in local-demo the room-sim
     # convolver creates a simulated UMIK-1 source with the same node name.
     echo ""
-    echo "[local-demo] Starting pcm-bridge capture-usb (PCM on port $PORT_PCM_CAPTURE, managed mode)..."
+    echo "[local-demo] Starting pcm-bridge capture-usb (managed mode)..."
     "$PCM_BIN" \
         --managed \
         --mode capture \
         --node-name alsa_input.usb-miniDSP_Umik-1 \
         --listen "tcp:0.0.0.0:${PORT_PCM_CAPTURE}" \
         --channels 1 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/pcm_capture" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_PCM_CAPTURE=$(_wait_port_file "$PORT_FILE_DIR/pcm_capture") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: pcm-bridge capture-usb failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] pcm-bridge capture-usb running (PID ${PIDS[-1]})"
+    echo "[local-demo] pcm-bridge capture-usb running (PID ${PIDS[-1]}, port $PORT_PCM_CAPTURE)"
 
     # ---- Mixxx substitute (US-075 Bug #3) ----
     # JACK client named "Mixxx" with 8 output ports (out_0..out_7) matching
