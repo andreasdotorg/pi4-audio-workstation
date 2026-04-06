@@ -20,7 +20,7 @@
 # Usage: nixos-anywhere --flake .#mugge-deploy root@192.168.178.35
 #
 # T-072-19: Incremental upgrade (after initial install)
-# Usage: nixos-rebuild switch --flake .#mugge-deploy --target-host root@192.168.178.35
+# Usage: nix run nixpkgs#nixos-rebuild -- switch --flake .#mugge-deploy --target-host root@192.168.178.35
 { config, lib, pkgs, ... }:
 
 {

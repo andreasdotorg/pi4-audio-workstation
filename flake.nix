@@ -816,7 +816,7 @@
           # nixos-anywhere deployment configuration (T-072-18).
           # Usage: nixos-anywhere --flake .#mugge-deploy root@192.168.178.35
           # Also supports incremental upgrades (T-072-19):
-          #   nixos-rebuild switch --flake .#mugge-deploy --target-host root@192.168.178.35
+          #   nix run nixpkgs#nixos-rebuild -- switch --flake .#mugge-deploy --target-host root@192.168.178.35
           mugge-deploy = nixpkgs.lib.nixosSystem {
             inherit system;
             specialArgs = sharedSpecialArgs;
