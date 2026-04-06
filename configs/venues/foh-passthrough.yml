@@ -1,0 +1,58 @@
+# Venue config: foh-passthrough (US-113).
+#
+# FOH (front-of-house) passthrough — unity gain on all channels with Dirac
+# (identity) coefficients.  This is the default venue loaded on first boot
+# when no persisted venue exists (PI4AUDIO_DEFAULT_VENUE).
+#
+# Gain at 0 dB (unity, Mult 1.0) on all channels.  The operator controls
+# output level at the source (Mixxx/Reaper faders) and the amplifier gain
+# knobs — standard FOH gain staging.
+#
+# Safety: D-009 caps all Mult values at 1.0.  D-063 audio gate ensures
+# gains are not applied until the operator explicitly opens the gate.
+# D-031 driver protection is provided by the convolver coefficient files
+# (crossover slopes baked into the FIR filters), not by venue gain values.
+#
+# SAFETY: Channels 1-4 use dirac.wav (no crossover protection).
+# DO NOT use this config for real PA operation until D-031 protection
+# filter WAVs (protection_hp.wav / protection_lp.wav) are generated
+# and referenced here.  Full-bandwidth signal to sub drivers at unity
+# gain through 450W amplifiers risks driver damage.
+# Tracked as defect D-271.  D-063 gate provides interim protection.
+
+name: "foh-passthrough"
+description: "FOH passthrough — unity gain, Dirac coefficients, all channels"
+
+channels:
+  1_sat_l:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  2_sat_r:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  3_sub1_lp:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  4_sub2_lp:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  5_eng_l:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  6_eng_r:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  7_iem_l:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
+  8_iem_r:
+    gain_db: 0
+    delay_ms: 0
+    coefficients: "dirac.wav"
