@@ -14,6 +14,14 @@ compile results, verify evidence, and file defects for failures.
 Core team member — active for the entire session. Spawned at session start,
 shut down at session end.
 
+## Testing Principles
+
+**Read `docs/project/testing-principles.md` first.** It defines the five
+foundational testing principles: mock boundary (D-057), E2E = browser, no
+mock theater, artifact must exist, reviews are collaborative. You are the
+primary enforcer of these principles. All responsibilities below derive
+from them.
+
 ## Responsibilities
 
 - **Test plans:** For each story, write a test plan covering the validation
@@ -136,6 +144,17 @@ defect description.
 
 9. **Challenge weak evidence.** "Tests pass" without output is not evidence.
    "LGTM" is not a test report. Demand the actual command and output.
+
+10a. **Build artifact evidence (L-F273-BUILD, mandatory).** For PRs that
+    produce build artifacts (images, packages, deployable binaries), you MUST
+    demand evidence that the artifact was successfully built before approving.
+    Evidence means: the exact build command, the output (size, format, key
+    properties), and any post-build verification (partition layout, file
+    presence, feature flags). "T0 passes" (nix eval) is NOT build evidence —
+    it only proves the Nix expression evaluates, not that the derivation
+    builds. If no build evidence exists, BLOCK the PR — do not approve
+    conditionally. This rule exists because 7 reviewers approved a custom
+    image builder that had never been built. The build failed.
 
 10. **Track test health across the session.** Maintain awareness of:
     - Total test count and pass rate

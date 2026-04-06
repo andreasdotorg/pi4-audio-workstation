@@ -207,6 +207,10 @@ or procedural changes.
 
 ## Testing Requirements (L-042)
 
+**Read `docs/project/testing-principles.md` before writing any test or
+modifying local-demo.** It defines the five foundational testing principles
+for this project. Everything below derives from those principles.
+
 **You MUST run tests before opening a PR.** This is non-negotiable.
 
 **Commits and pushes have no test gate.** Commit and push whenever you have
@@ -421,10 +425,49 @@ confirms validation is complete.
 - Environment gotchas (platform, Pi hardware, tooling quirks)
 - Repeated mistakes and hard-won knowledge
 
+## Artifact Verification (L-F273-BUILD)
+
+**"Done" means the artifact exists.** If your mission produces a build
+artifact (SD card image, package, deployable binary, Nix derivation output),
+you MUST build it successfully before declaring your work complete. Passing
+`nix eval` (T0) proves the expression doesn't crash — it does NOT prove the
+artifact builds. Lazy evaluation means many errors only surface at build time.
+
+**Rules:**
+
+1. **Build the artifact at least once before declaring done.** Run the actual
+   build command (`nix build`, `cargo build --release`, etc.) and verify it
+   completes successfully. If the build runs on a remote builder, you still
+   must trigger and monitor it.
+
+2. **Inspect the build output.** For images: verify partition layout, file
+   presence, filesystem features. For packages: verify the binary runs. A
+   successful build exit code is necessary but not sufficient — check the
+   output is what you intended.
+
+3. **Include build evidence in your completion report.** The exact build
+   command, the output summary (size, key properties), and any verification
+   steps you ran. "T0 passes" is not build evidence. The actual build output
+   is build evidence.
+
+4. **If the build fails, you are not done.** Fix the build, rebuild, verify.
+   Do not report completion and leave the build failure for someone else to
+   discover.
+
+5. **If you cannot build** (remote builder down, missing hardware, cross-arch
+   constraints), report this as a blocker to the orchestrator with the exact
+   error. Do not declare done with "build is expected to work but I couldn't
+   run it."
+
+This rule exists because a worker declared a custom image builder "done"
+without ever building the image. All 7 reviewers then approved code that
+had never been built. The build failed. This must never happen again.
+
 ## Output
 
 - Modified/created files
 - Summary of changes with file paths and line references
 - List of advisors consulted and their responses
 - PR opened with completed checklist
+- Build artifact evidence (if mission produces an artifact)
 - Any concerns or open questions
