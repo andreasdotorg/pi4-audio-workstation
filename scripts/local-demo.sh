@@ -47,33 +47,42 @@ ROOM_SIM_DIR="/tmp/pw-test-room-sim-${DEMO_PID}"
 PW_STDERR_LOG="/tmp/pw-test-stderr-${DEMO_PID}.log"
 WP_STDERR_LOG="/tmp/wp-test-stderr-${DEMO_PID}.log"
 
-# ---- Free port probing ----
-# Probe /proc/net/tcp for a free port starting from a base, incrementing
-# up to max_offset (default 20). Returns the first free port found.
-_find_free_port() {
-    local base="$1"
-    local max_offset="${2:-20}"
-    local port
-    for (( port=base; port < base + max_offset; port++ )); do
-        local hex_port
-        hex_port=$(printf '%04X' "$port")
-        if ! awk -v hp=":${hex_port}" '$2 ~ hp && $4 == "0A" {found=1; exit} END {exit !found}' /proc/net/tcp 2>/dev/null; then
-            echo "$port"
+# ---- Port file helpers ----
+# Port files directory — each service writes its actual bound port here.
+PORT_FILE_DIR="/tmp/local-demo-ports-${DEMO_PID}"
+mkdir -p "$PORT_FILE_DIR"
+
+# Wait for a port file to appear and contain a non-empty value.
+_wait_port_file() {
+    local path="$1" timeout="${2:-10}"
+    local deadline=$((SECONDS + timeout))
+    while [ $SECONDS -lt $deadline ]; do
+        if [ -s "$path" ]; then
+            cat "$path"
             return 0
         fi
+        sleep 0.1
     done
-    echo "[local-demo] ERROR: No free port found in range ${base}-$((base + max_offset - 1))" >&2
+    echo "[local-demo] ERROR: Timed out waiting for port file $path" >&2
     return 1
 }
 
-# Allocate ports: use env var override if set, otherwise probe for free port.
-PORT_GM="${LOCAL_DEMO_GM_PORT:-$(_find_free_port 4002)}"
-PORT_SIGGEN="${LOCAL_DEMO_SIGGEN_PORT:-$(_find_free_port 4001)}"
-PORT_LEVEL_SW="${LOCAL_DEMO_LEVEL_SW_PORT:-$(_find_free_port 9100)}"
-PORT_LEVEL_HW_OUT="${LOCAL_DEMO_LEVEL_HW_OUT_PORT:-$(_find_free_port 9101)}"
-PORT_LEVEL_HW_IN="${LOCAL_DEMO_LEVEL_HW_IN_PORT:-$(_find_free_port 9102)}"
-PORT_PCM="${LOCAL_DEMO_PCM_PORT:-$(_find_free_port 9090)}"
-PORT_WEBUI="${LOCAL_DEMO_WEBUI_PORT:-$(_find_free_port 8080)}"
+# Ports: env var overrides use explicit values; otherwise services bind to
+# port 0 (OS-assigned) and write the actual port to a port file.
+# PORT_* variables below are initial values — updated after each service
+# starts (unless an env var override was given).
+PORT_GM="${LOCAL_DEMO_GM_PORT:-0}"
+PORT_SIGGEN="${LOCAL_DEMO_SIGGEN_PORT:-0}"
+PORT_LEVEL_SW="${LOCAL_DEMO_LEVEL_SW_PORT:-0}"
+PORT_LEVEL_HW_OUT="${LOCAL_DEMO_LEVEL_HW_OUT_PORT:-0}"
+PORT_LEVEL_HW_IN="${LOCAL_DEMO_LEVEL_HW_IN_PORT:-0}"
+PORT_PCM="${LOCAL_DEMO_PCM_PORT:-0}"
+# Uvicorn: pre-allocate via Python socket bind(0) if no override.
+if [ -n "${LOCAL_DEMO_WEBUI_PORT:-}" ]; then
+    PORT_WEBUI="$LOCAL_DEMO_WEBUI_PORT"
+else
+    PORT_WEBUI=$("${LOCAL_DEMO_PYTHON:-python3}" -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
+fi
 
 # Track child PIDs for cleanup
 PIDS=()
@@ -305,7 +314,7 @@ stop_pw() {
 # ---- Pre-flight cleanup (F-100) ----
 # Clean up stale state from previous runs. PID-based paths mean we only
 # need to ensure our own paths are clean (they're fresh per PID).
-# Port conflicts are detected at probe time — no pre-check needed.
+# Port conflicts are impossible — services bind to port 0 (OS-assigned).
 preflight_cleanup() {
     echo "[local-demo] Pre-flight cleanup (PID $DEMO_PID)..."
     # Clean any stale PW runtime sockets in our path (shouldn't exist
@@ -451,40 +460,42 @@ start_services() {
     # ---- GraphManager ----
     # US-075 Bug #2b: standby mode (not measurement).
     echo ""
-    echo "[local-demo] Starting GraphManager (port $PORT_GM, standby mode)..."
-    "$GM_BIN" --listen "tcp:127.0.0.1:${PORT_GM}" --mode standby --log-level info &
+    echo "[local-demo] Starting GraphManager (standby mode)..."
+    "$GM_BIN" --listen "tcp:127.0.0.1:${PORT_GM}" --mode standby --log-level info \
+        --port-file "$PORT_FILE_DIR/gm" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_GM=$(_wait_port_file "$PORT_FILE_DIR/gm") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: GraphManager failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] GraphManager running (PID ${PIDS[-1]})"
+    echo "[local-demo] GraphManager running (PID ${PIDS[-1]}, port $PORT_GM)"
 
     # ---- signal-gen (managed mode) ----
     echo ""
-    echo "[local-demo] Starting signal-gen (port $PORT_SIGGEN, managed mode, mono)..."
+    echo "[local-demo] Starting signal-gen (managed mode, mono)..."
     "$SG_BIN" \
         --managed \
         --channels 1 \
         --rate 48000 \
         --listen "tcp:127.0.0.1:${PORT_SIGGEN}" \
-        --max-level-dbfs -20 &
+        --max-level-dbfs -20 \
+        --port-file "$PORT_FILE_DIR/siggen" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_SIGGEN=$(_wait_port_file "$PORT_FILE_DIR/siggen") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: signal-gen failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] signal-gen running (PID ${PIDS[-1]})"
+    echo "[local-demo] signal-gen running (PID ${PIDS[-1]}, port $PORT_SIGGEN)"
 
     # ---- level-bridge-sw (managed mode) ----
     echo ""
-    echo "[local-demo] Starting level-bridge-sw (levels on port $PORT_LEVEL_SW, managed mode)..."
+    echo "[local-demo] Starting level-bridge-sw (managed mode)..."
     "$LB_BIN" \
         --managed \
         --node-name pi4audio-level-bridge-sw \
@@ -492,21 +503,22 @@ start_services() {
         --target unused-managed-mode \
         --levels-listen "tcp:0.0.0.0:${PORT_LEVEL_SW}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/level_sw" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_LEVEL_SW=$(_wait_port_file "$PORT_FILE_DIR/level_sw") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: level-bridge-sw failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] level-bridge-sw running (PID ${PIDS[-1]})"
+    echo "[local-demo] level-bridge-sw running (PID ${PIDS[-1]}, port $PORT_LEVEL_SW)"
 
     # ---- level-bridge-hw-out (managed mode, US-075 Bug #6) ----
     # Taps USBStreamer room-sim monitor_AUX0-7 ports for hardware output metering.
     echo ""
-    echo "[local-demo] Starting level-bridge-hw-out (levels on port $PORT_LEVEL_HW_OUT, managed mode)..."
+    echo "[local-demo] Starting level-bridge-hw-out (managed mode)..."
     "$LB_BIN" \
         --managed \
         --node-name pi4audio-level-bridge-hw-out \
@@ -514,21 +526,22 @@ start_services() {
         --target unused-managed-mode \
         --levels-listen "tcp:0.0.0.0:${PORT_LEVEL_HW_OUT}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/level_hw_out" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_LEVEL_HW_OUT=$(_wait_port_file "$PORT_FILE_DIR/level_hw_out") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: level-bridge-hw-out failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] level-bridge-hw-out running (PID ${PIDS[-1]})"
+    echo "[local-demo] level-bridge-hw-out running (PID ${PIDS[-1]}, port $PORT_LEVEL_HW_OUT)"
 
     # ---- level-bridge-hw-in (managed mode, US-075 Bug #6) ----
     # Taps ADA8200 capture_AUX0-7 ports for hardware input metering.
     echo ""
-    echo "[local-demo] Starting level-bridge-hw-in (levels on port $PORT_LEVEL_HW_IN, managed mode)..."
+    echo "[local-demo] Starting level-bridge-hw-in (managed mode)..."
     "$LB_BIN" \
         --managed \
         --node-name pi4audio-level-bridge-hw-in \
@@ -536,35 +549,37 @@ start_services() {
         --target unused-managed-mode \
         --levels-listen "tcp:0.0.0.0:${PORT_LEVEL_HW_IN}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/level_hw_in" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_LEVEL_HW_IN=$(_wait_port_file "$PORT_FILE_DIR/level_hw_in") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: level-bridge-hw-in failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] level-bridge-hw-in running (PID ${PIDS[-1]})"
+    echo "[local-demo] level-bridge-hw-in running (PID ${PIDS[-1]}, port $PORT_LEVEL_HW_IN)"
 
     # ---- pcm-bridge (managed mode) ----
     echo ""
-    echo "[local-demo] Starting pcm-bridge (PCM on port $PORT_PCM, managed mode)..."
+    echo "[local-demo] Starting pcm-bridge (managed mode)..."
     "$PCM_BIN" \
         --managed \
         --mode monitor \
         --listen "tcp:0.0.0.0:${PORT_PCM}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/pcm" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_PCM=$(_wait_port_file "$PORT_FILE_DIR/pcm") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: pcm-bridge failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]})"
+    echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]}, port $PORT_PCM)"
 
     # ---- Mixxx substitute (US-075 Bug #3) ----
     # JACK client named "Mixxx" with 8 output ports (out_0..out_7) matching
@@ -739,6 +754,7 @@ cleanup() {
 
     stop_pw
     rm -f "$MANIFEST_FILE"
+    rm -rf "$PORT_FILE_DIR" 2>/dev/null || true
     echo "[local-demo] All processes stopped."
 }
 
@@ -812,6 +828,12 @@ cmd_stop() {
     fi
 
     stop_pw
+    # Clean up port files — demo_pid is in the manifest.
+    local m_demo_pid
+    m_demo_pid=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['demo_pid'])" 2>/dev/null || echo "")
+    if [ -n "$m_demo_pid" ]; then
+        rm -rf "/tmp/local-demo-ports-${m_demo_pid}" 2>/dev/null || true
+    fi
     rm -f "$mf"
     MANIFEST_FILE="$saved_manifest"
     echo "[local-demo] All processes stopped."

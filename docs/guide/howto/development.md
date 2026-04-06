@@ -208,15 +208,15 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 9000 --reload
 
 Multiple local-demo stacks can run simultaneously on the same machine. Each
 invocation is automatically isolated by its script PID — no manual instance
-IDs needed. Ports are auto-allocated by probing for free ports.
+IDs needed. Ports are OS-assigned (bind to port 0) with zero TOCTOU race.
 
 ### 3b.1 Running Parallel Instances
 
 ```sh
-# First instance — auto-allocates ports from default bases
+# First instance — OS assigns all ports
 nix run .#local-demo -- start
 
-# Second instance — probes for next free ports, no conflicts
+# Second instance — OS assigns different ports, no conflicts
 nix run .#local-demo -- start
 
 # Stop via manifest (printed at startup)
@@ -225,22 +225,14 @@ LOCAL_DEMO_MANIFEST=/tmp/local-demo-<PID>.json nix run .#local-demo -- stop
 
 ### 3b.2 Port Allocation
 
-Each instance probes `/proc/net/tcp` from a default base port, incrementing
-until a free port is found (up to +20 offset). Default base ports:
-
-| Service | Default base |
-|---------|-------------|
-| GraphManager | 4002 |
-| signal-gen | 4001 |
-| level-bridge-sw | 9100 |
-| level-bridge-hw-out | 9101 |
-| level-bridge-hw-in | 9102 |
-| pcm-bridge | 9090 |
-| web-ui | 8080 |
+Each Rust service binds to port 0 and writes the actual OS-assigned port to
+a port file (`--port-file <path>`). The script reads the port file after
+startup and records the actual port in the manifest. This eliminates TOCTOU
+races — the service holds the socket from bind time onward.
 
 Individual ports can be overridden via environment variables (e.g.,
-`LOCAL_DEMO_GM_PORT=5000`) for debugging. Env var overrides take precedence
-over port probing.
+`LOCAL_DEMO_GM_PORT=5000`) for debugging or production use. Env var overrides
+bypass port 0 allocation and use the specified port directly.
 
 ### 3b.3 Manifest File
 
