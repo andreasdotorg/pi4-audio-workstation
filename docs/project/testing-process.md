@@ -353,7 +353,7 @@ The ONLY acceptable mocks in E2E tests are:
 
 | Mock target | Why |
 |-------------|-----|
-| Audio hardware (USBStreamer, UMIK-1) | Not present in dev/CI environment |
+| Audio hardware (USBStreamer, UMIK-1, null sink substitute) | Physical audio interfaces not present in dev/CI; null sink provides endpoint without hardware |
 | Room acoustics (simulated IR) | No physical room available |
 | Physical MIDI controllers | Not present in dev/CI environment |
 
@@ -384,6 +384,7 @@ belong in `tests/service-integration/`, not `tests/e2e/`.
 | `src/web-ui/tests/integration/` | Browser integration | Yes (Playwright) | No (mocked backend) |
 | `tests/service-integration/` | Service integration | No | Yes (local-demo) |
 | `src/web-ui/tests/e2e/` | E2E | Yes (Playwright) | Yes (local-demo) |
+| `tests/e2e-harness/` | E2E harness/utilities | N/A (shared helpers) | Yes (local-demo) |
 
 **The distinguishing factor between service-integration and E2E is the
 browser.** Both run against the real local-demo stack. E2E additionally
@@ -429,6 +430,21 @@ The QE MUST reject any PR that:
 - Has a "test_*_e2e.py" file that contains no `page` fixture usage
 
 The QE reviews test tier classification as part of Rule 13 approval.
+
+#### Assertion boundary (LOOPHOLE-1)
+
+E2E tests MUST assert on user-visible DOM elements or canvas content, not on
+raw data extracted via `page.evaluate()`. If the assertion can be made without
+a browser, the test is not E2E. The browser must be load-bearing in the
+assertion — not just a vehicle for fetching data that could be fetched via
+`urllib`.
+
+#### Migration of existing tests (LOOPHOLE-2)
+
+Existing non-browser tests in `tests/e2e/` will be reclassified to
+`tests/service-integration/` as part of the E2E test overhaul. Until that
+migration is complete, **new non-browser tests MUST go in
+`tests/service-integration/`** — the existing misplacement is not precedent.
 
 ---
 

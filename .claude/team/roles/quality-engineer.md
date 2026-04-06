@@ -121,7 +121,8 @@ defect description.
      test exercises the non-mock path (see Rule 11)
    - Local-demo compatibility: features with runtime service dependencies are
      tested in the local-demo environment configuration (see Rule 12)
-   - E2E tier presence: features with I/O dependencies have E2E tests (see Rule 13)
+   - E2E tier coverage: features with UI components have browser E2E tests (see Rule 13a)
+   - E2E tier classification: tests are in the correct tier directory (see Rule 13b)
    - User-observable outcomes: E2E tests assert on what the user sees, not just
      infrastructure plumbing (see Rule 14)
    The PR must not merge without your sign-off on test adequacy.
