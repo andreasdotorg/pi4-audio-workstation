@@ -86,6 +86,9 @@ in
             "/start_cd.elf".source = "${fw}/start_cd.elf";
             "/start_db.elf".source = "${fw}/start_db.elf";
             "/start_x.elf".source = "${fw}/start_x.elf";
+            # DT overlays — applied by VideoCore firmware from config.txt
+            "/overlays/disable-bt.dtbo".source = "${fw}/overlays/disable-bt.dtbo";
+            "/overlays/disable-sd-uhs.dtbo".source = "${fw}/overlays/disable-sd-uhs.dtbo";
           };
         repartConfig = {
           # ESP (EFI System Partition) — required for Pi 4 boot.
