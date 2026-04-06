@@ -82,11 +82,10 @@ in
             "/start_x.elf".source = "${fw}/start_x.elf";
           };
         repartConfig = {
-          # NOT "esp" — U-Boot on Pi 4 would try EFI boot from an ESP,
-          # bypassing extlinux.conf on the root partition. The VideoCore
-          # bootloader reads the first FAT partition regardless of GPT
-          # type, so a plain Microsoft Basic Data GUID is correct here.
-          Type = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7";
+          # NOT "esp" — U-Boot on Pi 4 tries EFI boot from an ESP,
+          # bypassing extlinux.conf on the root partition. VideoCore
+          # reads the first FAT partition regardless of GPT type GUID.
+          Type = "linux-generic";
           Format = "vfat";
           Label = "firmware";   # GPT partition label
           SizeMinBytes = "256M";

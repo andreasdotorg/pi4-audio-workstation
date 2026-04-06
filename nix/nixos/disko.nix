@@ -64,7 +64,7 @@
         # partition regardless of GPT type.
         firmware = {
           size = "256M";
-          type = "0700";  # Microsoft Basic Data (plain FAT32)
+          type = "8300";  # Linux filesystem (not ESP)
           content = {
             type = "filesystem";
             format = "vfat";
