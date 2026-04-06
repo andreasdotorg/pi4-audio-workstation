@@ -339,6 +339,26 @@ jira backend is active.
   "Have you validated against the full specification scope? Show evidence."
   Jurisdiction ambiguity is not an excuse — if no advisor claims a
   specification requirement, the AD escalates. (L-024)
+- **Build artifact evidence (mandatory, L-F273-BUILD):** For PRs that produce
+  build artifacts (images, packages, deployable binaries), the worker MUST
+  provide build evidence (command, output, verification) BEFORE reviews begin.
+  No reviewer may approve a PR that produces an artifact without seeing
+  evidence that the artifact was successfully built. If no build evidence is
+  present, any reviewer MUST block the PR. The QE is the primary enforcer
+  but ALL reviewers share this responsibility.
+- **Reviewers read the code, not orchestrator summaries (L-F273-BUILD).**
+  The orchestrator connects reviewers to the branch/PR and to the worker.
+  The orchestrator MUST NOT summarize the changes, relay test results, or
+  characterize build status for reviewers. Reviewers examine the diff, the
+  worker's build evidence, and the CI results themselves. If a reviewer
+  receives a summary from the orchestrator instead of a pointer to the
+  actual work, the reviewer MUST request the raw evidence before approving.
+- **Cross-reviewer communication (L-F273-BUILD).** Reviewers MAY and SHOULD
+  communicate with each other during review. If a reviewer identifies a
+  concern that touches another reviewer's domain, they should message that
+  reviewer directly. Reviews are a collaborative discussion, not isolated
+  verdicts sent to the orchestrator. The AD in particular should challenge
+  other reviewers: "Have you verified this was actually built/tested?"
 - Findings filed as defects; critical/high must be resolved before merge
 - PM compiles the review summary on the PR for the owner
 
@@ -429,6 +449,15 @@ are made by workers via the Task tool.
   When a build fails, relay the failure to the responsible worker.
   (L-ORCH-004: orchestrator did technical investigation + review
   synthesis after compaction instead of delegating.)
+- **Summarize, characterize, or relay worker output to reviewers
+  (L-F273-BUILD).** The orchestrator MUST NOT summarize code changes,
+  relay test results ("T0 passes"), or characterize build status for
+  reviewers. The orchestrator connects the reviewer to the branch/PR
+  and to the worker. The reviewer reads the code and evidence
+  themselves. When the orchestrator pre-digests changes for reviewers,
+  reviewers review the orchestrator's interpretation — not the work.
+  This caused 7 reviewers to approve a custom image builder that had
+  never been built.
 
 **The only exception:** Changes to orchestration protocol and team configuration
 files, project state files when the PM is dead (session-end backstop), and

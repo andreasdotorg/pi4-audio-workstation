@@ -7,7 +7,13 @@ no gate requiring tests to pass before task completion. Extended with owner
 code quality directives (2026-03-22).
 
 This document defines the testing and code quality governance process. It
-complements:
+derives from:
+- **`testing-principles.md` — READ FIRST.** The five foundational testing
+  principles (mock boundary, E2E = browser, no mock theater, artifact must
+  exist, reviews are collaborative). This process document implements those
+  principles.
+
+It complements:
 - `test-strategy.md` — what to test and how (tiers, scenarios, tooling)
 - `test-protocol-template.md` — how to write and execute formal test protocols
 - `docs/guide/howto/development.md` — how to run tests (commands, Nix)

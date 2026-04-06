@@ -1,5 +1,9 @@
 # HOWTO: Common Development Tasks
 
+**Before writing any test or modifying local-demo, read
+`docs/project/testing-principles.md`.** It defines the mock boundary, E2E
+tier rules, and other foundational principles that govern all testing.
+
 This guide covers the most common tasks that workers and developers perform on
 the mugge project. It assumes you have already cloned the
 repository and have Nix installed.
