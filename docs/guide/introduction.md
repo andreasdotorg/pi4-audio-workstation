@@ -40,7 +40,7 @@ quantum (set at runtime via `pw-metadata`).
 
 | Device | Role |
 |--------|------|
-| Raspberry Pi 4B | Main compute. Debian 13 (Trixie), PREEMPT_RT kernel. |
+| Raspberry Pi 4B | Main compute. NixOS (flake-based), PREEMPT_RT kernel. |
 | minidsp USBStreamer B | 8-channel USB-to-ADAT audio interface |
 | Behringer ADA8200 | ADAT-to-analog converter (8 channels, mic preamps) |
 | 4-channel Class D amplifier (4x450W) | Amplification for speakers |

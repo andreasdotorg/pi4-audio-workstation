@@ -173,9 +173,13 @@ Orchestrator (this is you)
   to create new ones. They accumulate context across all work in the session.
   Shutting them down and respawning loses that context — which is exactly how
   mistakes get repeated (L-002, L-004).
-- **Workers rotate.** Spawn workers for specific tasks. When a task completes,
-  the worker can take the next task or be shut down. Multiple workers can run
-  in parallel on independent tasks.
+- **One worker, one mission, cradle to grave (L-ORCH-005).** Each worker is
+  spawned fresh for a specific mission (one or more related stories/defects).
+  That worker owns the mission from start to acceptance. No task reassignment,
+  no "shift priority," no reuse for unrelated work. When the mission is
+  accepted, the worker is shut down. If a new mission arrives, spawn a new
+  worker — do NOT reassign an existing one.
+  Multiple workers can run in parallel on independent missions.
 - **WARNING: `isolation: "worktree"` is BROKEN (L-039).** The Task tool's
   worktree isolation silently falls back to the main working directory without
   creating a worktree. Do NOT use it. For parallel workers writing files:
@@ -183,9 +187,10 @@ Orchestrator (this is you)
   disjoint file sets before spawning parallel workers on the same branch.
   Workers that commit directly (bypassing CM) are a protocol violation
   regardless of isolation mode.
-- **Story transitions are task changes, not team changes.** If the current
-  story finishes and the owner selects the next one, create new tasks and
-  assign them to existing or new workers. Do NOT recreate the team.
+- **Story transitions spawn new workers.** When a mission is accepted and
+  the owner selects the next story, spawn a fresh worker for it. Do NOT
+  reassign the old worker. Do NOT recreate the core team — only workers
+  rotate.
 
 ### Session end -> tidy up -> team down
 
@@ -444,18 +449,31 @@ The orchestrator resolves the situation (respawn the specialist, reassign the
 consultation, or — only as a last resort — explicitly authorize the worker
 to proceed with documented justification).
 
-### Rule 5: Workers only execute assigned tasks
+### Rule 5: One worker, one mission (L-ORCH-005)
 
-Workers MUST NOT self-assign work, start tasks on their own initiative, or
-act on problems they observe without orchestrator direction. If a worker
-identifies something that needs doing, they report it to the orchestrator
-and wait for assignment. The orchestrator decides what to do, when to do it,
-and who does it.
+Each worker is spawned fresh with a specific mission (one or more related
+stories/defects). That worker owns the mission exclusively — from first
+commit to owner acceptance. The worker does nothing else. When done, the
+worker is shut down. A new mission gets a new worker.
+
+**Workers MUST NOT:**
+- Self-assign work or start tasks on their own initiative
+- Accept reassignment to a different mission mid-flight
+- Work on "quick side tasks" between mission steps
+
+If a worker identifies something that needs doing outside their mission,
+they report it to the orchestrator and continue their own mission.
+
+**The orchestrator MUST NOT:**
+- Reassign a worker to a different mission (Rule 16)
+- Pile additional tasks onto a busy worker
+- Reuse a completed worker for unrelated work — spawn a fresh one
+- Send "shift priority" messages to a worker mid-task
 
 **The orchestrator enforces this by:**
-- Only spawning workers with specific task assignments
-- Including "do not start other work" in every worker task prompt
-- Rejecting unsolicited commits or changes from workers
+- Spawning each worker with a complete mission description
+- Never sending task changes to a worker after initial assignment
+- Spawning a new worker when a new mission arrives
 
 ### Rule 6: Continuous improvement
 
