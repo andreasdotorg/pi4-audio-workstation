@@ -54,7 +54,7 @@ def _navigate_to_test(page):
         document.getElementById('view-test').innerHTML =
             '<select id="tt-spectrum-source">' +
                 '<option value="monitor">Monitor</option>' +
-                '<option value="capture-usb" selected>UMIK-1</option>' +
+                '<option value="capture-usb" selected>USBStreamer Input (8ch)</option>' +
             '</select>' +
             '<canvas id="tt-spectrum-canvas" width="300" height="200"></canvas>' +
             '<div id="tt-spectrum-no-mic" class="hidden">Microphone not connected.</div>' +
@@ -213,8 +213,8 @@ class TestSourceSwitching:
         }""", timeout=PCM_DATA_TIMEOUT)
 
         initial_source = page.locator("#tt-mic-state").text_content()
-        # US-088: getSourceLabel maps "capture-usb" → "UMIK-1 (USB capture)".
-        assert "UMIK-1" in initial_source
+        # F-287: getSourceLabel maps "capture-usb" → "USBStreamer Input (8ch)".
+        assert "USBStreamer" in initial_source
 
         # Switch away to stop the spectrum.
         page.locator('.nav-tab[data-view="dashboard"]').dispatch_event("click")

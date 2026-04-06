@@ -626,12 +626,13 @@
             if (fftSelect) fftSelect.value = String(measFft);
         }
 
-        // Task #52: Auto-select UMIK-1 source in measurement mode.
+        // F-287: Auto-select capture-usb source in measurement mode.
+        // capture-usb reads from USBStreamer input (UMIK-1 on ch1 in production).
         var srcSelect = $("tt-spectrum-source");
-        if (srcSelect && specCurrentSource !== "umik1") {
-            srcSelect.value = "umik1";
+        if (srcSelect && specCurrentSource !== "capture-usb") {
+            srcSelect.value = "capture-usb";
             resetSplPeak();
-            if (specActive) specConnectPcm("umik1");
+            if (specActive) specConnectPcm("capture-usb");
         }
     }
 
@@ -912,10 +913,10 @@
      * Subtracts the mic's dB deviation so the display shows true SPL.
      */
     function applyCalibration(freqData) {
-        // Task #52: Apply UMIK-1 calibration when viewing a mic source.
+        // Apply UMIK-1 calibration when viewing a mic source.
         // Calibration is mic-specific — wrong for app output (monitor).
         if (!calEnabled || !calBinLUT || !freqData) return;
-        if (specCurrentSource !== "capture-usb" && specCurrentSource !== "umik1") return;
+        if (specCurrentSource !== "capture-usb") return;
         var len = Math.min(freqData.length, calBinLUT.length);
         for (var i = 0; i < len; i++) {
             freqData[i] -= calBinLUT[i];
@@ -1100,14 +1101,11 @@
         specDisconnectPcm();
         specCurrentSource = source;
 
-        // Task #52: "umik1" is a virtual source — use monitor WebSocket,
-        // extract ch3. Otherwise default to L+R average (ch -1).
-        var wsSource = source === "umik1" ? "monitor" : source;
-        var chIdx = source === "umik1" ? 2 : -1;
-        if (specPipeline) specPipeline.setChannelIndex(chIdx);
+        // Default to L+R average (ch -1) for all real sources.
+        if (specPipeline) specPipeline.setChannelIndex(-1);
 
         var proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-        var url = proto + "//" + window.location.host + "/ws/pcm/" + wsSource;
+        var url = proto + "//" + window.location.host + "/ws/pcm/" + source;
 
         try {
             specPcmWs = new WebSocket(url);
@@ -1206,10 +1204,9 @@
         } else {
             el.textContent = label + " (not available)";
             el.className = "c-danger";
-            // Task #52: Show mic overlay when UMIK-1 source is disconnected.
+            // Show mic overlay when capture-usb source is disconnected.
             if (overlay) {
-                var isMicSource = source === "umik1" || source === "capture-usb";
-                overlay.classList.toggle("hidden", !isMicSource);
+                overlay.classList.toggle("hidden", source !== "capture-usb");
             }
         }
     }
@@ -1250,11 +1247,9 @@
     }
 
     function getSourceLabel(name) {
-        // Task #52: "umik1" is a virtual source (ch3 of monitor stream).
-        if (name === "umik1") return "UMIK-1 (Live)";
         if (name === "monitor") return "Monitor (L+R)";
         var staticLabels = {
-            "capture-usb": "UMIK-1 (USB capture)",
+            "capture-usb": "USBStreamer Input (8ch)",
             "capture-adat": "ADAT capture"
         };
         return staticLabels[name] || name;
@@ -1280,15 +1275,6 @@
             opt.value = name;
             opt.textContent = getSourceLabel(name);
             select.appendChild(opt);
-        }
-
-        // Task #52: Add virtual UMIK-1 channel view (ch3 of monitor source).
-        // Always available — pcm-bridge carries UMIK-1 on ch3 in all modes.
-        if (sources.indexOf("monitor") >= 0) {
-            var umikOpt = document.createElement("option");
-            umikOpt.value = "umik1";
-            umikOpt.textContent = getSourceLabel("umik1");
-            select.appendChild(umikOpt);
         }
 
         // Restore previous selection if it still exists.
