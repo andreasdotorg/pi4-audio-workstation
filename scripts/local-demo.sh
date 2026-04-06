@@ -583,17 +583,18 @@ start_services() {
     echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]}, port $PORT_PCM)"
 
     # ---- pcm-bridge capture-usb (F-270: provides capture-usb source for TF tab) ----
-    # Reads from the UMIK-1 room-sim source node (mono).  In production this
-    # reads from the real UMIK-1 ALSA input; in local-demo the room-sim
-    # convolver creates a simulated UMIK-1 source with the same node name.
+    # Reads from the USBStreamer ALSA input (8ch ADC).  In production this is
+    # alsa_input.usb-MiniDSP_USBStreamer-00.pro-input-0; in local-demo the
+    # null-source adapter provides the same node name pattern and channel count.
+    # F-287: Must match production config (8ch USBStreamer input, not 1ch UMIK-1).
     echo ""
     echo "[local-demo] Starting pcm-bridge capture-usb (managed mode)..."
     "$PCM_BIN" \
         --managed \
         --mode capture \
-        --node-name alsa_input.usb-miniDSP_Umik-1 \
+        --node-name alsa_input.usb-MiniDSP_USBStreamer \
         --listen "tcp:0.0.0.0:${PORT_PCM_CAPTURE}" \
-        --channels 1 \
+        --channels 8 \
         --rate 48000 \
         --port-file "$PORT_FILE_DIR/pcm_capture" &
     PIDS+=($!)
@@ -735,7 +736,7 @@ print_summary() {
     echo "  level-bridge-hw-out: tcp://127.0.0.1:$PORT_LEVEL_HW_OUT (levels, USBStreamer monitor)"
     echo "  level-bridge-hw-in:  tcp://127.0.0.1:$PORT_LEVEL_HW_IN (levels, ADA8200 capture)"
     echo "  pcm-bridge (monitor): tcp://127.0.0.1:$PORT_PCM (PCM, convolver output tap)"
-    echo "  pcm-bridge (capture): tcp://127.0.0.1:$PORT_PCM_CAPTURE (PCM, UMIK-1 source tap)"
+    echo "  pcm-bridge (capture): tcp://127.0.0.1:$PORT_PCM_CAPTURE (PCM, USBStreamer input tap)"
     echo ""
     echo "  Manifest:     $MANIFEST_FILE"
     echo "  PW nodes:     alsa_output.usb-MiniDSP_USBStreamer-local-demo (room-sim sink, 8ch)"
