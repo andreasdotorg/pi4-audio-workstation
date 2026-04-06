@@ -386,6 +386,15 @@ belong in `tests/service-integration/`, not `tests/e2e/`.
 | `src/web-ui/tests/e2e/` | E2E | Yes (Playwright) | Yes (local-demo) |
 | `tests/e2e-harness/` | E2E harness/utilities | N/A (shared helpers) | Yes (local-demo) |
 
+> **Shorthand convention:** Prose in this document and in role prompts uses
+> `tests/e2e/` as shorthand for `src/web-ui/tests/e2e/`, and
+> `tests/service-integration/` for the repo-root directory. The table above
+> has the canonical repo-relative paths.
+
+> **Note:** `tests/service-integration/` does not exist yet. It will be
+> created as part of the E2E reclassification work (US-154). Until then,
+> the directory structure table above is the target layout.
+
 **The distinguishing factor between service-integration and E2E is the
 browser.** Both run against the real local-demo stack. E2E additionally
 exercises the browser UI layer.
