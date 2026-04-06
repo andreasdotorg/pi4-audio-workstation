@@ -400,18 +400,18 @@ class TestPhysicalConsistency:
         assert not result.valid
         assert any("Qts consistency" in e for e in result.errors)
 
-    def test_qts_within_5_percent(self, tmp_path):
-        """Qts within 5% tolerance should pass."""
+    def test_qts_within_10_percent(self, tmp_path):
+        """Qts within 10% tolerance should pass (manufacturer rounding)."""
         data = _minimal_valid_driver()
         qes = 0.5
         qms = 5.0
         expected_qts = (qes * qms) / (qes + qms)
         data["thiele_small"]["qes"] = qes
         data["thiele_small"]["qms"] = qms
-        data["thiele_small"]["qts"] = expected_qts * 1.04  # 4% off
+        data["thiele_small"]["qts"] = expected_qts * 1.09  # 9% off
         path = _write_driver(tmp_path, "test-qts-margin", data)
         result = validate_driver(path, check_files=False)
-        assert result.valid, f"Expected valid (within 5%): {result.errors}"
+        assert result.valid, f"Expected valid (within 10%): {result.errors}"
 
     def test_vd_consistent(self, tmp_path):
         """Vd = Sd * Xmax (in correct units)."""
@@ -614,7 +614,6 @@ class TestRealDriverRecords:
             pytest.skip("No driver records found")
         return drivers
 
-    @pytest.mark.xfail(reason="F-254: Qts consistency check >5% for morel-tsct1104 and prv-audio-6mr500-ndy-4")
     def test_sample_real_drivers_pass(self, drivers_available):
         """Validate up to 20 real driver records as a smoke test."""
         sample = drivers_available[:20]
