@@ -160,8 +160,32 @@ class PwTestEnv:
         return self.siggen_rpc({"cmd": "stop"})
 
     def set_mode(self, mode: str) -> dict:
-        """Switch GM operating mode."""
+        """Switch GM operating mode. Returns response with epoch field."""
         return self.gm_rpc({"cmd": "set_mode", "mode": mode})
+
+    def await_settled(self, since_epoch: int, timeout_ms: int = 10000) -> dict:
+        """Wait for reconciler settlement (US-140)."""
+        # Server blocks for up to timeout_ms, so use a generous socket timeout.
+        sock_timeout = max(timeout_ms / 1000.0 + 5.0, 15.0)
+        return _rpc_call("127.0.0.1", self.config.gm_port,
+                         {"cmd": "await_settled",
+                          "since_epoch": since_epoch,
+                          "timeout_ms": timeout_ms},
+                         timeout=sock_timeout)
+
+    def switch_mode(self, mode: str, timeout_ms: int = 10000) -> dict:
+        """Switch mode and wait for settlement (US-140 AC #13).
+
+        Combines set_mode + await_settled into a single call. Returns
+        the settlement result. Raises AssertionError if settlement fails.
+        """
+        resp = self.set_mode(mode)
+        epoch = resp.get("epoch", 0)
+        settled = self.await_settled(since_epoch=epoch, timeout_ms=timeout_ms)
+        assert settled.get("ok", False), (
+            f"Settlement failed after set_mode({mode!r}): {settled}"
+        )
+        return settled
 
     def get_links(self) -> dict:
         """Query GM link topology."""

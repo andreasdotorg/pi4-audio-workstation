@@ -117,6 +117,23 @@ class FilterChainCollector:
         """Return the latest GraphManager state snapshot, or None."""
         return self._state
 
+    def notify_mode_change(self, mode: str) -> None:
+        """Update cached GM state mode after a confirmed mode change.
+
+        US-140: When the test-tool routes change the GM mode and confirm
+        settlement, the topology endpoint still reads stale mode from the
+        poll cache.  This method lets callers push the new mode into the
+        cache immediately so the next topology query reflects the change
+        without waiting for the next poll cycle (~0.5s).
+        """
+        if self._state is not None:
+            self._state["mode"] = mode
+        else:
+            self._state = {"ok": True, "mode": mode}
+        # Also update _links cache which _build_dsp_status() reads.
+        if self._links is not None:
+            self._links["mode"] = mode
+
     def safety_snapshot(self) -> dict:
         """Build the safety alerts fragment for /ws/system.
 

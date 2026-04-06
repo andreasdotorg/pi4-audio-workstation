@@ -27,7 +27,6 @@ import json
 import os
 import re
 import socket
-import time
 import urllib.error
 import urllib.request
 
@@ -37,7 +36,6 @@ from playwright.sync_api import expect
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 # Timeouts
-MODE_SWITCH_SETTLE_S = 3
 UI_UPDATE_TIMEOUT_MS = 15_000
 GRAPH_RENDER_TIMEOUT_MS = 10_000
 
@@ -132,13 +130,13 @@ def _api_post(base_url, path, body=None, timeout=30):
 
 
 def _set_mode(base_url, mode: str) -> bool:
+    """US-140: test-tool API waits for settlement server-side."""
     try:
         if mode == "measurement":
             _api_post(base_url, "/api/v1/test-tool/ensure-measurement-mode")
         else:
             _api_post(base_url, "/api/v1/test-tool/restore-mode",
                        {"mode": mode})
-        time.sleep(MODE_SWITCH_SETTLE_S)
         return True
     except urllib.error.HTTPError as e:
         if e.code == 502:
@@ -463,20 +461,14 @@ class TestLinkCountCorrelation:
         )
         _wait_for_graph_render(demo_page)
 
-        # GM link reconciliation takes 3-6s after mode switch.  Poll
-        # the topology API until DJ link count exceeds standby (10s max).
-        dj_api_links = standby_api_links
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            dj_topo = _get_topology(local_demo_url)
-            dj_api_links = len(dj_topo.get("links", []))
-            if dj_api_links > standby_api_links:
-                break
-            time.sleep(1)
+        # US-140: _set_mode now blocks until reconciler settlement,
+        # so links should already be in place.
+        dj_topo = _get_topology(local_demo_url)
+        dj_api_links = len(dj_topo.get("links", []))
 
         assert dj_api_links > standby_api_links, (
             f"DJ mode ({dj_api_links} API links) should have more links "
-            f"than standby ({standby_api_links}) after 10s")
+            f"than standby ({standby_api_links})")
 
 
 # ---------------------------------------------------------------------------
