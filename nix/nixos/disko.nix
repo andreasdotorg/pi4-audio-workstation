@@ -16,6 +16,13 @@
 # runs during nixos-anywhere's chroot install (before first boot) and on
 # every subsequent nixos-rebuild switch.
 #
+# F-273: Filesystem labels (FIRMWARE, NIXOS_SD) are set explicitly to match
+# repart-image.nix. Both deployment paths reference partitions via
+# /dev/disk/by-label/ (filesystem labels), ensuring nixos-rebuild switch
+# works regardless of whether the SD card was created by repart or
+# nixos-anywhere. The fileSystems entries below match the shared
+# declarations in configuration.nix.
+#
 # T-072-18: nixos-anywhere fresh install
 # Usage: nixos-anywhere --flake .#mugge-deploy root@<target-host>
 #
@@ -24,17 +31,22 @@
 { config, lib, pkgs, ... }:
 
 {
-  # F-266: Mark /boot/firmware as needed for boot so that switch-to-configuration
-  # does not try to restart the mount unit during `nixos-rebuild switch`.
-  # The firmware partition genuinely IS needed for boot (VideoCore firmware,
-  # U-Boot, config.txt, DTBs).  Without this, systemd attempts to restart
-  # boot-firmware.mount during a live switch, which fails because the
-  # partition is already mounted.
-  #
-  # NOTE: Pi partition labels (by-partlabel/disk-main-firmware) were NOT
-  # verified on the live Pi (offline at time of fix).  Verify on next deploy
-  # with: lsblk -o NAME,PARTLABEL /dev/mmcblk0
-  fileSystems."/boot/firmware".neededForBoot = true;
+  # F-273: Override disko's auto-generated fileSystems to use filesystem
+  # labels (by-label/) instead of GPT partition labels (by-partlabel/).
+  # Disko generates entries using by-partlabel/ which only works on GPT.
+  # We use by-label/ (filesystem labels) because they work on both GPT
+  # (nixos-anywhere) and any future partition table type. These overrides
+  # match the fileSystems declared in configuration.nix.
+  fileSystems."/" = lib.mkForce {
+    device = "/dev/disk/by-label/NIXOS_SD";
+    fsType = "ext4";
+  };
+
+  fileSystems."/boot/firmware" = lib.mkForce {
+    device = "/dev/disk/by-label/FIRMWARE";
+    fsType = "vfat";
+    options = [ "nofail" "noauto" ];
+  };
 
   disko.devices.disk.main = {
     type = "disk";
@@ -52,8 +64,10 @@
           content = {
             type = "filesystem";
             format = "vfat";
+            # F-273: Filesystem label matching repart-image.nix.
+            extraArgs = [ "-n" "FIRMWARE" ];
             mountpoint = "/boot/firmware";
-            mountOptions = [ "defaults" "noatime" ];
+            mountOptions = [ "nofail" "noauto" ];
           };
         };
 
@@ -63,8 +77,10 @@
           content = {
             type = "filesystem";
             format = "ext4";
+            # F-273: Filesystem label matching repart-image.nix.
+            extraArgs = [ "-L" "NIXOS_SD" ];
             mountpoint = "/";
-            mountOptions = [ "defaults" "noatime" ];
+            mountOptions = [ "defaults" ];
           };
         };
       };

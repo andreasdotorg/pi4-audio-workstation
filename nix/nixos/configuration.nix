@@ -1,8 +1,8 @@
 # configuration.nix — top-level NixOS configuration for the Pi 4 Audio Workstation
 #
-# Imports all modules EXCEPT the deployment method (sd-image.nix or disko.nix).
+# Imports all modules EXCEPT the deployment method (repart-image.nix or disko.nix).
 # The deployment method is added at the flake level:
-#   - nixosConfigurations.mugge: adds sd-image.nix for image builds
+#   - nixosConfigurations.mugge: adds repart-image.nix for GPT image builds
 #   - nixosConfigurations.mugge-deploy: adds disko.nix for nixos-anywhere
 #
 # The nixos-hardware.nixosModules.raspberry-pi-4 import is handled
@@ -49,6 +49,24 @@
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   nix.settings.trusted-users = [ "root" "ela" ];
 
+  # F-273: Shared filesystem declarations — single source of truth for both
+  # deployment paths (repart-image.nix and disko.nix). Both produce GPT disks
+  # with identical filesystem labels: FIRMWARE (vfat) and NIXOS_SD (ext4).
+  # Disko auto-generates fileSystems using by-partlabel/; its mkForce
+  # overrides in disko.nix ensure these shared declarations win.
+  fileSystems."/" = {
+    device = "/dev/disk/by-label/NIXOS_SD";
+    fsType = "ext4";
+  };
+  fileSystems."/boot/firmware" = {
+    device = "/dev/disk/by-label/FIRMWARE";
+    fsType = "vfat";
+    # Not needed at runtime — only the VideoCore bootloader reads this
+    # partition, before Linux starts. Mounted on-demand by the firmware.nix
+    # activation script when updating firmware files.
+    options = [ "nofail" "noauto" ];
+  };
+
   # Closure trim — dedicated audio workstation needs none of these.
   # Audit (2026-03-29): ~5000 derivations in full closure; disabling
   # docs alone saves ~1673 derivations (~33%).
@@ -57,19 +75,19 @@
   services.speechd.enable = false;     # speech-dispatcher (no screen reader)
   boot.initrd.services.lvm.enable = false;  # LVM not used (simple partition)
 
-  # US-072: Only ext4 + vfat needed (root + boot per disko.nix).
-  # profiles/base.nix (imported by sd-image-aarch64.nix) enables btrfs,
-  # cifs, f2fs, ntfs, vfat, xfs, and ZFS by default.  ZFS is the critical
-  # one: it is an out-of-tree kernel module whose build pulls the kernel
-  # -dev output (full source tree rsync, ~1.5 GB) into the closure,
-  # overflowing the 30 GB builder disk.  mkForce replaces the full set.
+  # US-072: Only ext4 + vfat needed (root + firmware partitions).
+  # nixos-hardware raspberry-pi-4 or other imported modules may enable
+  # additional filesystems by default.  ZFS is the critical one: it is an
+  # out-of-tree kernel module whose build pulls the kernel -dev output
+  # (full source tree rsync, ~1.5 GB) into the closure, overflowing the
+  # 30 GB builder disk.  mkForce replaces the full set.
   boot.supportedFilesystems = lib.mkForce [ "ext4" "vfat" ];
 
   # US-072: Disable all-hardware installer defaults.
-  # sd-image.nix imports all-hardware.nix which sets enableAllHardware=true,
+  # The nixos-hardware raspberry-pi-4 module may set enableAllHardware=true,
   # pulling ~50 SCSI/RAID/NVMe/VirtIO initrd modules.  Our custom kernel
   # (kernel-rt.nix) strips SCSI_LOWLEVEL, BLK_DEV_NVME, VIRTUALIZATION,
-  # so those modules don't exist → modules-shrunk build fails.
+  # so those modules don't exist -> modules-shrunk build fails.
   hardware.enableAllHardware = lib.mkForce false;
 
   # Disable kernel.nix default initrd modules (ahci, sata_*, nvme, etc.).

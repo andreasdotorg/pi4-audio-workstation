@@ -8,7 +8,7 @@
 #   - config.txt (KMS, UART, GPU memory, arm_boost)
 #
 # Shared by:
-#   - sd-image.nix: uses firmwareFiles derivation for image build
+#   - repart-image.nix: uses firmwareFiles derivation for image build
 #   - disko.nix: activation script populates /boot/firmware on first boot
 #   - nixos-rebuild: activation script updates firmware on upgrades
 #
@@ -92,7 +92,13 @@ in
     # the NixOS generation (firmware packages may update across rebuilds).
     system.activationScripts.pi4audio-firmware = lib.stringAfter [ "specialfs" ] ''
       FWDIR="/boot/firmware"
-      if [ -d "$FWDIR" ]; then
+      # F-273: /boot/firmware is declared with nofail,noauto (not needed at
+      # runtime — only the VideoCore bootloader reads it before Linux starts).
+      # Mount on-demand when updating firmware files.
+      if ! mountpoint -q "$FWDIR" && [ -d "$FWDIR" ]; then
+        mount /dev/disk/by-label/FIRMWARE "$FWDIR" -t vfat -o nofail 2>/dev/null || true
+      fi
+      if mountpoint -q "$FWDIR"; then
         echo "Updating Pi 4 firmware in $FWDIR..."
         cp ${firmwareFiles}/bootcode.bin "$FWDIR/"
         cp ${firmwareFiles}/fixup*.dat "$FWDIR/"
@@ -102,6 +108,8 @@ in
         cp ${firmwareFiles}/bcm2711-rpi-4-b.dtb "$FWDIR/"
         cp ${firmwareFiles}/config.txt "$FWDIR/"
         echo "Pi 4 firmware updated."
+      else
+        echo "Pi 4 firmware partition not mounted at $FWDIR, skipping update."
       fi
     '';
   };
