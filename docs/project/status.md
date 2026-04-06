@@ -46,7 +46,7 @@ Production Pi at venue (unreachable).
 | US-083 | draft | Integration smoke tests | Depends US-075 (now COMPLETE) |
 | US-110 | IMPLEMENT 0/17 | Web UI passkey authentication | Architect decomposed 17 tasks |
 | US-111 | IMPLEMENT 8/13 | Local-demo PW graph topology redesign | AC #1,2,3,5,7,10,11 done. #4,6 dropped. #8 manual verify. #9 under investigation (T-111-10). |
-| US-113 | BLOCKED (real-stack E2E) | First-boot active config + FoH passthrough | All 5 phases committed. 34/34 mock E2E pass. **Owner directive: acceptance requires real-stack E2E (not mocks).** Blocked on Phase 1b test infra (L-QE-002). |
+| US-113 | IN PROGRESS (PR #22) | First-boot active config + FoH passthrough | PR #22: first-boot default venue loading (foh-passthrough.yml, GM auto-load, D-063 gate closed). Prior 5 phases committed. 34/34 mock E2E pass. Real-stack E2E still required for full acceptance (L-QE-002). F-271 tracks D-031 protection WAVs for ch 1-4. |
 | US-114 | TEST (Pi validated) | Minimal kernel config for Pi 4B | ~100 overrides committed + session 9 fixes (`7976ee0`, `c791ada`, `4c17ebb`: SND_SOC/DRM_VC4 deps, initrd strip, NVMe disable). Kernel boots on test Pi with all required hardware. Remaining: build time/size docs (AC #6-7), upgrade procedure (AC #9). |
 | US-115 | IMPLEMENT (Phase 0 done) | 8-channel filter-chain convolver (D-063) | Phase 0 complete: 8ch configs, dirac.wav, gain nodes, routing. Critical path — blocks US-113 E2E. |
 | US-116 | ready | Per-channel time delay measurement + compensation | Depends US-115, US-113. 8 AC, 8 tasks. AE-consulted detection improvements. |
@@ -76,7 +76,7 @@ Production Pi at venue (unreachable).
 | US-044 Pi tests (T-044-6/7) | Owner Pi session |
 | US-077 DoD #4 Pi perf test | Owner Pi session |
 | US-063 DoD #6 DJ soak test | Owner Pi session |
-| US-113 acceptance | Real-stack E2E required (owner directive). Blocked on Phase 1b test infra. Mock E2E 34/34 pass insufficient. |
+| US-113 acceptance | PR #22 (first-boot default venue) in Rule 13 review. Full acceptance still requires real-stack E2E (L-QE-002). F-271 (D-031 protection WAVs) tracked separately. |
 | US-090/092-097 re-acceptance | E2E baseline clean (F-249 resolved by US-123). Ready for formal owner re-acceptance. |
 | ~~F-249 prioritization~~ | ~~RESOLVED by US-123 (`6ef8f93`).~~ |
 | US-112 / US-127 sequencing | **Owner decision: US-112 (PW hot-reload patch) before US-127 (destroy-and-recreate).** US-112 in progress. If successful, US-127 simplifies dramatically. |
