@@ -26,9 +26,10 @@ pub fn run_levels_server(
     tracker: Arc<LevelTracker>,
     shutdown: Arc<AtomicBool>,
     notifier: Arc<Notifier>,
+    port_file: Option<&str>,
 ) {
     match kind {
-        ListenKind::Tcp => run_levels_tcp(addr, tracker, shutdown, notifier),
+        ListenKind::Tcp => run_levels_tcp(addr, tracker, shutdown, notifier, port_file),
         ListenKind::Unix => run_levels_unix(addr, tracker, shutdown, notifier),
     }
 }
@@ -38,15 +39,24 @@ fn run_levels_tcp(
     tracker: Arc<LevelTracker>,
     shutdown: Arc<AtomicBool>,
     notifier: Arc<Notifier>,
+    port_file: Option<&str>,
 ) {
     let listener = TcpListener::bind(addr).unwrap_or_else(|e| {
         error!("Failed to bind levels TCP {}: {}", addr, e);
         std::process::exit(1);
     });
+    let actual_addr = listener.local_addr().expect("failed to get local_addr");
+    info!("Levels TCP server listening on {}", actual_addr);
+
+    if let Some(path) = port_file {
+        if let Err(e) = std::fs::write(path, actual_addr.port().to_string()) {
+            error!("Failed to write port file {}: {}", path, e);
+        }
+    }
+
     listener
         .set_nonblocking(true)
         .expect("Failed to set non-blocking on levels listener");
-    info!("Levels TCP server listening on {}", addr);
 
     let mut clients: Vec<TcpStream> = Vec::new();
 

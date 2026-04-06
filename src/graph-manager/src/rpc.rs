@@ -1308,12 +1308,13 @@ pub fn start_rpc_thread(
     cmd_tx: mpsc::Sender<RpcCommand>,
     event_rx: mpsc::Receiver<GraphEvent>,
     shutdown: Arc<AtomicBool>,
+    port_file: Option<String>,
 ) -> thread::JoinHandle<()> {
     let addr = addr.to_string();
     let initial_mode = initial_mode.to_string();
 
     thread::spawn(move || {
-        run_rpc_server(&addr, &initial_mode, cmd_tx, event_rx, shutdown);
+        run_rpc_server(&addr, &initial_mode, cmd_tx, event_rx, shutdown, port_file.as_deref());
     })
 }
 
@@ -1323,17 +1324,24 @@ fn run_rpc_server(
     cmd_tx: mpsc::Sender<RpcCommand>,
     event_rx: mpsc::Receiver<GraphEvent>,
     shutdown: Arc<AtomicBool>,
+    port_file: Option<&str>,
 ) {
     let listener = match TcpListener::bind(addr) {
-        Ok(l) => {
-            info!("RPC server listening on {}", addr);
-            l
-        }
+        Ok(l) => l,
         Err(e) => {
             error!("RPC server failed to bind {}: {}", addr, e);
             return;
         }
     };
+
+    let actual_addr = listener.local_addr().expect("failed to get local_addr");
+    info!("RPC server listening on {}", actual_addr);
+
+    if let Some(path) = port_file {
+        if let Err(e) = std::fs::write(path, actual_addr.port().to_string()) {
+            error!("Failed to write port file {}: {}", path, e);
+        }
+    }
 
     // Non-blocking accept so we can check shutdown.
     listener
@@ -2030,7 +2038,7 @@ mod tests {
             }
         });
 
-        start_rpc_thread(addr, initial_mode, cmd_tx, event_rx, shutdown)
+        start_rpc_thread(addr, initial_mode, cmd_tx, event_rx, shutdown, None)
     }
 
     #[test]
