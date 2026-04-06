@@ -36,9 +36,10 @@ pub fn run_server(
     notifier: Arc<Notifier>,
     quantum: usize,
     channels: usize,
+    port_file: Option<&str>,
 ) {
     match kind {
-        ListenKind::Tcp => run_tcp(addr, ring, shutdown, notifier, quantum, channels),
+        ListenKind::Tcp => run_tcp(addr, ring, shutdown, notifier, quantum, channels, port_file),
         ListenKind::Unix => run_unix(addr, ring, shutdown, notifier, quantum, channels),
     }
 }
@@ -56,15 +57,24 @@ fn run_tcp(
     notifier: Arc<Notifier>,
     quantum: usize,
     channels: usize,
+    port_file: Option<&str>,
 ) {
     let listener = TcpListener::bind(addr).unwrap_or_else(|e| {
         error!("Failed to bind TCP {}: {}", addr, e);
         std::process::exit(1);
     });
+    let actual_addr = listener.local_addr().expect("failed to get local_addr");
+    info!("TCP server listening on {}", actual_addr);
+
+    if let Some(path) = port_file {
+        if let Err(e) = std::fs::write(path, actual_addr.port().to_string()) {
+            error!("Failed to write port file {}: {}", path, e);
+        }
+    }
+
     listener
         .set_nonblocking(true)
         .expect("Failed to set non-blocking");
-    info!("TCP server listening on {}", addr);
 
     let mut clients: Vec<PcmClient<TcpStream>> = Vec::new();
     broadcast_loop(&listener, &mut clients, &ring, &shutdown, &notifier, quantum, channels,

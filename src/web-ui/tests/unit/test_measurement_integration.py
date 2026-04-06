@@ -393,7 +393,7 @@ class TestConcurrentRESTCalls:
 class TestWatchdogTimeout:
     """Verify watchdog fires when no progress is made."""
 
-    @pytest.mark.xfail(reason="F-250: CancelledError in teardown")
+    @pytest.mark.xfail(reason="F-250: CancelledError in Starlette TestClient teardown — session cleanup incomplete")
     def test_watchdog_triggers_abort_on_stall(self, client):
         """If the session stalls without kicking watchdog, abort fires."""
         async def stalling_gain_cal(self):
@@ -626,84 +626,81 @@ class TestGMEnterMeasurementMode:
         _run(
             session._enter_measurement_mode())
 
-    def test_enter_measurement_mode_verifies_mode_after_set(self):
-        """Session calls get_mode() after set_mode to verify the switch."""
+    def test_enter_measurement_mode_uses_await_settled(self):
+        """US-140: Session calls set_mode + await_settled for deterministic settlement."""
         from graph_manager_client import MockGraphManagerClient
 
         call_log = []
         original_set_mode = MockGraphManagerClient.set_mode
-        original_get_mode = MockGraphManagerClient.get_mode
+        original_await_settled = MockGraphManagerClient.await_settled
 
         def tracking_set_mode(self, mode):
             call_log.append(("set_mode", mode))
-            original_set_mode(self, mode)
+            return original_set_mode(self, mode)
 
-        def tracking_get_mode(self):
-            call_log.append(("get_mode",))
-            return original_get_mode(self)
+        def tracking_await_settled(self, since_epoch=0, timeout_ms=10000):
+            call_log.append(("await_settled", since_epoch))
+            return original_await_settled(self, since_epoch, timeout_ms)
 
         session = _make_session()
         gm = _make_mock_gm()
         session._gm_client = gm
 
         with patch.object(MockGraphManagerClient, "set_mode", tracking_set_mode), \
-             patch.object(MockGraphManagerClient, "get_mode", tracking_get_mode):
+             patch.object(MockGraphManagerClient, "await_settled", tracking_await_settled):
             _run(
                 session._enter_measurement_mode())
 
-        # F-160: get_mode() is called first to save pre-measurement mode,
-        # then enter_measurement_mode (which calls set_mode), then get_mode
-        # for verification.
-        assert call_log[0] == ("get_mode",)
+        # US-140: set_mode("measurement") followed by await_settled.
         assert ("set_mode", "measurement") in call_log
-        # Verification get_mode must come after the set_mode.
         set_idx = call_log.index(("set_mode", "measurement"))
-        verify_indices = [i for i, c in enumerate(call_log)
-                          if c == ("get_mode",) and i > set_idx]
-        assert len(verify_indices) >= 1
+        settled_indices = [i for i, c in enumerate(call_log)
+                          if c[0] == "await_settled" and i > set_idx]
+        assert len(settled_indices) >= 1
 
-    def test_enter_measurement_mode_wrong_mode_raises(self):
-        """If GM reports wrong mode after set_mode, RuntimeError is raised."""
+    def test_enter_measurement_mode_settlement_failure_raises(self):
+        """US-140: If await_settled returns ok=False, RuntimeError is raised."""
         from graph_manager_client import MockGraphManagerClient
 
-        def stubborn_set_mode(self, mode):
-            # Accept the call but stay in "standby" mode.
-            pass
+        def failing_await_settled(self, since_epoch=0, timeout_ms=10000):
+            return {"ok": False, "reason": "timeout"}
 
         session = _make_session()
         gm = _make_mock_gm()
         session._gm_client = gm
 
-        with patch.object(MockGraphManagerClient, "set_mode", stubborn_set_mode):
-            with pytest.raises(RuntimeError, match="did not enter measurement mode"):
+        with patch.object(MockGraphManagerClient, "await_settled", failing_await_settled):
+            with pytest.raises(RuntimeError, match="settlement failed"):
                 _run(
                     session._enter_measurement_mode())
 
     def test_enter_measurement_mode_failure_restores_production(self):
-        """If enter_measurement_mode fails after set_mode, session tries to
-        restore the saved pre-measurement mode before re-raising (F-160)."""
+        """US-140/F-160: If settlement fails, session restores pre-measurement mode."""
         from graph_manager_client import MockGraphManagerClient
 
         set_mode_calls = []
+        original_set_mode = MockGraphManagerClient.set_mode
 
-        def stubborn_set_mode(self, mode):
-            # Track all set_mode calls but don't actually change internal state,
-            # so get_mode still returns "standby" and enter_measurement_mode
-            # raises RuntimeError.
+        def tracking_set_mode(self, mode):
             set_mode_calls.append(mode)
+            return original_set_mode(self, mode)
+
+        def failing_await_settled(self, since_epoch=0, timeout_ms=10000):
+            return {"ok": False, "reason": "timeout"}
 
         session = _make_session()
         gm = _make_mock_gm()
         session._gm_client = gm
 
-        with patch.object(MockGraphManagerClient, "set_mode", stubborn_set_mode):
+        with patch.object(MockGraphManagerClient, "set_mode", tracking_set_mode), \
+             patch.object(MockGraphManagerClient, "await_settled", failing_await_settled):
             with pytest.raises(RuntimeError):
                 _run(
                     session._enter_measurement_mode())
 
         # F-160: On failure, the error handler calls set_mode(saved_mode) to
         # restore the pre-measurement mode. The saved mode is "standby"
-        # (queried via get_mode before enter_measurement_mode).
+        # (queried via get_mode before _enter_measurement_mode).
         assert "standby" in set_mode_calls
 
 

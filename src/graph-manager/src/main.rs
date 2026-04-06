@@ -86,6 +86,11 @@ struct Args {
     /// Comma-separated list of 1-based sub channel numbers (e.g. "3,4" or "1,2").
     #[arg(long, default_value = "3,4")]
     sub_channels: String,
+
+    /// Write the actual bound port to this file after binding.
+    /// Used by orchestration scripts when --listen uses port 0.
+    #[arg(long)]
+    port_file: Option<String>,
 }
 
 
@@ -203,15 +208,62 @@ fn run_pipewire(
     let resolved_state_dir = venue::state_dir();
     let resolved_venues_dir = venue::venues_dir();
 
-    // Active venue name (US-113: set via set_venue RPC).
+    // Active venue name.
     // US-123: Load persisted venue name from disk (does NOT open gate or apply gains).
+    // US-113: If no persisted venue (first boot), load the default venue.
     let persisted_venue = venue::load_persisted_venue(&resolved_state_dir);
-    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(persisted_venue));
+    let (initial_venue, initial_pending_gains) = match persisted_venue {
+        Some(name) => {
+            // Normal boot: venue name restored from disk.
+            // Load the profile to populate pending_gains (gate stays closed).
+            let gains = match venue::find_venue(&resolved_venues_dir, &name) {
+                Ok(profile) => venue::venue_gains(&profile),
+                Err(e) => {
+                    log::warn!("US-123: persisted venue '{}' not found: {} — starting with no venue", name, e);
+                    Vec::new()
+                }
+            };
+            (Some(name), gains)
+        }
+        None => {
+            // First boot (US-113): load default venue, persist it, populate
+            // pending_gains. Gate stays CLOSED per D-063 safety invariant.
+            match venue::load_default_venue(&resolved_venues_dir, &resolved_state_dir) {
+                Ok(name) => {
+                    let gains = match venue::find_venue(&resolved_venues_dir, &name) {
+                        Ok(profile) => venue::venue_gains(&profile),
+                        Err(e) => {
+                            log::warn!("US-113: default venue '{}' profile error: {}", name, e);
+                            Vec::new()
+                        }
+                    };
+                    (Some(name), gains)
+                }
+                Err(e) => {
+                    log::warn!("US-113: failed to load default venue: {} — starting with no venue", e);
+                    (None, Vec::new())
+                }
+            }
+        }
+    };
+    let active_venue: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(initial_venue));
 
     // D-063 audio gate state: all gains start at 0.0, gate closed.
     // Gate must be explicitly opened via `open_gate` RPC after loading a venue.
     let gate_open: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
-    let pending_gains: Rc<RefCell<Vec<(String, f64)>>> = Rc::new(RefCell::new(Vec::new()));
+    let pending_gains: Rc<RefCell<Vec<(String, f64)>>> = Rc::new(RefCell::new(initial_pending_gains));
+
+    // US-140: Settlement epoch counters (deterministic reconciler settlement).
+    // Both live on the PW main loop thread — Cell<u64> is sufficient (no sync needed).
+    // reconcile_epoch: increments each time reconcile produces non-empty actions.
+    // settled_epoch: set to reconcile_epoch when reconcile produces zero actions.
+    let reconcile_epoch: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+    let settled_epoch: Rc<std::cell::Cell<u64>> = Rc::new(std::cell::Cell::new(0));
+
+    // US-140: Pending settlement waiters (await_settled RPC).
+    // Checked by the settlement timer on the PW main loop thread.
+    let pending_waiters: Rc<RefCell<Vec<rpc::PendingSettlementWaiter>>> =
+        Rc::new(RefCell::new(Vec::new()));
 
     // Created link proxies — must be kept alive for links to persist.
     // Keyed by (output_port_id, input_port_id).
@@ -233,6 +285,8 @@ fn run_pipewire(
             component_registry.clone(),
             watchdog_state.clone(),
             gate_open.clone(),
+            reconcile_epoch.clone(),
+            settled_epoch.clone(),
         );
     info!("PipeWire registry listener registered (reconciliation + lifecycle + watchdog wired)");
 
@@ -292,6 +346,9 @@ fn run_pipewire(
         let active_venue = active_venue.clone();
         let gate_open = gate_open.clone();
         let pending_gains = pending_gains.clone();
+        let reconcile_epoch = reconcile_epoch.clone();
+        let settled_epoch = settled_epoch.clone();
+        let pending_waiters = pending_waiters.clone();
         move |_expirations| {
             // Drain all pending commands.
             while let Ok(cmd) = cmd_rx.try_recv() {
@@ -319,6 +376,9 @@ fn run_pipewire(
                     &pending_gains,
                     &resolved_state_dir,
                     &resolved_venues_dir,
+                    &reconcile_epoch,
+                    &settled_epoch,
+                    &pending_waiters,
                 );
             }
         }
@@ -331,6 +391,36 @@ fn run_pipewire(
         .into_result()
         .expect("Failed to arm RPC command timer");
     info!("RPC command timer armed (50ms polling)");
+
+    // US-140: Settlement check timer — checks pending await_settled waiters.
+    // Runs every 10ms to provide responsive settlement notification.
+    // Settlement typically takes 2-42ms (1-2 PW main loop cycles).
+    let _settlement_timer = mainloop.loop_().add_timer({
+        let reconcile_epoch = reconcile_epoch.clone();
+        let settled_epoch = settled_epoch.clone();
+        let pending_waiters = pending_waiters.clone();
+        let graph = graph.clone();
+        let routing_table = routing_table.clone();
+        let current_mode = current_mode.clone();
+        move |_expirations| {
+            check_pending_waiters(
+                &pending_waiters,
+                &reconcile_epoch,
+                &settled_epoch,
+                &graph,
+                &routing_table,
+                &current_mode,
+            );
+        }
+    });
+    _settlement_timer
+        .update_timer(
+            Some(Duration::from_millis(10)),
+            Some(Duration::from_millis(10)),
+        )
+        .into_result()
+        .expect("Failed to arm settlement timer");
+    info!("Settlement check timer armed (10ms polling)");
 
     // Gain integrity timer: every 30s, run `pw-dump` and check that all
     // gain node Mult values are <= 1.0 (T-044-5). If any Mult > 1.0,
@@ -388,6 +478,7 @@ fn run_pipewire(
 
     // Drop PipeWire objects in reverse order BEFORE calling deinit().
     drop(_graph_info_timer);
+    drop(_settlement_timer);
     drop(_gain_timer);
     drop(_rpc_timer);
     drop(_shutdown_timer);
@@ -427,6 +518,9 @@ fn dispatch_rpc_command(
     pending_gains: &std::rc::Rc<std::cell::RefCell<Vec<(String, f64)>>>,
     resolved_state_dir: &std::path::Path,
     resolved_venues_dir: &std::path::Path,
+    reconcile_epoch: &std::rc::Rc<std::cell::Cell<u64>>,
+    settled_epoch: &std::rc::Rc<std::cell::Cell<u64>>,
+    pending_waiters: &std::rc::Rc<std::cell::RefCell<Vec<rpc::PendingSettlementWaiter>>>,
 ) {
     use rpc::{DeviceStatus, GraphEvent, LinkSnapshot, RpcResult};
 
@@ -435,7 +529,10 @@ fn dispatch_rpc_command(
             let old_mode = *current_mode.borrow();
             if mode == old_mode {
                 // No-op: already in the requested mode.
-                let _ = reply.send(RpcResult::Ok);
+                // US-140: Return current epoch even on no-op.
+                let _ = reply.send(RpcResult::OkWithEpoch {
+                    epoch: reconcile_epoch.get(),
+                });
                 return;
             }
 
@@ -443,10 +540,8 @@ fn dispatch_rpc_command(
             *current_mode.borrow_mut() = mode;
             info!("Mode transition: {} -> {}", old_mode, mode);
 
-            // 1b. Set quantum for the new mode (F-230).
-            // DJ needs quantum 1024 for efficient convolution; all other modes
-            // clear the force-quantum so PipeWire falls back to the config
-            // default (256, set in 10-audio-settings.conf).
+            // 1b. Set quantum for the new mode (F-230, F-249).
+            // DJ: force-quantum=1024; all other modes: force-quantum=256.
             set_quantum_for_mode(mode);
 
             // 2. Run reconciliation.
@@ -456,6 +551,13 @@ fn dispatch_rpc_command(
             // Log any missing endpoints (mode transition — log all, no dedup).
             for endpoint in &result.missing_endpoints {
                 log::warn!("Required link endpoint missing (will retry): {}", endpoint);
+            }
+
+            // US-140: Update epoch counters after reconcile, before applying link actions.
+            if result.actions.is_empty() {
+                settled_epoch.set(reconcile_epoch.get());
+            } else {
+                reconcile_epoch.set(reconcile_epoch.get() + 1);
             }
 
             // 3. Apply link actions.
@@ -485,8 +587,10 @@ fn dispatch_rpc_command(
             }
             drop(g);
 
-            // 4. Send reply.
-            let _ = reply.send(RpcResult::Ok);
+            // 4. Send reply with epoch (US-140 AC #3).
+            let _ = reply.send(RpcResult::OkWithEpoch {
+                epoch: reconcile_epoch.get(),
+            });
 
             // 5. Emit mode_changed event.
             let _ = event_tx.send(GraphEvent::ModeChanged {
@@ -533,16 +637,16 @@ fn dispatch_rpc_command(
             let g = graph.borrow();
             let mode = *current_mode.borrow();
             let desired = routing_table.links_for(mode);
-            let actual_count = g.link_count();
+            // US-140 AC #8: Fix missing calculation — use reconciler to check
+            // each desired link against actual graph by port pair, not total
+            // link count (which includes links GM didn't create).
+            let missing = count_missing_links(&g, routing_table, mode);
+            let actual = desired.len() - missing;
             let snap = LinkSnapshot {
                 mode: mode.to_string(),
                 desired: desired.len(),
-                actual: actual_count,
-                missing: if desired.len() > actual_count {
-                    desired.len() - actual_count
-                } else {
-                    0
-                },
+                actual,
+                missing,
                 links: Vec::new(), // Detailed link info comes with GM-3 integration.
             };
             let _ = reply.send(snap);
@@ -743,7 +847,109 @@ fn dispatch_rpc_command(
                 venue: active_venue.borrow().clone(),
             });
         }
+
+        rpc::RpcCommand::AwaitSettled { since_epoch, timeout_ms, reply } => {
+            // US-140: Check if already settled. If so, reply immediately.
+            if settled_epoch.get() >= since_epoch {
+                let g = graph.borrow();
+                let mode = *current_mode.borrow();
+                let desired = routing_table.links_for(mode);
+                let missing = count_missing_links(&g, routing_table, mode);
+                let actual = desired.len() - missing;
+                let _ = reply.send(rpc::SettlementResult {
+                    ok: true,
+                    settled_epoch: settled_epoch.get(),
+                    desired: desired.len(),
+                    actual,
+                    missing,
+                    reason: None,
+                });
+            } else {
+                // Not yet settled — add to pending waiters.
+                let deadline = std::time::Instant::now()
+                    + std::time::Duration::from_millis(timeout_ms);
+                pending_waiters.borrow_mut().push(rpc::PendingSettlementWaiter {
+                    since_epoch,
+                    deadline,
+                    reply,
+                });
+            }
+        }
     }
+}
+
+/// US-140: Count missing desired links by running reconciliation and
+/// counting Create actions. This gives the accurate "missing" count
+/// because the reconciler resolves node matchers and port names to
+/// actual port IDs, then checks which desired links exist in the graph.
+///
+/// Replaces the broken `desired.len() - g.link_count()` calculation
+/// that compared against TOTAL graph links (AC #8).
+#[cfg(feature = "pipewire-backend")]
+fn count_missing_links(
+    graph: &graph::GraphState,
+    routing_table: &routing::RoutingTable,
+    mode: routing::Mode,
+) -> usize {
+    let result = reconcile::reconcile(graph, routing_table, mode);
+    result.actions.iter().filter(|a| matches!(a, reconcile::LinkAction::Create { .. })).count()
+}
+
+/// US-140: Check pending settlement waiters and send replies for those that
+/// have settled or timed out.
+///
+/// Called every 10ms on the PW main loop thread. Drains waiters that are
+/// satisfied or expired.
+#[cfg(feature = "pipewire-backend")]
+fn check_pending_waiters(
+    pending_waiters: &std::rc::Rc<std::cell::RefCell<Vec<rpc::PendingSettlementWaiter>>>,
+    reconcile_epoch: &std::rc::Rc<std::cell::Cell<u64>>,
+    settled_epoch: &std::rc::Rc<std::cell::Cell<u64>>,
+    graph: &std::rc::Rc<std::cell::RefCell<graph::GraphState>>,
+    routing_table: &std::rc::Rc<routing::RoutingTable>,
+    current_mode: &std::rc::Rc<std::cell::RefCell<routing::Mode>>,
+) {
+    let mut waiters = pending_waiters.borrow_mut();
+    if waiters.is_empty() {
+        return;
+    }
+
+    let now = std::time::Instant::now();
+    let current_settled = settled_epoch.get();
+    let g = graph.borrow();
+    let mode = *current_mode.borrow();
+    let desired = routing_table.links_for(mode);
+    let missing = count_missing_links(&g, routing_table, mode);
+    let actual = desired.len() - missing;
+
+    // Process waiters: remove those that are settled or timed out.
+    waiters.retain(|waiter| {
+        if current_settled >= waiter.since_epoch {
+            // Settled — send success reply.
+            let _ = waiter.reply.send(rpc::SettlementResult {
+                ok: true,
+                settled_epoch: current_settled,
+                desired: desired.len(),
+                actual,
+                missing,
+                reason: None,
+            });
+            false // remove from list
+        } else if now >= waiter.deadline {
+            // Timeout — send error reply.
+            let _ = waiter.reply.send(rpc::SettlementResult {
+                ok: false,
+                settled_epoch: current_settled,
+                desired: desired.len(),
+                actual,
+                missing,
+                reason: Some("timeout".to_string()),
+            });
+            false // remove from list
+        } else {
+            true // keep waiting
+        }
+    });
 }
 
 /// Run one cycle of the gain integrity check (T-044-5).
@@ -947,11 +1153,16 @@ fn parse_pw_dump_xruns(json_str: &str) -> Result<(u64, String), String> {
     Ok((total_xruns, driver_node_name))
 }
 
-/// Set PipeWire quantum for the given mode (F-230).
+/// Set PipeWire quantum for the given mode (F-230, F-249).
 ///
-/// DJ mode needs quantum 1024 for efficient convolution (saves CPU for Mixxx).
-/// All other modes clear force-quantum (set to 0), so PipeWire falls back to
-/// the config default (quantum 256, set in `10-audio-settings.conf`).
+/// GM is the single authority for quantum in all modes:
+/// - DJ: 1024 (~21ms PA path, efficient convolution for Mixxx)
+/// - Live/Standby/Measurement: 256 (~5.3ms PA path, below slapback threshold)
+///
+/// F-249: Previously non-DJ modes cleared force-quantum to 0, relying on PW
+/// config defaults. PipeWire may negotiate a higher quantum (e.g. 1024) when
+/// force-quantum is 0, depending on the graph topology. Explicit 256 ensures
+/// deterministic behavior regardless of PW negotiation.
 ///
 /// Uses `pw-metadata -n settings 0 clock.force-quantum <value>`.
 /// Errors are logged but not fatal — quantum mismatch is a performance issue,
@@ -962,8 +1173,8 @@ fn set_quantum_for_mode(mode: Mode) {
 
     let quantum = match mode {
         Mode::Dj => 1024,
-        // Live (256), Standby, Measurement: clear force-quantum → config default.
-        _ => 0,
+        // F-249: Explicitly set 256 instead of clearing to 0.
+        _ => 256,
     };
 
     let quantum_str = quantum.to_string();
@@ -972,11 +1183,7 @@ fn set_quantum_for_mode(mode: Mode) {
         .output()
     {
         Ok(output) if output.status.success() => {
-            if quantum > 0 {
-                info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
-            } else {
-                info!("F-230: Cleared clock.force-quantum for {} mode (using config default)", mode);
-            }
+            info!("F-230: Set clock.force-quantum={} for {} mode", quantum, mode);
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1221,6 +1428,7 @@ fn main() {
         cmd_tx,
         event_rx,
         shutdown.clone(),
+        args.port_file,
     );
 
     // Run PipeWire main loop (blocks until shutdown). The PW thread

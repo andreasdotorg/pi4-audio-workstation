@@ -386,10 +386,29 @@ def _gm_get_mode() -> str:
 
 
 def _gm_set_mode(mode: str) -> str:
-    """Set GM routing mode via TCP RPC and return the new mode."""
+    """Set GM routing mode via TCP RPC, wait for settlement, return mode."""
     with _gm_client() as client:
-        client.set_mode(mode)
+        resp = client.set_mode(mode)
+        # US-140: Wait for reconciler settlement instead of caller sleeping.
+        epoch = resp.get("epoch", 0)
+        client.await_settled(since_epoch=epoch, timeout_ms=10000)
         return mode
+
+
+def _notify_cdsp_mode(request: Request, mode: str) -> None:
+    """Push confirmed mode into FilterChainCollector cache (US-140).
+
+    After _gm_set_mode() returns with settlement confirmed, the topology
+    endpoint would still read stale mode from the poll cache (~0.5s delay).
+    This immediately updates the cache so the next topology query reflects
+    the new mode.  Also invalidates the pw-dump cache so the next topology
+    query gets fresh link data.
+    """
+    cdsp = getattr(request.app.state, "cdsp", None)
+    if cdsp is not None:
+        cdsp.notify_mode_change(mode)
+    from ..graph_routes import invalidate_pw_dump_cache
+    invalidate_pw_dump_cache()
 
 
 @router.get("/current-mode")
@@ -407,7 +426,7 @@ async def current_mode():
 
 
 @router.post("/ensure-measurement-mode")
-async def ensure_measurement_mode():
+async def ensure_measurement_mode(request: Request):
     """Switch GraphManager to measurement mode if not already there (F-144).
 
     Signal-gen needs measurement routing to have PipeWire links.  This
@@ -431,6 +450,7 @@ async def ensure_measurement_mode():
     try:
         await asyncio.to_thread(_gm_set_mode, "measurement")
         _sync_mock_quantum("measurement")
+        _notify_cdsp_mode(request, "measurement")
         log.info("F-144: Switched GM to measurement mode (was: %s)", current)
         return {"mode": "measurement", "switched": True, "previous": current}
     except Exception as exc:
@@ -480,6 +500,7 @@ async def restore_mode(request: Request):
     try:
         await asyncio.to_thread(_gm_set_mode, target)
         _sync_mock_quantum(target)
+        _notify_cdsp_mode(request, target)
         log.info("F-160: Restored GM to %s mode (was: %s)", target, current)
         return {"mode": target, "switched": True}
     except Exception as exc:

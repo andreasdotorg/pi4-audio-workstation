@@ -94,6 +94,11 @@ struct Args {
     /// or "pi4audio-level-bridge-capture" (capture) if not set.
     #[arg(long, env = "PI4AUDIO_NODE_NAME")]
     node_name: Option<String>,
+
+    /// Write the actual bound port to this file after binding.
+    /// Used by orchestration scripts when --levels-listen uses port 0.
+    #[arg(long)]
+    port_file: Option<String>,
 }
 
 /// Parse listen address into (kind, address) tuple.
@@ -154,6 +159,7 @@ fn main() {
     let tracker_for_server = level_tracker.clone();
     let shutdown_for_server = shutdown.clone();
     let notifier_for_server = levels_notifier.clone();
+    let port_file_for_server = args.port_file.clone();
     let levels_thread = std::thread::Builder::new()
         .name("levels-server".into())
         .spawn(move || {
@@ -163,6 +169,7 @@ fn main() {
                 tracker_for_server,
                 shutdown_for_server,
                 notifier_for_server,
+                port_file_for_server.as_deref(),
             );
         })
         .expect("Failed to spawn levels server thread");
@@ -594,6 +601,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 node_name: None,
+                port_file: None,
             }
         }
 
@@ -607,6 +615,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 node_name: None,
+                port_file: None,
             }
         }
 
@@ -620,6 +629,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 node_name: Some(node_name.to_string()),
+                port_file: None,
             }
         }
 

@@ -378,7 +378,7 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 
 ## Pi Hardware State (verified 2026-03-10)
 
-- **OS:** Debian 13 Trixie. **Currently booted: PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`)**. Upgraded from `6.12.47` via `apt upgrade`. `config.txt` has `kernel=kernel8_rt.img`.
+- **OS:** NixOS (flake-based, SD card image built from `flake.nix`). v0.1.0 image booted and verified (F-266). **PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`)**.
 - **Desktop:** labwc (Wayland) with **hardware V3D GL compositor** (D-022). No pixman override. lightdm disabled, labwc runs as systemd user service.
 - **V3D:** Hardware V3D GL active on PREEMPT_RT. No blacklist needed (D-022). Upstream fix for ABBA deadlock (commit `09fb2c6f4093`) included in `6.12.62+rpt-rpi-v8-rt`. F-012/F-017 RESOLVED.
 - **Audio:** PipeWire 1.6.2 (NixOS, US-128) at SCHED_FIFO 88 (systemd override, F-020 workaround deployed). PW filter-chain convolver handles all FIR processing (FFTW3/NEON, 16k taps, 4ch). Four `linear` builtin gain nodes provide per-channel attenuation (Mult params from `.conf` defaults; runtime `pw-cli` changes are session-only per C-009). CamillaDSP 3.0.1 installed but **service stopped** (D-040: abandoned in favor of PW convolver). GraphManager (port 4002) manages link topology and mode transitions. Signal-gen (port 4001) provides RT measurement audio. pcm-bridge (port 9100) provides lock-free level metering.
@@ -390,12 +390,12 @@ Pi: `ela@192.168.178.185` (hostname: mugge), key-based auth, passwordless sudo.
 - **Firewall:** nftables active (US-000a). Default DROP inbound. Allowed: SSH (22/tcp), VNC (5900/tcp), Web UI (8080/tcp), mDNS (5353/udp), ICMP, loopback, established/related. Port 8080 persistent (TK-140 confirmed).
 - **SSH:** Password auth disabled (TK-056 verified), key-based only
 - **Listening ports:** SSH (22/tcp, all interfaces), avahi/mDNS (5353/udp, all interfaces), wayvnc (5900/tcp when active, password auth), Web UI (8080/tcp, HTTPS, all interfaces, F-037: no auth). Localhost only: GraphManager RPC (4002/tcp), signal-gen RPC (4001/tcp), pcm-bridge levels (9100/tcp). CamillaDSP websocket (1234/tcp) — service stopped (D-040). rpcbind and CUPS disabled (TK-012).
-- **Installed:** CamillaDSP 3.0.1, Mixxx 2.5.0 (2.5.4 blocked — requires Qt 6.9, Trixie has 6.8.2), PipeWire 1.6.2 (NixOS, US-128), Reaper 7.64, wayvnc 0.9.1. RustDesk removed (D-018). 148 system packages upgraded (TK-066, 2026-03-10).
+- **Installed (via NixOS):** PipeWire 1.6.2 (US-128), GraphManager, signal-gen, pcm-bridge, level-bridge, web-ui. Mixxx and Reaper available via NixOS packages. CamillaDSP abandoned (D-040). RustDesk removed (D-018).
 
 ## Owner Preferences (from session 2026-03-08)
 
 - **Remote desktop:** wayvnc (D-018 superseded RustDesk; RustDesk removed)
-- **Reproducibility:** NixOS with flake long-term. Trixie + lab notes for now.
+- **Reproducibility:** NixOS with flake — deployed. SD card image built from `flake.nix`, v0.1.0 released.
 - **DJ mode:** Hercules-primary, APCmini optional enhancement
 - **Mode switching:** Whole-gig for starters, quick switch future nice-to-have
 - **Singer IEM:** Engineer controls for MVP, singer self-control future bonus
@@ -443,7 +443,7 @@ pre-flight checklists, and PREEMPT_RT as a safety requirement (D-013).
 
 | Device | Role |
 |---|---|
-| Raspberry Pi 4B | Main compute, Raspberry Pi OS Trixie (Debian 13) |
+| Raspberry Pi 4B | Main compute, NixOS (flake-based SD card image) |
 | minidsp USBStreamer B | 8in/8out USB audio interface via ADAT |
 | Behringer ADA8200 | ADAT-to-analog converter, 8 channels, has mic preamps |
 | 4-channel Class D amp (4x450W) | Amplification for speakers |
@@ -539,7 +539,7 @@ At 48kHz, 16,384 taps = 341ms = 2.9Hz frequency resolution.
 - [ ] Verify REW runs on Pi 4 ARM (Java-based, should work but needs testing)
 - [x] ~~Decide if measurement pipeline should use REW or pure Python~~ D-016: both. REW for exploratory work, Python for automation pipeline.
 - [ ] Determine if `gpu_mem=128` is needed for Mixxx or if Xvfb works with `gpu_mem=16`
-- [x] ~~Check if Raspberry Pi OS Trixie ships a PREEMPT_RT kernel package~~ YES. D-013 + D-022: PREEMPT_RT mandatory with hardware V3D GL (upstream fix in `6.12.62+rpt-rpi-v8-rt`).
+- [x] ~~Check if Raspberry Pi OS Trixie ships a PREEMPT_RT kernel package~~ OBSOLETE (NixOS deployed). PREEMPT_RT kernel included in NixOS configuration.
 - [ ] Test whether PipeWire or native JACK gives better latency/stability on Pi 4
 - [x] ~~Investigate CamillaDSP's websocket API for runtime filter hot-swapping~~ OBSOLETE (D-040: CamillaDSP abandoned). PW filter-chain conf reload or GraphManager mode transitions replace this.
 - [ ] Flight case design: ventilation, cable routing, power distribution

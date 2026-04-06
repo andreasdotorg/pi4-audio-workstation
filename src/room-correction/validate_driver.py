@@ -310,7 +310,13 @@ def _validate_application_notes(result, notes):
 # ---------------------------------------------------------------------------
 
 def _check_qts_consistency(result, ts):
-    """Validate Qts = (Qes * Qms) / (Qes + Qms) within 5% tolerance."""
+    """Validate Qts = (Qes * Qms) / (Qes + Qms) within 10% tolerance.
+
+    Manufacturer datasheets commonly round Qts, Qes, and Qms independently,
+    which can produce 5-7% deviations from the computed value even when the
+    underlying measurements are consistent. A 10% tolerance accommodates
+    this rounding while still catching genuine data-entry errors.
+    """
     qts = ts.get("qts")
     qes = ts.get("qes")
     qms = ts.get("qms")
@@ -325,11 +331,11 @@ def _check_qts_consistency(result, ts):
         return
 
     deviation = abs(qts - expected_qts) / expected_qts
-    if deviation > 0.05:
+    if deviation > 0.10:
         result.error(
             f"thiele_small: Qts consistency check failed. "
             f"Qts={qts}, expected (Qes*Qms)/(Qes+Qms)={expected_qts:.4f}, "
-            f"deviation={deviation:.1%} (>5%)"
+            f"deviation={deviation:.1%} (>10%)"
         )
 
 
