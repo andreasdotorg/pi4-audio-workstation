@@ -407,8 +407,7 @@ class TestLinkCountsPerMode:
             f"DJ ({dj_links}) should have >= links than standby ({standby_links})")
 
     @pytest.mark.xfail(
-        reason="F-263: GM reconciler timing: rapid DJ->live switch may not "
-               "stabilize before PipeWire link destruction completes",
+        reason="F-272: reconciler race — no deterministic settlement signal",
         strict=False,
     )
     def test_live_has_at_least_as_many_links_as_dj(self, local_demo_url):
@@ -453,10 +452,10 @@ class TestLinkCountsPerMode:
 
 
 class TestQuantumOnModeSwitch:
-    """Quantum changes correctly when switching modes (F-230).
+    """Quantum changes correctly when switching modes (F-230, F-249).
 
     DJ mode: clock.force-quantum=1024
-    All other modes: clock.force-quantum=0 (reverts to config default 256)
+    All other modes: clock.force-quantum=256 (GM is authoritative for all modes)
     """
 
     def test_standby_quantum_256(self, demo_page, local_demo_url):
