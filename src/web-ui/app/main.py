@@ -195,11 +195,11 @@ async def lifespan(app: FastAPI):
             await app.state.levels_hw_out.start()
         if app.state.levels_hw_in is not None:
             await app.state.levels_hw_in.start()
-        app.state.cdsp = FilterChainCollector()
+        app.state.cdsp = FilterChainCollector(host=gm_host, port=gm_port)
         await app.state.cdsp.start()
         app.state.system_collector = SystemCollector()
         await app.state.system_collector.start()
-        app.state.pw = PipeWireCollector()
+        app.state.pw = PipeWireCollector(host=gm_host, port=gm_port)
         await app.state.pw.start()
         log.info("All collectors started")
 
