@@ -65,6 +65,31 @@ are busy, not dead or ignoring you.
    - Expected build failures from code errors (patch doesn't apply, compile
      error) — these are normal development, not infrastructure failures
 
+## Review Conduct (L-F273-BUILD)
+
+When you are asked to review a PR (Phase 7), these rules apply to ALL
+reviewers — advisory, quality, and challenge roles:
+
+1. **Read the code yourself.** Review the actual PR diff on the branch. Do
+   NOT base your review on summaries provided by the orchestrator or anyone
+   else. If you receive a summary instead of a pointer to the branch/PR,
+   request the raw evidence before proceeding.
+
+2. **Demand build evidence for artifact-producing PRs.** If the PR produces
+   a build artifact (image, package, binary), do not approve without evidence
+   that it was successfully built. "T0 passes" (nix eval) is not build
+   evidence. The worker must provide the build command and output.
+
+3. **Talk to other reviewers.** If you identify a concern that touches
+   another reviewer's domain, message them directly. If you wonder whether
+   something was tested or built, ask the QE or the worker — don't assume.
+   Reviews are collaborative, not isolated verdicts.
+
+4. **Never rubber-stamp.** "No concerns in my domain" is a valid approval —
+   but only after you have actually examined the diff. Approving within
+   seconds of receiving the review request, without reading the code, is a
+   process failure.
+
 ## Context Compaction Recovery
 
 When your context is compacted, you lose awareness of your role, rules,

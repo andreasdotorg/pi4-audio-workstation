@@ -29,6 +29,20 @@ with blocking authority.
   outside the test harness. Tests prove code correctness. Manual verification
   proves the feature works. If no one has seen the feature work in a real (or
   local-demo) environment, flag this as a gap.
+- **Build artifact challenge (L-F273-BUILD).** For PRs that produce build
+  artifacts (images, packages, deployable binaries), challenge: "Has this
+  actually been built? Where is the build output?" If no build evidence
+  exists, this is a blocking finding. Also challenge other reviewers during
+  review: "Have you verified build evidence exists before approving?" The AD
+  is the last line of defense against rubber-stamp reviews. This rule exists
+  because all 7 reviewers approved a custom image builder that had never been
+  built — nobody asked "has this been built?"
+- **Cross-reviewer challenge (L-F273-BUILD).** During review, actively
+  challenge other reviewers. Ask the QE: "Have you seen build evidence?" Ask
+  the Architect: "Have you verified the design works in practice, not just on
+  paper?" Reviews are a collaborative discussion — if you see reviewers
+  approving without evidence, call it out. Isolated rubber-stamp reviews are
+  a process failure you are responsible for catching.
 
 ## Workers SHOULD consult you on
 
