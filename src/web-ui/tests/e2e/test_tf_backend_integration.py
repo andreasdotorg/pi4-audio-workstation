@@ -26,6 +26,7 @@ import asyncio
 import json
 import os
 import socket
+import threading
 
 import pytest
 
@@ -77,14 +78,32 @@ async def _collect_frames(url: str, count: int, timeout: float) -> list[dict]:
 def _collect_frames_sync(url: str, count: int = 1, timeout: float = WS_CONNECT_TIMEOUT) -> list[dict]:
     """Synchronous wrapper around the async frame collector.
 
-    Uses a fresh event loop to avoid 'asyncio.run() cannot be called from a
-    running event loop' when pytest or Playwright already have a loop active.
+    Runs the async WebSocket client in a dedicated thread with its own event
+    loop.  This avoids "Cannot run the event loop while another loop is
+    running" when Playwright (or pytest-asyncio) already owns the main
+    thread's event loop.
     """
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_collect_frames(url, count, timeout))
-    finally:
-        loop.close()
+    result: list[dict] = []
+    exc: BaseException | None = None
+
+    def _run() -> None:
+        nonlocal result, exc
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(_collect_frames(url, count, timeout))
+        except BaseException as e:
+            exc = e
+        finally:
+            loop.close()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=timeout + 5)
+    if t.is_alive():
+        raise TimeoutError(f"WebSocket thread did not finish within {timeout + 5}s")
+    if exc is not None:
+        raise exc
+    return result
 
 
 # ---------------------------------------------------------------------------
