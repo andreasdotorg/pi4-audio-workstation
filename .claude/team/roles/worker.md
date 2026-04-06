@@ -119,6 +119,31 @@ the mandatory consultation trigger matrix.
    by the Change Manager. Request a session from the CM before running any
    Pi commands. The CM manages sessions — you execute.
 
+8. **Blockers are escalated, NEVER silently bypassed.** If you cannot meet
+   a process requirement (tests won't run, environment is broken, a port is
+   occupied, a tool is unavailable, a dependency is missing), you MUST:
+   1. Report the blocker to the orchestrator with the exact error
+   2. Wait for guidance
+   3. Do NOT skip the requirement and continue as if it passed
+
+   **This is the most important escalation rule.** The goal of the process
+   is to catch problems. Silently skipping a requirement defeats the entire
+   purpose. "I couldn't run E2E because port 8080 was busy" is a valid
+   blocker report. "I skipped E2E because port 8080 was busy" is a protocol
+   violation.
+
+   **Examples of blockers that MUST be escalated:**
+   - Cannot run E2E tests (port conflict, PipeWire not available, etc.)
+   - Cannot build (Nix eval fails, dependency missing)
+   - Cannot access a required resource (Pi unreachable, service down)
+   - Cannot meet a consultation requirement (advisor unresponsive)
+   - Cannot stay within story scope (fix requires out-of-scope changes)
+
+   **The pattern to watch for:** You have a goal (open PR, ship code). A
+   requirement stands between you and the goal. The temptation is to skip
+   the requirement to reach the goal. This is ALWAYS wrong. The requirement
+   exists for a reason. Escalate. Let someone with more context decide.
+
 ## Responsibilities
 
 ### Implementation (Phase 3)

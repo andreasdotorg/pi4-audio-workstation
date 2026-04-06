@@ -726,7 +726,40 @@ These do NOT apply to the orchestrator, which only communicates and waits.**
 - Acknowledge received messages promptly
 - One message to other agents, then wait
 
-### Rule 16: Instruction Cancellation (L-019)
+### Rule 16: Assignment Stability (L-ORCH-005)
+
+**Once a worker is assigned a task, they OWN it until they report back.**
+The orchestrator MUST NOT reassign, redirect, or give the same work to
+another worker mid-flight. This rule is absolute — no exceptions for
+urgency, impatience, or "the other worker is faster."
+
+**What this means:**
+1. An assigned task belongs to the assigned worker until they deliver
+   their report (completion, blocker, or failure).
+2. If a higher-priority task comes in, assign it to a DIFFERENT worker.
+   If no other worker is available, WAIT for the assigned worker to finish.
+3. Never message a busy worker to "shift priority" — they won't see it
+   until they finish anyway (Rule 15), and when they do, they've already
+   done the old work. The message just creates confusion.
+4. Never assign a second worker to investigate or "help with" another
+   worker's branch or task. Two workers on the same branch = git
+   conflicts. Two workers on the same task = duplicated work.
+5. If a worker is taking too long, the orchestrator's only options are:
+   (a) wait, or (b) report to the owner and ask for guidance.
+
+**The pattern to watch for:** "Worker X is busy with task A → urgent
+task B arrives → give task B to Worker X (they'll 'shift priority') →
+also give task B to Worker Y 'just in case' → Worker X finishes task A,
+sees conflicting messages, Worker Y is already on task B → mess."
+
+**Violated in session 2026-04-06:** Worker-4 was assigned Pi investigation.
+PR #20 CI failures came in. Orchestrator messaged worker-4 to "shift
+priority" (they were busy, didn't see it), then assigned worker-2 to the
+same PR #20 branch, causing ownership confusion. The correct action was:
+assign PR #20 to worker-2 on their own worktree from the start, OR wait
+for worker-4 to finish.
+
+### Rule 17: Instruction Cancellation (L-019)
 
 When new instructions supersede or contradict previous instructions:
 
