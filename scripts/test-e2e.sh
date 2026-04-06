@@ -55,11 +55,28 @@ trap cleanup EXIT INT TERM
 
 # ---- 1. Start local-demo stack ----
 
+START_LOG=$(mktemp /tmp/test-e2e-start-XXXXXX.log)
 log "Starting local-demo stack (PI_AUDIO_MOCK=0)..."
-"$BASH_BIN" "$LOCAL_DEMO" start || {
+"$BASH_BIN" "$LOCAL_DEMO" start >"$START_LOG" 2>&1 || {
     log_err "local-demo start failed"
+    cat "$START_LOG"
+    rm -f "$START_LOG"
     exit 2
 }
+cat "$START_LOG"
+
+# Extract the manifest path from start output. The start command prints:
+#   [local-demo] Manifest written to /tmp/local-demo-<PID>.json
+# We must set LOCAL_DEMO_MANIFEST before calling env, because env runs in a
+# different process (different $$) and would compute a wrong manifest path.
+export LOCAL_DEMO_MANIFEST
+LOCAL_DEMO_MANIFEST=$(sed -n 's/.*Manifest written to //p' "$START_LOG")
+rm -f "$START_LOG"
+if [ -z "$LOCAL_DEMO_MANIFEST" ] || [ ! -f "$LOCAL_DEMO_MANIFEST" ]; then
+    log_err "Could not find manifest from start output"
+    exit 2
+fi
+log "Using manifest: $LOCAL_DEMO_MANIFEST"
 
 # Source PW env (includes LOCAL_DEMO_MANIFEST) so pw-cli calls + manifest work
 eval "$("$BASH_BIN" "$LOCAL_DEMO" env)"

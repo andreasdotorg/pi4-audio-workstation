@@ -894,6 +894,11 @@ for p in m.get('pids', []):
 
 cmd_env() {
     resolve_nix_paths
+    # Use LOCAL_DEMO_MANIFEST from environment if already set (e.g. by
+    # test-e2e.sh after capturing the manifest path from cmd_start output).
+    # Otherwise fall back to PID-derived path — only correct when env is
+    # called from the same process that ran start.
+    local mf="${LOCAL_DEMO_MANIFEST:-$MANIFEST_FILE}"
     cat << ENVEOF
 export XDG_RUNTIME_DIR="$PW_RUNTIME_DIR"
 export SPA_PLUGIN_DIR="$PW_STORE/lib/spa-0.2"
@@ -903,7 +908,7 @@ export XDG_CONFIG_HOME="$XDG_CONFIG_DIR"
 export XDG_DATA_DIRS="$WP_STORE/share:$PW_STORE/share:\${XDG_DATA_DIRS:-/usr/share}"
 unset PIPEWIRE_CONFIG_DIR 2>/dev/null || true
 export PATH="$PW_STORE/bin:$WP_STORE/bin:\$PATH"
-export LOCAL_DEMO_MANIFEST="$MANIFEST_FILE"
+export LOCAL_DEMO_MANIFEST="$mf"
 ENVEOF
 }
 
