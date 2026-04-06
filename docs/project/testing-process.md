@@ -323,6 +323,138 @@ has data"), it would have caught the broken real-mode path regardless of
 any other process failure. Functional outcome assertions are the last
 line of defense when process fails.
 
+### 3.9 E2E Test Definition (Owner Directive, L-E2E-AUDIT)
+
+**An E2E test exercises the full user path: browser -> web UI -> backend ->
+services.** If it does not go through the browser, it is NOT an E2E test.
+Period.
+
+The session 14 E2E audit found that 66% of tests in `tests/e2e/` bypass the
+browser entirely — connecting directly to backend TCP/RPC sockets, calling
+HTTP API endpoints, or testing WebSocket protocols without a browser. These
+are integration tests miscategorized as E2E. This section establishes the
+binding definition to prevent recurrence.
+
+#### What qualifies as an E2E test
+
+An E2E test MUST:
+
+1. **Launch a real browser** via Playwright (`page`, `browser` fixtures)
+2. **Navigate to the web UI** served by the real local-demo stack
+3. **Interact through the UI** — click buttons, read displays, observe
+   state changes as a user would
+4. **Assert on user-visible outcomes** — DOM content, canvas rendering,
+   visual state changes (see Section 3.8 assertion hierarchy)
+5. **Run against the real local-demo stack** — PipeWire, GraphManager,
+   signal-gen, pcm-bridge, level-bridge, web-ui all running as real
+   processes (not mocked)
+
+The ONLY acceptable mocks in E2E tests are:
+
+| Mock target | Why |
+|-------------|-----|
+| Audio hardware (USBStreamer, UMIK-1, null sink substitute) | Physical audio interfaces not present in dev/CI; null sink provides endpoint without hardware |
+| Room acoustics (simulated IR) | No physical room available |
+| Physical MIDI controllers | Not present in dev/CI environment |
+
+Everything else — PipeWire, GraphManager, signal-gen, pcm-bridge,
+level-bridge, web-ui backend — must be real running processes.
+
+#### What does NOT qualify as an E2E test
+
+The following are **integration tests**, not E2E, regardless of where they
+are currently located in the file tree:
+
+| Pattern | Why it's not E2E | Correct tier |
+|---------|-----------------|--------------|
+| Direct TCP/RPC to GraphManager | No browser, no UI | Service integration |
+| Direct WebSocket to backend | No browser, no UI | Service integration |
+| HTTP API calls via `urllib`/`requests` | No browser, no UI | Service integration |
+| Python socket connecting to pcm-bridge | No browser, no UI | Service integration |
+| Backend-to-backend protocol tests | No browser, no UI | Service integration |
+
+These tests are valuable — they test real service interactions. But they
+belong in `tests/service-integration/`, not `tests/e2e/`.
+
+#### Directory structure (binding)
+
+| Directory | Test tier | Browser required | Stack required |
+|-----------|-----------|-----------------|----------------|
+| `src/web-ui/tests/unit/` | Unit | No | No |
+| `src/web-ui/tests/integration/` | Browser integration | Yes (Playwright) | No (mocked backend) |
+| `tests/service-integration/` | Service integration | No | Yes (local-demo) |
+| `src/web-ui/tests/e2e/` | E2E | Yes (Playwright) | Yes (local-demo) |
+| `tests/e2e-harness/` | E2E harness/utilities | N/A (shared helpers) | Yes (local-demo) |
+
+> **Shorthand convention:** Prose in this document and in role prompts uses
+> `tests/e2e/` as shorthand for `src/web-ui/tests/e2e/`, and
+> `tests/service-integration/` for the repo-root directory. The table above
+> has the canonical repo-relative paths.
+
+> **Note:** `tests/service-integration/` does not exist yet. It will be
+> created as part of the E2E reclassification work (US-154). Until then,
+> the directory structure table above is the target layout.
+
+**The distinguishing factor between service-integration and E2E is the
+browser.** Both run against the real local-demo stack. E2E additionally
+exercises the browser UI layer.
+
+**The distinguishing factor between browser-integration and E2E is the
+stack.** Both use Playwright. Browser-integration mocks the backend;
+E2E runs against real services.
+
+#### Why this matters
+
+A test suite where 66% of "E2E" tests don't use a browser creates
+three problems:
+
+1. **False confidence.** The team believes browser paths are tested
+   when they are not. Real UI bugs (rendering, event handling, WebSocket
+   client-side processing) go undetected.
+2. **Wrong test environment.** Service integration tests don't need
+   Playwright or a browser — they're slower and more fragile than
+   necessary when forced into the E2E harness.
+3. **Unclear expectations.** Workers writing new tests don't know what
+   "E2E" means in this project, so they follow the existing (wrong)
+   pattern.
+
+#### Worker obligations
+
+When writing a test for a feature with a UI component:
+
+1. **Write the E2E test first** (browser -> UI -> backend -> service).
+   This is the test that proves the feature works for the user.
+2. **Then write service integration tests** for backend protocol details
+   that the E2E test doesn't cover (error codes, edge cases, protocol
+   format validation).
+3. **Place tests in the correct directory** per the table above. A test
+   without a browser fixture does NOT go in `tests/e2e/`.
+
+#### QE enforcement
+
+The QE MUST reject any PR that:
+
+- Places a non-browser test in `tests/e2e/`
+- Claims E2E coverage without a Playwright browser test
+- Has a "test_*_e2e.py" file that contains no `page` fixture usage
+
+The QE reviews test tier classification as part of Rule 13 approval.
+
+#### Assertion boundary (LOOPHOLE-1)
+
+E2E tests MUST assert on user-visible DOM elements or canvas content, not on
+raw data extracted via `page.evaluate()`. If the assertion can be made without
+a browser, the test is not E2E. The browser must be load-bearing in the
+assertion — not just a vehicle for fetching data that could be fetched via
+`urllib`.
+
+#### Migration of existing tests (LOOPHOLE-2)
+
+Existing non-browser tests in `tests/e2e/` will be reclassified to
+`tests/service-integration/` as part of the E2E test overhaul. Until that
+migration is complete, **new non-browser tests MUST go in
+`tests/service-integration/`** — the existing misplacement is not precedent.
+
 ---
 
 ## 4. Code Quality Standards (Owner Directive)
@@ -557,6 +689,8 @@ The QE approves if and only if:
 3. Tests are meaningful (not mock theater — see Section 3)
 4. Tests cover the story's acceptance criteria
 5. Any xfail/skip markers are properly triaged with tracked defects
+6. Tests are in the correct tier directory (see Section 3.9 — no non-browser
+   tests in `tests/e2e/`, no service integration tests claiming E2E coverage)
 
 **Architect approval criteria for Rule 13:**
 
@@ -978,6 +1112,7 @@ This process was created in response to L-042. Key failure modes it prevents:
 | Mock data diverges from production (F-056, F-057) | Real Pi data sample required for collector changes; Gate 2 mock divergence check (Sec 3.7, 8) |
 | Test asserts structure not values | Value-assertion criterion: assert values when code computes them (Sec 3.3) |
 | Wiring test without companion logic test | QE verifies companion test exists during review (Sec 3.5, 11.1) |
+| 66% of "E2E" tests bypass the browser (L-E2E-AUDIT) | Binding E2E definition: browser required. Non-browser tests are service integration. QE rejects misclassified tests (Sec 3.9) |
 | Stories accepted without owner hands-on testing | Gate 3: owner acceptance is mandatory sub-step of REVIEW (Sec 8) |
 | Too many stories waiting for owner | WIP limit of 3 at Gate 3; PM tracks queue (Sec 8) |
 | Worker claims tests passed but committed code differs | Future CI (Gate 1b) will test committed code automatically (Sec 8.4) |
