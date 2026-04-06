@@ -170,7 +170,7 @@ fn main() {
     let server_pcm_notifier = pcm_notifier.clone();
     let quantum = args.quantum as usize;
     let channels = args.channels as usize;
-    let port_file_for_server = args.port_file;
+    let port_file_for_server = args.port_file.clone();
     let server_thread = std::thread::Builder::new()
         .name("pcm-server".into())
         .spawn(move || {
@@ -575,6 +575,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 quantum: 256,
+                port_file: None,
             }
         }
 
@@ -588,6 +589,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 quantum: 256,
+                port_file: None,
             }
         }
 

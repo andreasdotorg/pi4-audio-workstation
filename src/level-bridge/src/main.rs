@@ -159,7 +159,7 @@ fn main() {
     let tracker_for_server = level_tracker.clone();
     let shutdown_for_server = shutdown.clone();
     let notifier_for_server = levels_notifier.clone();
-    let port_file_for_server = args.port_file;
+    let port_file_for_server = args.port_file.clone();
     let levels_thread = std::thread::Builder::new()
         .name("levels-server".into())
         .spawn(move || {
@@ -601,6 +601,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 node_name: None,
+                port_file: None,
             }
         }
 
@@ -614,6 +615,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 node_name: None,
+                port_file: None,
             }
         }
 
@@ -627,6 +629,7 @@ mod tests {
                 channels,
                 rate: 48000,
                 node_name: Some(node_name.to_string()),
+                port_file: None,
             }
         }
 

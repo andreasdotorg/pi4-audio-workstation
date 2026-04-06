@@ -932,7 +932,7 @@ fn main() {
     let max_level_dbfs = args.max_level_dbfs;
     let rpc_file_samples = file_samples.clone();
     let rpc_sample_rate = args.rate;
-    let rpc_port_file = args.port_file;
+    let rpc_port_file = args.port_file.clone();
     let rpc_thread = std::thread::Builder::new()
         .name("rpc-server".into())
         .spawn(move || {
@@ -988,6 +988,7 @@ mod tests {
             ramp_ms: 20,
             device_watch: "UMIK-1".into(),
             managed: false,
+            port_file: None,
         }
     }
 
