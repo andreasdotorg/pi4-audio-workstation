@@ -206,6 +206,89 @@ pub fn load_persisted_venue(dir: &Path) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// Default venue on first boot (US-113)
+// ---------------------------------------------------------------------------
+
+/// Default venue name when no persisted venue exists.
+const DEFAULT_VENUE_NAME: &str = "foh-passthrough";
+
+/// Env var to override the default venue name.
+const DEFAULT_VENUE_ENV: &str = "PI4AUDIO_DEFAULT_VENUE";
+
+/// Validate a venue name: alphanumeric, hyphens, and underscores only.
+///
+/// Rejects path separators, dots, spaces, and other special characters.
+/// This is a defense-in-depth measure — `find_venue()` matches by YAML
+/// `name` field, not by filename, so path traversal is not possible via
+/// the current lookup. But a future refactor could change that.
+pub fn validate_venue_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("venue name is empty".to_string());
+    }
+    if name.len() > 128 {
+        return Err(format!("venue name too long ({} chars, max 128)", name.len()));
+    }
+    for ch in name.chars() {
+        if !ch.is_ascii_alphanumeric() && ch != '-' && ch != '_' {
+            return Err(format!(
+                "venue name contains invalid character '{}' (allowed: a-z, A-Z, 0-9, -, _)",
+                ch,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Resolve the default venue name for first boot (US-113).
+///
+/// Reads `PI4AUDIO_DEFAULT_VENUE` env var if set, otherwise uses
+/// `"foh-passthrough"`. Validates the name before returning.
+///
+/// Call once at startup and pass the result through.
+pub fn default_venue_name() -> Result<String, String> {
+    let name = std::env::var(DEFAULT_VENUE_ENV)
+        .unwrap_or_else(|_| DEFAULT_VENUE_NAME.to_string());
+    validate_venue_name(&name)?;
+    Ok(name)
+}
+
+/// Load the default venue on first boot (US-113).
+///
+/// When `load_persisted_venue()` returns `None`, this function:
+/// 1. Reads the default venue name from env var / built-in default
+/// 2. Finds and validates the venue profile
+/// 3. Persists the venue name (so subsequent boots use normal restore)
+/// 4. Returns the venue name (NOT the gains — gate stays CLOSED per D-063)
+///
+/// The caller stores the venue name in `active_venue` and computes
+/// `pending_gains`, but does NOT open the gate. The operator must
+/// explicitly call `open_gate` after confirming the venue.
+pub fn load_default_venue(
+    venues_dir: &Path,
+    state_dir: &Path,
+) -> Result<String, String> {
+    let name = default_venue_name()?;
+
+    // Verify the venue profile actually exists and parses.
+    let _profile = find_venue(venues_dir, &name)?;
+
+    // Persist so subsequent boots use the normal restore path.
+    persist_venue_name(&name, state_dir);
+
+    log::info!(
+        "US-113: loaded default venue '{}' on first boot (source: {})",
+        name,
+        if std::env::var(DEFAULT_VENUE_ENV).is_ok() {
+            DEFAULT_VENUE_ENV
+        } else {
+            "built-in default"
+        },
+    );
+
+    Ok(name)
+}
+
+// ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
 
@@ -550,11 +633,12 @@ channels:
         }
 
         let venues = list_venues(&dir);
-        assert!(venues.len() >= 2, "Expected at least 2 venue files");
+        assert!(venues.len() >= 3, "Expected at least 3 venue files");
 
         let names: Vec<_> = venues.iter().map(|v| v.name.as_str()).collect();
         assert!(names.contains(&"local-demo"), "Missing local-demo venue");
         assert!(names.contains(&"production"), "Missing production venue");
+        assert!(names.contains(&"foh-passthrough"), "Missing foh-passthrough venue");
     }
 
     #[test]
@@ -665,5 +749,208 @@ channels:
         assert_eq!(loaded, None);
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // -----------------------------------------------------------------------
+    // Venue name validation (US-113)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn validate_venue_name_accepts_valid() {
+        assert!(validate_venue_name("foh-passthrough").is_ok());
+        assert!(validate_venue_name("local-demo").is_ok());
+        assert!(validate_venue_name("production").is_ok());
+        assert!(validate_venue_name("my_venue_2").is_ok());
+        assert!(validate_venue_name("ABC123").is_ok());
+    }
+
+    #[test]
+    fn validate_venue_name_rejects_empty() {
+        let err = validate_venue_name("").unwrap_err();
+        assert!(err.contains("empty"), "Error: {}", err);
+    }
+
+    #[test]
+    fn validate_venue_name_rejects_path_traversal() {
+        let err = validate_venue_name("../../../etc/passwd").unwrap_err();
+        assert!(err.contains("invalid character"), "Error: {}", err);
+    }
+
+    #[test]
+    fn validate_venue_name_rejects_path_separator() {
+        assert!(validate_venue_name("foo/bar").is_err());
+        assert!(validate_venue_name("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn validate_venue_name_rejects_dots() {
+        assert!(validate_venue_name("foo.bar").is_err());
+        assert!(validate_venue_name("..").is_err());
+    }
+
+    #[test]
+    fn validate_venue_name_rejects_spaces() {
+        assert!(validate_venue_name("foo bar").is_err());
+    }
+
+    #[test]
+    fn validate_venue_name_rejects_too_long() {
+        let long_name = "a".repeat(129);
+        let err = validate_venue_name(&long_name).unwrap_err();
+        assert!(err.contains("too long"), "Error: {}", err);
+    }
+
+    // -----------------------------------------------------------------------
+    // Default venue loading (US-113)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn load_default_venue_on_first_boot() {
+        let venues_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if !venues_dir.exists() {
+            return;
+        }
+
+        let state_dir = std::env::temp_dir().join("us113_default_venue_test");
+        let _ = fs::remove_dir_all(&state_dir);
+
+        let name = load_default_venue(&venues_dir, &state_dir).unwrap();
+        assert_eq!(name, "foh-passthrough");
+
+        // Verify it was persisted.
+        let persisted = load_persisted_venue(&state_dir);
+        assert_eq!(persisted, Some("foh-passthrough".to_string()));
+
+        let _ = fs::remove_dir_all(&state_dir);
+    }
+
+    #[test]
+    fn load_default_venue_nonexistent_venue_dir() {
+        let state_dir = std::env::temp_dir().join("us113_nodir_test");
+        let _ = fs::remove_dir_all(&state_dir);
+
+        let err = load_default_venue(
+            Path::new("/tmp/us113_nonexistent_venues_xyz"),
+            &state_dir,
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("venue not found") || err.contains("cannot read"),
+            "Error: {}",
+            err,
+        );
+
+        let _ = fs::remove_dir_all(&state_dir);
+    }
+
+    // -----------------------------------------------------------------------
+    // FOH passthrough venue config (US-113)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn foh_passthrough_venue_parses_and_validates() {
+        let venues_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if !venues_dir.exists() {
+            return;
+        }
+
+        let profile = find_venue(&venues_dir, "foh-passthrough").unwrap();
+        assert_eq!(profile.name, "foh-passthrough");
+        assert_eq!(profile.channels.len(), 8);
+
+        // Verify all 8 channels exist.
+        for ch in CHANNEL_NAMES {
+            assert!(
+                profile.channels.contains_key(*ch),
+                "Missing channel: {}",
+                ch,
+            );
+        }
+    }
+
+    #[test]
+    fn foh_passthrough_unity_gains() {
+        let venues_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if !venues_dir.exists() {
+            return;
+        }
+
+        let profile = find_venue(&venues_dir, "foh-passthrough").unwrap();
+        let gains = venue_gains(&profile);
+        assert_eq!(gains.len(), 8);
+
+        // All channels should be unity gain (0 dB = Mult 1.0).
+        for (param_name, mult) in &gains {
+            assert!(
+                (*mult - 1.0).abs() < 1e-10,
+                "Expected unity gain for {}, got {}",
+                param_name,
+                mult,
+            );
+        }
+    }
+
+    #[test]
+    fn foh_passthrough_all_dirac_coefficients() {
+        let venues_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if !venues_dir.exists() {
+            return;
+        }
+
+        let profile = find_venue(&venues_dir, "foh-passthrough").unwrap();
+        for (ch_name, ch_config) in &profile.channels {
+            assert_eq!(
+                ch_config.coefficients, "dirac.wav",
+                "Channel {} should use dirac.wav, got {}",
+                ch_name, ch_config.coefficients,
+            );
+        }
+    }
+
+    #[test]
+    fn foh_passthrough_zero_delay() {
+        let venues_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("configs/venues");
+
+        if !venues_dir.exists() {
+            return;
+        }
+
+        let profile = find_venue(&venues_dir, "foh-passthrough").unwrap();
+        for (ch_name, ch_config) in &profile.channels {
+            assert!(
+                ch_config.delay_ms.abs() < 1e-10,
+                "Channel {} should have zero delay, got {}",
+                ch_name, ch_config.delay_ms,
+            );
+        }
     }
 }
