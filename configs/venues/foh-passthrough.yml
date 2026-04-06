@@ -13,9 +13,12 @@
 # D-031 driver protection is provided by the convolver coefficient files
 # (crossover slopes baked into the FIR filters), not by venue gain values.
 #
-# NOTE: Channels 1-4 use dirac.wav (true passthrough).  When D-031
-# protection filter WAVs are generated, update channels 1-2 to use the
-# highpass Dirac and channels 3-4 to use the lowpass Dirac.
+# SAFETY: Channels 1-4 use dirac.wav (no crossover protection).
+# DO NOT use this config for real PA operation until D-031 protection
+# filter WAVs (protection_hp.wav / protection_lp.wav) are generated
+# and referenced here.  Full-bandwidth signal to sub drivers at unity
+# gain through 450W amplifiers risks driver damage.
+# Tracked as defect D-271.  D-063 gate provides interim protection.
 
 name: "foh-passthrough"
 description: "FOH passthrough — unity gain, Dirac coefficients, all channels"
