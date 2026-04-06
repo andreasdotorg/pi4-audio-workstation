@@ -3,12 +3,12 @@
 # Defines the SD card partition layout for the Pi 4 Audio Workstation.
 # Used by nixos-anywhere for fresh installs on a Pi reachable via SSH.
 #
-# Layout (GPT):
-#   Partition 1: 256 MiB FAT32 ESP — VideoCore firmware, U-Boot, config.txt,
-#                DTBs. ESP type required for VideoCore EEPROM to find the
-#                boot partition on GPT. U-Boot efi_mgr errors on ESP are
-#                harmless — it falls through to extlinux.
-#   Partition 2: rest of disk ext4 — NixOS root filesystem
+# Layout (MBR):
+#   Partition 1: 256 MiB FAT32 (type 0x0C, W95 FAT32 LBA) — VideoCore
+#                firmware, U-Boot, config.txt, DTBs. MBR type 0x0C is what
+#                the proven sd-image.nix used. VideoCore scans for FAT
+#                partitions by MBR type (0x0B/0x0C).
+#   Partition 2: rest of disk ext4 (type 0x83) — NixOS root filesystem
 #
 # This module is NOT imported by configuration.nix. It's added as an extra
 # module by the mugge-deploy NixOS configuration in flake.nix.
@@ -17,12 +17,18 @@
 # runs during nixos-anywhere's chroot install (before first boot) and on
 # every subsequent nixos-rebuild switch.
 #
-# F-273: Filesystem labels (FIRMWARE, NIXOS_SD) are set explicitly to match
-# repart-image.nix. Both deployment paths reference partitions via
+# F-273: MBR partition table matching repart-image.nix. Both deployment
+# paths (SD card image and nixos-anywhere) use MBR with identical filesystem
+# labels (FIRMWARE, NIXOS_SD). Partitions are referenced via
 # /dev/disk/by-label/ (filesystem labels), ensuring nixos-rebuild switch
-# works regardless of whether the SD card was created by repart or
-# nixos-anywhere. The fileSystems entries below match the shared
+# works regardless of whether the SD card was created by the image builder
+# or nixos-anywhere. The fileSystems entries below match the shared
 # declarations in configuration.nix.
+#
+# Uses disko's legacy "table" type (not "gpt") because the "gpt" type only
+# supports GPT partition tables. The "table" type with format = "msdos"
+# produces MBR. The legacy table type uses list-based partition definitions
+# with start/end positions (parted syntax).
 #
 # T-072-18: nixos-anywhere fresh install
 # Usage: nixos-anywhere --flake .#mugge-deploy root@<target-host>
@@ -33,11 +39,10 @@
 
 {
   # F-273: Override disko's auto-generated fileSystems to use filesystem
-  # labels (by-label/) instead of GPT partition labels (by-partlabel/).
-  # Disko generates entries using by-partlabel/ which only works on GPT.
-  # We use by-label/ (filesystem labels) because they work on both GPT
-  # (nixos-anywhere) and any future partition table type. These overrides
-  # match the fileSystems declared in configuration.nix.
+  # labels (by-label/) instead of partition-derived paths. We use by-label/
+  # (filesystem labels) because they work on both MBR and GPT, ensuring
+  # nixos-rebuild switch works regardless of how the SD card was created.
+  # These overrides match the fileSystems declared in configuration.nix.
   fileSystems."/" = lib.mkForce {
     device = "/dev/disk/by-label/NIXOS_SD";
     fsType = "ext4";
@@ -55,19 +60,19 @@
     device = "/dev/mmcblk0";
 
     content = {
-      type = "gpt";
+      type = "table";
+      format = "msdos";
 
-      partitions = {
-        # Firmware partition: VideoCore blobs, U-Boot, config.txt
-        # ESP (EF00) — required for Pi 4 boot. VideoCore EEPROM on GPT
-        # only recognizes ESP and Microsoft Basic Data type partitions.
-        #
-        # U-Boot's efi_mgr bootmeth logs EFI errors when it runs on
-        # the ESP (harmless noise) — it fails to find bootable EFI
-        # entries, then falls through to extlinux on the root partition.
-        firmware = {
-          size = "256M";
-          type = "EF00";  # EFI System Partition (C12A7328)
+      partitions = [
+        # Partition 1: Firmware — VideoCore blobs, U-Boot, config.txt
+        # MBR type 0x0C (W95 FAT32 LBA). VideoCore scans for FAT
+        # partitions by MBR type (0x0B/0x0C).
+        {
+          name = "FIRMWARE";
+          fs-type = "fat32";
+          start = "8MiB";
+          end = "264MiB";
+          bootable = true;
           content = {
             type = "filesystem";
             format = "vfat";
@@ -76,11 +81,14 @@
             mountpoint = "/boot/firmware";
             mountOptions = [ "nofail" "noauto" ];
           };
-        };
+        }
 
-        # Root filesystem: NixOS
-        root = {
-          size = "100%";
+        # Partition 2: Root filesystem — NixOS
+        {
+          name = "NIXOS_SD";
+          fs-type = "ext4";
+          start = "264MiB";
+          end = "100%";
           content = {
             type = "filesystem";
             format = "ext4";
@@ -94,8 +102,8 @@
             mountpoint = "/";
             mountOptions = [ "defaults" ];
           };
-        };
-      };
+        }
+      ];
     };
   };
 }
