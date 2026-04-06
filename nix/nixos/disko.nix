@@ -4,10 +4,10 @@
 # Used by nixos-anywhere for fresh installs on a Pi reachable via SSH.
 #
 # Layout (GPT):
-#   Partition 1: 256 MiB FAT32 — VideoCore firmware, U-Boot, config.txt,
-#                DTBs. NOT ESP — U-Boot tries EFI boot from ESP partitions,
-#                bypassing extlinux.conf. Pi 4B EEPROM supports GPT since
-#                late 2020.
+#   Partition 1: 256 MiB FAT32 ESP — VideoCore firmware, U-Boot, config.txt,
+#                DTBs. ESP type required for VideoCore EEPROM to find the
+#                boot partition on GPT. U-Boot efi_mgr errors on ESP are
+#                harmless — it falls through to extlinux.
 #   Partition 2: rest of disk ext4 — NixOS root filesystem
 #
 # This module is NOT imported by configuration.nix. It's added as an extra
@@ -59,15 +59,15 @@
 
       partitions = {
         # Firmware partition: VideoCore blobs, U-Boot, config.txt
-        # Microsoft Basic Data (0700) — the only GPT type that satisfies
-        # both boot stages on Pi 4:
-        #   1. VideoCore EEPROM scans GPT for ESP or Basic Data type
-        #      partitions. Linux filesystem (8300) is NOT recognized.
-        #   2. U-Boot tries EFI boot from ESP (EF00) partitions,
-        #      bypassing extlinux.conf. Basic Data (0700) avoids this.
+        # ESP (EF00) — required for Pi 4 boot. VideoCore EEPROM on GPT
+        # only recognizes ESP and Microsoft Basic Data type partitions.
+        #
+        # U-Boot's efi_mgr bootmeth logs EFI errors when it runs on
+        # the ESP (harmless noise) — it fails to find bootable EFI
+        # entries, then falls through to extlinux on the root partition.
         firmware = {
           size = "256M";
-          type = "0700";  # Microsoft Basic Data (EBD0A0A2)
+          type = "EF00";  # EFI System Partition (C12A7328)
           content = {
             type = "filesystem";
             format = "vfat";

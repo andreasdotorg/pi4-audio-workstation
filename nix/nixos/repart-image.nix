@@ -88,13 +88,15 @@ in
             "/start_x.elf".source = "${fw}/start_x.elf";
           };
         repartConfig = {
-          # Microsoft Basic Data — the only GPT type GUID that satisfies
-          # BOTH boot stages on Pi 4:
-          #   1. VideoCore EEPROM scans GPT for ESP or Basic Data type
-          #      partitions. linux-generic (0FC63DAF) is NOT recognized.
-          #   2. U-Boot tries EFI boot from ESP (C12A7328) partitions,
-          #      bypassing extlinux.conf. Basic Data avoids this.
-          Type = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7";
+          # ESP (EFI System Partition) — required for Pi 4 boot.
+          # VideoCore EEPROM on GPT only recognizes ESP (C12A7328) and
+          # Microsoft Basic Data (EBD0A0A2) type partitions.
+          #
+          # U-Boot's efi_mgr bootmeth runs first and logs EFI errors
+          # (e.g. "cannot persist efi variables") — these are harmless.
+          # The efi_mgr fails to find bootable EFI entries, then the
+          # bootflow scan falls through to extlinux on the root partition.
+          Type = "esp";
           Format = "vfat";
           Label = "firmware";   # GPT partition label
           SizeMinBytes = "256M";
