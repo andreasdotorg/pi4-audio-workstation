@@ -26,7 +26,7 @@ import time
 import pytest
 
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow]
+pytestmark = [pytest.mark.service_integration, pytest.mark.slow]
 
 # Profile that exists in local-demo seed data and has a simple topology.
 PROFILE = "2way-80hz-sealed"

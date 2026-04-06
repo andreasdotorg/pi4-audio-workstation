@@ -337,7 +337,7 @@
             cp -r ${./src/room-correction} room-correction
             chmod -R u+w web-ui room-correction
             cd web-ui
-            python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ --tb=short
+            python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ --ignore=tests/service-integration/ --tb=short
             touch $out
           '';
 
@@ -482,7 +482,7 @@
               set -e
               echo "=== web-ui unit tests ==="
               cd ${toString ./.}/src/web-ui
-              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ --tb=short
+              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ --ignore=tests/service-integration/ --tb=short
               echo ""
               echo "=== room-correction tests ==="
               cd ${toString ./.}/src/room-correction
@@ -540,7 +540,7 @@
               echo "========== test-all (unit + integration) =========="
               export PI_AUDIO_MOCK=1
               cd ${toString ./.}/src/web-ui
-              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ --tb=short
+              ${testPython}/bin/python -m pytest tests/ -v --ignore=tests/integration/ --ignore=tests/e2e/ --ignore=tests/service-integration/ --tb=short
               echo ""
               echo "=== room-correction tests ==="
               cd ${toString ./.}/src/room-correction

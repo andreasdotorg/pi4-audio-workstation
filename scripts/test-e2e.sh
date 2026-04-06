@@ -126,8 +126,26 @@ fi
 # Allow services to stabilize (GM reconciler, level-bridges)
 sleep 2
 
-# ---- 3. Run E2E tests ----
+# ---- 3. Run service-integration tests (no browser) ----
 
-log "Running E2E tests..."
+log "Running service-integration tests..."
 cd "$REPO_DIR/src/web-ui"
+"$E2E_PYTHON" -m pytest tests/service-integration/ -v --tb=short "$@"
+SI_EXIT=$?
+
+# ---- 4. Run browser E2E tests ----
+
+log "Running browser E2E tests..."
 "$E2E_PYTHON" -m pytest tests/e2e/ -v --tb=short "$@"
+E2E_EXIT=$?
+
+# Report both results — fail if either failed.
+if [ $SI_EXIT -ne 0 ]; then
+    log_err "Service-integration tests failed (exit $SI_EXIT)"
+fi
+if [ $E2E_EXIT -ne 0 ]; then
+    log_err "Browser E2E tests failed (exit $E2E_EXIT)"
+fi
+if [ $SI_EXIT -ne 0 ] || [ $E2E_EXIT -ne 0 ]; then
+    exit 1
+fi
