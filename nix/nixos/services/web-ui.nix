@@ -6,6 +6,14 @@
 
 let
   cfg = config.services.pi4audio.web-ui;
+  pcmCfg = config.services.pi4audio.pcm-bridge;
+
+  # Auto-generate PI4AUDIO_PCM_SOURCES JSON from pcm-bridge instances.
+  # Maps each enabled instance name to its tcp:host:port address.
+  pcmSourcesJson = builtins.toJSON (
+    lib.mapAttrs (_name: inst: "tcp:127.0.0.1:${toString inst.port}")
+      (lib.filterAttrs (_name: inst: inst.enable) pcmCfg.instances)
+  );
 
   # Python environment with all web-ui runtime dependencies.
   # This mirrors the testPython from flake.nix but for production use.
@@ -111,6 +119,8 @@ in
         JACK_NO_START_SERVER = "1";
         PI4AUDIO_RC_DIR = "${webUiSrc}/room-correction";
         PI4AUDIO_MEAS_DIR = "${webUiSrc}/measurement";
+        PI4AUDIO_PCM_SOURCES = pcmSourcesJson;
+        PI4AUDIO_PCM_CHANNELS = "8";
       } // cfg.environment;
 
       serviceConfig = {

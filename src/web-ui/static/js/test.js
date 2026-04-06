@@ -627,11 +627,15 @@
         }
 
         // Task #52: Auto-select UMIK-1 source in measurement mode.
+        // Prefer capture-usb (real PCM source) over umik1 (virtual ch3).
         var srcSelect = $("tt-spectrum-source");
-        if (srcSelect && specCurrentSource !== "umik1") {
-            srcSelect.value = "umik1";
+        var hasCaptureUsb = srcSelect && Array.prototype.some.call(
+            srcSelect.options, function(o) { return o.value === "capture-usb"; });
+        var measSource = hasCaptureUsb ? "capture-usb" : "umik1";
+        if (srcSelect && specCurrentSource !== measSource) {
+            srcSelect.value = measSource;
             resetSplPeak();
-            if (specActive) specConnectPcm("umik1");
+            if (specActive) specConnectPcm(measSource);
         }
     }
 
@@ -1283,8 +1287,9 @@
         }
 
         // Task #52: Add virtual UMIK-1 channel view (ch3 of monitor source).
-        // Always available — pcm-bridge carries UMIK-1 on ch3 in all modes.
-        if (sources.indexOf("monitor") >= 0) {
+        // Only when the real capture-usb source is absent — F-286: D-262's
+        // virtual umik1 duplicated F-270's capture-usb in the dropdown.
+        if (sources.indexOf("monitor") >= 0 && sources.indexOf("capture-usb") < 0) {
             var umikOpt = document.createElement("option");
             umikOpt.value = "umik1";
             umikOpt.textContent = getSourceLabel("umik1");
