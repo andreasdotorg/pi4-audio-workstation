@@ -135,7 +135,7 @@ decision. Add a new one that supersedes it (reference the old one).
 
 ## D-013: PREEMPT_RT kernel mandatory for production use (2026-03-08)
 
-**Context:** The system drives a PA capable of dangerous SPL levels through amplifiers with 4x450W output. A scheduling delay on stock PREEMPT (which has no formal worst-case bound) could cause a buffer underrun, producing a full-scale transient through the amplifier chain. US-003 T3c confirmed a steady-state underrun at quantum 128 on stock PREEMPT — the kernel cannot guarantee the 5.33ms processing deadline under all conditions. The PREEMPT_RT kernel (`linux-image-6.12.47+rpt-rpi-v8-rt`) is available as a matching package in Trixie repos, making the switch a zero-risk package install with the stock kernel retained as fallback.
+**Context:** The system drives a PA capable of dangerous SPL levels through amplifiers with 4x450W output. A scheduling delay on stock PREEMPT (which has no formal worst-case bound) could cause a buffer underrun, producing a full-scale transient through the amplifier chain. US-003 T3c confirmed a steady-state underrun at quantum 128 on stock PREEMPT — the kernel cannot guarantee the 5.33ms processing deadline under all conditions. The PREEMPT_RT kernel (`6.12.62+rpt-rpi-v8-rt`) is included in the NixOS configuration.
 
 **Classification:** Hard real-time with human safety implications. The system drives amplifiers capable of dangerous SPL at audience position. An uncontrolled transient is a hearing damage risk.
 
@@ -578,28 +578,26 @@ reflect the reframed rationale.
 
 ## D-033: Incremental Nix adoption — staged path from Trixie to reproducible builds (2026-03-12)
 
-**Context:** Owner preference (CLAUDE.md) is NixOS with flake long-term, Trixie +
-lab notes for now. Architect identified that Mixxx 2.5.4 + Qt 6.10.2 is already
-packaged in nixpkgs-unstable, unblocking the Mixxx 2.5.0 → 2.5.4 upgrade that
-was previously blocked by Trixie's Qt 6.8.2 (TK-066).
+**Status: COMPLETE.** Stage 3 reached — full NixOS SD card image deployed.
+v0.1.0 released and booted successfully (F-266 confirmed, 2026-04-06).
+
+**Context:** Owner preference was NixOS with flake long-term, Trixie + lab notes
+initially. Architect identified that Mixxx 2.5.4 + Qt 6.10.2 is already packaged
+in nixpkgs-unstable, unblocking the Mixxx 2.5.0 → 2.5.4 upgrade that was
+previously blocked by Trixie's Qt 6.8.2 (TK-066).
 
 **Decision:** Incremental Nix adoption in three stages:
 
-- **Stage 1:** Nix builds Mixxx. Add `packages.mixxx = pkgs.mixxx` to flake.nix.
-  Build Mixxx 2.5.4 via `nix build .#mixxx`, deploy binary to Pi running Trixie.
-  Validates Nix cross-compilation and runtime compatibility. (TK-138)
-- **Stage 2:** Nix builds all applications (CamillaDSP, Reaper, PipeWire plugins,
-  Python tooling). Pi still runs Trixie as base OS. Nix provides reproducible
-  application layer.
-- **Stage 3:** Full NixOS image. Replace Trixie entirely with a NixOS configuration
-  that produces the complete system declaratively.
+- **Stage 1:** Nix builds Mixxx. **DONE.**
+- **Stage 2:** Nix builds all applications. **DONE.**
+- **Stage 3:** Full NixOS image. **DONE** (v0.1.0, US-072/US-128).
 
 **Rationale:** Staged approach reduces risk. Each stage delivers standalone value
-and validates assumptions before the next. Stage 1 is trivial (one line in
-flake.nix) and immediately unblocks the Mixxx upgrade.
+and validates assumptions before the next.
 
-**Related:** TK-138 (Stage 1 flake.nix change), TK-139 (Stage 1 Pi validation).
-Supersedes the implicit "Trixie for now" status quo for application packaging.
+**Related:** TK-138 (Stage 1 flake.nix change), TK-139 (Stage 1 Pi validation),
+US-072 (NixOS SD card image), US-128 (PipeWire NixOS integration).
+Supersedes the Trixie-based deployment entirely.
 
 ## D-034: Temporary bass shelf on Bose sub — LowShelf 70 Hz +6 dB Q=0.7 (2026-03-13)
 

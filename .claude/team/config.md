@@ -49,8 +49,8 @@
 
 ## Validation Rules
 
-This project targets a Raspberry Pi 4B running Raspberry Pi OS Trixie. Most
-validation is hardware-dependent and cannot be run in CI. Validation categories:
+This project targets a Raspberry Pi 4B running NixOS (flake-based SD card image).
+Most validation is hardware-dependent and cannot be run in CI. Validation categories:
 
 | Category | Method | When |
 |----------|--------|------|
