@@ -90,6 +90,22 @@ export LEVEL_SW_PORT=$(_read_manifest_port level_sw 9100)
 export LEVEL_HW_OUT_PORT=$(_read_manifest_port level_hw_out 9101)
 export PCM_PORT=$(_read_manifest_port pcm 9090)
 
+# Read demo_base_dir from manifest for path-based env vars.
+_read_manifest_str() {
+    local key="$1" default="$2"
+    if [ -n "${LOCAL_DEMO_MANIFEST:-}" ] && [ -f "$LOCAL_DEMO_MANIFEST" ]; then
+        "$PYTHON" -c "
+import json
+m = json.load(open('$LOCAL_DEMO_MANIFEST'))
+print(m['$key'])
+" 2>/dev/null && return
+    fi
+    echo "$default"
+}
+DEMO_BASE_DIR=$(_read_manifest_str demo_base_dir "/tmp/pi4audio-demo")
+export PI4AUDIO_FILTER_OUTPUT_DIR="$DEMO_BASE_DIR/filters"
+export PI4AUDIO_SESSION_DIR="$DEMO_BASE_DIR/sessions"
+
 # ---- 2. Wait for web UI health ----
 
 log "Waiting for web UI at ${LOCAL_DEMO_URL}..."

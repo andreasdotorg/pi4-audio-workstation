@@ -52,11 +52,12 @@ class TestMuteSilencesOutput:
         api_post("/api/v1/audio/unmute")
 
     def test_mute_silences_level_bridge(self, ensure_dj_mode, api_post,
-                                        read_levels):
+                                        read_levels, level_sw_port):
         """After mute, level-bridge-sw reports silence on all channels."""
         # Verify signal is flowing before mute
-        pre_lines = read_levels(9100, count=3)
-        assert len(pre_lines) >= 1, "No data from level-bridge-sw before mute"
+        pre_lines = read_levels(level_sw_port, count=3)
+        assert len(pre_lines) >= 1, (
+            f"No data from level-bridge-sw before mute on port {level_sw_port}")
 
         # Mute
         status, body = api_post("/api/v1/audio/mute")
@@ -64,7 +65,7 @@ class TestMuteSilencesOutput:
         time.sleep(GAIN_SETTLE_S)
 
         # Read levels after mute — all peaks should be silence
-        lines = read_levels(9100, count=3)
+        lines = read_levels(level_sw_port, count=3)
         assert len(lines) >= 1, "No data from level-bridge-sw after mute"
 
         for snapshot in lines:
@@ -86,7 +87,7 @@ class TestUnmuteRestoresSignal:
     """Mute -> unmute -> level-bridge reports signal returns."""
 
     def test_unmute_restores_levels(self, ensure_dj_mode, api_post,
-                                    read_levels):
+                                    read_levels, level_sw_port):
         """After unmute, level-bridge-sw reports non-zero peaks."""
         # Mute first
         status, body = api_post("/api/v1/audio/mute")
@@ -94,7 +95,7 @@ class TestUnmuteRestoresSignal:
         time.sleep(GAIN_SETTLE_S)
 
         # Verify muted
-        muted_lines = read_levels(9100, count=2)
+        muted_lines = read_levels(level_sw_port, count=2)
         assert len(muted_lines) >= 1
         for snapshot in muted_lines:
             peak = snapshot.get("peak", [])
@@ -109,7 +110,7 @@ class TestUnmuteRestoresSignal:
         time.sleep(GAIN_SETTLE_S)
 
         # Read levels — at least one channel should have signal
-        lines = read_levels(9100, count=5)
+        lines = read_levels(level_sw_port, count=5)
         assert len(lines) >= 1, "No data from level-bridge-sw after unmute"
 
         has_signal = False
