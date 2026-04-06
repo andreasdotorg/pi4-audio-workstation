@@ -226,6 +226,24 @@ def siggen_port() -> int:
     return SIGGEN_PORT
 
 
+@pytest.fixture(scope="session")
+def level_sw_port() -> int:
+    """level-bridge-sw TCP port."""
+    return LEVEL_SW_PORT
+
+
+@pytest.fixture(scope="session")
+def level_hw_out_port() -> int:
+    """level-bridge-hw-out TCP port."""
+    return LEVEL_HW_OUT_PORT
+
+
+@pytest.fixture(scope="session")
+def pcm_port() -> int:
+    """pcm-bridge TCP port."""
+    return PCM_PORT
+
+
 # ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------
@@ -406,8 +424,14 @@ def _switch_gm_mode(mode: str, gm_port: int = GM_PORT, timeout: float = 5.0) -> 
     resp = _rpc_call("127.0.0.1", gm_port, {"cmd": "set_mode", "mode": mode}, timeout)
     if not resp.get("ok"):
         return False
-    time.sleep(3)  # Allow GM reconciler to settle
-    return True
+    # US-140: Use await_settled instead of sleep-based wait.
+    epoch = resp.get("epoch", 0)
+    settled = _rpc_call("127.0.0.1", gm_port, {
+        "cmd": "await_settled",
+        "since_epoch": epoch,
+        "timeout_ms": 10000,
+    }, timeout=max(timeout, 15.0))
+    return settled.get("ok", False)
 
 
 @pytest.fixture(scope="session")

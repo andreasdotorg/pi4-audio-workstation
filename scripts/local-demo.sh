@@ -11,19 +11,17 @@
 # but does not auto-link (managed streams have no AUTOCONNECT). signal-gen
 # and pcm-bridge run in managed mode.
 #
-# US-131: Parallel instance support via LOCAL_DEMO_INSTANCE_ID (0-9).
-# Each instance gets isolated ports, PipeWire runtime, temp paths, and
-# a JSON manifest for port discovery. Instance 0 = backward compatible defaults.
+# Parallel instance support: each invocation is isolated by its own PID.
+# Ports are auto-allocated by probing for free ports from default bases.
+# A JSON manifest is written for port discovery and cleanup.
 #
 # Usage:
 #   nix run .#local-demo              # foreground (all deps resolved by Nix)
 #   nix run .#local-demo -- start     # daemonized background mode
-#   nix run .#local-demo -- stop      # stop background stack
+#   nix run .#local-demo -- stop      # stop background stack (reads manifest)
 #   nix run .#local-demo -- status    # show running state
 #   nix run .#local-demo -- env       # print PW env vars for sourcing
 #   ./scripts/local-demo.sh           # if already in nix develop
-#
-#   LOCAL_DEMO_INSTANCE_ID=1 nix run .#local-demo -- start   # parallel instance
 #
 # Prerequisites:
 #   - PipeWire + WirePlumber available (via Nix or system)
@@ -35,50 +33,56 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${LOCAL_DEMO_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
 
-# ---- Instance isolation (US-131) ----
-# Instance ID determines port offsets and path suffixes.
-# Instance 0 uses original paths/ports for backward compatibility.
-INSTANCE_ID="${LOCAL_DEMO_INSTANCE_ID:-0}"
-if ! [[ "$INSTANCE_ID" =~ ^[0-9]$ ]]; then
-    echo "[local-demo] ERROR: LOCAL_DEMO_INSTANCE_ID must be 0-9, got '$INSTANCE_ID'" >&2
-    exit 1
-fi
-PORT_OFFSET=$((INSTANCE_ID * 100))
+# ---- PID-based isolation ----
+# Each instance is identified by its script PID. All paths and the manifest
+# are keyed by PID, so multiple instances never collide.
+DEMO_PID=$$
+PW_RUNTIME_DIR="/tmp/pw-runtime-$(id -u)-${DEMO_PID}"
+XDG_CONFIG_DIR="/tmp/pw-test-xdg-config-${DEMO_PID}"
+PW_PIDFILE="/tmp/pw-test-pipewire-${DEMO_PID}.pid"
+WP_PIDFILE="/tmp/pw-test-wireplumber-${DEMO_PID}.pid"
+MANIFEST_FILE="/tmp/local-demo-${DEMO_PID}.json"
+DEMO_BASE_DIR="/tmp/pi4audio-demo-${DEMO_PID}"
+ROOM_SIM_DIR="/tmp/pw-test-room-sim-${DEMO_PID}"
+PW_STDERR_LOG="/tmp/pw-test-stderr-${DEMO_PID}.log"
+WP_STDERR_LOG="/tmp/wp-test-stderr-${DEMO_PID}.log"
 
-# Compute instance-scoped ports (env var overrides > computed defaults)
-PORT_GM="${LOCAL_DEMO_GM_PORT:-$((4002 + PORT_OFFSET))}"
-PORT_SIGGEN="${LOCAL_DEMO_SIGGEN_PORT:-$((4001 + PORT_OFFSET))}"
-PORT_LEVEL_SW="${LOCAL_DEMO_LEVEL_SW_PORT:-$((9100 + PORT_OFFSET))}"
-PORT_LEVEL_HW_OUT="${LOCAL_DEMO_LEVEL_HW_OUT_PORT:-$((9101 + PORT_OFFSET))}"
-PORT_LEVEL_HW_IN="${LOCAL_DEMO_LEVEL_HW_IN_PORT:-$((9102 + PORT_OFFSET))}"
-PORT_PCM="${LOCAL_DEMO_PCM_PORT:-$((9090 + PORT_OFFSET))}"
-PORT_WEBUI="${LOCAL_DEMO_WEBUI_PORT:-$((8080 + PORT_OFFSET))}"
+# ---- Port file helpers ----
+# Port files directory — each service writes its actual bound port here.
+PORT_FILE_DIR="/tmp/local-demo-ports-${DEMO_PID}"
+mkdir -p "$PORT_FILE_DIR"
 
-# Instance-scoped paths. Instance 0 uses original paths (backward compat).
-if [ "$INSTANCE_ID" -eq 0 ]; then
-    PW_RUNTIME_DIR="/tmp/pw-runtime-$(id -u)"
-    XDG_CONFIG_DIR="/tmp/pw-test-xdg-config"
-    PW_PIDFILE="/tmp/pw-test-pipewire.pid"
-    WP_PIDFILE="/tmp/pw-test-wireplumber.pid"
-    MANIFEST_FILE="/tmp/local-demo-inst-0.json"
-    DEMO_BASE_DIR="/tmp/pi4audio-demo"
-    ROOM_SIM_DIR="/tmp/pw-test-room-sim"
-    PW_STDERR_LOG="/tmp/pw-test-stderr.log"
-    WP_STDERR_LOG="/tmp/wp-test-stderr.log"
+# Wait for a port file to appear and contain a non-empty value.
+_wait_port_file() {
+    local path="$1" timeout="${2:-10}"
+    local deadline=$((SECONDS + timeout))
+    while [ $SECONDS -lt $deadline ]; do
+        if [ -s "$path" ]; then
+            cat "$path"
+            return 0
+        fi
+        sleep 0.1
+    done
+    echo "[local-demo] ERROR: Timed out waiting for port file $path" >&2
+    return 1
+}
+
+# Ports: env var overrides use explicit values; otherwise services bind to
+# port 0 (OS-assigned) and write the actual port to a port file.
+# PORT_* variables below are initial values — updated after each service
+# starts (unless an env var override was given).
+PORT_GM="${LOCAL_DEMO_GM_PORT:-0}"
+PORT_SIGGEN="${LOCAL_DEMO_SIGGEN_PORT:-0}"
+PORT_LEVEL_SW="${LOCAL_DEMO_LEVEL_SW_PORT:-0}"
+PORT_LEVEL_HW_OUT="${LOCAL_DEMO_LEVEL_HW_OUT_PORT:-0}"
+PORT_LEVEL_HW_IN="${LOCAL_DEMO_LEVEL_HW_IN_PORT:-0}"
+PORT_PCM="${LOCAL_DEMO_PCM_PORT:-0}"
+# Uvicorn: pre-allocate via Python socket bind(0) if no override.
+if [ -n "${LOCAL_DEMO_WEBUI_PORT:-}" ]; then
+    PORT_WEBUI="$LOCAL_DEMO_WEBUI_PORT"
 else
-    PW_RUNTIME_DIR="/tmp/pw-runtime-$(id -u)-inst-${INSTANCE_ID}"
-    XDG_CONFIG_DIR="/tmp/pw-test-xdg-config-inst-${INSTANCE_ID}"
-    PW_PIDFILE="/tmp/pw-test-pipewire-inst-${INSTANCE_ID}.pid"
-    WP_PIDFILE="/tmp/pw-test-wireplumber-inst-${INSTANCE_ID}.pid"
-    MANIFEST_FILE="/tmp/local-demo-inst-${INSTANCE_ID}.json"
-    DEMO_BASE_DIR="/tmp/pi4audio-demo-inst-${INSTANCE_ID}"
-    ROOM_SIM_DIR="/tmp/pw-test-room-sim-inst-${INSTANCE_ID}"
-    PW_STDERR_LOG="/tmp/pw-test-stderr-inst-${INSTANCE_ID}.log"
-    WP_STDERR_LOG="/tmp/wp-test-stderr-inst-${INSTANCE_ID}.log"
+    PORT_WEBUI=$("${LOCAL_DEMO_PYTHON:-python3}" -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()")
 fi
-
-# Ports that must be free before starting this instance
-REQUIRED_PORTS=("$PORT_SIGGEN" "$PORT_GM" "$PORT_PCM" "$PORT_LEVEL_SW" "$PORT_LEVEL_HW_OUT" "$PORT_LEVEL_HW_IN" "$PORT_WEBUI")
 
 # Track child PIDs for cleanup
 PIDS=()
@@ -278,7 +282,7 @@ start_pw() {
 }
 
 # ---- Stop PipeWire + WirePlumber ----
-# US-131: Scoped to PID files only. No blanket pkill that would kill other instances.
+# Scoped to PID files only. No blanket pkill — safe for parallel instances.
 stop_pw() {
     if [ -f "$WP_PIDFILE" ]; then
         local wp_pid
@@ -300,104 +304,23 @@ stop_pw() {
         rm -f "$PW_PIDFILE"
     fi
 
-    # Instance 0 backward compat: blanket kill as last resort.
-    # For instances > 0, we rely solely on PID files to avoid killing
-    # other instances' PipeWire/WirePlumber processes.
-    if [ "$INSTANCE_ID" -eq 0 ]; then
-        pkill -u "$(id -u)" -x wireplumber 2>/dev/null || true
-        pkill -u "$(id -u)" -x pipewire 2>/dev/null || true
-    fi
+    # No blanket pkill — PID-file cleanup above is sufficient and safe
+    # for parallel instances. The old `pkill -x pipewire/wireplumber`
+    # fallback would kill other instances' PipeWire processes.
 
     rm -f "$PW_RUNTIME_DIR/pipewire"*
 }
 
-# ---- Pre-flight cleanup (F-100, US-131) ----
-# For instance 0: full pattern-based cleanup (backward compat).
-# For instance > 0: only verify own ports are free (no blanket kill).
+# ---- Pre-flight cleanup (F-100) ----
+# Clean up stale state from previous runs. PID-based paths mean we only
+# need to ensure our own paths are clean (they're fresh per PID).
+# Port conflicts are impossible — services bind to port 0 (OS-assigned).
 preflight_cleanup() {
-    echo "[local-demo] Pre-flight cleanup (instance $INSTANCE_ID)..."
-
-    if [ "$INSTANCE_ID" -eq 0 ]; then
-        # Instance 0: original behavior — kill stale processes by pattern.
-        local found_stale=false
-        local inst0_patterns=(
-            "pi4audio-graph-manager.*tcp:127.0.0.1:${PORT_GM}"
-            "pi4audio-signal-gen.*tcp:127.0.0.1:${PORT_SIGGEN}"
-            "level-bridge.*tcp:0.0.0.0:${PORT_LEVEL_SW}"
-            "level-bridge.*tcp:0.0.0.0:${PORT_LEVEL_HW_OUT}"
-            "level-bridge.*tcp:0.0.0.0:${PORT_LEVEL_HW_IN}"
-            "pcm-bridge.*tcp:0.0.0.0:${PORT_PCM}"
-            "mixxx-substitute"
-            "uvicorn app.main:app.*${PORT_WEBUI}"
-        )
-
-        for pattern in "${inst0_patterns[@]}"; do
-            local live_pids
-            live_pids=$(pgrep -f "$pattern" 2>/dev/null | while read -r p; do
-                if [ -d "/proc/$p" ] && ! grep -q '(Z)' "/proc/$p/status" 2>/dev/null; then
-                    echo "$p"
-                fi
-            done || true)
-            if [ -n "$live_pids" ]; then
-                found_stale=true
-                echo "[local-demo]   Killing stale: $pattern (PIDs: $live_pids)"
-                for p in $live_pids; do
-                    kill "$p" 2>/dev/null || true
-                done
-            fi
-        done
-
-        stop_pw 2>/dev/null || true
-
-        if $found_stale; then
-            sleep 1
-            for pattern in "${inst0_patterns[@]}"; do
-                local survivors
-                survivors=$(pgrep -f "$pattern" 2>/dev/null | while read -r p; do
-                    if [ -d "/proc/$p" ] && ! grep -q '(Z)' "/proc/$p/status" 2>/dev/null; then
-                        echo "$p"
-                    fi
-                done || true)
-                if [ -n "$survivors" ]; then
-                    echo "[local-demo]   Force-killing: $pattern"
-                    for p in $survivors; do
-                        kill -9 "$p" 2>/dev/null || true
-                    done
-                fi
-            done
-            sleep 0.5
-        fi
-    else
-        # Instance > 0: kill only our own processes via manifest/PID files.
-        if [ -f "$MANIFEST_FILE" ]; then
-            echo "[local-demo]   Found stale manifest for instance $INSTANCE_ID — cleaning up..."
-            _kill_manifest_pids
-            stop_pw 2>/dev/null || true
-            rm -f "$MANIFEST_FILE"
-        else
-            stop_pw 2>/dev/null || true
-        fi
-    fi
-
-    # Verify all required ports are free
-    local blocked=false
-    for port in "${REQUIRED_PORTS[@]}"; do
-        local hex_port
-        hex_port=$(printf '%04X' "$port")
-        local listening
-        listening=$(awk -v hp=":${hex_port}" '$2 ~ hp && $4 == "0A" {print $2}' /proc/net/tcp 2>/dev/null | head -1 || true)
-        if [ -n "$listening" ]; then
-            echo "[local-demo] ERROR: Port $port still has a listener" >&2
-            blocked=true
-        fi
-    done
-
-    if $blocked; then
-        echo "[local-demo] ERROR: Cannot start — ports still in use after cleanup." >&2
-        echo "[local-demo] Kill the above processes manually and retry." >&2
-        exit 1
-    fi
-
+    echo "[local-demo] Pre-flight cleanup (PID $DEMO_PID)..."
+    # Clean any stale PW runtime sockets in our path (shouldn't exist
+    # for a fresh PID, but be safe).
+    rm -rf "$PW_RUNTIME_DIR" 2>/dev/null || true
+    mkdir -p "$PW_RUNTIME_DIR"
     echo "[local-demo] Pre-flight cleanup complete."
 }
 
@@ -537,40 +460,42 @@ start_services() {
     # ---- GraphManager ----
     # US-075 Bug #2b: standby mode (not measurement).
     echo ""
-    echo "[local-demo] Starting GraphManager (port $PORT_GM, standby mode)..."
-    "$GM_BIN" --listen "tcp:127.0.0.1:${PORT_GM}" --mode standby --log-level info &
+    echo "[local-demo] Starting GraphManager (standby mode)..."
+    "$GM_BIN" --listen "tcp:127.0.0.1:${PORT_GM}" --mode standby --log-level info \
+        --port-file "$PORT_FILE_DIR/gm" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_GM=$(_wait_port_file "$PORT_FILE_DIR/gm") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: GraphManager failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] GraphManager running (PID ${PIDS[-1]})"
+    echo "[local-demo] GraphManager running (PID ${PIDS[-1]}, port $PORT_GM)"
 
     # ---- signal-gen (managed mode) ----
     echo ""
-    echo "[local-demo] Starting signal-gen (port $PORT_SIGGEN, managed mode, mono)..."
+    echo "[local-demo] Starting signal-gen (managed mode, mono)..."
     "$SG_BIN" \
         --managed \
         --channels 1 \
         --rate 48000 \
         --listen "tcp:127.0.0.1:${PORT_SIGGEN}" \
-        --max-level-dbfs -20 &
+        --max-level-dbfs -20 \
+        --port-file "$PORT_FILE_DIR/siggen" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_SIGGEN=$(_wait_port_file "$PORT_FILE_DIR/siggen") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: signal-gen failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] signal-gen running (PID ${PIDS[-1]})"
+    echo "[local-demo] signal-gen running (PID ${PIDS[-1]}, port $PORT_SIGGEN)"
 
     # ---- level-bridge-sw (managed mode) ----
     echo ""
-    echo "[local-demo] Starting level-bridge-sw (levels on port $PORT_LEVEL_SW, managed mode)..."
+    echo "[local-demo] Starting level-bridge-sw (managed mode)..."
     "$LB_BIN" \
         --managed \
         --node-name pi4audio-level-bridge-sw \
@@ -578,21 +503,22 @@ start_services() {
         --target unused-managed-mode \
         --levels-listen "tcp:0.0.0.0:${PORT_LEVEL_SW}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/level_sw" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_LEVEL_SW=$(_wait_port_file "$PORT_FILE_DIR/level_sw") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: level-bridge-sw failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] level-bridge-sw running (PID ${PIDS[-1]})"
+    echo "[local-demo] level-bridge-sw running (PID ${PIDS[-1]}, port $PORT_LEVEL_SW)"
 
     # ---- level-bridge-hw-out (managed mode, US-075 Bug #6) ----
     # Taps USBStreamer room-sim monitor_AUX0-7 ports for hardware output metering.
     echo ""
-    echo "[local-demo] Starting level-bridge-hw-out (levels on port $PORT_LEVEL_HW_OUT, managed mode)..."
+    echo "[local-demo] Starting level-bridge-hw-out (managed mode)..."
     "$LB_BIN" \
         --managed \
         --node-name pi4audio-level-bridge-hw-out \
@@ -600,21 +526,22 @@ start_services() {
         --target unused-managed-mode \
         --levels-listen "tcp:0.0.0.0:${PORT_LEVEL_HW_OUT}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/level_hw_out" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_LEVEL_HW_OUT=$(_wait_port_file "$PORT_FILE_DIR/level_hw_out") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: level-bridge-hw-out failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] level-bridge-hw-out running (PID ${PIDS[-1]})"
+    echo "[local-demo] level-bridge-hw-out running (PID ${PIDS[-1]}, port $PORT_LEVEL_HW_OUT)"
 
     # ---- level-bridge-hw-in (managed mode, US-075 Bug #6) ----
     # Taps ADA8200 capture_AUX0-7 ports for hardware input metering.
     echo ""
-    echo "[local-demo] Starting level-bridge-hw-in (levels on port $PORT_LEVEL_HW_IN, managed mode)..."
+    echo "[local-demo] Starting level-bridge-hw-in (managed mode)..."
     "$LB_BIN" \
         --managed \
         --node-name pi4audio-level-bridge-hw-in \
@@ -622,35 +549,37 @@ start_services() {
         --target unused-managed-mode \
         --levels-listen "tcp:0.0.0.0:${PORT_LEVEL_HW_IN}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/level_hw_in" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_LEVEL_HW_IN=$(_wait_port_file "$PORT_FILE_DIR/level_hw_in") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: level-bridge-hw-in failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] level-bridge-hw-in running (PID ${PIDS[-1]})"
+    echo "[local-demo] level-bridge-hw-in running (PID ${PIDS[-1]}, port $PORT_LEVEL_HW_IN)"
 
     # ---- pcm-bridge (managed mode) ----
     echo ""
-    echo "[local-demo] Starting pcm-bridge (PCM on port $PORT_PCM, managed mode)..."
+    echo "[local-demo] Starting pcm-bridge (managed mode)..."
     "$PCM_BIN" \
         --managed \
         --mode monitor \
         --listen "tcp:0.0.0.0:${PORT_PCM}" \
         --channels 8 \
-        --rate 48000 &
+        --rate 48000 \
+        --port-file "$PORT_FILE_DIR/pcm" &
     PIDS+=($!)
     maybe_disown $!
-    sleep 1
+    PORT_PCM=$(_wait_port_file "$PORT_FILE_DIR/pcm") || exit 1
 
     if ! kill -0 "${PIDS[-1]}" 2>/dev/null; then
         echo "[local-demo] ERROR: pcm-bridge failed to start" >&2
         exit 1
     fi
-    echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]})"
+    echo "[local-demo] pcm-bridge running (PID ${PIDS[-1]}, port $PORT_PCM)"
 
     # ---- Mixxx substitute (US-075 Bug #3) ----
     # JACK client named "Mixxx" with 8 output ports (out_0..out_7) matching
@@ -739,7 +668,7 @@ write_manifest() {
     "${PYTHON:-python3}" -c "
 import json, sys
 manifest = {
-    'instance_id': $INSTANCE_ID,
+    'demo_pid': $DEMO_PID,
     'ports': {
         'gm': $PORT_GM,
         'siggen': $PORT_SIGGEN,
@@ -767,7 +696,7 @@ with open('$MANIFEST_FILE', 'w') as f:
 print_summary() {
     echo ""
     echo "============================================================"
-    echo "  Local demo stack is running! (instance $INSTANCE_ID)"
+    echo "  Local demo stack is running! (PID $DEMO_PID)"
     echo ""
     echo "  Web UI:              http://localhost:$PORT_WEBUI"
     echo "  GraphManager:        tcp://127.0.0.1:$PORT_GM (RPC, standby mode)"
@@ -799,7 +728,7 @@ cleanup() {
     CLEANUP_DONE=true
 
     echo ""
-    echo "[local-demo] Shutting down (instance $INSTANCE_ID)..."
+    echo "[local-demo] Shutting down (PID $DEMO_PID)..."
 
     for (( i=${#PIDS[@]}-1 ; i>=0 ; i-- )) ; do
         local pid="${PIDS[$i]}"
@@ -825,6 +754,7 @@ cleanup() {
 
     stop_pw
     rm -f "$MANIFEST_FILE"
+    rm -rf "$PORT_FILE_DIR" 2>/dev/null || true
     echo "[local-demo] All processes stopped."
 }
 
@@ -841,28 +771,56 @@ cmd_start() {
     write_manifest
     print_summary
 
-    echo "[local-demo] Stack started in background. Use 'LOCAL_DEMO_INSTANCE_ID=$INSTANCE_ID $0 stop' to shut down."
+    echo "[local-demo] Stack started in background. Use 'LOCAL_DEMO_MANIFEST=$MANIFEST_FILE $0 stop' to shut down."
 }
 
 cmd_stop() {
-    echo "[local-demo] Stopping local-demo stack (instance $INSTANCE_ID)..."
-
-    # Load saved PIDs from manifest
-    if [ -f "$MANIFEST_FILE" ]; then
-        _kill_manifest_pids
+    # For stop, we need a manifest to know what to kill. The manifest path
+    # is either our own (foreground mode) or provided via LOCAL_DEMO_MANIFEST.
+    local mf="${LOCAL_DEMO_MANIFEST:-$MANIFEST_FILE}"
+    if [ ! -f "$mf" ]; then
+        echo "[local-demo] WARNING: No manifest found at $mf" >&2
+        echo "[local-demo] Cannot clean up automatically. Use 'ps aux | grep pi4audio' to find orphans." >&2
+        return 1
     fi
 
-    # Instance 0 backward compat: also try pattern-based kill as fallback.
-    if [ "$INSTANCE_ID" -eq 0 ]; then
+    echo "[local-demo] Stopping local-demo stack (manifest: $mf)..."
+
+    # Temporarily override MANIFEST_FILE so _kill_manifest_pids reads the right one.
+    local saved_manifest="$MANIFEST_FILE"
+    MANIFEST_FILE="$mf"
+
+    # Read ports from manifest for pattern fallback
+    local m_gm m_siggen m_level_sw m_level_hw_out m_level_hw_in m_pcm m_webui
+    m_gm=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['gm'])" 2>/dev/null || echo "")
+    m_siggen=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['siggen'])" 2>/dev/null || echo "")
+    m_level_sw=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['level_sw'])" 2>/dev/null || echo "")
+    m_level_hw_out=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['level_hw_out'])" 2>/dev/null || echo "")
+    m_level_hw_in=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['level_hw_in'])" 2>/dev/null || echo "")
+    m_pcm=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['pcm'])" 2>/dev/null || echo "")
+    m_webui=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['ports']['webui'])" 2>/dev/null || echo "")
+
+    # Also read PW/WP PID file paths from manifest
+    local m_pw_pidfile m_wp_pidfile
+    m_pw_pidfile=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['pw_pid_file'])" 2>/dev/null || echo "")
+    m_wp_pidfile=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['wp_pid_file'])" 2>/dev/null || echo "")
+
+    # Override PID file paths so stop_pw uses the right ones
+    if [ -n "$m_pw_pidfile" ]; then PW_PIDFILE="$m_pw_pidfile"; fi
+    if [ -n "$m_wp_pidfile" ]; then WP_PIDFILE="$m_wp_pidfile"; fi
+
+    _kill_manifest_pids
+
+    # Port-scoped pattern fallback for processes not in the manifest.
+    if [ -n "$m_gm" ]; then
         local fallback_patterns=(
-            "pi4audio-graph-manager.*tcp:127.0.0.1:${PORT_GM}"
-            "pi4audio-signal-gen.*tcp:127.0.0.1:${PORT_SIGGEN}"
-            "level-bridge.*tcp:0.0.0.0:${PORT_LEVEL_SW}"
-            "level-bridge.*tcp:0.0.0.0:${PORT_LEVEL_HW_OUT}"
-            "level-bridge.*tcp:0.0.0.0:${PORT_LEVEL_HW_IN}"
-            "pcm-bridge.*tcp:0.0.0.0:${PORT_PCM}"
-            "mixxx-substitute"
-            "uvicorn app.main:app.*${PORT_WEBUI}"
+            "pi4audio-graph-manager.*tcp:127.0.0.1:${m_gm}"
+            "pi4audio-signal-gen.*tcp:127.0.0.1:${m_siggen}"
+            "level-bridge.*tcp:0.0.0.0:${m_level_sw}"
+            "level-bridge.*tcp:0.0.0.0:${m_level_hw_out}"
+            "level-bridge.*tcp:0.0.0.0:${m_level_hw_in}"
+            "pcm-bridge.*tcp:0.0.0.0:${m_pcm}"
+            "uvicorn app.main:app.*${m_webui}"
         )
         for pattern in "${fallback_patterns[@]}"; do
             pkill -f "$pattern" 2>/dev/null || true
@@ -870,15 +828,23 @@ cmd_stop() {
     fi
 
     stop_pw
-    rm -f "$MANIFEST_FILE"
+    # Clean up port files — demo_pid is in the manifest.
+    local m_demo_pid
+    m_demo_pid=$("${PYTHON:-python3}" -c "import json; print(json.load(open('$mf'))['demo_pid'])" 2>/dev/null || echo "")
+    if [ -n "$m_demo_pid" ]; then
+        rm -rf "/tmp/local-demo-ports-${m_demo_pid}" 2>/dev/null || true
+    fi
+    rm -f "$mf"
+    MANIFEST_FILE="$saved_manifest"
     echo "[local-demo] All processes stopped."
 }
 
 cmd_status() {
+    local mf="${LOCAL_DEMO_MANIFEST:-$MANIFEST_FILE}"
     setup_pw_env
 
-    echo "Instance:      $INSTANCE_ID"
-    echo "Manifest:      $MANIFEST_FILE"
+    echo "PID:           $DEMO_PID"
+    echo "Manifest:      $mf"
 
     local pw_alive=false wp_alive=false
     if [ -f "$PW_PIDFILE" ] && kill -0 "$(cat "$PW_PIDFILE")" 2>/dev/null; then
@@ -891,12 +857,12 @@ cmd_status() {
     echo "PipeWire:      $(if $pw_alive; then echo "running (PID $(cat "$PW_PIDFILE"))"; else echo "stopped"; fi)"
     echo "WirePlumber:   $(if $wp_alive; then echo "running (PID $(cat "$WP_PIDFILE"))"; else echo "stopped"; fi)"
 
-    if [ -f "$MANIFEST_FILE" ]; then
+    if [ -f "$mf" ]; then
         local alive=0 dead=0
         local manifest_pids
         manifest_pids=$("${PYTHON:-python3}" -c "
 import json
-m = json.load(open('$MANIFEST_FILE'))
+m = json.load(open('$mf'))
 for p in m.get('pids', []):
     print(p)
 " 2>/dev/null || true)
@@ -928,6 +894,11 @@ for p in m.get('pids', []):
 
 cmd_env() {
     resolve_nix_paths
+    # Use LOCAL_DEMO_MANIFEST from environment if already set (e.g. by
+    # test-e2e.sh after capturing the manifest path from cmd_start output).
+    # Otherwise fall back to PID-derived path — only correct when env is
+    # called from the same process that ran start.
+    local mf="${LOCAL_DEMO_MANIFEST:-$MANIFEST_FILE}"
     cat << ENVEOF
 export XDG_RUNTIME_DIR="$PW_RUNTIME_DIR"
 export SPA_PLUGIN_DIR="$PW_STORE/lib/spa-0.2"
@@ -937,6 +908,7 @@ export XDG_CONFIG_HOME="$XDG_CONFIG_DIR"
 export XDG_DATA_DIRS="$WP_STORE/share:$PW_STORE/share:\${XDG_DATA_DIRS:-/usr/share}"
 unset PIPEWIRE_CONFIG_DIR 2>/dev/null || true
 export PATH="$PW_STORE/bin:$WP_STORE/bin:\$PATH"
+export LOCAL_DEMO_MANIFEST="$mf"
 ENVEOF
 }
 
@@ -974,8 +946,8 @@ case "${1:-}" in
         echo "  env        Print PW env vars (eval to set up shell)"
         echo "  foreground Start in foreground (Ctrl+C to stop) [default]"
         echo ""
-        echo "  Set LOCAL_DEMO_INSTANCE_ID=0-9 for parallel instances."
-        echo "  Instance 0 (default) uses original ports/paths."
+        echo "  Each invocation is isolated by PID. Run multiple in parallel."
+        echo "  Set LOCAL_DEMO_MANIFEST=<path> for stop/status/env on a specific instance."
         exit 1
         ;;
 esac

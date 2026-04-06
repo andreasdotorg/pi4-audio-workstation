@@ -83,7 +83,8 @@ CM maintains a registry of active branches:
 
 When a worker requests a branch:
 
-1. Create the branch: `git branch story/US-NNN-short-description`
+1. Create the branch **from the main repo dir, based on main**:
+   `cd /home/ela/mugge && git branch story/US-NNN-short-description main`
 2. Create the worktree: `git worktree add .claude/worktrees/us-nnn-short-description story/US-NNN-short-description`
 3. Verify creation: `git worktree list` — confirm the worktree exists and is on the correct branch
 4. Respond to the worker with the ABSOLUTE worktree path: `/home/ela/mugge/.claude/worktrees/us-nnn-short-description/`
@@ -113,7 +114,9 @@ Do NOT tell the worker to create it themselves. Diagnose and fix the issue.
 5. CM verifies CI green: T1 + T2 + T3 all passing
 6. CM verifies owner acceptance on the PR
 7. CM merges the PR to main
-8. CM reports: merge commit hash, files included, branch, approvals collected
+8. **CM pulls main immediately after merge** (`cd /home/ela/mugge && git pull --ff-only`).
+   This prevents stale-base issues on subsequent branch creation (F-267 lesson).
+9. CM reports: merge commit hash, files included, branch, approvals collected
 
 **CRITICAL: CM does NOT merge when ANY required approval is missing.**
 Even if the orchestrator overrides. This is the same independent verification
