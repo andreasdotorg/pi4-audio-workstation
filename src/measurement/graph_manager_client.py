@@ -114,8 +114,16 @@ class GraphManagerClient:
     # Low-level protocol
     # ------------------------------------------------------------------
 
-    def _send_cmd(self, cmd: dict) -> dict:
-        """Send a JSON command and return the response."""
+    def _send_cmd(self, cmd: dict, *, allow_not_ok: bool = False) -> dict:
+        """Send a JSON command and return the response.
+
+        Parameters
+        ----------
+        allow_not_ok : bool
+            If True, return the response even when ``ok`` is False instead
+            of raising GraphManagerError. Used by ``await_settled`` where
+            a timeout is a normal (non-exceptional) response.
+        """
         if self._sock is None:
             raise ConnectionError("Not connected to GraphManager")
         line = json.dumps(cmd, separators=(",", ":")) + "\n"
@@ -124,9 +132,11 @@ class GraphManagerClient:
             raise GraphManagerError(
                 f"Command exceeds max line length ({len(encoded)} > {MAX_CMD_BYTES})")
         self._sock.sendall(encoded)
-        return self._read_response(cmd.get("cmd", ""))
+        return self._read_response(cmd.get("cmd", ""),
+                                    allow_not_ok=allow_not_ok)
 
-    def _read_response(self, expected_cmd: str) -> dict:
+    def _read_response(self, expected_cmd: str, *,
+                        allow_not_ok: bool = False) -> dict:
         """Read lines until we get an ack/response for the expected command.
 
         The GM may send push events interleaved with responses. Events
@@ -143,7 +153,7 @@ class GraphManagerClient:
 
             if msg_type in ("ack", "response"):
                 if msg.get("cmd") == expected_cmd:
-                    if not msg.get("ok", False):
+                    if not msg.get("ok", False) and not allow_not_ok:
                         error = msg.get("error", "unknown error")
                         raise GraphManagerError(
                             f"GraphManager command '{expected_cmd}' failed: {error}")
@@ -178,16 +188,24 @@ class GraphManagerClient:
         """Verify the connection is alive."""
         self._send_cmd({"cmd": "ping"})
 
-    def set_mode(self, mode: str) -> None:
+    def set_mode(self, mode: str) -> dict:
         """Switch the GraphManager to a new routing mode.
 
         Parameters
         ----------
         mode : str
             One of "standby", "dj", "live", "measurement".
+
+        Returns
+        -------
+        dict
+            Response including ``epoch`` field (US-140) for use with
+            ``await_settled()``.
         """
-        self._send_cmd({"cmd": "set_mode", "mode": mode})
-        logger.info("GraphManager mode set to: %s", mode)
+        resp = self._send_cmd({"cmd": "set_mode", "mode": mode})
+        logger.info("GraphManager mode set to: %s (epoch=%s)", mode,
+                     resp.get("epoch"))
+        return resp
 
     def get_state(self) -> dict:
         """Query the current graph state.
@@ -237,6 +255,43 @@ class GraphManagerClient:
             "missing": resp.get("missing", 0),
             "links": resp.get("links", []),
         }
+
+    def await_settled(self, since_epoch: int, timeout_ms: int = 10000) -> dict:
+        """Wait for the reconciler to settle (US-140).
+
+        Blocks until ``settled_epoch >= since_epoch`` or timeout expires.
+        The server handles the wait -- no client-side polling.
+
+        Parameters
+        ----------
+        since_epoch : int
+            Epoch value from a prior ``set_mode()`` response.
+        timeout_ms : int
+            Maximum wait time in milliseconds (default 10000).
+
+        Returns
+        -------
+        dict
+            Response with ``ok``, ``settled_epoch``, ``desired``,
+            ``actual``, ``missing`` fields. On timeout, ``ok`` is False
+            and ``reason`` is ``"timeout"``.
+        """
+        # The server blocks for up to timeout_ms, so set socket timeout
+        # generously above that.
+        old_timeout = self._sock.gettimeout() if self._sock else None
+        if self._sock is not None:
+            self._sock.settimeout(max((timeout_ms / 1000.0) + 5.0,
+                                      self._timeout))
+        try:
+            resp = self._send_cmd({
+                "cmd": "await_settled",
+                "since_epoch": since_epoch,
+                "timeout_ms": timeout_ms,
+            }, allow_not_ok=True)
+        finally:
+            if self._sock is not None and old_timeout is not None:
+                self._sock.settimeout(old_timeout)
+        return resp
 
     def enter_measurement_mode(self) -> None:
         """Switch to measurement routing mode.
@@ -343,9 +398,10 @@ class MockGraphManagerClient:
     def ping(self) -> None:
         pass
 
-    def set_mode(self, mode: str) -> None:
+    def set_mode(self, mode: str) -> dict:
         self._mode = mode
         logger.info("MockGraphManagerClient mode set to: %s", mode)
+        return {"type": "response", "cmd": "set_mode", "ok": True, "epoch": 0}
 
     def get_state(self) -> dict:
         return {
@@ -364,6 +420,10 @@ class MockGraphManagerClient:
     def get_links(self) -> dict:
         return {"mode": self._mode, "desired": 0, "actual": 0,
                 "missing": 0, "links": []}
+
+    def await_settled(self, since_epoch: int, timeout_ms: int = 10000) -> dict:
+        return {"type": "response", "cmd": "await_settled", "ok": True,
+                "settled_epoch": 0, "desired": 0, "actual": 0, "missing": 0}
 
     def enter_measurement_mode(self) -> None:
         self.set_mode("measurement")

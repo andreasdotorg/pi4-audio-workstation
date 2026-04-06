@@ -35,8 +35,10 @@ URL parameters (passed through to WebSocket):
 import asyncio
 import json
 import logging
+import math
 import os
 import socket
+import struct
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -195,11 +197,11 @@ async def lifespan(app: FastAPI):
             await app.state.levels_hw_out.start()
         if app.state.levels_hw_in is not None:
             await app.state.levels_hw_in.start()
-        app.state.cdsp = FilterChainCollector()
+        app.state.cdsp = FilterChainCollector(host=gm_host, port=gm_port)
         await app.state.cdsp.start()
         app.state.system_collector = SystemCollector()
         await app.state.system_collector.start()
-        app.state.pw = PipeWireCollector()
+        app.state.pw = PipeWireCollector(host=gm_host, port=gm_port)
         await app.state.pw.start()
         log.info("All collectors started")
 
@@ -563,6 +565,50 @@ async def _pcm_tcp_relay(ws: WebSocket, host: str, port: int,
                 pass
 
 
+async def _mock_pcm_stream(ws: WebSocket, source: str) -> None:
+    """Generate synthetic PCM frames for mock/CI mode (F-252).
+
+    Produces v2 wire-format frames with a 440 Hz sine tone at -40 dBFS
+    so the spectrum canvas has visible data. Sends at ~47 Hz (1024 frames
+    per message at 48 kHz) to match real pcm-bridge timing.
+    """
+    num_channels = PCM_CHANNELS
+    frames_per_msg = 1024
+    sample_rate = 48000
+    freq_hz = 440.0
+    amplitude = 0.01  # ~-40 dBFS
+    phase = 0.0
+    phase_inc = 2.0 * math.pi * freq_hz / sample_rate
+    frame_counter = 0
+
+    try:
+        while True:
+            # Build v2 header: [version:1][pad:3][frame_count:4][graph_pos:8][graph_nsec:8]
+            header = struct.pack("<BBBBI Q Q",
+                                2, 0, 0, 0,          # version + 3 pad bytes
+                                frames_per_msg,       # frame_count (LE u32)
+                                frame_counter,        # graph_pos (LE u64)
+                                0)                    # graph_nsec (LE u64)
+            # Generate interleaved float32 PCM samples.
+            pcm = bytearray(frames_per_msg * num_channels * 4)
+            for i in range(frames_per_msg):
+                sample = amplitude * math.sin(phase)
+                phase += phase_inc
+                sample_bytes = struct.pack("<f", sample)
+                for ch in range(num_channels):
+                    offset = (i * num_channels + ch) * 4
+                    pcm[offset:offset + 4] = sample_bytes
+
+            await ws.send_bytes(header + bytes(pcm))
+            frame_counter += frames_per_msg
+            # Sleep to match real pcm-bridge rate (~47 Hz for 1024 frames at 48 kHz).
+            await asyncio.sleep(frames_per_msg / sample_rate)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
+
 @app.websocket("/ws/pcm/{source}")
 async def ws_pcm_source(ws: WebSocket, source: str, scenario: str = "A"):
     """Parameterized binary PCM stream from a named pcm-bridge instance.
@@ -570,6 +616,12 @@ async def ws_pcm_source(ws: WebSocket, source: str, scenario: str = "A"):
     Source names map to pcm-bridge TCP addresses via PI4AUDIO_PCM_SOURCES.
     Wire format: 4-byte LE uint32 header + interleaved float32 PCM.
     """
+    if MOCK_MODE:
+        await ws.accept()
+        log.info("PCM client connected (source=%s, mock)", source)
+        await _mock_pcm_stream(ws, source)
+        return
+
     addr = PCM_SOURCES.get(source)
     if addr is None:
         await ws.close(code=4004,
@@ -589,6 +641,12 @@ async def ws_pcm(ws: WebSocket, scenario: str = "A"):
     Legacy endpoint preserved for existing spectrum.js clients.
     Delegates to the ``monitor`` pcm-bridge instance.
     """
+    if MOCK_MODE:
+        await ws.accept()
+        log.info("PCM client connected (monitor, mock)")
+        await _mock_pcm_stream(ws, "monitor")
+        return
+
     # Delegate to the monitor source via pcm-bridge TCP relay (D-040).
     # F-030: Legacy JACK fallback removed — it caused xruns under DJ load.
     addr = PCM_SOURCES.get("monitor")

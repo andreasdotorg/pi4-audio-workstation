@@ -96,14 +96,15 @@ class TestLevelBridge:
     """
 
     @pytest.mark.xfail(
-        reason="F-262: UMIK sim stops delivering signal after mode transition — "
-               "level-bridge reports silence in measurement mode",
+        reason="F-272: reconciler race — no deterministic settlement signal",
         strict=False,
     )
-    def test_level_bridge_sw_has_signal(self, ensure_dj_mode, read_levels):
-        """level-bridge-sw (port 9100) reports non-zero peak levels."""
-        lines = read_levels(9100, count=1)
-        assert len(lines) >= 1, "No data from level-bridge-sw on port 9100"
+    def test_level_bridge_sw_has_signal(self, ensure_dj_mode, read_levels,
+                                        level_sw_port):
+        """level-bridge-sw reports non-zero peak levels."""
+        lines = read_levels(level_sw_port, count=1)
+        assert len(lines) >= 1, (
+            f"No data from level-bridge-sw on port {level_sw_port}")
         data = lines[0]
         peak = data.get("peak", [])
         assert len(peak) > 0, f"No peak data in level-bridge response: {data}"
@@ -112,16 +113,18 @@ class TestLevelBridge:
             f"level-bridge-sw: all channels at silence (peak: {peak})"
         )
 
-    def test_level_bridge_hw_out_responds(self, ensure_dj_mode, read_levels):
-        """level-bridge-hw-out (port 9101) responds with peak data.
+    def test_level_bridge_hw_out_responds(self, ensure_dj_mode, read_levels,
+                                           level_hw_out_port):
+        """level-bridge-hw-out responds with peak data.
 
         In local-demo, the hw-out bridge monitors the virtual USBStreamer
         sink. Signal may or may not be present depending on whether the
         null sink passes audio through. We only verify the bridge responds
         with valid peak data (connectivity test).
         """
-        lines = read_levels(9101, count=1)
-        assert len(lines) >= 1, "No data from level-bridge-hw-out on port 9101"
+        lines = read_levels(level_hw_out_port, count=1)
+        assert len(lines) >= 1, (
+            f"No data from level-bridge-hw-out on port {level_hw_out_port}")
         data = lines[0]
         peak = data.get("peak", [])
         assert len(peak) > 0, f"No peak data in level-bridge response: {data}"
@@ -134,9 +137,9 @@ class TestLevelBridge:
 class TestTimestampMonotonicity:
     """Level-bridge pos/nsec timestamps increase monotonically."""
 
-    def test_timestamps_monotonic(self, read_levels):
+    def test_timestamps_monotonic(self, read_levels, level_sw_port):
         """Read 8 snapshots, verify pos and nsec strictly increase."""
-        lines = read_levels(9100, count=8)
+        lines = read_levels(level_sw_port, count=8)
         # Filter to snapshots with non-zero timestamps
         valid = [d for d in lines if d.get("pos", 0) > 0 and d.get("nsec", 0) > 0]
         assert len(valid) >= 3, (
@@ -163,11 +166,11 @@ class TestTimestampMonotonicity:
 class TestPcmBridgeV2:
     """pcm-bridge binary protocol v2 header verification."""
 
-    def test_pcm_bridge_v2_header(self, read_pcm_header):
+    def test_pcm_bridge_v2_header(self, read_pcm_header, pcm_port):
         """pcm-bridge sends v2 header with non-zero graph_pos/graph_nsec."""
-        header = read_pcm_header(9090)
+        header = read_pcm_header(pcm_port)
         assert header is not None, (
-            "No data frames received from pcm-bridge on port 9090"
+            f"No data frames received from pcm-bridge on port {pcm_port}"
         )
         assert header["version"] == 2, (
             f"Expected version 2, got {header['version']}"

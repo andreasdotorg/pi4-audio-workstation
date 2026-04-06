@@ -219,75 +219,57 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 9000 --reload
 
 ## 3b. Parallel Local-Demo Instances (US-131)
 
-Multiple local-demo stacks can run simultaneously on the same machine by
-assigning each a unique instance ID. This enables parallel E2E test sessions
-and concurrent CI jobs without port conflicts.
+Multiple local-demo stacks can run simultaneously on the same machine. Each
+invocation is automatically isolated by its script PID — no manual instance
+IDs needed. Ports are OS-assigned (bind to port 0) with zero TOCTOU race.
 
-### 3b.1 Instance ID
-
-Set `LOCAL_DEMO_INSTANCE_ID` (0-9, default 0) to run a parallel instance:
+### 3b.1 Running Parallel Instances
 
 ```sh
-# Instance 0 (default) — uses original ports, backward compatible
-nix run .#local-demo
+# First instance — OS assigns all ports
+nix run .#local-demo -- start
 
-# Instance 1 — all ports offset by +100
-LOCAL_DEMO_INSTANCE_ID=1 nix run .#local-demo -- start
+# Second instance — OS assigns different ports, no conflicts
+nix run .#local-demo -- start
 
-# Stop instance 1
-LOCAL_DEMO_INSTANCE_ID=1 nix run .#local-demo -- stop
+# Stop via manifest (printed at startup)
+LOCAL_DEMO_MANIFEST=/tmp/local-demo-<PID>.json nix run .#local-demo -- stop
 ```
 
 ### 3b.2 Port Allocation
 
-Each instance's ports are computed as `base_port + (instance_id * 100)`:
-
-| Service | Instance 0 | Instance 1 | Instance 2 |
-|---------|-----------|-----------|-----------|
-| GraphManager | 4002 | 4102 | 4202 |
-| signal-gen | 4001 | 4101 | 4201 |
-| level-bridge-sw | 9100 | 9200 | 9300 |
-| level-bridge-hw-out | 9101 | 9201 | 9301 |
-| level-bridge-hw-in | 9102 | 9202 | 9302 |
-| pcm-bridge | 9090 | 9190 | 9290 |
-| web-ui | 8080 | 8180 | 8280 |
+Each Rust service binds to port 0 and writes the actual OS-assigned port to
+a port file (`--port-file <path>`). The script reads the port file after
+startup and records the actual port in the manifest. This eliminates TOCTOU
+races — the service holds the socket from bind time onward.
 
 Individual ports can be overridden via environment variables (e.g.,
-`LOCAL_DEMO_GM_PORT=5000`) for debugging. Env var overrides take precedence
-over the computed defaults.
+`LOCAL_DEMO_GM_PORT=5000`) for debugging or production use. Env var overrides
+bypass port 0 allocation and use the specified port directly.
 
-### 3b.3 Port Range Map (Reserved Ranges)
+### 3b.3 Manifest File
 
-| Range | Owner |
-|-------|-------|
-| 4001-4902 | local-demo instances 0-9 (GM, signal-gen) |
-| 8080-8980 | local-demo instances 0-9 (web-ui) |
-| 9090-9902 | local-demo instances 0-9 (pcm-bridge, level-bridges) |
-| 14002-14003 | E2E harness (GM, sim GM) |
-| 9877-9878 | E2E harness (siggen, sim siggen) |
-
-### 3b.4 Manifest File
-
-Each instance writes a JSON manifest to `/tmp/local-demo-inst-<ID>.json`
+Each instance writes a JSON manifest to `/tmp/local-demo-<PID>.json`
 containing all allocated ports, PIDs, and temp paths. This is the canonical
 source for port discovery:
 
 ```sh
-# Read the web UI port from instance 1's manifest
-python3 -c "import json; print(json.load(open('/tmp/local-demo-inst-1.json'))['ports']['webui'])"
+# Read the web UI port from a running instance's manifest
+python3 -c "import json; print(json.load(open('/tmp/local-demo-12345.json'))['ports']['webui'])"
 ```
 
 Test scripts (`test-e2e.sh`, `test-integration.sh`) automatically read the
-manifest after starting the local-demo stack. The `pw_test_environment.py`
-test helper accepts an `instance_id` parameter for parallel test environments.
+manifest via the `LOCAL_DEMO_MANIFEST` env var (exported by `local-demo env`)
+after starting the stack.
 
-### 3b.5 Isolation
+### 3b.4 Isolation
 
 Each instance has fully isolated:
 - **PipeWire runtime** — separate `XDG_RUNTIME_DIR` and PW socket
 - **Config directory** — separate `XDG_CONFIG_HOME`
 - **Temp paths** — separate coefficient dirs, room-sim dirs, log files
 - **PID files** — separate PID tracking, scoped cleanup
+- **Ports** — dynamically allocated, no collisions
 
 Cleanup of one instance does not affect any other instance.
 

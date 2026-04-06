@@ -46,20 +46,16 @@ log "Starting full local-demo stack..."
 # Source PW env so pw-cli commands work
 eval "$("$LOCAL_DEMO" env)"
 
-# US-131: Instance-aware port configuration.
-INSTANCE_ID="${LOCAL_DEMO_INSTANCE_ID:-0}"
-PORT_OFFSET=$((INSTANCE_ID * 100))
-MANIFEST_FILE="/tmp/local-demo-inst-${INSTANCE_ID}.json"
-
-GM_PORT=$((4002 + PORT_OFFSET))
-SIGGEN_PORT=$((4001 + PORT_OFFSET))
-
-# Re-read from manifest if available
-if [ -f "$MANIFEST_FILE" ]; then
-    _mp() { "$PYTHON" -c "import json; print(json.load(open('$MANIFEST_FILE'))['ports']['$1'])" 2>/dev/null || echo "$2"; }
-    GM_PORT=$(_mp gm "$GM_PORT")
-    SIGGEN_PORT=$(_mp siggen "$SIGGEN_PORT")
-fi
+# Read ports from manifest (set by eval of local-demo env above).
+_mp() {
+    local key="$1" default="$2"
+    if [ -n "${LOCAL_DEMO_MANIFEST:-}" ] && [ -f "$LOCAL_DEMO_MANIFEST" ]; then
+        "$PYTHON" -c "import json; print(json.load(open('$LOCAL_DEMO_MANIFEST'))['ports']['$key'])" 2>/dev/null && return
+    fi
+    echo "$default"
+}
+GM_PORT=$(_mp gm 4002)
+SIGGEN_PORT=$(_mp siggen 4001)
 
 # ---- Switch to measurement mode ----
 log "Switching GM to measurement mode..."

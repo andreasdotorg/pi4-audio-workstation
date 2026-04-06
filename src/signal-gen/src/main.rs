@@ -90,6 +90,11 @@ struct Args {
     /// pi4audio-graph-manager controls all link topology.
     #[arg(long, env = "PI4AUDIO_MANAGED")]
     managed: bool,
+
+    /// Write the actual bound port to this file after binding.
+    /// Used by orchestration scripts when --listen uses port 0.
+    #[arg(long)]
+    port_file: Option<String>,
 }
 
 /// Validate safety-critical arguments before entering the main loop.
@@ -700,6 +705,7 @@ fn run_rpc_server(
     max_level_dbfs: f64,
     file_samples: SharedFileSamples,
     sample_rate: u32,
+    port_file: Option<&str>,
 ) {
     let listener = match TcpListener::bind(listen_addr) {
         Ok(l) => l,
@@ -709,11 +715,18 @@ fn run_rpc_server(
         }
     };
 
+    let actual_addr = listener.local_addr().expect("failed to get local_addr");
+    info!("RPC server listening on {}", actual_addr);
+
+    if let Some(path) = port_file {
+        if let Err(e) = std::fs::write(path, actual_addr.port().to_string()) {
+            error!("Failed to write port file {}: {}", path, e);
+        }
+    }
+
     if let Err(e) = listener.set_nonblocking(true) {
         warn!("Failed to set non-blocking on RPC listener: {}", e);
     }
-
-    info!("RPC server listening on {}", listen_addr);
 
     let mut latest_state = StateSnapshot::stopped();
 
@@ -919,6 +932,7 @@ fn main() {
     let max_level_dbfs = args.max_level_dbfs;
     let rpc_file_samples = file_samples.clone();
     let rpc_sample_rate = args.rate;
+    let rpc_port_file = args.port_file.clone();
     let rpc_thread = std::thread::Builder::new()
         .name("rpc-server".into())
         .spawn(move || {
@@ -931,6 +945,7 @@ fn main() {
                 max_level_dbfs,
                 rpc_file_samples,
                 rpc_sample_rate,
+                rpc_port_file.as_deref(),
             );
         })
         .expect("Failed to spawn RPC server thread");
@@ -973,6 +988,7 @@ mod tests {
             ramp_ms: 20,
             device_watch: "UMIK-1".into(),
             managed: false,
+            port_file: None,
         }
     }
 

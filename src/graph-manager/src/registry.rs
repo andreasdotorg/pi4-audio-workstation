@@ -30,7 +30,7 @@
 //! On `global_remove`, we remove by ID and log the event.
 //! After each mutation, `reconcile()` runs and component health updates.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -379,6 +379,8 @@ fn run_reconcile(
     watchdog: &Rc<RefCell<Watchdog>>,
     last_warned: &mut HashMap<String, Instant>,
     gate_open: &Rc<RefCell<bool>>,
+    reconcile_epoch: &Rc<Cell<u64>>,
+    settled_epoch: &Rc<Cell<u64>>,
 ) {
     let result = reconcile::reconcile(graph, table, mode);
 
@@ -399,6 +401,15 @@ fn run_reconcile(
     }
     // Clean up resolved endpoints to prevent unbounded map growth.
     last_warned.retain(|k, _| result.missing_endpoints.contains(k));
+
+    // US-140: Update epoch counters for deterministic settlement.
+    if result.actions.is_empty() {
+        // No actions needed — graph matches desired state. Mark settled.
+        settled_epoch.set(reconcile_epoch.get());
+    } else {
+        // Non-empty action set — reconciler is making changes.
+        reconcile_epoch.set(reconcile_epoch.get() + 1);
+    }
 
     apply_actions(&result.actions, core, registry, graph, event_tx, link_proxies);
 
@@ -627,6 +638,8 @@ pub fn register_graph_listener(
     component_registry: Rc<RefCell<ComponentRegistry>>,
     watchdog: Rc<RefCell<Watchdog>>,
     gate_open: Rc<RefCell<bool>>,
+    reconcile_epoch: Rc<Cell<u64>>,
+    settled_epoch: Rc<Cell<u64>>,
 ) -> (pipewire::registry::Registry, Box<dyn std::any::Any>, RegistryHandle) {
     let registry = core
         .get_registry()
@@ -678,6 +691,8 @@ pub fn register_graph_listener(
     let comp_reg_add = component_registry.clone();
     let watchdog_add = watchdog.clone();
     let gate_open_add = gate_open.clone();
+    let reconcile_epoch_add = reconcile_epoch.clone();
+    let settled_epoch_add = settled_epoch.clone();
     let graph_remove = graph;
     let table_remove = table;
     let mode_remove = mode;
@@ -686,6 +701,8 @@ pub fn register_graph_listener(
     let comp_reg_remove = component_registry;
     let watchdog_remove = watchdog;
     let gate_open_remove = gate_open;
+    let reconcile_epoch_remove = reconcile_epoch;
+    let settled_epoch_remove = settled_epoch;
 
     let listener = registry
         .add_listener_local()
@@ -811,6 +828,8 @@ pub fn register_graph_listener(
                     &watchdog_add,
                     &mut last_warned_add.borrow_mut(),
                     &gate_open_add,
+                    &reconcile_epoch_add,
+                    &settled_epoch_add,
                 );
                 // F-079: If new mutations arrived during reconciliation,
                 // re-run to pick up newly arrived ports/nodes. Loop until
@@ -830,6 +849,8 @@ pub fn register_graph_listener(
                         &watchdog_add,
                         &mut last_warned_add.borrow_mut(),
                         &gate_open_add,
+                        &reconcile_epoch_add,
+                        &settled_epoch_add,
                     );
                 }
                 reconciling_add.set(false);
@@ -876,6 +897,8 @@ pub fn register_graph_listener(
                     &watchdog_remove,
                     &mut last_warned_remove.borrow_mut(),
                     &gate_open_remove,
+                    &reconcile_epoch_remove,
+                    &settled_epoch_remove,
                 );
                 while dirty_remove.get() {
                     dirty_remove.set(false);
@@ -892,6 +915,8 @@ pub fn register_graph_listener(
                         &watchdog_remove,
                         &mut last_warned_remove.borrow_mut(),
                         &gate_open_remove,
+                        &reconcile_epoch_remove,
+                        &settled_epoch_remove,
                     );
                 }
                 reconciling_remove.set(false);
