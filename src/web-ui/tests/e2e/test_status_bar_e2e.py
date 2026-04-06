@@ -89,16 +89,12 @@ class TestConnectionDot:
         expect(dot).to_be_attached()
 
     def test_connection_dot_turns_green(self, demo_page):
-        """Connection dot color changes from grey to connected state."""
+        """Connection dot gets 'connected' class after WebSocket connects."""
         _wait_for_ws_data(demo_page)
         demo_page.wait_for_function(
             """() => {
                 const dot = document.getElementById('conn-dot');
-                if (!dot) return false;
-                const cls = dot.className;
-                // Connected state adds a CSS class or changes background
-                return cls.includes('connected') ||
-                       window.getComputedStyle(dot).backgroundColor !== 'rgb(158, 158, 158)';
+                return dot && dot.classList.contains('connected');
             }""",
             timeout=WS_DATA_TIMEOUT_MS,
         )
