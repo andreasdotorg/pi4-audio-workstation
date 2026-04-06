@@ -117,17 +117,39 @@ def combine_filters(correction_filter, crossover_filter, n_taps=16384, margin_db
     combined_ir *= fade
 
     # Post-output D-009 re-clip. Cepstral synthesis and truncation+windowing
-    # can push magnitude above the clipped design. Re-clip the final FIR's
-    # rfft magnitude while preserving phase.
+    # can push magnitude above the clipped design at inter-bin frequencies.
+    # Detect overshoots at 4x oversampled resolution, then re-clip the
+    # magnitude and re-synthesize a minimum-phase FIR via the cepstral
+    # method at the same high resolution. Simply preserving phase while
+    # clipping magnitude destroys the minimum-phase property (F-262), so
+    # we must use cepstral re-synthesis for the re-clip too.
     margin_linear = dsp_utils.db_to_linear(margin_db)
-    out_spectrum = np.fft.rfft(combined_ir)
+    n_ir = len(combined_ir)
+    n_oversample = n_ir * 4
+    out_spectrum = np.fft.rfft(combined_ir, n=n_oversample)
     out_mag = np.abs(out_spectrum)
     exceed = out_mag > margin_linear
     if np.any(exceed):
-        out_phase = np.angle(out_spectrum)
         out_mag[exceed] = margin_linear
-        combined_ir = np.fft.irfft(
-            out_mag * np.exp(1j * out_phase), n=len(combined_ir),
-        )
+        # Re-synthesize minimum-phase from the re-clipped magnitude
+        # using the same cepstral method as the primary synthesis above,
+        # at the oversampled resolution to preserve inter-bin accuracy.
+        reclip_log_mag_half = np.log(np.maximum(out_mag, 1e-10))
+        reclip_n_full = n_oversample
+        reclip_log_mag_full = np.zeros(reclip_n_full, dtype=np.float64)
+        reclip_log_mag_full[:len(reclip_log_mag_half)] = reclip_log_mag_half
+        reclip_log_mag_full[len(reclip_log_mag_half):] = reclip_log_mag_half[-2:0:-1]
+        reclip_cepstrum = np.fft.ifft(reclip_log_mag_full).real
+        reclip_n_half = reclip_n_full // 2
+        reclip_causal = np.zeros(reclip_n_full)
+        reclip_causal[0] = 1.0
+        reclip_causal[1:reclip_n_half] = 2.0
+        if reclip_n_full % 2 == 0:
+            reclip_causal[reclip_n_half] = 1.0
+        reclip_mp_cepstrum = reclip_cepstrum * reclip_causal
+        reclip_mp_spectrum = np.exp(np.fft.fft(reclip_mp_cepstrum))
+        combined_ir = np.fft.ifft(reclip_mp_spectrum).real[:n_ir]
+        # Re-apply fade-out window after re-synthesis
+        combined_ir *= fade
 
     return combined_ir
