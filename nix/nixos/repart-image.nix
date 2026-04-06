@@ -44,9 +44,14 @@ in
     # Filesystem labels: -n FIRMWARE for vfat, -L NIXOS_SD for ext4.
     # These are global per filesystem type — safe because we have exactly
     # one vfat and one ext4 partition.
+    #
+    # -O ^orphan_file: e2fsprogs >= 1.47 enables the orphan_file feature
+    # by default. This is an ext4 INCOMPAT feature (0x20000) that U-Boot
+    # 2025.10 does not recognise, causing it to fail reading the root
+    # partition and never finding extlinux.conf.
     mkfsOptions = {
       vfat = [ "-n" "FIRMWARE" ];
-      ext4 = [ "-L" "NIXOS_SD" ];
+      ext4 = [ "-L" "NIXOS_SD" "-O" "^orphan_file" ];
     };
 
     partitions = {

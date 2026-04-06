@@ -82,7 +82,10 @@
             type = "filesystem";
             format = "ext4";
             # F-273: Filesystem label matching repart-image.nix.
-            extraArgs = [ "-L" "NIXOS_SD" ];
+            # -O ^orphan_file: e2fsprogs >= 1.47 enables orphan_file by
+            # default — an ext4 INCOMPAT feature U-Boot 2025.10 cannot
+            # read (blocks extlinux.conf discovery on the root partition).
+            extraArgs = [ "-L" "NIXOS_SD" "-O" "^orphan_file" ];
             mountpoint = "/";
             mountOptions = [ "defaults" ];
           };
