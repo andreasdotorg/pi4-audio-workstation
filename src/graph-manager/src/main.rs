@@ -86,6 +86,11 @@ struct Args {
     /// Comma-separated list of 1-based sub channel numbers (e.g. "3,4" or "1,2").
     #[arg(long, default_value = "3,4")]
     sub_channels: String,
+
+    /// Write the actual bound port to this file after binding.
+    /// Used by orchestration scripts when --listen uses port 0.
+    #[arg(long)]
+    port_file: Option<String>,
 }
 
 
@@ -535,10 +540,8 @@ fn dispatch_rpc_command(
             *current_mode.borrow_mut() = mode;
             info!("Mode transition: {} -> {}", old_mode, mode);
 
-            // 1b. Set quantum for the new mode (F-230).
-            // DJ needs quantum 1024 for efficient convolution; all other modes
-            // clear the force-quantum so PipeWire falls back to the config
-            // default (256, set in 10-audio-settings.conf).
+            // 1b. Set quantum for the new mode (F-230, F-249).
+            // DJ: force-quantum=1024; all other modes: force-quantum=256.
             set_quantum_for_mode(mode);
 
             // 2. Run reconciliation.
@@ -1150,11 +1153,16 @@ fn parse_pw_dump_xruns(json_str: &str) -> Result<(u64, String), String> {
     Ok((total_xruns, driver_node_name))
 }
 
-/// Set PipeWire quantum for the given mode (F-230).
+/// Set PipeWire quantum for the given mode (F-230, F-249).
 ///
-/// DJ mode needs quantum 1024 for efficient convolution (saves CPU for Mixxx).
-/// All other modes explicitly set quantum 256 (F-249: clearing to 0 left
-/// quantum at the PW-negotiated value, often 1024, breaking latency targets).
+/// GM is the single authority for quantum in all modes:
+/// - DJ: 1024 (~21ms PA path, efficient convolution for Mixxx)
+/// - Live/Standby/Measurement: 256 (~5.3ms PA path, below slapback threshold)
+///
+/// F-249: Previously non-DJ modes cleared force-quantum to 0, relying on PW
+/// config defaults. PipeWire may negotiate a higher quantum (e.g. 1024) when
+/// force-quantum is 0, depending on the graph topology. Explicit 256 ensures
+/// deterministic behavior regardless of PW negotiation.
 ///
 /// Uses `pw-metadata -n settings 0 clock.force-quantum <value>`.
 /// Errors are logged but not fatal — quantum mismatch is a performance issue,
@@ -1166,8 +1174,6 @@ fn set_quantum_for_mode(mode: Mode) {
     let quantum = match mode {
         Mode::Dj => 1024,
         // F-249: Explicitly set 256 instead of clearing to 0.
-        // Clearing to 0 leaves quantum at whatever PW negotiated (often 1024),
-        // which breaks live-mode latency requirements.
         _ => 256,
     };
 
@@ -1422,6 +1428,7 @@ fn main() {
         cmd_tx,
         event_rx,
         shutdown.clone(),
+        args.port_file,
     );
 
     // Run PipeWire main loop (blocks until shutdown). The PW thread

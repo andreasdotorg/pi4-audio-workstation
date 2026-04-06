@@ -226,6 +226,24 @@ def siggen_port() -> int:
     return SIGGEN_PORT
 
 
+@pytest.fixture(scope="session")
+def level_sw_port() -> int:
+    """level-bridge-sw TCP port."""
+    return LEVEL_SW_PORT
+
+
+@pytest.fixture(scope="session")
+def level_hw_out_port() -> int:
+    """level-bridge-hw-out TCP port."""
+    return LEVEL_HW_OUT_PORT
+
+
+@pytest.fixture(scope="session")
+def pcm_port() -> int:
+    """pcm-bridge TCP port."""
+    return PCM_PORT
+
+
 # ---------------------------------------------------------------------------
 # API helpers
 # ---------------------------------------------------------------------------

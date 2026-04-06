@@ -30,18 +30,13 @@ REPO_DIR="${LOCAL_DEMO_REPO_DIR:-$(dirname "$SCRIPT_DIR")}"
 LOCAL_DEMO="${LOCAL_DEMO_SH:-$REPO_DIR/scripts/local-demo.sh}"
 BASH_BIN="${LOCAL_DEMO_BASH:-bash}"
 
-# US-131: Instance-aware port configuration.
-# Ports are computed from instance ID, then overridden by manifest if available.
-INSTANCE_ID="${LOCAL_DEMO_INSTANCE_ID:-0}"
-PORT_OFFSET=$((INSTANCE_ID * 100))
-MANIFEST_FILE="/tmp/local-demo-inst-${INSTANCE_ID}.json"
-
-GM_PORT=$((4002 + PORT_OFFSET))
-SIGGEN_PORT=$((4001 + PORT_OFFSET))
-LEVEL_SW_PORT=$((9100 + PORT_OFFSET))
-LEVEL_HW_OUT_PORT=$((9101 + PORT_OFFSET))
-LEVEL_HW_IN_PORT=$((9102 + PORT_OFFSET))
-PCM_PORT=$((9090 + PORT_OFFSET))
+# Default ports — overridden by manifest after stack starts.
+GM_PORT=4002
+SIGGEN_PORT=4001
+LEVEL_SW_PORT=9100
+LEVEL_HW_OUT_PORT=9101
+LEVEL_HW_IN_PORT=9102
+PCM_PORT=9090
 
 CLEANUP_DONE=false
 START_TIME=$(date +%s)
@@ -147,9 +142,10 @@ log "Starting full local-demo stack..."
 # Source PW env so pw-cli commands work
 eval "$("$BASH_BIN" "$LOCAL_DEMO" env)"
 
-# US-131: Re-read actual ports from manifest (authoritative after start).
-if [ -f "$MANIFEST_FILE" ]; then
-    _mp() { "$PYTHON" -c "import json; print(json.load(open('$MANIFEST_FILE'))['ports']['$1'])" 2>/dev/null || echo "$2"; }
+# Re-read actual ports from manifest (authoritative after start).
+# LOCAL_DEMO_MANIFEST is set by the eval above.
+if [ -n "${LOCAL_DEMO_MANIFEST:-}" ] && [ -f "$LOCAL_DEMO_MANIFEST" ]; then
+    _mp() { "$PYTHON" -c "import json; print(json.load(open('$LOCAL_DEMO_MANIFEST'))['ports']['$1'])" 2>/dev/null || echo "$2"; }
     GM_PORT=$(_mp gm "$GM_PORT")
     SIGGEN_PORT=$(_mp siggen "$SIGGEN_PORT")
     LEVEL_SW_PORT=$(_mp level_sw "$LEVEL_SW_PORT")

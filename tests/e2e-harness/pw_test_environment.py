@@ -74,17 +74,22 @@ def _read_level_snapshot(host: str, port: int, timeout: float = 5.0) -> dict:
         sock.close()
 
 
-def _read_manifest_ports(instance_id: int = 0) -> dict:
-    """Read port assignments from a local-demo instance manifest.
+def _read_manifest_ports(manifest_path: str | Path | None = None) -> dict:
+    """Read port assignments from a local-demo manifest.
 
+    If manifest_path is None, tries LOCAL_DEMO_MANIFEST env var.
     Returns a dict of port name -> port number, or empty dict if the
     manifest does not exist or cannot be parsed.
     """
-    manifest_path = Path(f"/tmp/local-demo-inst-{instance_id}.json")
-    if not manifest_path.is_file():
+    if manifest_path is None:
+        manifest_path = os.environ.get("LOCAL_DEMO_MANIFEST", "")
+    if not manifest_path:
+        return {}
+    path = Path(manifest_path)
+    if not path.is_file():
         return {}
     try:
-        with open(manifest_path) as f:
+        with open(path) as f:
             data = json.load(f)
         return data.get("ports", {})
     except (json.JSONDecodeError, OSError):
@@ -95,7 +100,7 @@ def _read_manifest_ports(instance_id: int = 0) -> dict:
 class PwTestEnvConfig:
     """Configuration for the PipeWire test environment."""
 
-    # Ports (match local-demo.sh defaults for instance 0)
+    # Ports (defaults used when no manifest is available)
     gm_port: int = 4002
     siggen_port: int = 4001
     level_sw_port: int = 9100
@@ -103,36 +108,17 @@ class PwTestEnvConfig:
     level_hw_in_port: int = 9102
     pcm_port: int = 9090
 
-    # US-131: Instance ID for parallel local-demo stacks
-    instance_id: int = 0
-
     # Path to local-demo.sh
     local_demo_script: Optional[str] = None
+
+    # Manifest path (set after start)
+    manifest_path: Optional[str] = None
 
     def __post_init__(self):
         if self.local_demo_script is None:
             self.local_demo_script = str(
                 _PROJECT_ROOT / "scripts" / "local-demo.sh"
             )
-
-    @classmethod
-    def from_instance_id(cls, instance_id: int = 0, **overrides) -> "PwTestEnvConfig":
-        """Create config with ports computed from instance ID.
-
-        Port offset = instance_id * 100. Explicit overrides take precedence.
-        """
-        offset = instance_id * 100
-        defaults = dict(
-            gm_port=4002 + offset,
-            siggen_port=4001 + offset,
-            level_sw_port=9100 + offset,
-            level_hw_out_port=9101 + offset,
-            level_hw_in_port=9102 + offset,
-            pcm_port=9090 + offset,
-            instance_id=instance_id,
-        )
-        defaults.update(overrides)
-        return cls(**defaults)
 
 
 class PwTestEnv:
@@ -224,17 +210,15 @@ def pw_test_environment(
     level_hw_out_port: int = 9101,
     level_hw_in_port: int = 9102,
     pcm_port: int = 9090,
-    instance_id: Optional[int] = None,
 ):
     """Start the full local-demo stack and yield a PwTestEnv.
 
     Uses ``local-demo.sh start`` for startup and ``local-demo.sh stop``
     for teardown. Always brings up the complete production-replica stack.
 
-    US-131: Pass ``instance_id`` (0-9) for parallel instances. When set,
-    ports are computed from the instance ID (base + id*100) and the
-    explicit port arguments are ignored. After startup, actual ports are
-    read from the instance manifest file.
+    Ports are auto-allocated by local-demo.sh and read from the manifest
+    after startup. The explicit port arguments are only used as fallbacks
+    if the manifest is unavailable.
 
     Example::
 
@@ -242,38 +226,28 @@ def pw_test_environment(
             env.set_mode("measurement")
             env.siggen_play(freq=1000)
             levels = env.read_levels()
-
-        # Parallel instance:
-        with pw_test_environment(instance_id=1) as env:
-            ...
     """
-    if instance_id is not None:
-        cfg = PwTestEnvConfig.from_instance_id(instance_id)
-    else:
-        cfg = PwTestEnvConfig(
-            gm_port=gm_port,
-            siggen_port=siggen_port,
-            level_sw_port=level_sw_port,
-            level_hw_out_port=level_hw_out_port,
-            level_hw_in_port=level_hw_in_port,
-            pcm_port=pcm_port,
-        )
+    cfg = PwTestEnvConfig(
+        gm_port=gm_port,
+        siggen_port=siggen_port,
+        level_sw_port=level_sw_port,
+        level_hw_out_port=level_hw_out_port,
+        level_hw_in_port=level_hw_in_port,
+        pcm_port=pcm_port,
+    )
 
     script = cfg.local_demo_script
-    inst_env = {}
-    if instance_id is not None:
-        inst_env["LOCAL_DEMO_INSTANCE_ID"] = str(instance_id)
 
     # Stop any previous instance
     subprocess.run(
         [script, "stop"], capture_output=True,
-        env={**os.environ, **inst_env},
+        env=os.environ.copy(),
     )
 
     # Start the full stack
     result = subprocess.run(
         [script, "start"], capture_output=True, text=True,
-        env={**os.environ, **inst_env},
+        env=os.environ.copy(),
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -281,20 +255,10 @@ def pw_test_environment(
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-    # US-131: Re-read actual ports from manifest (authoritative after start).
-    manifest_ports = _read_manifest_ports(cfg.instance_id)
-    if manifest_ports:
-        cfg.gm_port = manifest_ports.get("gm", cfg.gm_port)
-        cfg.siggen_port = manifest_ports.get("siggen", cfg.siggen_port)
-        cfg.level_sw_port = manifest_ports.get("level_sw", cfg.level_sw_port)
-        cfg.level_hw_out_port = manifest_ports.get("level_hw_out", cfg.level_hw_out_port)
-        cfg.level_hw_in_port = manifest_ports.get("level_hw_in", cfg.level_hw_in_port)
-        cfg.pcm_port = manifest_ports.get("pcm", cfg.pcm_port)
-
-    # Capture PW environment variables for this process
+    # Read LOCAL_DEMO_MANIFEST from the env subcommand
     env_result = subprocess.run(
         [script, "env"], capture_output=True, text=True,
-        env={**os.environ, **inst_env},
+        env=os.environ.copy(),
     )
     for line in env_result.stdout.splitlines():
         line = line.strip()
@@ -305,10 +269,20 @@ def pw_test_environment(
         elif line.startswith("unset "):
             os.environ.pop(line.split()[1].rstrip(";").strip(), None)
 
+    # Re-read actual ports from manifest (authoritative after start).
+    manifest_ports = _read_manifest_ports()
+    if manifest_ports:
+        cfg.gm_port = manifest_ports.get("gm", cfg.gm_port)
+        cfg.siggen_port = manifest_ports.get("siggen", cfg.siggen_port)
+        cfg.level_sw_port = manifest_ports.get("level_sw", cfg.level_sw_port)
+        cfg.level_hw_out_port = manifest_ports.get("level_hw_out", cfg.level_hw_out_port)
+        cfg.level_hw_in_port = manifest_ports.get("level_hw_in", cfg.level_hw_in_port)
+        cfg.pcm_port = manifest_ports.get("pcm", cfg.pcm_port)
+
     try:
         yield PwTestEnv(cfg)
     finally:
         subprocess.run(
             [script, "stop"], capture_output=True,
-            env={**os.environ, **inst_env},
+            env=os.environ.copy(),
         )

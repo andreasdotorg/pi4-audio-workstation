@@ -182,9 +182,15 @@ class TestDeployD009SafetyInterlock:
 
     def test_deploy_rejects_nonexistent_dir(self, api_post):
         """Deploy with a non-existent output_dir returns 404."""
+        # Use the server's filter output dir base so the S-001 path check
+        # passes, then append a nonexistent subdir to trigger FileNotFoundError.
+        output_base = os.environ.get(
+            "PI4AUDIO_FILTER_OUTPUT_DIR", "/tmp/pi4audio-demo/filters"
+        )
+        nonexistent = os.path.join(output_base, "nonexistent-dir")
         status, body = api_post(
             "/api/v1/filters/deploy",
-            {"output_dir": "/tmp/pi4audio-demo/filters/nonexistent-dir"},
+            {"output_dir": nonexistent},
             timeout=10.0,
         )
         assert status == 404, (
