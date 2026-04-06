@@ -56,6 +56,17 @@ Do not bypass Nix for test runs or dependency management:
 The `.venv` directories exist as an implementation detail of the Nix
 environment setup. They are not the intended interface for running code.
 
+### 1.4 Nix Gotchas
+
+- **`nix build` only works on `packages` outputs**, not `apps`. To run an app
+  target, use `nix run .#<target>` instead of `nix build .#<target>`.
+- **Long Nix operations need tmux.** `nix build` and `nix run .#test-all` can
+  take many minutes. Background tasks started without tmux get killed by agent
+  tool timeouts. Wrap long builds in a tmux session.
+- **Flake `nixConfig` `extra-substituters` is ignored by the CI Nix daemon**
+  (untrusted user context). CI Cachix setup is handled by `cachix-action` in
+  the GitHub Actions workflow, not by the flake.
+
 
 ## 2. Test Suites
 
@@ -98,6 +109,8 @@ regenerate reference screenshots and review the diffs before committing.
 
 **Destructive tests** are marked `@pytest.mark.destructive` (they modify Pi
 state) and are skipped by default. They require the `--destructive` flag.
+Note: `test-e2e.sh` does NOT pass `--destructive`, so these tests are always
+skipped in automated E2E runs. Run them manually with explicit opt-in only.
 
 **Tests against a real Pi** use the `pi_url` fixture and require the
 `PI_AUDIO_URL` environment variable. Tests skip if it is unset.

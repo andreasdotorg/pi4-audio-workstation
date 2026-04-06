@@ -17,6 +17,7 @@
   - One worker per branch, one branch per story (1:1:1)
   - CM controls PR merges (Rule 13 approvals + CI green + owner acceptance)
   - Squash merge as default merge strategy
+  - **Branch protection on `main`:** required status check is `ci-gate`
 - **Commit conventions:** conventional commits, no Jira ticket references
   - Format: `type(scope): description`
   - Types: feat, fix, docs, refactor, test, chore
@@ -102,6 +103,27 @@ Sub-step of REVIEW phase. Owner performs hands-on Pi verification. PM records
 outcome in DoD tracking table. Max 3 stories in acceptance queue at a time.
 
 See `docs/project/testing-process.md` Section 8 for full gate definitions.
+
+## Nix & CI Constraints
+
+**Build system:**
+- `nix build` does NOT work on `apps` outputs (flake `apps` attribute) — only
+  on `packages`. Use `nix run .#<app>` for apps targets.
+- Use tmux for long Nix operations (`nix build`, `nix run .#test-all`).
+  Background tasks started without tmux get killed by agent tool timeouts.
+
+**Cachix (binary cache):**
+- Bidirectional: CI pushes built artifacts to Cachix, local `nix build`/`nix run`
+  pulls from Cachix. Same-architecture only (CI builds aarch64, local pulls aarch64).
+- Flake `nixConfig` `extra-substituters` is ignored by the CI Nix daemon
+  (untrusted user). The `cachix-action` GitHub Action handles Cachix setup in CI
+  instead.
+
+**Test markers:**
+- `@pytest.mark.destructive` requires the `--destructive` CLI flag to run.
+  `test-e2e.sh` does NOT pass `--destructive`, so destructive-marked tests are
+  always skipped in E2E. This is intentional — destructive tests modify Pi state
+  and must be run manually with explicit opt-in.
 
 ## Deployment Target
 
