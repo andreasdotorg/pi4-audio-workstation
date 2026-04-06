@@ -59,12 +59,15 @@
 
       partitions = {
         # Firmware partition: VideoCore blobs, U-Boot, config.txt
-        # NOT EF00 (ESP) — U-Boot on Pi 4 tries EFI boot from an ESP,
-        # bypassing extlinux.conf. VideoCore reads the first FAT
-        # partition regardless of GPT type.
+        # Microsoft Basic Data (0700) — the only GPT type that satisfies
+        # both boot stages on Pi 4:
+        #   1. VideoCore EEPROM scans GPT for ESP or Basic Data type
+        #      partitions. Linux filesystem (8300) is NOT recognized.
+        #   2. U-Boot tries EFI boot from ESP (EF00) partitions,
+        #      bypassing extlinux.conf. Basic Data (0700) avoids this.
         firmware = {
           size = "256M";
-          type = "8300";  # Linux filesystem (not ESP)
+          type = "0700";  # Microsoft Basic Data (EBD0A0A2)
           content = {
             type = "filesystem";
             format = "vfat";
