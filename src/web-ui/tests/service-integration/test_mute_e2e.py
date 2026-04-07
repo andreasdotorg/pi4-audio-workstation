@@ -23,7 +23,7 @@ import time
 import pytest
 
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.service_integration
 
 # Thresholds (dBFS).  level-bridge reports peak in dB.
 # -100 dBFS is the established signal/silence boundary (test_audio_flow.py).

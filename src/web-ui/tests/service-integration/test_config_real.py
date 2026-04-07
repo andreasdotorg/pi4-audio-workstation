@@ -10,7 +10,7 @@ provide (L-QE-002).
 
 import pytest
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.service_integration
 
 
 class TestConfigEndpointReal:

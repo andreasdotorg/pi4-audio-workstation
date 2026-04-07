@@ -416,6 +416,11 @@ class TestWatchdogTimeout:
             final = _wait_for_session_done(client, timeout_s=20.0)
             assert final["state"] in ("aborted", "idle")
 
+            # Allow async session cleanup to finish before TestClient
+            # teardown cancels remaining tasks (avoids CancelledError).
+            if final["state"] != "idle":
+                _wait_for_session_done(client, timeout_s=5.0)
+
 
 # ===========================================================================
 # Test 11: Mic disconnect (near-zero signal)

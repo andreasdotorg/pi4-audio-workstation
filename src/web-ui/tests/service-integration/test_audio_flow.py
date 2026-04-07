@@ -16,7 +16,7 @@ import json
 import pytest
 
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.service_integration
 
 
 # ---------------------------------------------------------------------------
