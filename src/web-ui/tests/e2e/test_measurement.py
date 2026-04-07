@@ -241,9 +241,9 @@ class TestLocalDemoMeasurementBrowser:
     """Drive a full measurement session through the browser UI."""
 
     @pytest.mark.xfail(
-        reason="F-285: measurement session E2E — browser START does not "
-               "transition from IDLE (signal-gen not reachable in "
-               "local-demo stack).",
+        reason="F-262: session starts (F-285 signal-gen fix works) but ends "
+               "in ERROR — room-sim IRs fail filter verification (min-phase "
+               "check). Same root cause as API test.",
         strict=False,
     )
     def test_full_session_browser(self, demo_page, local_demo_url):
