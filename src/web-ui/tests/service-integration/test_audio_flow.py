@@ -95,10 +95,6 @@ class TestLevelBridge:
     convolver to the level bridges.
     """
 
-    @pytest.mark.xfail(
-        reason="F-272: reconciler race — no deterministic settlement signal",
-        strict=False,
-    )
     def test_level_bridge_sw_has_signal(self, ensure_dj_mode, read_levels,
                                         level_sw_port):
         """level-bridge-sw reports non-zero peak levels."""
