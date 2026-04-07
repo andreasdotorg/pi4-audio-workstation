@@ -171,10 +171,9 @@ class TestLocalDemoMeasurementAPI:
     """Drive a full measurement session via REST API against local-demo."""
 
     @pytest.mark.xfail(
-        reason="F-262: E2E silence on CI — GM reconciler not linking. "
-               "4-channel room-sim IRs may fail filter verification "
-               "(min-phase check). Signal path works — filter quality "
-               "is a room-sim limitation, not a pipeline defect.",
+        reason="F-262: room-sim IRs fail filter verification (min-phase "
+               "check). Signal path works — filter quality is a room-sim "
+               "limitation, not a pipeline defect.",
         strict=False,
     )
     def test_full_session_api(self, local_demo_url):
