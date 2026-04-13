@@ -1,0 +1,66 @@
+# Markaudio CHN-50P mains + Dayton Ultimax UMII18-22 sub
+# 2-way active crossover at 200Hz, LR4-equivalent (24 dB/oct) as FIR.
+#
+# Single sub configuration -- AUX2 only. AUX3 (sub2 slot) is spare,
+# handled at the venue config level (dirac.wav, permanently muted).
+#
+# Channel assignment (USBStreamer AUX0-AUX7):
+#   AUX0 = Markaudio CHN-50P Left  (HPF 200Hz LR4 min-phase FIR)
+#   AUX1 = Markaudio CHN-50P Right (HPF 200Hz LR4 min-phase FIR)
+#   AUX2 = Dayton Ultimax UMII18-22 (LPF 200Hz LR4 min-phase FIR, mono sum L+R)
+#   AUX3 = spare (not defined in this profile -- venue config assigns dirac.wav)
+#   AUX4 = HP Left          (monitoring -- not in profile)
+#   AUX5 = HP Right         (monitoring -- not in profile)
+#   AUX6 = IEM Left         (singer IEM -- not in profile)
+#   AUX7 = IEM Right        (singer IEM -- not in profile)
+#
+# Amp: McGrey PA4504 (4x450W @ 4 ohm).
+# Sub load: 4 ohm (DVC series wiring).
+#
+# All FIR, no IIR anywhere. No phase inversion on any channel.
+
+name: "Markaudio CHN-50P + Ultimax UMII18-22 200Hz"
+description: "CHN-50P sealed satellites with Ultimax 18-inch sealed sub at 200Hz crossover."
+topology: 2way
+
+crossover:
+  frequency_hz: 200
+  slope_db_per_oct: 24
+  type: linkwitz-riley
+
+speakers:
+  sat_left:
+    identity: markaudio-chn-50p-sealed-1l16
+    role: satellite
+    channel: 0
+    filter_type: highpass
+    polarity: normal
+  sat_right:
+    identity: markaudio-chn-50p-sealed-1l16
+    role: satellite
+    channel: 1
+    filter_type: highpass
+    polarity: normal
+  sub1:
+    identity: dayton-ultimax-umii18-22-sealed-120l
+    role: subwoofer
+    channel: 2
+    filter_type: lowpass
+    polarity: normal
+
+monitoring:
+  hp_left: 4
+  hp_right: 5
+  hp2_left: 6
+  hp2_right: 7
+
+gain_staging:
+  satellite:
+    headroom_db: -7.0
+    power_limit_db: -22.0    # CHN-50P: 7W thermal limit. Conservative.
+  subwoofer:
+    headroom_db: -7.0
+    power_limit_db: -6.0     # Ultimax: 1200W RMS, amp only delivers 450W. Minimal limiting needed.
+
+target_curve: flat
+filter_taps: 16384
