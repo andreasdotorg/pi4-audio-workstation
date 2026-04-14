@@ -51,8 +51,12 @@ in
   # F-020 workaround: Force PipeWire to SCHED_FIFO/88 via systemd.
   # PipeWire's RT module fails to self-promote on PREEMPT_RT kernels.
   # systemd sets the scheduling policy at exec time, before PipeWire starts.
+  # F-291 fix: NoNewPrivileges must be false — the NixOS base PipeWire unit
+  # sets NoNewPrivileges=yes, which silently blocks SCHED_FIFO acquisition.
+  # Without this override, CPUSchedulingPolicy=fifo is a no-op.
   systemd.user.services.pipewire = {
     serviceConfig = {
+      NoNewPrivileges = false;
       CPUSchedulingPolicy = "fifo";
       CPUSchedulingPriority = 88;
     };
