@@ -61,11 +61,14 @@ in
     serviceConfig = {
       # F-291: Override NixOS base unit hardening to allow SCHED_FIFO.
       # SystemCallFilter implicitly enables NoNewPrivileges (kernel requirement
-      # for seccomp). Clearing the filter is acceptable for PipeWire — a trusted,
-      # upstream audio daemon on a single-user workstation already granted
-      # SCHED_FIFO/88 and unlimited memlock.
+      # for seccomp). Emit a bare "SystemCallFilter=" in the drop-in to reset
+      # the inherited filter list. [""] produces exactly that — an empty list
+      # [] would be omitted entirely, leaving the base filter in effect.
+      # Acceptable for PipeWire — a trusted, upstream audio daemon on a
+      # single-user workstation already granted SCHED_FIFO/88 and unlimited
+      # memlock.
       NoNewPrivileges = false;
-      SystemCallFilter = lib.mkForce [];
+      SystemCallFilter = lib.mkForce [""];
       CPUSchedulingPolicy = "fifo";
       CPUSchedulingPriority = 88;
     };
