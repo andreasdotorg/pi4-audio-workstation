@@ -54,21 +54,23 @@ in
   # F-020 workaround: Force PipeWire to SCHED_FIFO/88 via systemd.
   # PipeWire's RT module fails to self-promote on PREEMPT_RT kernels.
   # systemd sets the scheduling policy at exec time, before PipeWire starts.
-  # F-291 fix: NoNewPrivileges must be false AND SystemCallFilter must be
-  # cleared — SystemCallFilter implicitly re-enables NoNewPrivileges (kernel
-  # seccomp requirement), silently blocking CPUSchedulingPolicy=fifo.
+  #
+  # F-291 fix: The base PipeWire unit has multiple hardening directives that
+  # each independently force NoNewPrivileges=yes at the kernel level:
+  #   - SystemCallFilter=@system-service  (seccomp → NNP)
+  #   - SystemCallArchitectures=native    (seccomp → NNP)
+  #   - LockPersonality=yes               (implies NNP)
+  #   - MemoryDenyWriteExecute=yes         (implies NNP)
+  # ALL of these must be cleared for CPUSchedulingPolicy=fifo to take effect.
+  # Acceptable for PipeWire — a trusted, upstream audio daemon on a
+  # single-user workstation already granted SCHED_FIFO/88 and unlimited memlock.
   systemd.user.services.pipewire = {
     serviceConfig = {
-      # F-291: Override NixOS base unit hardening to allow SCHED_FIFO.
-      # SystemCallFilter implicitly enables NoNewPrivileges (kernel requirement
-      # for seccomp). Emit a bare "SystemCallFilter=" in the drop-in to reset
-      # the inherited filter list. [""] produces exactly that — an empty list
-      # [] would be omitted entirely, leaving the base filter in effect.
-      # Acceptable for PipeWire — a trusted, upstream audio daemon on a
-      # single-user workstation already granted SCHED_FIFO/88 and unlimited
-      # memlock.
       NoNewPrivileges = false;
       SystemCallFilter = lib.mkForce [""];
+      SystemCallArchitectures = lib.mkForce "";
+      LockPersonality = false;
+      MemoryDenyWriteExecute = false;
       CPUSchedulingPolicy = "fifo";
       CPUSchedulingPriority = 88;
     };
