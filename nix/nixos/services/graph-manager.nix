@@ -77,7 +77,13 @@ in
         ProtectKernelModules = true;
         ProtectControlGroups = true;
         SystemCallArchitectures = "native";
-        SystemCallFilter = [ "@system-service" "~@privileged" ];
+        # F-293: removed ~@privileged — it blocks sched_setscheduler at the
+        # seccomp level. Currently harmless (systemd applies FIFO before the
+        # filter is installed), but could break if systemd changes exec ordering
+        # or if GM ever needs runtime RT promotion. Security Specialist approved
+        # Option A: keep NoNewPrivileges=true for setuid protection, remove only
+        # the privileged syscall exclusion.
+        SystemCallFilter = [ "@system-service" ];
         ProtectSystem = "full";
         ProtectHome = "read-only";
       };
