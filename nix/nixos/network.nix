@@ -3,6 +3,13 @@
   networking = {
     hostName = "mugge";
 
+    # Static route to VM subnet via gateway host
+    interfaces.end0.ipv4.routes = [{
+      address = "192.168.105.0";
+      prefixLength = 24;
+      via = "192.168.178.26";
+    }];
+
     # nftables firewall (matches US-000a hardening)
     nftables.enable = true;
     firewall = {
