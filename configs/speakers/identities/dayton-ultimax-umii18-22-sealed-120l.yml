@@ -1,0 +1,53 @@
+# Dayton Audio Ultimax UMII18-22 -- sealed 120L enclosure
+# 18-inch DVC subwoofer, voice coils wired in series for 4 ohm.
+# Carbon-fiber cone, 28mm Xmax, 76.2mm voice coil.
+#
+# Enclosure: 120 liters sealed.
+# DVC series wiring: 2 ohm + 2 ohm = 4 ohm nominal.
+# Amp load: McGrey PA4504 channel, 450W @ 4 ohm.
+#
+# D-031 EXCEPTION (owner directive):
+#   mandatory_hpf_hz is null (no subsonic protection HPF).
+#   Rationale: The UMII18-22 has >16mm Xmax (28mm per spec) in a 120L
+#   sealed enclosure. The sealed alignment provides inherent mechanical
+#   loading below resonance (cone excursion is restoring-force limited,
+#   not unloaded as in ported designs). The McGrey PA4504 at 450W into
+#   4 ohm cannot exceed the driver's mechanical limits in this enclosure.
+#
+#   This exception does NOT apply to ported enclosures with this driver,
+#   where excursion rises sharply below port tuning. If the enclosure
+#   changes, re-evaluate D-031 protection requirements.
+#
+# Sensitivity note:
+#   Manufacturer spec: 90.7 dB @ 2.83V/1m (free-air).
+#   At 4 ohm (DVC series): 2.83V = 2W, so 1W/1m sensitivity is
+#   approximately 90.7 - 3 = 87.7 dB. Rounded to 87 dB for the
+#   speaker identity. Actual in-box sensitivity will differ from
+#   free-air; refine after measurement.
+#
+# Driver T/S data: configs/drivers/dayton-audio-umii18-22/driver.yml
+
+name: "Dayton Ultimax UMII18-22 Sealed 120L"
+manufacturer: "Dayton Audio"
+model: "UMII18-22"
+driver: dayton-audio-umii18-22
+type: sealed
+enclosure_volume_liters: 120
+
+impedance_ohm: 4
+sensitivity_db_spl: 87
+
+# D-029 gain staging
+max_boost_db: 0
+mandatory_hpf_hz: null  # D-031 exception: see comment above
+
+# Power handling
+max_power_watts: 500
+power_limit_note: >
+  Driver rated 1200W RMS (2400W peak) but amp channel delivers max 450W
+  @ 4 ohm. Amp power ceiling provides implicit thermal protection.
+  No additional power limiting required at the DSP level for this
+  amp/driver combination.
+
+# Compensation EQ -- none yet, pending listening-position measurement.
+compensation_eq: []
