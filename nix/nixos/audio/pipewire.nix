@@ -25,7 +25,10 @@ let
     # PipeWire main config fragments
     mkdir -p $out/share/pipewire/pipewire.conf.d
     cp ${../../../configs/pipewire/10-audio-settings.conf}     $out/share/pipewire/pipewire.conf.d/
-    cp ${../../../configs/pipewire/20-usbstreamer.conf}         $out/share/pipewire/pipewire.conf.d/
+    # F-295: 20-usbstreamer.conf (ada8200-in capture adapter) NOT deployed.
+    # PipeWire promotes the node to driver=true at runtime despite config
+    # saying false, adding a dormant driver node to the graph. Live mode
+    # will re-enable this via GraphManager when mic input is needed.
     cp ${../../../configs/pipewire/21-usbstreamer-playback.conf} $out/share/pipewire/pipewire.conf.d/
     # D-040: 25-loopback-8ch.conf REMOVED — CamillaDSP abandoned, no ALSA
     # Loopback needed.  PW filter-chain convolver handles all DSP natively.
@@ -51,8 +54,23 @@ in
   # F-020 workaround: Force PipeWire to SCHED_FIFO/88 via systemd.
   # PipeWire's RT module fails to self-promote on PREEMPT_RT kernels.
   # systemd sets the scheduling policy at exec time, before PipeWire starts.
+  #
+  # F-291 fix: The base PipeWire unit has multiple hardening directives that
+  # each independently force NoNewPrivileges=yes at the kernel level:
+  #   - SystemCallFilter=@system-service  (seccomp → NNP)
+  #   - SystemCallArchitectures=native    (seccomp → NNP)
+  #   - LockPersonality=yes               (implies NNP)
+  #   - MemoryDenyWriteExecute=yes         (implies NNP)
+  # ALL of these must be cleared for CPUSchedulingPolicy=fifo to take effect.
+  # Acceptable for PipeWire — a trusted, upstream audio daemon on a
+  # single-user workstation already granted SCHED_FIFO/88 and unlimited memlock.
   systemd.user.services.pipewire = {
     serviceConfig = {
+      NoNewPrivileges = false;
+      SystemCallFilter = lib.mkForce [""];
+      SystemCallArchitectures = lib.mkForce "";
+      LockPersonality = false;
+      MemoryDenyWriteExecute = false;
       CPUSchedulingPolicy = "fifo";
       CPUSchedulingPriority = 88;
     };

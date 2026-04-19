@@ -25,6 +25,8 @@
     ./audio/udev.nix
     # Phase 5: PREEMPT_RT kernel (D-013 mandatory)
     ./kernel-rt.nix
+    # Phase 5: RT runtime tuning (F-291: sysctl + CPU governor)
+    ./rt-tuning.nix
     # Phase 4: Display + applications
     ./display.nix
     ./applications.nix

@@ -4,10 +4,15 @@
 #   50  — Disable ACP for USBStreamer (static adapters handle it)
 #   52  — Lower UMIK-1 priority (measurement mic, not a driver)
 #   53  — Lua script: deny unauthorized USBStreamer ALSA access
-#   90  — Disable automatic linking (GraphManager handles all links)
 #
 # D-040: 51-loopback-disable-acp.conf REMOVED — CamillaDSP abandoned,
 # snd-aloop not loaded, no ALSA Loopback device to disable.
+#
+# D-065: 90-no-auto-link.conf REMOVED — policy.standard=disabled was too
+# broad, disabling ALL WP format negotiation (not just linking). This
+# prevented node activation and port creation (F-292 root cause). The two
+# remaining anti-bypass layers (node.autoconnect=false + GM reconciler
+# cleanup) are sufficient.
 #
 # Uses the NixOS WirePlumber module's configPackages + extraScripts
 # options, which deploy files via XDG_DATA_DIRS where WirePlumber
@@ -26,8 +31,6 @@ let
        $out/share/wireplumber/wireplumber.conf.d/52-umik1-low-priority.conf
     cp ${../../../configs/wireplumber/53-deny-usbstreamer-alsa.conf} \
        $out/share/wireplumber/wireplumber.conf.d/53-deny-usbstreamer-alsa.conf
-    cp ${../../../configs/wireplumber/90-no-auto-link.conf} \
-       $out/share/wireplumber/wireplumber.conf.d/90-no-auto-link.conf
   '';
 in
 {
